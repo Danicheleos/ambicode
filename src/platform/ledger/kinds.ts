@@ -28,7 +28,7 @@ const routed = (value: { route?: string | undefined; unbound?: true | undefined 
 const schemas = [
   entry('route', {
     skill: text, args: z.union([text, z.looseObject({})]), mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli']), trusted: z.boolean(),
-    session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1),
+    session: text, scratchpad: text.optional(), epoch: z.number().int().min(1),
   }).refine((value) => value.trusted === (value.channel !== 'cli'), { path: ['trusted'], message: 'must equal channel !== cli' }),
   entry('step', {
     route: text, step: text, actor: z.enum(['code', 'model', 'human']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,

@@ -1,9 +1,9 @@
 import { parseArgs } from '#util/args';
 import { startTarget } from '#composition/start';
-import { findSessionRepository } from '#platform/git/session-repository';
+import type { SessionRepository } from '#types/composition';
 import type { HookInput, RouteHookDeps } from '#types/hook';
-import { markStepDelivered, resolveActiveRoute } from '#harness/session/active-route';
-import { parseAnswerFlag } from '#harness/definition/flags';
+import { liveRouteOf, markStepDelivered } from '#harness/session/active-route';
+import { answersOf } from '#harness/definition/flags';
 import { isAmbicodeError } from '#util/errors';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
@@ -34,13 +34,12 @@ export function splitLaunch(rest: string): { args: string[]; text: string } {
 }
 
 /** `/ambicode:<skill> …` with a shipped route starts it; the first step comes back as context (03-H3). */
-export async function launchRoute(runtime: Runtime, input: HookInput, deps: RouteHookDeps): Promise<string | null> {
+export async function launchRoute(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository): Promise<string | null> {
   if (input.agent_id !== undefined) return null;
   const match = LAUNCH.exec((input.prompt ?? '').trim());
   if (match === null || deps.routes.route(match[1]!) === null) return null;
   const skill = match[1]!;
   const rest = match[2]!.trim();
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
   if (typeof found === 'string') return `AMBICODE could not start the ${skill} route: ${found}.`;
   const launch = splitLaunch(rest);
   let parsed: ReturnType<typeof parseArgs> | null = null;
@@ -52,8 +51,6 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   const task = parsed?.value('task') ?? null;
   const project = parsed?.value('project') ?? null;
   const plan = parsed?.value('plan') ?? null;
-  const fromDraft = parsed?.value('from-draft') ?? null;
-  const attached = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   try {
     const target = parsed === null ? undefined : startTarget(skill, parsed);
     const message = await deps.engine.start({
@@ -64,13 +61,10 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
       ...(task === null ? {} : { task }),
       ...(project === null ? {} : { project }),
       ...(plan === null ? {} : { plan }),
-      ...(fromDraft === null ? {} : { fromDraft }),
       headless: parsed?.flag('headless') ?? false,
-      answers: (parsed?.all('answer') ?? []).map(parseAnswerFlag),
-      fresh: parsed?.flag('fresh') ?? false,
+      answers: parsed === null ? [] : answersOf(parsed),
       cwd: found.repositoryRoot,
-      session: attached?.owner ?? runtime.ids.ownerId(),
-      harnessSession: input.session_id,
+      session: input.session_id,
       channel: 'hook',
       ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }),
     });
@@ -82,13 +76,12 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
 }
 
 /** The route's step was not delivered since the last reset (a resume, a compaction): deliver it again, once (03-H4). */
-export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: RouteHookDeps): Promise<string | null> {
+export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository): Promise<string | null> {
   if (input.agent_id !== undefined) return null;
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
   if (typeof found === 'string') return null;
-  const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
   if (active === null) return null;
-  const message = await deps.engine.deliver(active.task, active.owner, input.scratchpad_dir);
+  const message = await deps.engine.deliver(active.task, input.scratchpad_dir);
   if (message === null) return null;
   return (await markStepDelivered(runtime.fs, { session: input.session_id, scratchpad: input.scratchpad_dir, routeId: active.routeId, position: message.position })) ? message.text : null;
 }

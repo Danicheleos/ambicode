@@ -10,8 +10,8 @@ import { SPECS, USAGE } from './main.ts';
 import { STEP_PRINTING } from '../hook/guard/rules/output.ts';
 
 const TABLE: Record<string, readonly string[]> = {
-  'route start': ['task', 'headless', 'project', 'answer', 'fresh'],
-  'route next': ['task', 'answer', 'revise', 'project'],
+  'route start': ['task', 'headless', 'project', 'answer'],
+  'route next': ['task', 'answer', 'project'],
   'route stop': ['task', 'reason', 'detail'],
   map: ['task', 'project', 'mode', 'term', 'symbol'],
   refs: ['project', 'declarations'],
@@ -21,8 +21,7 @@ const TABLE: Record<string, readonly string[]> = {
   check: ['task', 'phase', 'name', 'project', 'file', 'approve', 'decline'],
   review: ['estimate'],
   'review record': ['task', 'review'],
-  'note save': ['task', 'kind', 'from', 'iteration'],
-  'note promote': ['task'],
+  'note save': ['task', 'kind'],
   report: ['task'],
   'config validate': [],
   'config packs': ['list'],
@@ -54,8 +53,8 @@ describe('CLI surface (08-I1)', () => {
     });
   }
 
-  it('08-I1: the named commands exist: config validate, note promote', () => {
-    for (const command of ['config validate', 'note promote']) {
+  it('08-I1: the named commands exist: config validate', () => {
+    for (const command of ['config validate']) {
       assert.ok(SPECS[command] !== undefined, command);
       assert.ok(line(command) !== undefined, command);
     }
@@ -133,7 +132,7 @@ describe('context tree', () => {
       const run = (...argv: string[]) => contextTreeCommand.run(runtime, parseArgs('context tree', argv, contextTreeCommand.options));
       const out = await run('--root', 'src');
       assert.match(out.text, /^source files 6, modules 2 /);
-      assert.match(out.text, /modules\/src\/app\/features\.md {2}dir src\/app\/features {2}depth 3 {2}files 6 {2}submodules: modules\/src\/app\/features\/dashboard\/widgets\.md/);
+      assert.match(out.text, /modules\/src\/app\/features\/overview\.md {2}dir src\/app\/features {2}depth 3 {2}files 6 {2}submodules: modules\/src\/app\/features\/dashboard\/widgets\.md/);
       assert.match(out.text, /modules\/src\/app\/features\/dashboard\/widgets\.md {2}dir src\/app\/features\/dashboard\/widgets {2}depth 5 {2}files 3\n?$/);
       assert.doesNotMatch(out.text, /onlyInTest|docs\/guide/);
       assert.deepEqual((out.data as { modules: { parent: string | null }[] }).modules.map((module) => module.parent), [null, 'src/app/features']);

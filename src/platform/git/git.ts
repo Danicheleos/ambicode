@@ -20,7 +20,6 @@ const GIT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 export interface GitOptions {
   runner: ProcessRunner;
   repositoryRoot: string;
-  gitDir?: string;
   extraEnv?: Record<string, string>;
 }
 
@@ -46,9 +45,8 @@ export class Git {
     args: readonly string[],
     allowFailure = false,
   ): Promise<{ stdout: string; exitCode: number | null }> {
-    const prefix = this.options.gitDir === undefined ? [] : ['--git-dir', this.options.gitDir];
     const outcome = await this.options.runner.run({
-      argv: ['git', ...prefix, ...SAFE_CONFIG, ...args],
+      argv: ['git', ...SAFE_CONFIG, ...args],
       cwd: this.options.repositoryRoot,
       timeoutMs: GIT_TIMEOUT_MS,
       maxOutputBytes: GIT_MAX_OUTPUT_BYTES,
@@ -102,18 +100,12 @@ export class Git {
     return (await this.exec(['rev-parse', '--path-format=absolute', '--git-dir'])).trim();
   }
 
-  /** The directory every worktree shares: `info/exclude`, refs, objects. */
-  async gitCommonDir(): Promise<string> {
-    return (await this.exec(['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
-  }
-
   async isDirty(): Promise<boolean> {
     return (await this.status()).trim() !== '';
   }
 
-  /** `strict` makes a failing git an error: the default reads it as a clean tree, which a caller that reports the files must not. */
-  async status(strict = false): Promise<string> {
-    return await this.exec(['status', '--porcelain', '-z', '--untracked-files=all'], !strict);
+  async status(): Promise<string> {
+    return await this.exec(['status', '--porcelain', '-z', '--untracked-files=all'], true);
   }
 
   async isRepository(): Promise<boolean> {
@@ -167,28 +159,6 @@ export class Git {
       `--unified=${contextLines}`,
       ...args,
     ]);
-  }
-
-  async showFile(revision: string, repositoryRelativePath: string): Promise<string | null> {
-    const spec = `${revision}:${repositoryRelativePath}`;
-    const kind = (await this.exec(['cat-file', '-t', spec], true)).trim();
-    if (kind !== 'blob') return null;
-    return await this.exec(['show', spec]);
-  }
-
-  async listTree(revision: string, directoryName: string): Promise<string[]> {
-    const spec = directoryName === '' ? `${revision}:` : `${revision}:${directoryName}`;
-    const output = await this.exec(['ls-tree', '-z', spec], true);
-    const names: string[] = [];
-    for (const record of splitNul(output)) {
-      // `<mode> <type> <sha>\t<name>`; the name may itself contain tabs.
-      const tab = record.indexOf('\t');
-      if (tab < 0) continue;
-      const type = record.slice(0, tab).split(' ')[1];
-      if (type !== 'blob') continue;
-      names.push(record.slice(tab + 1));
-    }
-    return names;
   }
 
   async listFiles(pathspec: string | null): Promise<string[]> {

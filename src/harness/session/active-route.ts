@@ -1,104 +1,48 @@
 import path from 'node:path';
-import { REVIEWS_DIR, TASKS_DIR, dirKindFor, type DirKind } from '#types/defaults';
+import { REVIEWS_DIR, TASKS_DIR } from '#types/defaults';
 import { deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import { readLedger } from '#platform/ledger/ledger';
+import { LEDGER_FILE } from '#types/modules/evidence';
 import { buildChain, exitOf, latestRouteOf } from '../engine/fold.ts';
-import { ownerOfHarness } from './harness.ts';
-import type { LedgerEntry } from '#types/modules/evidence';
-import type { ActiveRoutePointer } from '#types/harness';
 import type { FileSystem } from '#types/platform/ports';
 
-const ACTIVE = 'active-route';
-const KIND_DIRS: Record<DirKind, string> = { task: TASKS_DIR, review: REVIEWS_DIR };
-export const POINTER_LIMIT = 4 * 1024;
-
-/** The pointer is a cache of "which route is active"; the ledger stays the authority (03-S7). */
-export function fsActiveRoutePointer(fs: FileSystem): ActiveRoutePointer {
-  const file = (session: string, scratchpad: string | undefined, name: string): string => path.join(hookStateBaseDir(fs, session, scratchpad), name);
-  const readJson = async (target: string): Promise<Record<string, unknown> | null> => {
-    try {
-      if ((await fs.stat(target)).size > POINTER_LIMIT) return null;
-      const parsed = JSON.parse(await fs.readText(target)) as unknown;
-      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-    } catch {
-      return null;
-    }
-  };
-  const put = async (target: string, value: object): Promise<void> => {
-    await fs.mkdirp(path.dirname(target));
-    await fs.writeText(target, JSON.stringify(value));
-  };
-  return {
-    write: (session, scratchpad, value) =>
-      put(file(session, scratchpad, ACTIVE), { task: value.task, skill: value.skill, ...(value.owner === undefined ? {} : { owner: value.owner }), ...(value.headless === true ? { headless: true } : {}) }),
-    async clear(session, scratchpad) {
-      await fs.remove(file(session, scratchpad, ACTIVE));
-    },
-    async read(session, scratchpad) {
-      const value = await readJson(file(session, scratchpad, ACTIVE));
-      return typeof value?.['task'] === 'string' && typeof value['skill'] === 'string'
-        ? { task: value['task'], skill: value['skill'], ...(typeof value['owner'] === 'string' ? { owner: value['owner'] } : {}) }
-        : null;
-    },
-  };
-}
-
-const openRouteOf = (entries: readonly LedgerEntry[], harness: string): { head: LedgerEntry; owner: string } | null => {
-  const owner = ownerOfHarness(entries, harness);
-  const head = owner === null ? null : latestRouteOf(entries, owner);
-  return head !== null && owner !== null && exitOf(buildChain(entries, head)) === null ? { head, owner } : null;
-};
-
-export interface ActiveRoute { task: string; skill: string; routeId: string; owner: string }
+export interface SessionRoute { task: string; skill: string; routeId: string; live: boolean; endedAt: string }
 
 /**
- * The open route of this Claude session: the pointer when the ledger confirms it, otherwise a scan of the task ledgers.
- * The pointer is a cache and never authority (03-S7); the ledger says which owner the session is attached to.
+ * The latest route of a Claude session in each run directory, live ones first, then the most recently ended. Only a
+ * ledger whose text names the session is parsed, so the scan costs one file read per task.
  */
-export async function resolveActiveRoute(
-  fs: FileSystem,
-  pointer: ActiveRoutePointer,
-  input: { repositoryRoot: string; session: string; scratchpad: string | undefined; scan?: boolean },
-): Promise<ActiveRoute | null> {
-  const open = async (task: string, kind: DirKind): Promise<ActiveRoute | null> => {
-    const found = openRouteOf(await readLedger(fs, path.join(input.repositoryRoot, KIND_DIRS[kind], task)).catch(() => []), input.session);
-    return found === null ? null : { task, skill: String(found.head['skill']), routeId: found.head.id, owner: found.owner };
-  };
-  const pointed = await pointer.read(input.session, input.scratchpad);
-  const confirmed = pointed === null ? null : await open(pointed.task, dirKindFor(pointed.skill));
-  if (confirmed !== null || input.scan === false) return confirmed;
-  for (const kind of ['task', 'review'] as const) {
-    for (const entry of await fs.readdir(path.join(input.repositoryRoot, KIND_DIRS[kind])).catch(() => [])) {
-      if (!entry.isDirectory()) continue;
-      const found = await open(entry.name, kind);
-      if (found !== null) return found;
+export async function sessionRoutes(fs: FileSystem, repositoryRoot: string, session: string): Promise<SessionRoute[]> {
+  const found: SessionRoute[] = [];
+  for (const base of [TASKS_DIR, REVIEWS_DIR]) {
+    for (const entry of await fs.readdir(path.join(repositoryRoot, base)).catch(() => [])) {
+      const dir = path.join(repositoryRoot, base, entry.name);
+      if (!entry.isDirectory() || !(await fs.readText(path.join(dir, LEDGER_FILE)).catch(() => '')).includes(session)) continue;
+      const entries = await readLedger(fs, dir);
+      const head = latestRouteOf(entries, session);
+      const exit = head === null ? null : exitOf(buildChain(entries, head));
+      if (head !== null) found.push({ task: entry.name, skill: String(head['skill']), routeId: head.id, live: exit === null, endedAt: exit?.at ?? '' });
     }
   }
-  return null;
+  return found.sort((a, b) => Number(b.live) - Number(a.live) || b.endedAt.localeCompare(a.endedAt));
 }
 
-/**
- * The session's latest route when it exited: a CLI call in the Claude sandbox has another TMPDIR than the hooks, so the
- * ledger is the only record every process shares (walk 10_2314, both plan sessions).
- */
-export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot: string; session: string }): Promise<{ task: string; skill: string; routeId: string } | null> {
-  let found: { task: string; skill: string; routeId: string; at: string } | null = null;
-  for (const kind of ['task', 'review'] as const) {
-    const root = path.join(input.repositoryRoot, KIND_DIRS[kind]);
-    for (const entry of await fs.readdir(root).catch(() => [])) {
-      if (!entry.isDirectory()) continue;
-      const entries = await readLedger(fs, path.join(root, entry.name)).catch(() => []);
-      const owner = ownerOfHarness(entries, input.session);
-      const head = owner === null ? null : latestRouteOf(entries, owner);
-      if (head === null) continue;
-      const exit = exitOf(buildChain(entries, head));
-      if (exit !== null && (found === null || exit.at > found.at)) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: exit.at };
-    }
-  }
-  return found === null ? null : { task: found.task, skill: found.skill, routeId: found.routeId };
+export async function liveRouteOf(fs: FileSystem, repositoryRoot: string, session: string): Promise<SessionRoute | null> {
+  const [latest] = await sessionRoutes(fs, repositoryRoot, session);
+  return latest?.live === true ? latest : null;
 }
 
 /** A step was delivered to this session since the last reset: the next prompt need not re-inject it (03-H4). */
 export async function markStepDelivered(fs: FileSystem, input: { session: string; scratchpad: string | undefined; routeId: string; position: string }): Promise<boolean> {
   return deliverOnce(fs, hookStateBaseDir(fs, input.session, input.scratchpad), 'route-step', `${input.routeId}:${input.position}`);
+}
+
+export const HEADLESS_FILE = 'headless';
+
+/** The guard has no repository to scan, so a live headless route leaves this marker in the session's hook state. */
+export async function markHeadless(fs: FileSystem, input: { session: string; scratchpad: string | undefined; on: boolean }): Promise<void> {
+  const file = path.join(hookStateBaseDir(fs, input.session, input.scratchpad), HEADLESS_FILE);
+  if (!input.on) return fs.remove(file);
+  await fs.mkdirp(path.dirname(file));
+  await fs.writeText(file, '');
 }

@@ -4,7 +4,7 @@ import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextHookOutput, type Ro
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { captureMrDiff } from '#modules/review/snapshot/mr-capture';
-import { fsActiveRoutePointer, resolveActiveRoute } from '#harness/session/active-route';
+import { liveRouteOf } from '#harness/session/active-route';
 import { openRouteView } from '#harness/engine/context';
 import { createApp } from '#composition/app';
 import { findSessionRepository } from '#platform/git/session-repository';
@@ -12,33 +12,28 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
-import { stopCheck } from './stop-check.ts';
-import { implementerReturned } from './implementer-return.ts';
 import { recordReviewerCall } from './review-record.ts';
 import { loadConfig } from '#modules/config/load';
 import { dropIgnoredGlobResults, type GlobResponse } from '#modules/search/glob-ignored';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
-import type { Runtime } from '#types/composition';
+import type { Runtime, SessionRepository } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 
 export function defaultHookDeps(runtime: Runtime): HookDeps {
-  const pointer = fsActiveRoutePointer(runtime.fs);
   let loaded: Promise<RouteHookDeps> | undefined;
   return {
-    pointer,
     // The hook process cwd is wherever the session started, often above the repository; the engine reads config from `cwd`.
     load: (repositoryRoot) => {
-      loaded ??= createRuntime({ ...runtime, cwd: repositoryRoot ?? runtime.cwd }).then(createApp).then(({ routes, engine }) => ({ routes, pointer, engine }));
+      loaded ??= createRuntime({ ...runtime, cwd: repositoryRoot ?? runtime.cwd }).then(createApp).then(({ routes, engine }) => ({ routes, engine }));
       return loaded;
     },
   };
 }
 
-const loadFor = async (runtime: Runtime, deps: HookDeps, input: HookInput): Promise<RouteHookDeps> => {
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
-  return deps.load(typeof found === 'string' ? null : found.repositoryRoot);
-};
+const repositoryOf = (runtime: Runtime, input: HookInput): Promise<SessionRepository> => findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+
+const loadFor = (deps: HookDeps, found: SessionRepository): Promise<RouteHookDeps> => deps.load(typeof found === 'string' ? null : found.repositoryRoot);
 
 const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
 
@@ -64,17 +59,11 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
 
   try {
     switch (input.hook_event_name) {
-      case 'SessionStart': {
-        const base = stateDir(runtime, input);
-        await resetDelivered(runtime.fs, base);
-        return EMPTY_HOOK_OUTPUT;
-      }
+      case 'SessionStart':
       case 'PostCompact': {
-        // A compaction invalidates earlier deliveries, but this event has no
-        // `hookSpecificOutput` variant in Claude Code's schema (returning one fails
-        // validation), so the next `UserPromptSubmit` delivers the contract instead.
-        const base = stateDir(runtime, input);
-        await resetDelivered(runtime.fs, base);
+        // PostCompact has no `hookSpecificOutput` variant in Claude Code's schema (returning one fails
+        // validation), so the next `UserPromptSubmit` redelivers the contract instead.
+        await resetDelivered(runtime.fs, stateDir(runtime, input));
         return EMPTY_HOOK_OUTPUT;
       }
       case 'UserPromptSubmit': {
@@ -87,8 +76,10 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         const context = [contract.hookSpecificOutput?.additionalContext, routed].filter(Boolean).join('\n\n');
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
-      case 'Stop':
-        return (await stopCheck(input, await loadFor(runtime, deps, input))) ?? EMPTY_HOOK_OUTPUT;
+      case 'Stop': {
+        const found = await repositoryOf(runtime, input);
+        return (await (await loadFor(deps, found)).engine.stopHook(input, found)) ?? EMPTY_HOOK_OUTPUT;
+      }
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
         await cleanupSessionState(runtime.fs, base);
@@ -127,22 +118,25 @@ async function deliverSharedContract(
 async function promptContext(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
   const prompt = (input.prompt ?? '').trim();
   if (/^\/ambicode:\w+/.test(prompt)) {
-    return launchRoute(runtime, input, await loadFor(runtime, deps, input));
+    const found = await repositoryOf(runtime, input);
+    return launchRoute(runtime, input, await loadFor(deps, found), found);
   }
-  if (input.agent_id !== undefined || (await deps.pointer.read(input.session_id, input.scratchpad_dir)) === null) return null;
-  return reinjectRoute(runtime, input, await loadFor(runtime, deps, input));
+  if (input.agent_id !== undefined) return null;
+  const found = await repositoryOf(runtime, input);
+  if (typeof found === 'string' || (await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id)) === null) return null;
+  return reinjectRoute(runtime, input, await deps.load(found.repositoryRoot), found);
 }
 
 /** The requirement an MCP read returned, recorded for the active route; a call with no route costs one file read (03-H6). */
 async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<void> {
-  if (input.agent_id !== undefined || (await deps.pointer.read(input.session_id, input.scratchpad_dir)) === null) return;
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+  if (input.agent_id !== undefined) return;
+  const found = await repositoryOf(runtime, input);
   if (typeof found === 'string') return;
-  const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
   if (active === null) return;
   const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
   const { routes } = await deps.load(found.repositoryRoot);
-  const view = await openRouteView(routeRuntime, routes, active.task, active.owner);
+  const view = await openRouteView(routeRuntime, routes, active.task, input.session_id);
   if (view === null) return;
   const dir = taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill));
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), input.session_id, async (ledger) => {
@@ -156,11 +150,12 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
 
 async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<unknown> {
   if (input.tool_name === 'AskUserQuestion') {
-    const context = await answerGates(runtime, input, await loadFor(runtime, deps, input));
+    const found = await repositoryOf(runtime, input);
+    const context = await answerGates(runtime, input, await loadFor(deps, found), found);
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'Agent') {
-    const context = (await recordReviewerCall(runtime, input, deps)) ?? (await implementerReturned(runtime, input, deps));
+    const context = await recordReviewerCall(runtime, input, deps, await repositoryOf(runtime, input));
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'Glob') return await filterGlob(runtime, input);
@@ -174,7 +169,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
 async function filterGlob(runtime: Runtime, input: HookInput): Promise<unknown> {
   const response = input.tool_response as GlobResponse | undefined;
   if (!Array.isArray(response?.filenames)) return EMPTY_HOOK_OUTPUT;
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+  const found = await repositoryOf(runtime, input);
   if (typeof found === 'string') return EMPTY_HOOK_OUTPUT;
   // Git reports the real root; macOS reaches /tmp and /var through symlinks, so a lexical relative path would climb out.
   const cwd = await runtime.fs.realpath(input.cwd ?? runtime.cwd);

@@ -7,7 +7,7 @@ import { listBuiltinPackFiles } from '#modules/policy/packs/builtin';
 import { openRepository } from '#platform/git/open';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { messageOf } from '#util/errors';
-import { normalizeRelative } from '#util/paths';
+import { mostSpecificRoot, normalizeRelative } from '#util/paths';
 import type { FileSystem } from '#types/platform/ports';
 import type { ProjectConfig } from '#types/modules/config';
 import type { CliCommand } from '../../types/cli.ts';
@@ -17,11 +17,9 @@ const LIVE_DIR = '.ambicode/policies';
 
 /** The directory entries of one repository-wide listing that belong to `project`: the deepest project root containing them decides, so a nested project's `dist/` is not also its parent's. */
 function ignoredFor(listing: readonly string[], project: ProjectConfig, projects: readonly ProjectConfig[]): string[] {
-  const within = (entry: string, root: string): boolean => root === '' || entry.startsWith(`${root}/`);
   const mine = normalizeRelative(project.root);
-  const deepest = (entry: string): number => Math.max(...projects.map((other) => normalizeRelative(other.root)).filter((root) => within(entry, root)).map((root) => root.length));
   return listing
-    .filter((entry) => entry.endsWith('/') && within(entry, mine) && deepest(entry) === mine.length)
+    .filter((entry) => entry.endsWith('/') && mostSpecificRoot(projects, entry) === project)
     .map((entry) => (mine === '' ? entry : entry.slice(mine.length + 1)))
     .filter((entry) => !entry.startsWith('.ambicode/'))
     .sort();

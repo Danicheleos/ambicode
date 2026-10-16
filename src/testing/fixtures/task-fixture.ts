@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'review/agent'];
+const STEPS = ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'review/agent'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
@@ -27,9 +27,9 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   let reviews = 0;
 
   const start = (input: Partial<StartInput> = {}): Promise<StepMessage> =>
-    fx.engine.start({ skill: 'task', text: 'fix `total` for an empty list', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
+    fx.engine.start({ skill: 'task', text: 'fix `total` for an empty list iteration 1', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}): Promise<StepMessage> =>
-    fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+    fx.engine.advance({ task: CHECK_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
   const hook = async (gate: string, option: string): Promise<StepMessage> => {
     const print = (await fx.kinds(CHECK_TASK, 'gate')).findLast((entry) => entry['gate'] === gate);

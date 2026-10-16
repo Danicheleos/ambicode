@@ -1,25 +1,19 @@
 schemaVersion: 1
 id: common-checks
 authority: team
-description: "Any project: permission to run the project's own configured checks."
+description: "Any project: a configured end-to-end check is confirmed per run; every other configured check runs."
 appliesTo:
   - "**/*"
 activities: [review, task]
 
 source:
-  location: "AMBICODE built-in: permission to run the project's own configured checks."
+  location: "AMBICODE built-in: end-to-end checks are confirmed per run."
 
 rules: []
 
-# A command configured as null stays unavailable regardless of the decision
-# below, and a read-only activity never runs these just because one exists.
+# A configured check runs without a decision here; an entry only narrows it. A
+# command configured as null stays unavailable regardless.
 commandPolicy:
-  - command: lint
-    action: run
-    reason: "The project's configured linter, scoped to changed files."
-  - command: unit
-    action: run
-    reason: "The project's configured unit tests, scoped to the affected selection."
   - command: e2e
     action: propose
     reason: >-

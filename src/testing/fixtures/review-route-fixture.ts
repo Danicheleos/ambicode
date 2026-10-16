@@ -30,7 +30,7 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   const start = (input: Partial<StartInput> = {}): Promise<StepMessage> =>
     fx.engine.start({ skill: 'review', text: 'review my change', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}): Promise<StepMessage> =>
-    fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+    fx.engine.advance({ task: CHECK_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const hook = async (gate: string, option: string): Promise<StepMessage> => {
     const print = (await fx.kinds(CHECK_TASK, 'gate')).findLast((entry) => entry['gate'] === gate);
     return next({ cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });

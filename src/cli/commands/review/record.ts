@@ -1,6 +1,5 @@
 import { MAX_EVIDENCE_BYTES } from '#types/defaults';
 import { runCommandTail } from '#harness/engine/engine';
-import { COMMAND_SPECS } from '#skills/review/commands';
 import { recordReviewerAnswer, renderRecord } from '#skills/review/record-answer';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
@@ -14,9 +13,8 @@ interface RecordOutput { command: 'review record'; task: string; reviewId: strin
 export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promise<RecordOutput> {
   const task = taskOf('review record', args);
   const { entryId, ...recorded } = await recordReviewerAnswer(runtime, { task, wanted: args.value('review'), fallback: async () => (await runtime.stdin.read(MAX_EVIDENCE_BYTES)) ?? '' });
-  const tools = await routeTools(runtime, task);
-  const { binding } = await tools.engine.command(COMMAND_SPECS.reviewRecord, { task }, async ({ binding }) => ({ binding }));
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'review record', session: binding, produced: [entryId] });
+  const tools = await routeTools(runtime);
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'review record', produced: [entryId] });
   return { command: 'review record', ...recorded, ...(next === null ? {} : { next: next.text }) };
 }
 

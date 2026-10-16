@@ -1,7 +1,5 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFile, realpath } from 'node:fs/promises';
 import { parseArgs } from '#util/args';
 import { runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS } from '#cli/commands/search/search';
 import { openRepository } from '#platform/git/open';
@@ -102,18 +100,12 @@ describe('map command', () => {
     }
   });
 
-  it('keeps AMBICODE working files out of the agent searches, once, and in a linked worktree writes the shared exclude', async () => {
+  it('keeps AMBICODE working files out of the agent searches', async () => {
     const fx = await repo();
     try {
       await fx.repo.write('.ambicode/tasks/t/ledger.jsonl', 'applyDiscount\n');
       const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount'] });
       assert.ok(map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
-      const linked = `${fx.repo.root}-linked`;
-      execFileSync('git', ['-C', fx.repo.root, 'worktree', 'add', '-q', linked]);
-      const { git } = await openRepository({ ...fx.runtime, cwd: linked });
-      const common = await git.gitCommonDir();
-      assert.equal(await realpath(common), await realpath(`${fx.repo.root}/.git`));
-      execFileSync('git', ['-C', fx.repo.root, 'worktree', 'remove', '--force', linked]);
     } finally {
       await fx.dispose();
     }

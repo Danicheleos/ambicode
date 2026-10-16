@@ -10,24 +10,18 @@ export interface GuardInput {
   tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; [field: string]: unknown };
 }
 
-/** The session's cached pointer to its active route (30 §2). A pointer alone never authorizes a write. */
-export interface ActiveRoute {
-  task: string;
-  skill: string;
-  headless?: boolean;
-}
-
 /** Bounded reads of session state and a task ledger; `null` when absent, too large or unreadable. */
 export interface GuardState {
-  /** The pointer in the scratchpad, else in the temporary-directory fallback the hook state uses when the host gives no scratchpad. */
-  activeRoute(scratchpadDir: string | null, sessionId: string | null): ActiveRoute | null;
+  /** The marker in the scratchpad, else in the temporary-directory fallback the hook state uses when the host gives no scratchpad. */
+  headless(scratchpadDir: string | null, sessionId: string | null): boolean;
   ledger(taskDirectory: string): LedgerEntry[] | null;
 }
 
 // Equal to markers.ts HOOK_STATE_DIR_NAME and ledger.ts LEDGER_FILE (tested); importing either would bundle node:path and node:crypto.
 export const GUARD_STATE_DIR_NAME = 'ambicode-hook-state';
 
-export const ACTIVE_ROUTE_FILE = 'active-route';
+// Equal to active-route.ts HEADLESS_FILE: the guard cannot find the repository to scan for the session's route, so a live headless route leaves this marker.
+export const HEADLESS_FILE = 'headless';
 
 export const GUARD_LEDGER_FILE = 'ledger.jsonl';
 

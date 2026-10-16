@@ -26,15 +26,14 @@ export async function runCheckCommand(runtime: Runtime, args: ParsedArgs): Promi
   if (name === null) throw new AmbicodeError('bad-argument', '"check" needs --name <key>.', { field: 'name' });
   const phase = args.value('phase');
   if (phase !== 'red' && phase !== 'green') throw new AmbicodeError('bad-argument', '"check" needs --phase red|green.', { field: 'phase' });
-  const tools = await routeTools(runtime, task);
-  const { result, binding, delegated } = await tools.engine.command(COMMAND_SPECS.check, { task }, async ({ session, context, binding, view }) => ({
-    binding,
+  const tools = await routeTools(runtime);
+  const { result, delegated } = await tools.engine.command(COMMAND_SPECS.check, { task }, async ({ session, context, view }) => ({
     delegated: delegatedAt(tools, view, await context.entries(task)),
     result: await runCheckOnly({ runtime, session, context }, { task, name, project: args.value('project'), files: args.all('file'), phase, approve: args.all('approve'), decline: args.all('decline') }),
   }));
   const produced = result.outcome === 'ran' ? [result.entry.id] : undefined;
-  // While a delegated step's subagent is in flight it runs this; its return hook advances the route in the main session, so no route text reaches the subagent.
-  const next = delegated ? null : await runCommandTail({ engine: tools.engine }, { task, cause: 'check', session: binding, ...(produced === undefined ? {} : { produced }) });
+  // While a delegated step's subagent is in flight it runs this; the main session's `route next` advances the route, so no route text reaches the subagent.
+  const next = delegated ? null : await runCommandTail({ engine: tools.engine }, { task, cause: 'check', ...(produced === undefined ? {} : { produced }) });
   return { command: 'check', task, name, result, ...(next === null ? {} : { next: next.text }), ...(delegated && result.outcome === 'ran' ? { held: true as const } : {}) };
 }
 
@@ -52,7 +51,7 @@ export function renderCheck(output: CheckOutput): string {
       case 'declined': return `check ${result.key}: declined; nothing was run. It stays under Not verified.`;
     }
   })();
-  return output.held ? `${line}\n\nRecorded. The route moves on when the implementer returns.` : output.next === undefined ? line : `${line}\n\n${output.next}`;
+  return output.held ? `${line}\n\nRecorded; the main session advances the route.` : output.next === undefined ? line : `${line}\n\n${output.next}`;
 }
 
 export const checkCommand: CliCommand = {

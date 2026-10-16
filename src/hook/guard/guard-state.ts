@@ -3,10 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import type { LedgerEntry } from '#types/modules/evidence';
-import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
-
-// Copies, so the guard bundle stays import-light.
-const POINTER_LIMIT = 4 * 1024;
+import { GUARD_STATE_DIR_NAME, GUARD_LEDGER_FILE, HEADLESS_FILE, LEDGER_LIMIT, type GuardState } from '../types/guard.ts';
 
 // Opening a FIFO without a writer would block the hook; non-blocking, it opens at once and fstat rejects it.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
@@ -39,8 +36,8 @@ function bounded(file: string, limit: number): string | null {
 }
 
 /**
- * Strict where the CLI's reader is lenient: a torn or foreign line could be the adoption that moved ownership, so the
- * whole ledger is unreadable for the plan-body exception rather than read without it.
+ * Strict where the CLI's reader is lenient: a torn line could be the exit that closed the plan route, so the whole
+ * ledger is unreadable for the plan-body exception rather than read without it.
  */
 function entries(text: string): LedgerEntry[] | null {
   const found: LedgerEntry[] = [];
@@ -60,25 +57,13 @@ function entries(text: string): LedgerEntry[] | null {
   return found;
 }
 
-function pointerAt(file: string): ActiveRoute | null {
-  const text = bounded(file, POINTER_LIMIT);
-  if (text === null) return null;
-  try {
-    const pointer = JSON.parse(text) as Partial<ActiveRoute> | null;
-    if (typeof pointer?.task !== 'string' || typeof pointer.skill !== 'string') return null;
-    return { task: pointer.task, skill: pointer.skill, ...(pointer.headless === true ? { headless: true } : {}) };
-  } catch {
-    return null;
-  }
-}
-
 export const fsGuardState: GuardState = {
-  activeRoute(scratchpadDir: string | null, sessionId: string | null) {
-    const scratch = scratchpadDir === null ? null : pointerAt(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${ACTIVE_ROUTE_FILE}`);
-    if (scratch !== null || sessionId === null) return scratch;
-    // hook-state.ts hookStateBaseDir: 'sha256:' + 32 hex of the session id, stripped to [a-z0-9]; the pointer is keyed by the host's session_id.
+  headless(scratchpadDir: string | null, sessionId: string | null) {
+    if (scratchpadDir !== null && bounded(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${HEADLESS_FILE}`, 0) !== null) return true;
+    if (sessionId === null) return false;
+    // hook-state.ts hookStateBaseDir: 'sha256:' + 32 hex of the session id, stripped to [a-z0-9].
     const key = `sha256${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}`;
-    return pointerAt(`${tmpdir()}/${GUARD_STATE_DIR_NAME}/${key}/${ACTIVE_ROUTE_FILE}`);
+    return bounded(`${tmpdir()}/${GUARD_STATE_DIR_NAME}/${key}/${HEADLESS_FILE}`, 0) !== null;
   },
   ledger(taskDirectory: string): LedgerEntry[] | null {
     const text = bounded(`${taskDirectory}/${GUARD_LEDGER_FILE}`, LEDGER_LIMIT);

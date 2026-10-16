@@ -3,7 +3,6 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
-import { ownerOf } from '#modules/evidence/ownership';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { systemIds } from '#platform/ports/ids';
 import { TempRepo } from '#testing/fixtures/temp-repo';
@@ -55,8 +54,8 @@ async function snapshot(repo: TempRepo, slug = TASK): Promise<string> {
   return `${names.sort().join(',')}\n${ledger}`;
 }
 
-const save = (deps: NoteDeps, kind: 'investigation' | 'plan-draft' | 'notes', body: string | null, extra: { from?: string; iteration?: number } = {}) =>
-  saveNote(deps, { task: TASK, kind, body, from: extra.from ?? null, iteration: extra.iteration ?? null });
+const save = (deps: NoteDeps, kind: 'investigation' | 'plan-draft' | 'notes', body: string | null, extra: { from?: string } = {}) =>
+  saveNote(deps, { task: TASK, kind, body, from: extra.from ?? null });
 
 const entriesOf = async (repo: TempRepo): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, taskDir(repo));
 
@@ -91,20 +90,6 @@ describe('note save: kinds, bodies and headers', () => {
     });
   });
 
-  it('02-N2: --iteration is recorded in the entry, not stamped into the file, and is for notes only', async () => {
-    await inRepo(async (repo) => {
-      const deps = { runtime: await runtimeFor(repo), session: null, context: null };
-      const first = await save(deps, 'notes', 'step one done', { iteration: 1 });
-      const second = await save(deps, 'notes', 'step two done', { iteration: 2 });
-      assert.equal(await readFile(path.join(repo.root, second.path), 'utf8'), 'step two done\n');
-      assert.equal(first.entry.iteration, 1);
-      assert.equal(second.entry.iteration, 2);
-      for (const bad of [0, 1.5, -1]) await assert.rejects(save(deps, 'notes', 'x', { iteration: bad }), { field: 'iteration' });
-      await assert.rejects(save(deps, 'investigation', 'x', { iteration: 1 }), { field: 'iteration' });
-      await assert.rejects(save(deps, 'plan-draft', 'x', { iteration: 1 }), { field: 'iteration' });
-    });
-  });
-
   it('02-N3: a plan-draft is stamped, collision-suffixed and recorded, with the author\'s words only', async () => {
     await inRepo(async (repo) => {
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
@@ -125,24 +110,21 @@ describe('note save: kinds, bodies and headers', () => {
       await seed(repo, [route(`${A}-1`, A)]);
       const before = await snapshot(repo);
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
-      await assert.rejects(saveNote(deps, { task: TASK, kind: 'plan' as never, body: '# Plan', from: null, iteration: null }), (error: AmbicodeError) => error.code === 'bad-argument' && error.field === 'kind');
+      await assert.rejects(saveNote(deps, { task: TASK, kind: 'plan' as never, body: '# Plan', from: null }), (error: AmbicodeError) => error.code === 'bad-argument' && error.field === 'kind');
       assert.equal(await snapshot(repo), before);
     });
   });
 });
 
-describe('02-N4: a plan-draft is saved only by the owner of the live plan route', () => {
+describe('02-N4: a plan-draft is saved for the task\'s live plan route', () => {
   const live = [route(`${A}-1`, A)];
-  const takenOver = [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'superseded' }, route(`${B}-1`, B)];
+  const takenOver = [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'interrupted' }, route(`${B}-1`, B)];
   const cases: { label: string; ledger: (object | string)[] | null; session: string | null; allowed?: { id: RegExp; route: string | null }; code?: string }[] = [
     { label: 'no ledger: routeless', ledger: null, session: null, allowed: { id: /^feedbeef-1$/, route: null } },
     { label: 'no live plan route: routeless', ledger: [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'done' }], session: A, allowed: { id: new RegExp(`^${A}-3$`), route: null } },
-    { label: 'the owner', ledger: live, session: A, allowed: { id: new RegExp(`^${A}-2$`), route: `${A}-1` } },
-    { label: 'the owner after a restart', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
-    { label: 'an owned route and no session', ledger: live, session: null, code: 'session-unbound' },
-    { label: 'a session whose route was superseded', ledger: takenOver, session: A, code: 'route-taken-over' },
-    { label: 'any other session', ledger: live, session: 'cccccccc', code: 'route-taken-over' },
-    { label: 'two live plan routes: unknown', ledger: [route(`${A}-1`, A), route(`${B}-1`, B)], session: A, code: 'ledger-unreadable' },
+    { label: 'the live route', ledger: live, session: A, allowed: { id: new RegExp(`^${A}-2$`), route: `${A}-1` } },
+    { label: 'the route that interrupted the first', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
+    { label: 'a call with no session', ledger: live, session: null, allowed: { id: /^feedbeef-1$/, route: `${A}-1` } },
     { label: 'a torn ledger: unknown', ledger: [route(`${A}-1`, A), '{"id":"aaaaaaaa-2","at":'], session: A, code: 'ledger-unreadable' },
   ];
   for (const { label, ledger, session, allowed, code } of cases) {
@@ -162,16 +144,6 @@ describe('02-N4: a plan-draft is saved only by the owner of the live plan route'
       });
     });
   }
-
-  it('02-N4: route-taken-over names the owner; investigation and notes are not checked', async () => {
-    await inRepo(async (repo) => {
-      await seed(repo, takenOver);
-      const deps = { runtime: await runtimeFor(repo), session: A, context: null };
-      await assert.rejects(save(deps, 'plan-draft', 'x'), (error: AmbicodeError) => error.message.includes(B));
-      await save({ ...deps, session: 'cccccccc' }, 'investigation', 'x');
-      await save({ ...deps, session: null }, 'notes', 'x');
-    });
-  });
 });
 
 /** Gate answers over a real ledger; the engine is step 03's, so a fake reads the same ledger and answers as 01-contracts §6 says. */
@@ -181,27 +153,18 @@ function fakePort(repo: TempRepo): CommandContext {
     entries.filter((entry) => ['acceptance', 'declined', 'default-taken'].includes(entry.kind) && entry.gate === gate && entry.unbound !== true);
   const afterDesign = (entries: LedgerEntry[]): LedgerEntry[] => entries.slice(entries.findLastIndex((entry) => entry.kind === 'revise' && entry.from === 'design') + 1);
   return {
-    async resolve(_task, session) {
-      const mine = (await read()).filter((entry) => entry.kind === 'route' && entry.skill === 'plan' && entry.session === session).at(-1);
-      if (mine === undefined) return null;
+    async open(_task, session) {
+      const entries = await read();
+      const mine = entries.filter((entry) => entry.kind === 'route' && entry.skill === 'plan' && entry.session === session).at(-1);
+      if (mine === undefined || entries.some((entry) => entry.kind === 'exit' && entry.route === mine.id)) return null;
       return { task: TASK, routeId: mine.id, chainIds: [mine.id], skill: 'plan', session, mode: 'interactive', channel: 'hook', trusted: true, position: 'plan-accept' };
-    },
-    open(task, session) {
-      return this.resolve(task, session);
     },
     entries: () => read(),
     raise: async () => {
       throw new Error('the fake port raises no gate');
     },
-    async assertOwner(view) {
-      const owner = ownerOf(await read(), TASK);
-      if (owner.state === 'owned' && owner.session !== view.session) throw new AmbicodeError('route-taken-over', `now owned by ${owner.session}`);
-    },
     async window(_view, _step) {
       return afterDesign(await read());
-    },
-    async object() {
-      return null;
     },
     async consent(view: RouteView, gate: string): Promise<ConsentResult> {
       const entries = afterDesign(await read());
@@ -260,11 +223,11 @@ class Scenario {
 const refused = (reason: string) => (error: AmbicodeError) => error.code === 'plan-not-accepted' && error.details.includes(`reason: ${reason}`);
 
 describe('note promote: the accepted draft, and only that draft, becomes the plan', () => {
-  it('02-P1: no session is session-unbound, before anything is read', async () => {
+  it('02-P1: no session or no context refuses before anything is read', async () => {
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
-      await assert.rejects(scenario.promote({ session: null }), { code: 'session-unbound' });
-      await assert.rejects(scenario.promote({ session: null, context: null }), { code: 'session-unbound' });
+      await assert.rejects(scenario.promote({ session: null }), { code: 'plan-not-accepted' });
+      await assert.rejects(scenario.promote({ session: null, context: null }), { code: 'plan-not-accepted' });
     });
   });
 
@@ -354,7 +317,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
     });
   });
 
-  it('02-P2/02-P3: no plan route, a foreign instance, a taken-over route and a draft outside the plan-check window', async () => {
+  it('02-P2/02-P3: no plan route, a foreign instance, an interrupted route and a draft outside the plan-check window', async () => {
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
       const gate = await scenario.gate(await scenario.draft('# Plan'));
@@ -362,9 +325,9 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       await scenario.append({ kind: 'acceptance', route: scenario.routeId, gate: 'plan-accept', instance: 'zzzzzzzz-99', answer: 'Accept', via: 'hook', object: gate.object });
       await assert.rejects(scenario.promote(), refused('unbound'));
       await scenario.answer(gate, 'Accept');
-      await scenario.append({ id: `${A}-98`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'superseded' });
+      await scenario.append({ id: `${A}-98`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'interrupted' });
       await scenario.append(route(`${B}-1`, B));
-      await assert.rejects(scenario.promote(), { code: 'route-taken-over' });
+      await assert.rejects(scenario.promote(), refused('no-plan-route'));
     });
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);

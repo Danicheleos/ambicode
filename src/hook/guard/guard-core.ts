@@ -1,7 +1,7 @@
 // Imports only import-free modules: this file is bundled into a standalone entry whose startup time is the point
 // (see guard.ts). Files are read by the injected `GuardState`, never from here.
 import { basename, parseCommand } from '../shell/command-parser.ts';
-import type { ActiveRoute, GuardInput, GuardState } from '../types/guard.ts';
+import type { GuardInput, GuardState } from '../types/guard.ts';
 import { isAbsolute, normalize } from './paths.ts';
 import { CONTEXT_DIR, CONTEXT_REASON } from './rules/context.ts';
 import { cutsOutput, withoutCuts } from './rules/output.ts';
@@ -104,14 +104,14 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
   return decide('ask', [...asks].map(([reason, hint]) => (hint === null ? reason : `${reason} ${USER_DECIDES}`)).join(' '));
 }
 
-function fileDecision(input: GuardInput, session: string | null, route: ActiveRoute | null, state: GuardState | undefined, pluginRoot: string): Decision {
+function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRoot: string): Decision {
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (typeof file !== 'string' || file === '') return {};
   const target = normalize(file, nonEmpty(input.cwd) ?? undefined);
   if (RUN_DIR.test(target)) {
     const body = PLAN_BODY.exec(target);
     if (body !== null && !RUN_DIR.test(body[1] ?? '')) {
-      const refusal = planBodyRefusal(session, route, state, `${body[1] ?? ''}.ambicode/tasks/${body[2]!}`, body[2]!, pluginRoot);
+      const refusal = planBodyRefusal(state, `${body[1] ?? ''}.ambicode/tasks/${body[2]!}`, body[2]!, pluginRoot);
       // The plan is one Write; a patch to the owner's file is refused with the same next step.
       return refusal !== null ? decide('deny', refusal) : input.tool_name === 'Write' ? {} : decide('deny', planBodyReason(body[2]!, pluginRoot));
     }
@@ -142,9 +142,8 @@ export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_R
   if (!file && !(input.tool_name === 'Bash' && typeof command === 'string')) return {};
   const scratchpad = nonEmpty(input.scratchpad_dir);
   const session = nonEmpty(input.session_id);
-  const route = state === undefined || (scratchpad === null && session === null) ? null : state.activeRoute(scratchpad, session);
-  const headless = route?.headless === true;
-  const decision = file ? fileDecision(input, session, route, state, pluginRoot) : bashDecision(command as string, nonEmpty(input.cwd) ?? undefined, pluginRoot, headless, input.tool_input ?? {});
+  const headless = state !== undefined && (scratchpad !== null || session !== null) && state.headless(scratchpad, session);
+  const decision = file ? fileDecision(input, state, pluginRoot) : bashDecision(command as string, nonEmpty(input.cwd) ?? undefined, pluginRoot, headless, input.tool_input ?? {});
   const asked = (decision['hookSpecificOutput'] as { permissionDecision?: string } | undefined)?.permissionDecision === 'ask';
   return asked && headless ? headlessDeny(decision) : decision;
 }

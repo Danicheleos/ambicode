@@ -68,7 +68,7 @@ export async function session(options: SessionOptions = {}) {
       { ...deps, asked: extra.asked ?? [task] },
     ));
   const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, ...overrides }));
-  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(task, 'exit')).map((entry) => String(entry['reason']));
   return { fx, dir, args, started, under, capture, normalize, next, exits, task };
 }

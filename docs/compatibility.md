@@ -1,7 +1,6 @@
 # Version compatibility
 
-What AMBICODE was built and observed against. Every capability claim in
-`src/modules/checks/selection/adapters.ts` points here, and each row says how it was established:
+What AMBICODE was built and observed against. Each row says how a capability was established:
 **observed** means it was exercised in this environment, **unverified** means the
 code is written against documented behaviour that nobody has run here yet.
 
@@ -30,10 +29,10 @@ command. Unlike the reviewer it can edit the checkout and run commands, so the
 guard and the user's permissions apply to it as to the main session. While it
 runs, `check` records without advancing the route (held while the route chain's
 latest step entry is the step's launch and no unanswered gate has been printed
-since), so no step or gate text reaches it: it cannot ask the user. Its `PostToolUse` return
-(`src/hook/events/implementer-return.ts`) advances the route, lists the touched
-files and prints the next step to the main session; a return with no green
-check counts like `route next` (three, then the step is released as a gap).
+since), so no step or gate text reaches it: it cannot ask the user. No hook
+fires on its return (the client may run it in the background): the main session
+runs `route next`, and three of those without a green check release the step as
+a gap.
 
 ## Reviewer isolation
 
@@ -166,13 +165,6 @@ A probe on 2026-10-06 (Claude Code 2.1.289, one `claude -p`, P17) blocked `Stop`
 model as a "Stop hook feedback" user message, and `additionalContext` as a system reminder. `Stop`
 keeps its bounded reason; the list does not also go to `additionalContext`,
 which would only repeat it. Record: `plan/migration-v6-reports/step-07/probe-p17.md`.
-
-One hook contract is relied on without being observed (probe postponed on 2026-10-07; the guard no longer rewrites input with `updatedInput`):
-
-- **The shape of a dismissed AskUserQuestion** (`isRejection` in `src/platform/claude/transcript.ts`). This
-  assumes an `is_error` tool_result whose text starts with "The user doesn't want to proceed with this tool
-  use." If the shape differs, a dismissed gate is never detected, and the route keeps waiting instead of
-  pausing with `exit{human, dismissed}`. Probe: `.tmp/probes/dismissal.mjs`.
 
 Which of them may *carry* the contract is not a free choice. Claude Code's
 hook-output schema has a `hookSpecificOutput` variant for only some events,

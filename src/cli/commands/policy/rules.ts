@@ -12,12 +12,11 @@ interface RulesOutput { command: string; text: string; [field: string]: unknown 
 /** The command's own write stands whatever the tail does; the tail prints the next step. */
 export async function runRulesApply(runtime: Runtime, args: ParsedArgs): Promise<RulesOutput> {
   const task = taskOf('rules apply', args);
-  const tools = await routeTools(runtime, task);
-  const { applied, binding } = await tools.engine.command(COMMAND_SPECS.rulesApply, { task }, async ({ session, context, binding }) => ({
-    binding,
+  const tools = await routeTools(runtime);
+  const { applied } = await tools.engine.command(COMMAND_SPECS.rulesApply, { task }, async ({ session, context }) => ({
     applied: await applyRules({ runtime, session, context }, { task, project: args.value('project') }),
   }));
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'rules apply', session: binding });
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'rules apply' });
   return { command: 'rules apply', task, ...applied, ...(next === null ? {} : { next: next.text }), text: `${applied.text}${next === null ? '' : `\n${next.text}`}` };
 }
 

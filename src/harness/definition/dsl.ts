@@ -1,9 +1,19 @@
+import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { AmbicodeError } from '#util/errors';
 import { EXITS, type Qualified, type Call, type Revise, type OnError, type Exit, type When, type GateDef } from '#types/harness';
 
 export function invalid(file: string, where: string, message: string): AmbicodeError {
   return new AmbicodeError('route-invalid', `${file}: ${where}: ${message}`, { field: where });
+}
+
+export function parseYamlFile(file: string, text: string): unknown {
+  try {
+    return parseYaml(text);
+  } catch (cause) {
+    const line = (cause as { linePos?: { line: number }[] }).linePos?.[0]?.line;
+    throw invalid(file, line === undefined ? 'yaml' : `line ${line}`, cause instanceof Error ? cause.message.split('\n')[0]! : String(cause));
+  }
 }
 
 export function parseQualified(file: string, where: string, text: string, kinds: readonly string[]): Qualified {
@@ -40,10 +50,12 @@ export function parseOnError(file: string, where: string, text: string): OnError
   return { kind: 'stop', reason: reason as Exit };
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'map.empty', 'plan.isDraft', 'revised'];
+const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'map.empty', 'iteration.named', 'iteration.unnamed', 'iterations.continue', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();
+  const either = trimmed.split(/\s+or\s+/);
+  if (either.length > 1) return { predicate: 'any', of: either.map((part) => parseWhen(file, where, part)) };
   if (SIMPLE_WHEN.includes(trimmed)) return { predicate: trimmed as never };
   const is = /^gate\.([\w:-]+)\.(is|isnt)\((.+)\)$/.exec(trimmed);
   if (is !== null) return { predicate: is[2] === 'is' ? 'gate.is' : 'gate.isnt', gate: is[1]!, option: is[3]!.trim() };

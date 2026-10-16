@@ -114,14 +114,14 @@ function strongerAction(a: CommandAction, b: CommandAction): CommandAction {
   return COMMAND_ACTION_PRECEDENCE[a] >= COMMAND_ACTION_PRECEDENCE[b] ? a : b;
 }
 
-/** Absence is not permission: a command no pack mentions is never executed. */
+/** A check the user configured runs; a pack only narrows it to `propose` or `forbid`. */
 export function decisionFor(policy: ResolvedPolicy, commandId: string): {
-  action: CommandAction | 'undeclared';
+  action: CommandAction;
   sources: ResolvedCommandDecision['sources'];
 } {
   const decision = policy.commandDecisions.find((candidate) => candidate.command === commandId);
   return decision === undefined
-    ? { action: 'undeclared', sources: [] }
+    ? { action: 'run', sources: [] }
     : { action: decision.action, sources: decision.sources };
 }
 
@@ -134,10 +134,7 @@ export function explainRefusal(policy: ResolvedPolicy, commandId: string): strin
       .join('; ');
     return `Command "${commandId}" is forbidden by ${reasons}. Change that pack's commandPolicy deliberately if this is no longer the project's policy.`;
   }
-  if (action === 'propose') {
-    return `Command "${commandId}" is proposed, not run automatically. Approve this specific run, or change the owning pack's commandPolicy.`;
-  }
-  return `Command "${commandId}" is not declared by any enabled pack for this activity, so AMBICODE does not run it. Add a "run" decision to a pack that applies here.`;
+  return `Command "${commandId}" is proposed, not run automatically. Approve this specific run, or change the owning pack's commandPolicy.`;
 }
 
 function dedupeBy<T>(items: readonly T[], key: (item: T) => string): T[] {

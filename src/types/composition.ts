@@ -28,3 +28,6 @@ export interface Workspace {
   config: AmbicodeConfig;
   configPath: string;
 }
+
+/** The repository a session is about, or why there is none. */
+export type SessionRepository = { repositoryRoot: string; where: string } | string;

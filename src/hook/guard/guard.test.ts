@@ -7,7 +7,8 @@ import { after, describe, it } from 'node:test';
 import { guardDecision } from './guard-core.ts';
 import { fsGuardState } from './guard-state.ts';
 import { LEDGER_FILE, type LedgerEntry } from '#types/modules/evidence';
-import { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT, type GuardInput } from '../types/guard.ts';
+import { GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, HEADLESS_FILE, LEDGER_LIMIT, type GuardInput } from '../types/guard.ts';
+import { HEADLESS_FILE as ROUTE_HEADLESS_FILE } from '#harness/session/active-route';
 import { HOOK_STATE_DIR_NAME } from '#types/platform/claude';
 
 type Output = { hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } };
@@ -265,7 +266,6 @@ describe('note save and promote pass in any segment, with any prefix and quoting
   for (const command of [
     'cd X && node "…/ambicode.mjs" note save --task T --kind plan-draft <<\'EOF\'\nconst f = () => 1; // .ambicode/tasks/\nEOF',
     b3,
-    'node /p/scripts/ambicode.mjs note promote --task T',
     "env A=1 node '/p q/scripts/ambicode.mjs' note save --task T --kind notes <<-EOF\n\tx > .ambicode/tasks/T/a\n\tEOF",
     'npx node "/p/scripts/ambicode.mjs" note save --task T --kind plan-draft --from .ambicode/tasks/T/steps/plan-body.md',
   ]) {
@@ -283,9 +283,9 @@ describe('the task-directory message names a command that runs as written', () =
     const out = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: '.ambicode/tasks/x/p.md' } }, '/opt/plugin') as Output;
     assert.match(out.hookSpecificOutput!.permissionDecisionReason, /node "\/opt\/plugin\/scripts\/ambicode\.mjs" note save/);
   });
-  it('02-G1: names the kinds note save accepts and note promote', () => {
+  it('02-G1: names the kinds note save accepts', () => {
     const out = bash('echo x > .ambicode/tasks/T/n.md');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan-draft\|notes` or `note promote --task <slug>`/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan-draft\|notes`/);
   });
 });
 const roots: string[] = [];
@@ -294,8 +294,8 @@ after(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true 
 const at = '2026-10-05T10:00:00.000Z';
 const planRoute = (id: string, session: string, extra: Record<string, unknown> = {}): LedgerEntry => ({ id, at, kind: 'route', skill: 'plan', session, ...extra });
 
-/** A repository with task `T` (and `U`) and one scratchpad per session holding that session's active-route pointer. */
-function fixture(ledger: LedgerEntry[] | string | null, pointers: Record<string, unknown>) {
+/** A repository with task `T` (and `U`) and one scratchpad per session; a session in `headless` has the marker a live headless route leaves. */
+function fixture(ledger: LedgerEntry[] | string | null, headless: string[] = []) {
   const root = mkdtempSync(path.join(tmpdir(), 'ambicode-guard-'));
   roots.push(root);
   const repo = path.join(root, 'repo');
@@ -304,72 +304,44 @@ function fixture(ledger: LedgerEntry[] | string | null, pointers: Record<string,
     const text = typeof ledger === 'string' ? ledger : ledger.map((entry) => `${JSON.stringify(entry)}\n`).join('');
     writeFileSync(path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE), text);
   }
-  const scratch: Record<string, string> = {};
-  for (const [session, pointer] of Object.entries(pointers)) {
-    scratch[session] = path.join(root, `scratch-${session}`);
-    mkdirSync(path.join(scratch[session]!, HOOK_STATE_DIR_NAME), { recursive: true });
-    if (pointer !== undefined) {
-      writeFileSync(path.join(scratch[session]!, HOOK_STATE_DIR_NAME, ACTIVE_ROUTE_FILE), typeof pointer === 'string' ? pointer : JSON.stringify(pointer));
-    }
-  }
-  const write = (session: string | undefined, file = path.join(repo, '.ambicode', 'tasks', 'T', 'steps', 'plan-body.md'), tool = 'Write') =>
-    guardDecision(
-      {
-        hook_event_name: 'PreToolUse',
-        tool_name: tool,
-        tool_input: { file_path: file },
-        ...(session === undefined ? {} : { session_id: session }),
-        ...(session !== undefined && scratch[session] !== undefined ? { scratchpad_dir: scratch[session] } : {}),
-      },
-      '/p',
-      fsGuardState,
-    ) as Output;
+  const scratch = path.join(root, 'scratch');
+  mkdirSync(path.join(scratch, HOOK_STATE_DIR_NAME), { recursive: true });
+  for (const session of headless) writeFileSync(path.join(scratch, HOOK_STATE_DIR_NAME, HEADLESS_FILE), '');
+  const write = (file = path.join(repo, '.ambicode', 'tasks', 'T', 'steps', 'plan-body.md'), tool = 'Write') =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name: tool, session_id: 'A', scratchpad_dir: scratch, tool_input: { file_path: file } }, '/p', fsGuardState) as Output;
   return { repo, scratch, write };
 }
 
-const onPlanT = { task: 'T', skill: 'plan' };
-
-describe('plan-body writes: allowed only to the session that owns the live plan chain', () => {
-  it('the owning session writes steps/plan-body.md with Write only; Edit and MultiEdit are denied with the next command', () => {
-    const { write } = fixture([planRoute('a-1', 'A')], { A: onPlanT });
-    assert.deepEqual(write('A', undefined, 'Write'), {});
+describe('plan-body writes: allowed only while the task\'s live route is a plan route', () => {
+  it('Write to steps/plan-body.md passes; Edit and MultiEdit are denied with the next command', () => {
+    const { write } = fixture([planRoute('a-1', 'A')]);
+    assert.deepEqual(write(undefined, 'Write'), {});
     for (const tool of ['Edit', 'MultiEdit', 'NotebookEdit']) {
-      const out = write('A', undefined, tool);
+      const out = write(undefined, tool);
       assert.equal(decisionOf(out), 'deny');
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written once, with the Write tool.*route next --task T`.*rewrite the whole file with Write/s);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /node "\/p\/scripts\/ambicode\.mjs" route next --task T/);
     }
   });
 
-  it('after another session --fresh, the former owner is denied naming the new owner', () => {
-    const ledger = [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'exit', route: 'a-1', reason: 'superseded' }, planRoute('b-2', 'B')];
-    const { write } = fixture(ledger, { A: onPlanT, B: onPlanT });
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /session B owns it/);
-    assert.deepEqual(write('B'), {});
+  it('a route another session started is the live one: nobody is named an owner', () => {
+    const { write } = fixture([planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'exit', route: 'a-1', reason: 'interrupted' }, planRoute('b-2', 'B')]);
+    assert.deepEqual(write(), {});
   });
 
-  for (const [label, ledger, pointers, session, file, why] of [
-    ['a session that never held the chain', [planRoute('a-1', 'A')], { C: onPlanT }, 'C', undefined, /session A owns it/],
-    ['a missing session binding', [planRoute('a-1', 'A')], { A: onPlanT }, undefined, undefined, /hook named no session/],
-    ['no scratchpad state for the session', [planRoute('a-1', 'A')], {}, 'A', undefined, /no active route is on record/],
-    ['no active-route pointer', [planRoute('a-1', 'A')], { A: undefined }, 'A', undefined, /no active route is on record/],
-    ['an unparsable pointer', [planRoute('a-1', 'A')], { A: '{not json' }, 'A', undefined, /no active route is on record/],
-    ['an active route of another skill', [planRoute('a-1', 'A')], { A: { task: 'T', skill: 'investigate' } }, 'A', undefined, /investigate on T, not plan on T/],
-    ['an active route on another task', [planRoute('a-1', 'A')], { A: { task: 'U', skill: 'plan' } }, 'A', undefined, /plan on U, not plan on T/],
-    ['the plan body of another slug', [planRoute('a-1', 'A')], { A: onPlanT }, 'A', 'U', /not plan on U/],
-    ['a missing ledger', null, { A: onPlanT }, 'A', undefined, /ledger of T is missing, unreadable or over 1 MiB/],
-    ['a torn ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n{"id":"b-1","kind":"rou`, { A: onPlanT }, 'A', undefined, /missing, unreadable or over 1 MiB/],
-    ['a non-object ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n42\n`, { A: onPlanT }, 'A', undefined, /missing, unreadable or over 1 MiB/],
-    ['an exited chain', [planRoute('a-1', 'A'), { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'done' }], { A: onPlanT }, 'A', undefined, /no plan route is open on T/],
-    ['legacy notes only', [{ id: 'L1', at, kind: 'note', note: 'plan', path: 'plan_x.md' }], { A: onPlanT }, 'A', undefined, /no plan route is open/],
-    ['a later route with no skill', [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', session: 'B' }], { A: onPlanT }, 'A', undefined, /route b-1 names no skill/],
-    ['a later route with a numeric skill', [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7, session: 'B' }], { A: onPlanT }, 'A', undefined, /route b-1 names no skill/],
-    ['an exit naming no route', [planRoute('a-1', 'A'), { id: 'x-1', at, kind: 'exit', route: 'zz' }], { A: onPlanT }, 'A', undefined, /exit x-1 names no route/],
-    ['an exit with no route', [planRoute('a-1', 'A'), { id: 'x-1', at, kind: 'exit', reason: 'done' }], { A: onPlanT }, 'A', undefined, /exit x-1 names no route/],
-  ] as [string, LedgerEntry[] | string | null, Record<string, unknown>, string | undefined, string | undefined, RegExp][]) {
+  for (const [label, ledger, file, why] of [
+    ['the plan body of another slug', [planRoute('a-1', 'A')], 'U', /ledger of U is missing/],
+    ['a missing ledger', null, undefined, /ledger of T is missing, unreadable or over 1 MiB/],
+    ['a torn ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n{"id":"b-1","kind":"rou`, undefined, /missing, unreadable or over 1 MiB/],
+    ['a non-object ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n42\n`, undefined, /missing, unreadable or over 1 MiB/],
+    ['an exited route', [planRoute('a-1', 'A'), { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'done' }], undefined, /no route is live on T/],
+    ['legacy notes only', [{ id: 'L1', at, kind: 'note', note: 'plan', path: 'plan_x.md' }], undefined, /no route is live/],
+    ['a live route of another skill', [{ id: 'r-1', at, kind: 'route', skill: 'investigate', session: 'A' }], undefined, /live route is investigate, not plan/],
+    ['a later route with a numeric skill', [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7, session: 'B' }], undefined, /live route is 7, not plan/],
+  ] as [string, LedgerEntry[] | string | null, string | undefined, RegExp][]) {
     it(`denies for ${label}`, () => {
-      const { write, repo } = fixture(ledger, pointers);
-      const out = write(session, file === undefined ? undefined : path.join(repo, '.ambicode', 'tasks', file, 'steps', 'plan-body.md'));
+      const { write, repo } = fixture(ledger);
+      const out = write(file === undefined ? undefined : path.join(repo, '.ambicode', 'tasks', file, 'steps', 'plan-body.md'));
       assert.equal(decisionOf(out), 'deny');
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, why);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /route next/);
@@ -377,13 +349,13 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
   }
 
   it('a ledger over the read limit is unreadable, never partly read', () => {
-    const { write, repo } = fixture([planRoute('a-1', 'A')], { A: onPlanT });
+    const { write, repo } = fixture([planRoute('a-1', 'A')]);
     const filler = `${JSON.stringify({ id: 'x', at, kind: 'note', pad: 'p'.repeat(1000) })}\n`;
     writeFileSync(path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE), `${JSON.stringify(planRoute('a-1', 'A'))}\n${filler.repeat(Math.ceil(LEDGER_LIMIT / filler.length))}`);
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /missing, unreadable or over 1 MiB/);
+    assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable or over 1 MiB/);
   });
 
-  it('valid unrelated routes, other skills and unknown kinds leave the owner in place', () => {
+  it('exited routes, other skills and unknown kinds leave the live plan route in place', () => {
     const ledger = [
       planRoute('a-1', 'A'),
       { id: 'r-1', at, kind: 'route', skill: 'review', session: 'C' },
@@ -391,52 +363,39 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
       { id: 'f-1', at, kind: 'future-kind', skill: 7 },
       { id: 'n-1', at, kind: 'note', note: 'plan', path: 'plan_x.md' },
     ] as LedgerEntry[];
-    const { write } = fixture(ledger, { A: onPlanT, C: onPlanT });
-    assert.deepEqual(write('A'), {});
-    assert.match(write('C').hookSpecificOutput!.permissionDecisionReason, /session A owns it/);
-  });
-
-  it('5.1: the owner is found through harnessSession; the owner id itself is not a Claude session', () => {
-    const owned = planRoute('a-1', 'owner-1', { harnessSession: 'A' });
-    const { write } = fixture([owned], { A: onPlanT, 'owner-1': onPlanT, B: onPlanT });
-    assert.deepEqual(write('A'), {});
-    assert.equal(decisionOf(write('owner-1')), 'deny');
-    assert.match(write('B').hookSpecificOutput!.permissionDecisionReason, /session owner-1 owns it/);
+    assert.deepEqual(fixture(ledger).write(), {});
   });
 
   it('a ledger of exactly the read limit is read; one byte more is not', () => {
-    const { write, repo } = fixture(null, { A: onPlanT });
+    const { write, repo } = fixture(null);
     const head = `${JSON.stringify(planRoute('a-1', 'A'))}\n`;
     const pad = (bytes: number) => `${JSON.stringify({ id: 'p', at, kind: 'note', pad: 'p'.repeat(bytes - JSON.stringify({ id: 'p', at, kind: 'note', pad: '' }).length - 1) })}\n`;
     const ledgerFile = path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE);
     writeFileSync(ledgerFile, head + pad(LEDGER_LIMIT - head.length));
     assert.equal(readFileSync(ledgerFile).length, LEDGER_LIMIT);
-    assert.deepEqual(write('A'), {});
+    assert.deepEqual(write(), {});
     writeFileSync(ledgerFile, head + pad(LEDGER_LIMIT - head.length + 1));
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /missing, unreadable or over 1 MiB/);
+    assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable or over 1 MiB/);
   });
 
-  it('a directory where the ledger or pointer should be is unreadable', () => {
-    const { write, repo, scratch } = fixture(null, { A: onPlanT });
+  it('a directory where the ledger should be is unreadable', () => {
+    const { write, repo } = fixture(null);
     mkdirSync(path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE));
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /missing, unreadable/);
-    rmSync(path.join(scratch.A!, HOOK_STATE_DIR_NAME, ACTIVE_ROUTE_FILE));
-    mkdirSync(path.join(scratch.A!, HOOK_STATE_DIR_NAME, ACTIVE_ROUTE_FILE));
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /no active route is on record/);
+    assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable/);
   });
 
   it('only the exact plan-body path is excepted; a relative path without a cwd is not placed', () => {
-    const { write, repo } = fixture([planRoute('a-1', 'A')], { A: onPlanT });
+    const { write, repo } = fixture([planRoute('a-1', 'A')]);
     for (const file of ['steps/plan-body.md.bak', 'steps/sub/plan-body.md', 'plan-body.md']) {
-      assert.equal(decisionOf(write('A', path.join(repo, '.ambicode', 'tasks', 'T', file))), 'deny', file);
+      assert.equal(decisionOf(write(path.join(repo, '.ambicode', 'tasks', 'T', file))), 'deny', file);
     }
-    assert.match(write('A', '.ambicode/tasks/T/steps/plan-body.md').hookSpecificOutput!.permissionDecisionReason, /no absolute path/);
+    assert.match(write('.ambicode/tasks/T/steps/plan-body.md').hookSpecificOutput!.permissionDecisionReason, /no absolute path/);
   });
 
-  it('a Bash write to the plan body is still denied for its owner', () => {
-    const { repo, scratch } = fixture([planRoute('a-1', 'A')], { A: onPlanT });
+  it('a Bash write to the plan body is still denied while the plan route is live', () => {
+    const { repo, scratch } = fixture([planRoute('a-1', 'A')]);
     const out = guardDecision(
-      { hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch.A, tool_name: 'Bash', tool_input: { command: `echo x > ${repo}/.ambicode/tasks/T/steps/plan-body.md` } },
+      { hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Bash', tool_input: { command: `echo x > ${repo}/.ambicode/tasks/T/steps/plan-body.md` } },
       '/p',
       fsGuardState,
     ) as Output;
@@ -448,23 +407,28 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
 });
 
 describe('config.yaml and .gitignore are not guarded, in or out of an init route', () => {
-  const edit = (file: string, pointer: unknown, tool = 'Write') => {
-    const { scratch } = fixture(null, { A: pointer });
-    return guardDecision({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch.A, tool_name: tool, tool_input: { file_path: file } }, '/p', fsGuardState) as Output;
-  };
   for (const file of ['/repo/.ambicode/config.yaml', '/repo/.gitignore']) {
     it(`leaves ${file} alone`, () => {
-      assert.deepEqual(edit(file, { task: 'T', skill: 'plan' }), {});
-      assert.deepEqual(edit(file, { task: 'init-1', skill: 'init' }), {});
-      assert.deepEqual(edit(file, undefined), {});
+      const { scratch } = fixture(null);
+      assert.deepEqual(guardDecision({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: file } }, '/p', fsGuardState), {});
     });
   }
+});
+
+describe('the headless marker', () => {
+  it('is read from the scratchpad state and from the temporary-directory fallback of the session', () => {
+    const { scratch } = fixture(null, ['A']);
+    assert.equal(fsGuardState.headless(scratch, null), true);
+    assert.equal(fsGuardState.headless(path.join(scratch, 'elsewhere'), null), false);
+    assert.equal(fsGuardState.headless(null, null), false);
+  });
 });
 
 describe('the guard state reader', () => {
   it('uses the hook state directory and ledger file names the CLI uses', () => {
     assert.equal(GUARD_STATE_DIR_NAME, HOOK_STATE_DIR_NAME);
     assert.equal(GUARD_LEDGER_FILE, LEDGER_FILE);
+    assert.equal(HEADLESS_FILE, ROUTE_HEADLESS_FILE);
   });
 });
 describe('the built guard entry', () => {
@@ -482,35 +446,26 @@ describe('the built guard entry', () => {
     assert.match(run('not json').stderr, /^ambicode guard: no decision: /);
   });
 
-  it('reads the fixture state directory for the plan-body exception', { skip: !existsSync(built) }, () => {
-    const { repo, scratch } = fixture([planRoute('a-1', 'A'), { id: 'x-1', at, kind: 'exit', route: 'a-1', reason: 'superseded' }, planRoute('b-2', 'B')], { A: onPlanT, B: onPlanT });
-    const input = (session: string) =>
-      JSON.stringify({ hook_event_name: 'PreToolUse', session_id: session, scratchpad_dir: scratch[session], tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } });
-    assert.deepEqual(JSON.parse(run(input('B')).stdout), {});
-    assert.match(JSON.parse(run(input('A')).stdout).hookSpecificOutput.permissionDecisionReason, /owns it/);
-  });
-
-  it('denies a malformed later route without reading past it', { skip: !existsSync(built) }, () => {
-    const { repo, scratch } = fixture([planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7 } as unknown as LedgerEntry], { A: onPlanT });
-    const out = JSON.parse(run(JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch.A, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } })).stdout);
-    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(out.hookSpecificOutput.permissionDecisionReason, /route b-1 names no skill/);
+  it('reads the ledger for the plan-body exception', { skip: !existsSync(built) }, () => {
+    const input = (repo: string, scratch: string) =>
+      JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } });
+    const live = fixture([planRoute('a-1', 'A')]);
+    assert.deepEqual(JSON.parse(run(input(live.repo, live.scratch)).stdout), {});
+    const other = fixture([{ id: 'r-1', at, kind: 'route', skill: 'review', session: 'A' }]);
+    assert.match(JSON.parse(run(input(other.repo, other.scratch)).stdout).hookSpecificOutput.permissionDecisionReason, /live route is review, not plan/);
   });
 
   // A FIFO with no writer blocks a plain open; the guard must answer at once instead. Spawned, so a regression times out.
-  it('answers at once when the pointer or the ledger is a FIFO', { skip: !existsSync(built) || process.platform === 'win32' }, () => {
-    for (const which of ['pointer', 'ledger'] as const) {
-      const { repo, scratch } = fixture([planRoute('a-1', 'A')], { A: onPlanT });
-      const file = which === 'ledger' ? path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE) : path.join(scratch.A!, HOOK_STATE_DIR_NAME, ACTIVE_ROUTE_FILE);
-      rmSync(file);
-      execFileSync('mkfifo', [file]);
-      const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch.A, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } });
-      const result = spawnSync('node', [built.pathname], { input, encoding: 'utf8', timeout: 5000 });
-      assert.equal(result.error, undefined, `${which}: ${String(result.error)}`);
-      assert.equal(result.status, 0, which);
-      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
-      assert.match(reason, which === 'ledger' ? /missing, unreadable/ : /no active route is on record/, which);
-    }
+  it('answers at once when the ledger is a FIFO', { skip: !existsSync(built) || process.platform === 'win32' }, () => {
+    const { repo, scratch } = fixture([planRoute('a-1', 'A')]);
+    const file = path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE);
+    rmSync(file);
+    execFileSync('mkfifo', [file]);
+    const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } });
+    const result = spawnSync('node', [built.pathname], { input, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.error, undefined, String(result.error));
+    assert.equal(result.status, 0);
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /missing, unreadable/);
   });
 
   it('imports node:fs, crypto and os and nothing else the CLI loads (no Runtime, no zod)', { skip: !existsSync(built) }, () => {
@@ -617,7 +572,7 @@ describe('head fed by a literal ambicode call', () => {
 
 describe('an active route shapes the decision', () => {
   const P = 'O=.ambicode/x; ';
-  const route = (headless: boolean) => ({ activeRoute: () => ({ task: 'T-1', skill: 'task', ...(headless ? { headless: true } : {}) }), ledger: () => null });
+  const route = (headless: boolean) => ({ headless: () => headless, ledger: () => null });
   const run = (command: string, headless: boolean) =>
     guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', scratchpad_dir: '/s', tool_input: { command } }, '/p', route(headless)) as Output;
 

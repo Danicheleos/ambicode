@@ -44,7 +44,7 @@ async function world(options: { text?: string; headless?: boolean } = {}) {
   const runtime: Runtime = await createRuntime({ cwd: root });
   await initConfig(runtime);
   const scratchpadDir = await runtime.fs.temporaryDirectory('ambicode-scratch-');
-  const { engine } = await routeTools(runtime, null);
+  const { engine } = await routeTools(runtime);
   const ledger = (task = TASK): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', task));
   const kinds = async (kind: string): Promise<LedgerEntry[]> => (await ledger()).filter((entry) => entry.kind === kind);
   const draft = (name: string, text: string): Promise<void> => writeFile(path.join(root, '.ambicode', 'policies', 'drafts', name), text).catch(async () => {
@@ -64,7 +64,7 @@ async function world(options: { text?: string; headless?: boolean } = {}) {
     /** A hook-bound answer to the latest print of a gate, as the AskUserQuestion hook records it. */
     async answer(gate: string, option: string) {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate)!;
-      return engine.advance({ task: TASK, session: SESSION, cause: 'gate-hook', answers: [{ gate, option, instance: print.id }], scratchpadDir });
+      return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option, instance: print.id }], scratchpadDir });
     },
     check: (extra: readonly string[] = ['--task', TASK]) => runPolicyCheck(runtime, parseArgs('policy check', ['--drafts', ...extra], POLICY_CHECK_OPTIONS)),
     apply: () => runRulesApply(runtime, parseArgs('rules apply', ['--task', TASK], RULES_APPLY_OPTIONS)),
@@ -194,8 +194,6 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       assert.ok(wired.includes('.ambicode/policies/team-services.yaml'));
       const strip = (text: string) => { const { projects, ...rest } = YAML.parse(text) as { projects: Record<string, unknown>[] }; return { ...rest, projects: projects.map(({ policyFiles: _ignored, ...project }) => project) }; };
       assert.deepEqual(strip(wired), strip(before), 'everything but policyFiles is kept');
-      const note = await readFile(path.join(w.root, '.ambicode', 'tasks', TASK, 'steps', 'rules-apply.md'), 'utf8');
-      assert.match(note, /<!-- ambicode rules sha256:[0-9a-f]+ -->/);
 
       const entries = await w.ledger();
       assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts').length, 2, 'the red check and the clean one after the human answer');
@@ -216,7 +214,7 @@ describe('09-T2: a human who does not apply', () => {
       const closed = await w.answer('rules-table', 'Discard drafts');
       assert.equal(closed.position, 'complete');
       assert.equal(await w.exists('.ambicode/policies/drafts/team-services.yaml'), true);
-      assert.equal((await codeOf(w.apply())).code, 'session-unbound', 'the closed route no longer owns the session');
+      assert.equal((await codeOf(w.apply())).code, 'rules-apply-unconfirmed', 'the closed route confirms nothing');
       assert.doesNotMatch(await w.config(), /team-services/);
     } finally {
       await w.dispose();
@@ -294,10 +292,10 @@ describe('09-T4: the object the answer consented to', () => {
     }
   });
 
-  it('09-T4: with no route at all rules apply is session-unbound, and a route of another skill is no-rules-route', async () => {
+  it('09-T4: with no route at all rules apply is unconfirmed, and a route of another skill is no-rules-route', async () => {
     const w = await world();
     try {
-      assert.equal((await codeOf(w.apply())).code, 'session-unbound');
+      assert.equal((await codeOf(w.apply())).code, 'rules-apply-unconfirmed');
       await w.start({ skill: 'investigate', text: 'how do invoices work', task: TASK });
       const refused = await codeOf(w.apply());
       assert.equal(refused.code, 'rules-apply-unconfirmed');

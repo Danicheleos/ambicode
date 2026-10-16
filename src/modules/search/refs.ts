@@ -12,6 +12,10 @@ const SNIPPET = 100;
 const TOO_BROAD_SHARE = 0.6;
 const TOO_BROAD_MIN_FILES = 5;
 
+/** The limitation line for a term matching most of the files (so it ranks nothing), or null when it is selective enough. */
+export const tooBroad = (term: string, matched: number, total: number): string | null =>
+  matched >= TOO_BROAD_MIN_FILES && matched > total * TOO_BROAD_SHARE ? `"${term}" matched ${matched} of ${total} files; ignored` : null;
+
 /** Lines using each whole word, or with `declarations` where each is declared; a name in more than one file collides. */
 export async function refs(runtime: Runtime, names: readonly string[], options: { project: ProjectConfig; declarations?: boolean }): Promise<RefsResult> {
   const { git } = await openWorkspace(runtime);
@@ -22,7 +26,8 @@ export async function refs(runtime: Runtime, names: readonly string[], options: 
   const kept: string[] = [];
   for (const name of names) {
     const matched = (await git.grepWords([name], pathspec)).length;
-    if (matched >= TOO_BROAD_MIN_FILES && matched > total * TOO_BROAD_SHARE) limitations.push(`"${name}" matched ${matched} of ${total} files; ignored`);
+    const broad = tooBroad(name, matched, total);
+    if (broad !== null) limitations.push(broad);
     else kept.push(name);
   }
   const declared = kept.length === 0 ? [] : await declarationsOf(git, runtime.fs, kept, pathspec);

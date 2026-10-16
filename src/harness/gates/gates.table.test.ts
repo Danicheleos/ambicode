@@ -10,7 +10,6 @@ import type { Handler } from '#types/harness';
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const ROUTE = `skill: tbl
 version: 3
-revisable: []
 steps:
   - id: ask
     actor: code
@@ -55,8 +54,8 @@ async function table() {
     const message = await fx.engine.start({ skill: 'tbl', text: gate, requirements: [], task, cwd: fx.repo.root, session: extra.session ?? A, channel: 'hook', ...(extra.headless === true ? { headless: true } : {}) });
     return { task, message };
   };
-  const advance = (task: string, input: object = {}) => fx.engine.advance({ task, session: A, cause: 'route-next', ...input });
-  const hook = (task: string, gate: string, option: string, instance: string | undefined) => fx.engine.advance({ task, session: A, cause: 'gate-hook', answers: [{ gate, option, ...(instance === undefined ? {} : { instance }) }] });
+  const advance = (task: string, input: object = {}) => fx.engine.advance({ task, cause: 'route-next', ...input });
+  const hook = (task: string, gate: string, option: string, instance: string | undefined) => fx.engine.advance({ task, cause: 'gate-hook', answers: [{ gate, option, ...(instance === undefined ? {} : { instance }) }] });
   const definition = (gate: string) => fx.routes.gate(gate)!;
   const instantiated = (gate: string) => instantiateGate(definition(gate), { skill: 'tbl', values: VALUES[gate] ?? {} }, gate);
   const lastPrint = async (task: string, gate: string) => (await fx.kinds(task, 'gate')).filter((entry) => entry['gate'] === gate).at(-1)!;

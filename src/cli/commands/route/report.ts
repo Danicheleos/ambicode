@@ -1,10 +1,9 @@
-import { taskSlugFor } from '#modules/review/bundle/review-name';
+import { taskOf } from './route.ts';
 import { buildChain, currentIn, exitOf } from '#harness/engine/fold';
 import { loadRouteRegistry } from '#harness/definition/routes';
 import { readLedger } from '#platform/ledger/ledger';
 import { buildReport } from '#modules/evidence/report/report';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
@@ -14,8 +13,7 @@ type ReportOutput = ReturnType<typeof buildReport>;
 
 /** Entries a later revise superseded are marked historical, per the latest route's windows (D10). */
 export async function runReport(runtime: Runtime, args: ParsedArgs): Promise<ReportOutput> {
-  const task = taskSlugFor({ requirementIds: [], task: args.value('task') });
-  if (task === null) throw new AmbicodeError('bad-argument', '"report" needs --task <slug>.', { field: 'task' });
+  const task = taskOf('report', args);
   const dir = await resolveTaskDir(runtime, task);
   const entries = await readLedger(runtime.fs, dir.root);
   const head = entries.findLast((entry) => entry.kind === 'route');

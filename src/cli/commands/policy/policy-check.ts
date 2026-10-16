@@ -47,17 +47,16 @@ async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<Polic
   // Recorded with its error count even when red: the model gets one run, and the rules-table gate shows what failed.
   if (task === null || dir === null) return output;
 
-  const tools = await routeTools(runtime, task);
-  const { view, context } = await tools.engine.command(COMMAND_SPECS.policyCheckDrafts, { task }, async (scope) => scope);
+  const tools = await routeTools(runtime);
+  const { view } = await tools.engine.command(COMMAND_SPECS.policyCheckDrafts, { task }, async (scope) => scope);
   if (view === null || view.skill !== 'rules') {
     output.diagnostics.push({ severity: 'notice', code: 'drafts-not-recorded', message: `Task ${task} has no live rules route of this session, so nothing was recorded.` });
     return output;
   }
-  await context.assertOwner(view);
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, (ledger) =>
     ledger.append({ kind: 'policy', route: view.routeId, stage: 'drafts', path: DRAFTS_DIR, contentHash: check.aggregateHash, drafts: check.files, errors: check.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length }),
   );
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'policy check --drafts', session: tools.binding });
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'policy check --drafts' });
   if (next !== null) output.next = next.text;
   return output;
 }

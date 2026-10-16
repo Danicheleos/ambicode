@@ -23,7 +23,7 @@ reviewer ran. Say which; do not widen the patterns without asking.
 default branch name. Pass `--base <ref>`.
 
 **`check-only-unauthorized`.** `check --file` met a command policy of
-`forbid`, an undeclared command, or `propose` with no route on the task. Release:
+`forbid`, or `propose` with no route on the task. Release:
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
 a `propose` check asks the user instead; only the user's own answer approves it.
 
@@ -89,13 +89,8 @@ A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `not
 or `glab mr` state change and a
 write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
 decides, so do not rephrase the command to avoid the question.
-`steps/plan-body.md` is writable only by the session that owns the task's live
-plan route; any other session, a missing session or route pointer, or an
-unreadable ledger is denied.
-
-**`route-taken-over`.** Another session took this task's plan
-route; this session no longer writes its files. Stop and tell the user. Continuing
-under another `--task` is their decision.
+`steps/plan-body.md` is writable only while the task's live route is a plan
+route; no live route, another skill's route, or an unreadable ledger is denied.
 
 **Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
 keep the payload in a file and record its path and hash. `ledger-unreadable`:
@@ -103,11 +98,8 @@ the task's ledger is damaged or cannot be read as a whole, so nothing was
 written; continue under a new task with `--task <slug>-2`. `ledger-busy`:
 another AMBICODE process is writing the ledger; retry. If it keeps failing,
 make sure no ambicode process is running, then delete `ledger.lock` in the task
-directory. `session-unbound`: the call names no task, so the CLI cannot
-tell which route it speaks for; pass `--task <slug>`. `route-ambiguous`: the task has more than
-one live route; `route start <skill> --task <slug> --fresh` ends the others, or continue under
-another `--task`. `route-busy`: another session owns the task's live plan route; the
-user chooses `--fresh` or another `--task`. `plan-draft-missing`:
+directory. `session-unbound`: `check` found no live route on the task; start one with
+`route start <skill> --task <slug>`. `plan-draft-missing`:
 no plan draft exists to promote; the route's `plan-check` step saves it, so continue the
 plan route to that step.
 
@@ -116,8 +108,7 @@ message names the file, the step or gate and the field (build and load): fix tha
 file. `route-unknown`: no route ships for that skill; the message lists the shipped
 ones. `route-not-open`: the task has no live route; start one with
 `route start <skill> --task <slug>`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
-the route does not have; the message lists the valid ones. `revise-not-allowed`: `--revise` names a
-step the route does not list as revisable; the message lists them.
+the route does not have; the message lists the valid ones.
 `search-layers-not-for-model`: `map --layers` is not a model option;
 the layers are the route's defaults. `search-layer-unknown`: a layer name that does not exist; the message lists the known names.
 `requirements-not-captured`: a requirement named at the start has no captured
@@ -145,8 +136,8 @@ Remove it from `policyFiles` or re-copy the packs that replaced it; `docs/rule-m
 **`artifact-collision`.** Nine files of the same name were already written this minute, so
 none was written. Wait for the next minute and run it again.
 
-**A command was refused.** Policy declares commands as run, propose, or forbid,
-and a command no pack declares is not run either — absence is not permission. The
+**A command was refused.** A check in `config.yaml` runs unless a pack's
+`commandPolicy` says `propose` or `forbid` for it. The
 message names the pack and the reason. Changing it is a deliberate edit to that
 pack's `commandPolicy`, not something to work around.
 

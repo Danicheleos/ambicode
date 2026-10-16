@@ -1,15 +1,15 @@
 import { AMBICODE_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { splitNul } from '#platform/git/git';
-import { fingerprintWorkspace } from './mutations.ts';
+import { hashFiles } from './mutations.ts';
 import type { BaselineEntryFields, CheckDeps } from '#types/modules/checks';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
 
 /** Porcelain `-z` puts a rename or copy's origin in the next NUL field; both sides count as changed. */
-async function changedPaths(runtime: Runtime, strict = false): Promise<{ paths: string[]; head: string | null; hashes: ReadonlyMap<string, string | null> }> {
+async function changedPaths(runtime: Runtime): Promise<{ paths: string[]; head: string | null; hashes: ReadonlyMap<string, string | null> }> {
   const { git, repositoryRoot } = await openRepository(runtime);
-  const fields = splitNul(await git.status(strict));
+  const fields = splitNul(await git.status());
   const found = new Set<string>();
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index] ?? '';
@@ -22,8 +22,7 @@ async function changedPaths(runtime: Runtime, strict = false): Promise<{ paths: 
   found.delete('');
   // The run directories are not the user's work, and `.git/info/exclude` no longer hides them; ignored only if init added the .gitignore line.
   const paths = [...found].filter((file) => file !== AMBICODE_DIR && !file.startsWith(`${AMBICODE_DIR}/`)).sort();
-  const { fileHashes } = await fingerprintWorkspace({ fs: runtime.fs, git, repositoryRoot, paths });
-  return { paths, head: await git.revParse('HEAD'), hashes: fileHashes };
+  return { paths, head: await git.revParse('HEAD'), hashes: await hashFiles(runtime.fs, repositoryRoot, paths) };
 }
 
 export async function captureBaseline(runtime: Runtime): Promise<BaselineEntryFields> {
@@ -34,9 +33,8 @@ export async function captureBaseline(runtime: Runtime): Promise<BaselineEntryFi
 export async function touchedSet(
   runtime: Runtime,
   baseline: BaselineEntryFields,
-  options: { strict?: boolean } = {},
 ): Promise<{ touched: string[]; preexisting: string[]; headMoved: boolean }> {
-  const now = await changedPaths(runtime, options.strict === true);
+  const now = await changedPaths(runtime);
   const before = new Map(baseline.dirty.map((entry) => [entry.path, entry.hash]));
   const touched = new Set<string>();
   const preexisting: string[] = [];
@@ -45,9 +43,9 @@ export async function touchedSet(
     else touched.add(path);
   }
   if (before.size > 0) {
-    const { git, repositoryRoot } = await openRepository(runtime);
-    const { fileHashes } = await fingerprintWorkspace({ fs: runtime.fs, git, repositoryRoot, paths: [...before.keys()] });
-    for (const [path, hash] of before) if (fileHashes.get(path) !== hash) touched.add(path);
+    const { repositoryRoot } = await openRepository(runtime);
+    const current = await hashFiles(runtime.fs, repositoryRoot, [...before.keys()]);
+    for (const [path, hash] of before) if (current.get(path) !== hash) touched.add(path);
   }
   return { touched: [...touched].sort(), preexisting: preexisting.sort(), headMoved: now.head !== baseline.head };
 }

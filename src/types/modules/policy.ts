@@ -40,10 +40,6 @@ export const PolicyRule = z.strictObject({
 });
 export type PolicyRule = z.infer<typeof PolicyRule>;
 
-/** A rule in `.ambicode/policies/drafts/`: it must say where it came from. */
-export const DraftPolicyRule = PolicyRule.extend({ source: RuleSource });
-export type DraftPolicyRule = z.infer<typeof DraftPolicyRule>;
-
 export const PolicyCommandDecision = z.strictObject({
   command: z.string().min(1),
   action: CommandAction,

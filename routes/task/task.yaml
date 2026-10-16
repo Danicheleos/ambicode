@@ -8,18 +8,10 @@ steps:
   - id: start
     actor: code
     run: task.start                               # may exit iterations-complete
-  - id: draft-ok
-    actor: human
-    when: plan.isDraft
-    gate:
-      question: "The plan is a draft nobody accepted. Implement it anyway?"
-      options: ["implement anyway", stop]
-      default: stop                               # non-acting: --from-draft records it as a preanswer
   - id: ground
     actor: code
     run: [requirements.normalize, checks.preflight, checks.runnable, checks.baseline, "search.map(context)", "policy.stage(before-work)", context.list]
     produces: [baseline, map, policy]
-    repeat: 2
   - id: change
     actor: model
     instruction: file:routes/task/change.md
@@ -31,6 +23,7 @@ steps:
     run: checks.format                            # runs once the green check ends change, before the offer, so a skipped review is still formatted
   - id: review-offer
     actor: human
+    when: iteration.named                         # no iteration in the request: every iteration runs and its review runs unasked
     gate:
       question: "Run the independent review of this change?"
       options: [run, "skip — verification incomplete"]
@@ -38,18 +31,18 @@ steps:
       acting: [run]
   - id: brief
     actor: code
-    when: gate.review-offer.is(run)
+    when: gate.review-offer.is(run) or iteration.unnamed
     run: [review.pin, "policy.stage(before-work, review)", script(brief)]
     repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
   - id: review-agent
     actor: model
-    when: gate.review-offer.is(run)
+    when: gate.review-offer.is(run) or iteration.unnamed
     instruction: file:routes/review/agent.md
     payload: ["script:brief"]
     produces: ["review{recorded}"]
   - id: review-run
     actor: code
-    when: gate.review-offer.is(run)
+    when: gate.review-offer.is(run) or iteration.unnamed
     run: review.evaluate
     onFail: revise fix                            # review-findings: the first entry to fix
   - id: fix
@@ -62,10 +55,14 @@ steps:
     repeat: 2
   - id: report-step
     actor: code
-    run: [review.evaluate, task.report, task.iterations]
+    run: [review.evaluate, task.report]
     onFail: revise fix                            # a fix-round review with findings; bounded by fix's repeat
+  - id: next
+    actor: code
+    when: iterations.continue
+    run: task.continue                            # ends this route done and opens the next iteration's route on the same task
   - id: write
     actor: model
     instruction: file:routes/task/write.md
     final: true
-    payload: [report, iterations]
+    payload: [report]

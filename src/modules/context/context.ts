@@ -48,7 +48,7 @@ export function checkContext(files: ReadonlyMap<string, string>, limits: Context
     if (!files.has(name)) { const h1 = headings(text, 1)[0]; if (h1 !== undefined) h1Owner.set(h1, name); }
   }
   for (const [name, text] of files) {
-    if (!isAllowedPath(name)) { bad('path', 'only overview.md, navigation.md, conventions.md and modules/<directory path>.md (segments of letters, digits, . _ -) are accepted', name); continue; }
+    if (!isAllowedPath(name)) { bad('path', 'only overview.md, navigation.md, conventions.md and modules/<directory path>.md or modules/<directory path>/overview.md (segments of letters, digits, . _ -) are accepted', name); continue; }
     const tokens = tokensOf(text);
     if (tokens > limits.maxFileTokens) bad('file-too-large', `~${tokens} tokens > maxFileTokens ${limits.maxFileTokens}`, name);
     if (text.split('\n').some((line) => FENCE.test(line))) bad('code-fence', 'code fences are not allowed; write a signature as one line in a bullet', name);
@@ -102,7 +102,8 @@ export async function listContext(fs: FileSystem, root: string): Promise<Context
  */
 const LISTED_LINES = 20;
 
-const stem = (file: ContextFile): string[] => file.path.replace(/\.md$/, '').split('/');
+/** A module's overview.md stands for its directory, so its submodule notes nest under it. */
+const stem = (file: ContextFile): string[] => file.path.replace(/^(modules\/.+)\/overview\.md$/, '$1').replace(/\.md$/, '').split('/');
 const isInside = (inner: string[], outer: string[]): boolean => inner.length > outer.length && outer.every((segment, i) => inner[i] === segment);
 
 export function renderListing(files: readonly ContextFile[], limits: ContextLimits): string {
@@ -164,8 +165,8 @@ export interface TreeResult {
   modules: TreeModule[];
 }
 
-/** The note path for a module directory; characters the context path rule refuses become `_`. */
-export const noteOf = (directory: string): string => `modules/${directory.split('/').map((segment) => segment.replace(/[^A-Za-z0-9._-]/g, '_')).join('/')}.md`;
+/** The note path for a module directory; characters the context path rule refuses become `_`. A module with submodules keeps its note inside its folder. */
+export const noteOf = (directory: string, hasSubmodules = false): string => `modules/${directory.split('/').map((segment) => segment.replace(/[^A-Za-z0-9._-]/g, '_')).join('/')}${hasSubmodules ? '/overview' : ''}.md`;
 
 interface Node { path: string; files: number; children: Map<string, Node>; count: number }
 
@@ -201,6 +202,7 @@ function modulesAt(root: Node, min: number): TreeModule[] {
     for (const child of [...node.children.values()].sort((a, b) => (a.path < b.path ? -1 : 1))) visit(child, owner);
   };
   visit(root, null);
+  for (const module of out) module.note = noteOf(module.path, module.children.length > 0);
   return out;
 }
 
@@ -222,6 +224,7 @@ export function buildModuleTree(allFiles: readonly string[], options: { roots: r
 
 export function renderTree(result: TreeResult): string {
   const head = `source files ${result.sourceFiles}, modules ${result.modules.length} (cap ${result.maxModules}, directories under ${result.minFiles} files fold into the parent), deepest source directory ${result.deepestSourceDirectory}${result.overCap ? ', OVER CAP' : ''}`;
-  const lines = result.modules.map((module) => `${module.note}  dir ${module.path}  depth ${module.depth}  files ${module.subtreeFiles}${module.children.length === 0 ? '' : `  submodules: ${module.children.map(noteOf).join(' ')}`}`);
+  const notes = new Map(result.modules.map((module) => [module.path, module.note]));
+  const lines = result.modules.map((module) => `${module.note}  dir ${module.path}  depth ${module.depth}  files ${module.subtreeFiles}${module.children.length === 0 ? '' : `  submodules: ${module.children.map((child) => notes.get(child)).join(' ')}`}`);
   return [head, ...lines].join('\n');
 }

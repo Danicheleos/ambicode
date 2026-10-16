@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS, type HookDeps } from '#types/hook';
@@ -9,10 +10,11 @@ import { answerGates } from './gate-answer.ts';
 import { splitLaunch } from './prompt-launch.ts';
 import { runHook } from './run-hook.ts';
 import { REPO_ROOT } from '#testing/paths';
+import { HOOK_STATE_DIR_NAME } from '#types/platform/claude';
 import type { FileSystem } from '#types/platform/ports';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
-const deps = (plan: PlanFixture): HookDeps => ({ pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
+const deps = (plan: PlanFixture): HookDeps => ({ load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes }) });
 const hook = (plan: PlanFixture, event: Record<string, unknown>, session = SESSION_A) =>
   runHook(plan.fx.runtime, JSON.stringify({ session_id: session, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event }), deps(plan)) as Promise<{ hookSpecificOutput?: { additionalContext: string }; decision?: string; reason?: string }>;
 const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> = {}) => hook(plan, { hook_event_name: 'UserPromptSubmit', prompt: text, ...extra });
@@ -68,8 +70,10 @@ describe('03-H3 launch', () => {
       const route = (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!;
       assert.deepEqual([route['channel'], route['trusted']], ['hook', true]);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 1);
-      const busy = await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17', {}).then(() => hook(plan, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:plan other --task ORD-17' }, SESSION_B));
-      assert.match(context(busy), /could not start the plan route: route-busy/);
+      await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17', {});
+      const second = await hook(plan, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:plan other --task ORD-17' }, SESSION_B);
+      assert.doesNotMatch(context(second), /could not start/);
+      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'exit')).map((entry) => entry['reason']), ['interrupted', 'interrupted']);
     } finally {
       await plan.dispose();
     }
@@ -128,9 +132,9 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
     tool_response: { answers: { [question]: label } },
   });
 
-  const deps2 = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer });
+  const deps2 = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes });
   const gateAsk = (plan: PlanFixture, event: object, platform?: { askBinding: 'supported' | 'unsupported'; answerContext: 'supported' | 'unsupported' }) =>
-    answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, deps2(plan), platform);
+    answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, deps2(plan), { repositoryRoot: plan.fx.repo.root, where: '.' }, platform);
 
   it('03-L1/03-L3: with binding unsupported, nothing is recorded and nothing is returned', async () => {
     const plan = await planFixture();
@@ -193,7 +197,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
       const delivered = (await plan.prints()).at(-1)!;
       assert.match(context(out), new RegExp(`plan-accept ${delivered.id}`), 'the hook delivered the next gate');
       const count = (await plan.prints()).length;
-      const again = await plan.fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: plan.fx.scratchpad });
+      const again = await plan.fx.engine.advance({ task: PLAN_TASK, cause: 'route-next', scratchpadDir: plan.fx.scratchpad });
       assert.match(again.text, new RegExp(`plan-accept ${delivered.id}`));
       assert.equal((await plan.prints()).length, count);
     } finally {
@@ -206,7 +210,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
     try {
       await plan.toGate();
       const print = (await plan.prints()).at(-1)!;
-      await plan.fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      await plan.fx.engine.advance({ task: PLAN_TASK, cause: 'route-next', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
       await hook(plan, answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept'));
@@ -222,7 +226,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
       try {
         await plan.toGate();
         const print = (await plan.prints()).at(-1)!;
-        const output = await answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept') } as never, { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }, { askBinding: 'supported', answerContext });
+        const output = await answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept') } as never, { engine: plan.fx.engine, routes: plan.fx.routes }, { repositoryRoot: plan.fx.repo.root, where: '.' }, { askBinding: 'supported', answerContext });
         const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
         assert.deepEqual([acceptance['via'], acceptance['instance'], acceptance['answer']], ['hook', print.id, 'Accept']);
         assert.equal(output !== null, expected);
@@ -250,7 +254,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
     try {
       await plan.toGate();
       const platform = { askBinding: 'supported', answerContext: 'unsupported' } as const;
-      const run = (event: object) => answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }, platform);
+      const run = (event: object) => answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, { engine: plan.fx.engine, routes: plan.fx.routes }, { repositoryRoot: plan.fx.repo.root, where: '.' }, platform);
       await run(answered('Which database?', 'postgres'));
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).length, 0);
       await run(answered('Accept this plan?', 'Accept'));
@@ -314,19 +318,6 @@ describe('03-H6 MCP capture with a route', () => {
 });
 
 describe('04-B hook binding', () => {
-  it('04-B6: with no active route a candidate-named server is still ignored before any config load or ledger read', async () => {
-    const plan = await planFixture();
-    try {
-      const reads: string[] = [];
-      const fs: FileSystem = new Proxy(plan.fx.runtime.fs, { get: (target, key) => (typeof key === 'string' && key.startsWith('read') ? (...args: unknown[]) => (reads.push(String(args[0])), (target as never as Record<string, (...rest: unknown[]) => unknown>)[key]!(...args)) : (target as never as Record<string | symbol, unknown>)[key]) });
-      const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: {} }), deps(plan));
-      assert.deepEqual(output, {});
-      assert.deepEqual(reads.filter((file) => /config\.yaml|ledger\.jsonl/.test(file)), []);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
   it('04-B2: with no server configured a call naming an asked key is captured', async () => {
     const plan = await planFixture();
     try {
@@ -341,13 +332,13 @@ describe('04-B hook binding', () => {
 });
 
 describe('03-H7 SessionEnd', () => {
-  it('removes the pointer, ended-route and stop cursors with the rest of the session state', async () => {
+  it('removes the delivery markers and the headless marker with the rest of the session state', async () => {
     const plan = await planFixture();
     try {
       await plan.start();
       await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       await hook(plan, { hook_event_name: 'SessionEnd' });
-      assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
+      assert.equal(existsSync(path.join(plan.fx.scratchpad, HOOK_STATE_DIR_NAME)), false);
     } finally {
       await plan.dispose();
     }
@@ -359,7 +350,7 @@ describe('Agent PostToolUse', () => {
     const plan = await planFixture();
     try {
       let loads = 0;
-      const counting: HookDeps = { pointer: plan.fx.pointer, load: async (...args) => (loads += 1, deps(plan).load(...args)) };
+      const counting: HookDeps = { load: async (...args) => (loads += 1, deps(plan).load(...args)) };
       const event = { hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'Explore' }, tool_response: { status: 'completed', content: [] } };
       assert.deepEqual(await runHook(plan.fx.runtime, JSON.stringify(event), counting), {});
       assert.equal(loads, 0);

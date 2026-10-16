@@ -7,13 +7,12 @@ import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { isSearchable } from '#util/path-classes';
 import { harvest } from './harvest.ts';
+import { tooBroad } from './refs.ts';
 import type { Runtime } from '#types/composition';
 import { COMMON_NAMES, LAYER_NAMES, type Declaration, type LayerName, type MapCandidate, type MapSymbol } from '#types/modules/search';
 
 export const MAP_LIMIT_BYTES = 6144;
 /** Wider than this many files, a term describes the project (`src`, a company name), not a boundary; the floor keeps tiny projects out of the rule. */
-const TOO_BROAD_SHARE = 0.6;
-const TOO_BROAD_MIN_FILES = 5;
 const TOP_FILES = 8;
 /** Harvested names take the second half of a full term list, so a full first pass still lets them in. */
 const PASS2_NAMES = 6;
@@ -93,7 +92,8 @@ async function shortlist(git: Git, files: readonly string[], pathspec: string | 
     const places = new Map<string, 'directory' | 'filename'>();
     for (const file of files) for (const form of spellingsOf(term)) { const hit = pathHit(file.toLowerCase(), form); if (hit !== null && places.get(file) !== 'filename') places.set(file, hit); }
     const touched = new Set([...places.keys(), ...content]);
-    if (touched.size >= TOO_BROAD_MIN_FILES && touched.size > files.length * TOO_BROAD_SHARE) return void limitations.push(`"${term}" matched ${touched.size} of ${files.length} files; ignored`);
+    const broad = tooBroad(term, touched.size, files.length);
+    if (broad !== null) return void limitations.push(broad);
     for (const [file, place] of places) {
       const row = entry(file);
       row.score += SCORE[place];
@@ -175,9 +175,9 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
       } else {
         const words = [...new Set([...(input.symbols ?? []), ...pass1.filter(isIdentifierLike)])].filter((word) => !COMMON_NAMES.has(word));
         const perWord = await inBatches(words, async (word) => (await git.grepWords([word], pathspec)).filter(isSearchable));
-        const broad = (count: number): boolean => count >= TOO_BROAD_MIN_FILES && count > files.length * TOO_BROAD_SHARE;
-        words.forEach((word, at) => { if (broad(perWord[at]!.length)) limitations.push(`"${word}" matched ${perWord[at]!.length} of ${files.length} files; ignored`); });
-        const found = [...new Set(perWord.filter((hit) => !broad(hit.length)).flat())];
+        const notes = words.map((word, at) => tooBroad(word, perWord[at]!.length, files.length));
+        limitations.push(...notes.filter((note) => note !== null));
+        const found = [...new Set(perWord.filter((_, at) => notes[at] === null).flat())];
         merge(found.map((path) => ({ path, score: SCORE.content, reasons: [`contains the word ${words.length === 1 ? `"${words[0]}"` : 'of the request'}`] })));
         hits = found.length;
       }

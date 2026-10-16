@@ -59,21 +59,21 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
-      for (const name of ['plan/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      for (const name of ['investigate/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
       const engine = assembled.build(skillHandlers());
       const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
-      const deps = { engine, routes: assembled.routes, pointer: assembled.pointer };
+      const deps = { engine, routes: assembled.routes };
       let ceremony = 0;
       let work = 0;
       const hook = async (question: string, label: string, options: string[]) => {
         ceremony += 1;
-        return answerGates(assembled.runtime, answered(root, scratchpad, question, label, options) as never, deps, PLATFORM);
+        return answerGates(assembled.runtime, answered(root, scratchpad, question, label, options) as never, deps, { repositoryRoot: root, where: '.' }, PLATFORM);
       };
       const check = async (text: string) => {
         work += 1;
         await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', 'plan-body.md'), text);
-        return engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: scratchpad });
+        return engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: scratchpad });
       };
 
       ceremony += 1;

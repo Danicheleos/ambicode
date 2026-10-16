@@ -1,7 +1,7 @@
 import { dirKindFor } from '#types/defaults';
-import { findSessionRepository } from '#platform/git/session-repository';
+import type { SessionRepository } from '#types/composition';
 import { AskUserQuestionResponse, type HookInput, type RouteHookDeps } from '#types/hook';
-import { resolveActiveRoute } from '#harness/session/active-route';
+import { liveRouteOf } from '#harness/session/active-route';
 import { readLedger } from '#platform/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { PLATFORM, type PlatformFlags } from '#types/platform/claude';
@@ -35,14 +35,13 @@ async function gateAnswers(input: HookInput, entries: readonly { kind: string; g
 }
 
 /** PostToolUse on AskUserQuestion: record the answers against the printed instances and advance (03-H5). */
-export async function answerGates(runtime: Runtime, input: HookInput, deps: RouteHookDeps, platform: PlatformFlags = PLATFORM): Promise<string | null> {
+export async function answerGates(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository, platform: PlatformFlags = PLATFORM): Promise<string | null> {
   if (input.agent_id !== undefined || input.tool_name !== 'AskUserQuestion' || platform.askBinding !== 'supported') return null;
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
   if (typeof found === 'string') return null;
-  const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
   if (active === null) return null;
   const answers = await gateAnswers(input, await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill)).root));
   if (answers.length === 0) return null;
-  const message = await deps.engine.advance({ task: active.task, session: active.owner, cause: 'gate-hook', answers, ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
+  const message = await deps.engine.advance({ task: active.task, cause: 'gate-hook', answers, ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
   return platform.answerContext === 'supported' ? message.text : null;
 }

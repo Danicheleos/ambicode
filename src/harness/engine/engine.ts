@@ -3,50 +3,38 @@ import { loadConfig } from '#modules/config/load';
 import { hasRequirement, requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { saveNote } from '#modules/evidence/notes';
-import { mintTaskSlug } from '#modules/evidence/task/slug';
-import { resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { NAMED_ITERATION, TASK_PATH } from '#modules/evidence/task/slug';
+import { resolveTaskDir, taskDirFor, taskNameFor } from '#modules/evidence/task/task-dir';
 import { dirKindFor } from '#types/defaults';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
-import { contentHash } from '#util/hash';
-import { markStepDelivered } from '../session/active-route.ts';
-import { exitRoute, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
-import { checkOwner, commandContext, ledgerUnreadable, readEntries } from './context.ts';
-import { canonicalArgs } from '../definition/flags.ts';
-import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, windowOf } from './fold.ts';
+import { markHeadless, markStepDelivered, sessionRoutes } from '../session/active-route.ts';
+import { exitRoute, recordFlagAnswer, recordHookAnswer, unknownGate } from '../gates/answers.ts';
+import { commandContext, entriesOf, readEntries, routeNotOpen } from './context.ts';
+import { canonicalArgs, parseAnswerFlag } from '../definition/flags.ts';
+import { buildChain, exitOf, foldRoute, liveHeads, windowOf } from './fold.ts';
 import { stopHook } from './stop.ts';
-import { harnessOf } from '../session/harness.ts';
-import { EXPLICIT, createExecutor, isClosing, quiet } from './execute.ts';
-import { OWNING_SKILLS, ownerOf } from '#modules/evidence/ownership';
-import { append, chainOf, latestPrint } from './run-context.ts';
-import { sessionUnbound, taskSessionSource } from '../session/session.ts';
+import { EXPLICIT, createExecutor, isClosing } from './execute.ts';
+import { append, chainOf, closeRoute, latestPrint } from './run-context.ts';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
-import type { ActiveRoutePointer, AdvanceInput, Answer, CommandName, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, SessionBinding, StartChannel, StartInput, StepMessage } from '#types/harness';
+import type { AdvanceInput, Answer, CommandName, RouteArgs, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, StartInput, StepMessage } from '#types/harness';
 import type { DeliveryChannel, Part, Run } from '../types/engine.ts';
 
 export type { Answer } from '#types/harness';
 
-interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer }
+interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry }
 
 const inside = new AsyncLocalStorage<true>();
 /** Handlers run inside the engine; a command tail started from one would advance twice (03-T3). */
 export const insideEngine = (): boolean => inside.getStore() === true;
 
 export function createEngine(deps: EngineDeps): Engine {
-  const { runtime, routes, handlers, pointer } = deps;
+  const { runtime, routes, handlers } = deps;
   const context = commandContext({ runtime, routes });
   const now = (): Date => runtime.clock.now();
   const cli = `node "${runtime.pluginRoot}/scripts/ambicode.mjs"`;
 
-  const unreadable = (task: string, reason: string): AmbicodeError => ledgerUnreadable(task, reason);
-
-  async function readStrict(ledger: LockedLedger, task: string): Promise<LedgerEntry[]> {
-    const read = await ledger.read();
-    if (read.state === 'unreadable') throw unreadable(task, read.reason);
-    return read.state === 'ok' ? read.entries : [];
-  }
-
-  function newRun(input: { runtime: Runtime; def: Run['def']; task: string; dir: TaskDir; ledger: LockedLedger; entries: LedgerEntry[]; head: LedgerEntry; session: string; stateKey: string; cause: string; channel: DeliveryChannel; scratchpadDir?: string; deliverOnly?: boolean }): Run {
+  function newRun(input: { runtime: Runtime; def: Run['def']; task: string; dir: TaskDir; ledger: LockedLedger; entries: LedgerEntry[]; head: LedgerEntry; session: string; cause: string; channel: DeliveryChannel; scratchpadDir?: string; deliverOnly?: boolean }): Run {
     const written: string[] = [];
     const tracked: LockedLedger = {
       append: async (entry) => {
@@ -67,7 +55,6 @@ export function createEngine(deps: EngineDeps): Engine {
       entries: input.entries,
       head: input.head,
       session: input.session,
-      stateKey: input.stateKey,
       cause: input.cause,
       channel: input.channel,
       scratchpadDir: input.scratchpadDir,
@@ -75,6 +62,7 @@ export function createEngine(deps: EngineDeps): Engine {
       written,
       notes: [],
       exited: null,
+      restart: false,
     };
   }
 
@@ -86,13 +74,35 @@ export function createEngine(deps: EngineDeps): Engine {
     return dir === undefined ? {} : { scratchpadDir: dir };
   }
 
-  async function closePointer(run: Run, part: Part): Promise<void> {
-    if (part.position === 'complete' || run.exited !== null || exitOf(chainOf(run)) !== null) {
-      await pointer.clear(run.stateKey, run.scratchpadDir);
-    } else {
-      await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session, headless: run.head['mode'] === 'headless' });
-      await markStepDelivered(run.runtime.fs, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
-    }
+  async function settle(run: Run, part: Part): Promise<void> {
+    const live = part.position !== 'complete' && run.exited === null && exitOf(chainOf(run)) === null;
+    await markHeadless(run.runtime.fs, { session: run.session, scratchpad: run.scratchpadDir, on: live && run.head['mode'] === 'headless' });
+    if (live) await markStepDelivered(run.runtime.fs, { session: run.session, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
+  }
+
+  /** One live route per task: whatever stands is ended before another begins, whichever session started it. */
+  async function interrupt(dir: TaskDir, ledger: LockedLedger, entries: readonly LedgerEntry[]): Promise<void> {
+    for (const head of liveHeads(entries)) await closeRoute(runtime, dir, ledger, { route: head.id, reason: 'interrupted', detail: 'a new route started' });
+  }
+
+  /** The same launch again on the same task, minus `iteration N`: the new route picks the next iteration itself. */
+  function restartOf(run: Run): StartInput {
+    const args = run.head['args'] as RouteArgs;
+    return {
+      skill: run.def.skill,
+      task: run.task,
+      text: args.text.replace(NAMED_ITERATION, ' ').replace(/\s+/g, ' ').trim(),
+      requirements: args.requirements,
+      headless: args.headless,
+      answers: args.answers.map(parseAnswerFlag),
+      cwd: run.runtime.cwd,
+      session: run.session,
+      channel: run.head['channel'] as StartInput['channel'],
+      ...(args.project === null ? {} : { project: args.project }),
+      ...(args.plan === null ? {} : { plan: args.plan }),
+      ...(args.target === undefined ? {} : { target: args.target }),
+      ...scratchOf(run.head, undefined),
+    };
   }
 
   // ---------------------------------------------------------------- start
@@ -102,26 +112,12 @@ export function createEngine(deps: EngineDeps): Engine {
       const declared = def.steps.find((step) => step.gate?.id === answer.gate)?.gate;
       const gate = declared ?? routes.gate(answer.gate);
       if (gate === null || gate === undefined) {
-        throw new AmbicodeError('gate-unknown', `Route ${def.skill} has no gate "${answer.gate}".`, {
-          details: [`Gates of this route: ${def.steps.filter((step) => step.gate !== null).map((step) => step.id).join(', ') || 'none'}.`, `Registry gates: ${routes.gates().map((candidate) => candidate.id).join(', ')}.`],
-        });
+        throw unknownGate(def, routes, answer.gate);
       }
       if (gate.class !== 'decision' && !gate.options.includes(answer.option) && !gate.options.some((option) => /\{.*\}/.test(option))) {
         throw new AmbicodeError('gate-option-unknown', `Gate ${gate.id} has no option "${answer.option}".`, { details: [`Options: ${gate.options.join(', ')}.`] });
       }
     }
-  }
-
-  /** The exit a new start writes over the session's live route on another task, found through the pointer read before it was overwritten. */
-  async function supersedeIn(rt: Runtime, task: string, skill: string, session: string): Promise<void> {
-    const dir = await resolveTaskDir(rt, task, dirKindFor(skill));
-    await withLedgerLock(rt.fs, dir.root, now, session, async (ledger) => {
-      const read = await ledger.read();
-      if (read.state !== 'ok') return;
-      const head = latestRouteOf(read.entries, session);
-      if (head === null || exitOf(buildChain(read.entries, head)) !== null) return;
-      await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
-    });
   }
 
   async function start(input: StartInput): Promise<StepMessage> {
@@ -139,42 +135,24 @@ export function createEngine(deps: EngineDeps): Engine {
     const trusted = input.channel !== 'cli';
     const headless = input.headless === true;
 
-    const planFile = input.fromDraft ?? input.plan;
-    const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]tasks[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
-    const slug = input.task ?? planTask ?? (mintTaskSlug(input.requirements[0] ?? input.text) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`);
+    const slug = input.task ?? (input.plan === undefined ? undefined : TASK_PATH.exec(input.plan)?.[1]) ?? (await taskNameFor(rt, dirKindFor(input.skill), input.requirements[0] ?? input.text, input.skill));
     const dir = await resolveTaskDir(rt, slug, dirKindFor(input.skill));
     const config = (await loadConfig(rt.fs, dir.repositoryRoot)).config;
     const inputArgs = canonicalArgs({
       text: input.text,
       requirements: input.requirements,
       project: input.project ?? null,
-      plan: planFile ?? null,
-      fromDraft: input.fromDraft ?? null,
+      plan: input.plan ?? null,
       answers,
       headless,
       ...(input.target === undefined ? {} : { target: input.target }),
       hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: requirementsServer(config.requirements.mcps) }),
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
-    const stateKey = input.harnessSession ?? input.session;
-    const previous = await pointer.read(stateKey, input.scratchpadDir);
 
     const result = await withLedgerLock(rt.fs, dir.root, now, input.session, async (ledger): Promise<{ message: StepMessage; run: Run; part: Part }> => {
-      const entries = await readStrict(ledger, slug);
-      const owning = OWNING_SKILLS.has(def.skill);
-      const owner = owning ? ownerOf(entries, slug) : null;
-      if (owner?.state === 'unknown') throw unreadable(slug, owner.reason);
-      const busy = owner?.state === 'owned' && owner.session !== input.session;
-      if (busy && input.fresh !== true) {
-        throw new AmbicodeError('route-busy', `Task ${slug} has a live ${def.skill} route owned by session ${owner.session} (route ${owner.routeId}).`, {
-          details: ['Restart it (--fresh) or continue under another task: --task <slug>-2.'],
-        });
-      }
-      // A start replaces what the session was doing; another session's route goes only to --fresh, and only the plan owner's.
-      const heads = liveHeads(entries);
-      for (const head of heads.filter((candidate) => candidate['session'] === input.session || (busy && input.fresh === true && candidate.id === owner.routeId))) {
-        await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
-      }
+      const entries = entriesOf(slug, await ledger.read());
+      await interrupt(dir, ledger, entries);
 
       const head = await ledger.append({
         kind: 'route',
@@ -184,12 +162,11 @@ export function createEngine(deps: EngineDeps): Engine {
         channel: input.channel,
         trusted,
         session: input.session,
-        ...(input.harnessSession === undefined ? {} : { harnessSession: input.harnessSession }),
         ...(input.scratchpadDir === undefined ? {} : { scratchpad: input.scratchpadDir }),
         epoch: 1,
       });
       entries.push(head);
-      const active = newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head, session: input.session, stateKey, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
+      const active = newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head, session: input.session, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
       active.written.push(head.id);
       if (headless) active.notes.push(trusted ? 'Mode: headless (set by the user).' : 'Mode: headless (set by the model); the report lists it under Not verified.');
       for (const answer of answers) {
@@ -203,32 +180,28 @@ export function createEngine(deps: EngineDeps): Engine {
       const part = await execute(active);
       return { message: messageOf(active, part), run: active, part };
     });
-    await closePointer(result.run, result.part);
-    if (previous !== null && previous.task !== slug) await supersedeIn(rt, previous.task, previous.skill, previous.owner ?? input.session).catch((error: unknown) => {
-      if (!(error instanceof AmbicodeError)) throw error;
-    });
-    return result.message;
+    await settle(result.run, result.part);
+    for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug)) {
+      const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
+      await withLedgerLock(rt.fs, otherDir.root, now, input.session, async (ledger) => {
+        const read = await ledger.read();
+        if (read.state === 'ok') await interrupt(otherDir, ledger, read.entries);
+      });
+    }
+    return result.run.restart ? start(restartOf(result.run)) : result.message;
   }
 
   // ---------------------------------------------------------------- advance
 
   async function advance(input: AdvanceInput): Promise<StepMessage> {
     const dir = await resolveTaskDir(runtime, input.task);
-    const result = await withLedgerLock(runtime.fs, dir.root, now, input.session, async (ledger) => {
-      const entries = await readStrict(ledger, input.task);
-      const head = latestRouteOf(entries, input.session);
-      const def = head === null ? null : routes.route(String(head['skill']));
-      if (head === null || def === null) {
-        throw new AmbicodeError('route-not-open', `Session has no open route on task ${input.task}.`, { details: [`Start one: route start <skill> --task ${input.task}`] });
-      }
+    const result = await withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
+      const entries = entriesOf(input.task, await ledger.read());
+      const head = liveHeads(entries).at(-1);
+      const def = head === undefined ? null : routes.route(String(head['skill']));
+      if (head === undefined || def === null) throw routeNotOpen(input.task);
       const chain = buildChain(entries, head);
-      const view = { task: input.task, routeId: head.id, chainIds: [...chain.ids], skill: def.skill, session: input.session, mode: head['mode'] === 'headless' ? ('headless' as const) : ('interactive' as const), channel: head['channel'] as StartChannel, trusted: head['trusted'] === true, position: '' };
-      checkOwner(entries, view);
-      const ended = exitOf(chain);
-      if (ended !== null) {
-        throw new AmbicodeError('route-not-open', `The route on task ${input.task} ended (${quiet(ended['reason'])}).`, { details: [`Start one: route start ${def.skill} --task ${input.task}`] });
-      }
-      const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' || input.cause === 'implementer-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
+      const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: String(head['session']), cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
       if (input.produced !== undefined) run.produced = input.produced;
       const position = foldRoute(def, chain).position;
       if (position?.actor === 'model' && position.produces.length === 0 && EXPLICIT.has(input.cause)) {
@@ -243,51 +216,40 @@ export function createEngine(deps: EngineDeps): Engine {
         const open = latestPrint(chainOf(run).entries, 'project-ambiguous');
         if (open !== null) await recordFlagAnswer(run, { gate: 'project-ambiguous', option: input.project });
       }
-      if (input.revise !== undefined) {
-        if (!def.revisable.includes(input.revise)) {
-          throw new AmbicodeError('revise-not-allowed', `Step "${input.revise}" is not revisable in route ${def.skill}.`, { details: [`Revisable steps: ${def.revisable.join(', ') || 'none'}.`] });
-        }
-        if (!(await reviseTo(run, { target: input.revise, args: {} }, 'model', { reason: 'model requested' }))) run.notes.push(`Revising ${input.revise} was refused: its repeat limit is spent.`);
-      }
       const part = await execute(run);
       return { run, message: messageOf(run, part), part };
     });
-    await closePointer(result.run, result.part);
-    return result.message;
+    await settle(result.run, result.part);
+    return result.run.restart ? start(restartOf(result.run)) : result.message;
   }
 
-  async function deliver(task: string, session: string, scratchpadDir?: string): Promise<StepMessage | null> {
+  async function deliver(task: string, scratchpadDir?: string): Promise<StepMessage | null> {
     const dir = await resolveTaskDir(runtime, task);
-    return withLedgerLock(runtime.fs, dir.root, now, session, async (ledger) => {
-      const entries = await readStrict(ledger, task);
-      const head = latestRouteOf(entries, session);
-      const def = head === null ? null : routes.route(String(head['skill']));
-      if (head === null || def === null || exitOf(buildChain(entries, head)) !== null) return null;
-      const run = newRun({ runtime, def, task, dir, ledger, entries, head, session, stateKey: harnessOf(head) ?? session, cause: 'resume', channel: 'hook', ...scratchOf(head, scratchpadDir), deliverOnly: true });
+    return withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
+      const entries = entriesOf(task, await ledger.read());
+      const head = liveHeads(entries).at(-1);
+      const def = head === undefined ? null : routes.route(String(head['skill']));
+      if (head === undefined || def === null) return null;
+      const run = newRun({ runtime, def, task, dir, ledger, entries, head, session: String(head['session']), cause: 'resume', channel: 'hook', ...scratchOf(head, scratchpadDir), deliverOnly: true });
       return messageOf(run, await execute(run));
     });
   }
 
-  /**
-   * Stop after the final message: a delivered final model step has no command to end it, so its turn ending completes
-   * the route. A user-set headless session has no next turn, so a Stop anywhere else ends its route inconclusive.
-   */
-  async function stop(task: string, session: string, reason: Exit, detail: string | undefined, scratchpadDir?: string): Promise<void> {
+  async function stop(task: string, reason: Exit, detail: string | undefined, scratchpadDir?: string): Promise<void> {
     const dir = await resolveTaskDir(runtime, task);
-    const head = await withLedgerLock(runtime.fs, dir.root, now, session, async (ledger) => {
-      const entries = await readStrict(ledger, task);
-      const route = latestRouteOf(entries, session);
-      if (route === null || exitOf(buildChain(entries, route)) !== null) throw new AmbicodeError('route-not-open', `Task ${task} has no open route of this session to stop.`);
-      await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
+    const head = await withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
+      const route = liveHeads(entriesOf(task, await ledger.read())).at(-1);
+      if (route === undefined) throw routeNotOpen(task);
+      await closeRoute(runtime, dir, ledger, { route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
       return route;
     });
-    await pointer.clear(harnessOf(head) ?? session, scratchpadDir);
+    await markHeadless(runtime.fs, { session: String(head['session']), scratchpad: scratchpadDir, on: false });
   }
 
   async function closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean> {
     const dir = await resolveTaskDir(runtime, task);
     return withLedgerLock(runtime.fs, dir.root, now, routeId, async (ledger) => {
-      const entries = await readStrict(ledger, task);
+      const entries = entriesOf(task, await ledger.read());
       const head = liveHeads(entries).find((entry) => entry.id === routeId);
       const def = head === undefined ? null : routes.route(String(head['skill']));
       if (head === undefined || def === null) return false;
@@ -297,33 +259,32 @@ export function createEngine(deps: EngineDeps): Engine {
       const headless = head['mode'] === 'headless' && head['trusted'] === true;
       if (!closing && !headless) return false;
       const session = String(head['session']);
-      const run = newRun({ runtime, def, task, dir, ledger, entries, head, session, stateKey: harnessOf(head) ?? session, cause: 'stop', channel: 'hook', ...scratchOf(head, scratchpadDir), deliverOnly: true });
+      const run = newRun({ runtime, def, task, dir, ledger, entries, head, session, cause: 'stop', channel: 'hook', ...scratchOf(head, scratchpadDir), deliverOnly: true });
       if (closing) {
         await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: 'stop' });
         await execute(run);
       } else {
         await exitRoute(run, 'inconclusive', `the headless session stopped at step ${step?.id ?? 'none'}`);
       }
-      await pointer.clear(run.stateKey, run.scratchpadDir);
+      await markHeadless(runtime.fs, { session, scratchpad: run.scratchpadDir, on: false });
       return true;
     });
   }
 
   /** What `note save --kind investigation` then its command tail do, for a final message the Stop hook was handed. */
   async function answerNote(task: string, session: string, routeId: string, body: string, scratchpadDir?: string): Promise<StepMessage> {
-    await saveNote({ runtime, session, context }, { task, kind: 'investigation', body, from: null, iteration: null, route: routeId });
-    return advance({ task, session, cause: 'note save', ...(scratchpadDir === undefined ? {} : { scratchpadDir }) });
+    await saveNote({ runtime, session, context }, { task, kind: 'investigation', body, from: null, route: routeId });
+    return advance({ task, cause: 'note save', ...(scratchpadDir === undefined ? {} : { scratchpadDir }) });
   }
 
-  const stopPorts = { runtime, routes, pointer, closeFinal, answerNote };
+  const stopPorts = { runtime, routes, closeFinal, answerNote };
 
   return {
     start: (input) => inside.run(true, () => start(input)),
     advance: (input) => inside.run(true, () => advance(input)),
-    deliver: (task, session, scratchpadDir) => inside.run(true, () => deliver(task, session, scratchpadDir)),
-    stopHook: (input) => inside.run(true, () => stopHook(stopPorts, input)),
-    stop: (task, session, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, session, reason, detail, scratchpadDir)),
-    live: async (task) => liveHeads(await readEntries(runtime, task)).length > 0,
+    deliver: (task, scratchpadDir) => inside.run(true, () => deliver(task, scratchpadDir)),
+    stopHook: (input, found) => inside.run(true, () => stopHook(stopPorts, input, found)),
+    stop: (task, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, reason, detail, scratchpadDir)),
     command: (spec, request, body) => runCommand({ runtime, routes }, spec, request, body),
   };
 }
@@ -337,36 +298,24 @@ export async function runCommand<T>(
 ): Promise<T> {
   const { runtime } = deps;
   const context = commandContext(deps);
-  const binding = await taskSessionSource(request.task).resolve(runtime);
-  if (spec.route === 'owned' && binding.state === 'unbound') throw sessionUnbound(binding, request.task);
-  const session = binding.state === 'bound' ? binding.session : null;
+  const head = liveHeads(await readEntries(runtime, request.task)).at(-1);
+  if (spec.route === 'owned' && head === undefined) throw routeNotOpen(request.task);
+  const session = head === undefined ? null : String(head['session']);
   const view = session === null ? null : await context.open(request.task, session);
-  return body({ task: request.task, session, binding, view, context });
-}
-
-interface TailDeps {
-  engine: Engine;
-  /** Where the unbound notice goes: standard error, so a `--json` reader of stdout still gets one document. */
-  warn?: (line: string) => void;
+  return body({ task: request.task, session, view, context });
 }
 
 /**
- * Called once by each evidence-writing wrapper after its own ledger write. No bound session or no open route means
- * the write stands and nothing advances (03-T1). A handler inside the engine never reaches here (03-T3).
+ * Called once by each evidence-writing wrapper after its own ledger write. No live route means the write stands and
+ * nothing advances (03-T1). A handler inside the engine never reaches here (03-T3).
  */
 export async function runCommandTail(
-  deps: TailDeps,
-  input: { task: string; cause: CommandName; session: SessionBinding; scratchpadDir?: string; produced?: readonly string[] },
+  deps: { engine: Engine },
+  input: { task: string; cause: CommandName; scratchpadDir?: string; produced?: readonly string[] },
 ): Promise<StepMessage | null> {
   if (insideEngine()) throw new Error(`The ${input.cause} tail ran inside the route engine; a handler must not call a command tail.`);
-  if (input.session.state === 'unbound') {
-    if (!(await deps.engine.live(input.task))) return null;
-    const unbound = sessionUnbound(input.session, input.task);
-    (deps.warn ?? ((line) => void process.stderr.write(`${line}\n`)))(`${unbound.message} (${input.cause}: the command's own write stands) ${unbound.details.join(' ')}`);
-    return null;
-  }
   try {
-    return await deps.engine.advance({ task: input.task, session: input.session.session, cause: input.cause, ...(input.produced === undefined ? {} : { produced: input.produced }), ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
+    return await deps.engine.advance({ task: input.task, cause: input.cause, ...(input.produced === undefined ? {} : { produced: input.produced }), ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
   } catch (error) {
     if (isAmbicodeError(error) && error.code === 'route-not-open') return null;
     throw error;

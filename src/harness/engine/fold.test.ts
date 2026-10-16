@@ -1,15 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { buildChain, exitOf, executions, foldRoute, humanRevisesLeft, isGreen, latestBound, latestRouteOf, matches, unconsumedPreanswer, windowOf } from './fold.ts';
-import { parseRegistry } from '../gates/gates.ts';
 import { loadRoute } from '../definition/routes.ts';
-import { REPO_ROOT } from '#testing/paths';
-import { KINDS, type LedgerEntry } from '#types/modules/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
-const HEAD = 'skill: demo\nversion: 3\nrevisable: [ground]\nsteps:\n';
+const HEAD = 'skill: demo\nversion: 3\nsteps:\n';
 const YAML = `${HEAD}  - id: template
     actor: code
     when: args.hasRequirement
@@ -38,9 +34,7 @@ const route = (id: string, fields: object = {}): LedgerEntry => ({ id, at: 't', 
 const done = (step: string, actor = 'code', rid = 'r1'): LedgerEntry => entry('step', { route: rid, step, actor, status: 'completed', cause: 'x' });
 
 async function def(yaml = YAML): Promise<RouteDef> {
-  const root = REPO_ROOT;
-  const registry = parseRegistry('g', await readFile(path.join(root, 'routes', 'gates.yaml'), 'utf8'), KINDS);
-  return loadRoute('demo.yaml', yaml, { root, handlers: ['h.a'], readInstruction: async () => '' }, registry);
+  return loadRoute('demo.yaml', yaml, { handlers: ['h.a'], readInstruction: async () => '' });
 }
 
 describe('fold', () => {

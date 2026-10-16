@@ -2,11 +2,6 @@
 export const LAYER_NAMES = ['shortlist', 'harvest', 'grep'] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
 
-export interface Dependent {
-  path: string;
-  reasons: string[];
-}
-
 export interface RefsResult {
   names: { name: string; hits: number; files: number; declarations: number; collides: boolean }[];
   hits: number;
@@ -21,9 +16,6 @@ export interface RefsResult {
 export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[] }
 
 export interface MapSymbol { name: string; kind: string; at: string; declarations: number; collides: boolean }
-
-/** The reviewer reads these on top of the change; eight keeps a wide change inside the input limit. */
-export const MAX_DEPENDENTS = 8;
 
 /** Names that mean nothing on their own: matching them finds the whole project. */
 export const COMMON_NAMES = new Set(['constructor', 'index', 'default', 'main', 'get', 'set', 'run', 'init', 'test', 'it', 'describe', 'props', 'state']);

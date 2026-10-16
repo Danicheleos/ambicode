@@ -2,7 +2,7 @@ import path from 'node:path';
 import { chainKey, loadPayload } from '#harness/engine/execute';
 import { isBoundAnswer } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
-import { chainEntries } from '../common.ts';
+import { chainEntries, failed } from '../common.ts';
 import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
@@ -11,7 +11,7 @@ import { runReviewChecks } from './checks.ts';
 import { GATE as CHECK_GATE } from '#types/modules/checks';
 import { baselineOf } from '#modules/checks/workspace/baseline';
 import type { LedgerEntry } from '#types/modules/evidence';
-import type { ReviewTargetArgs, RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
+import type { ReviewTargetArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
 import type { Finding, TargetSelection } from '#types/modules/review';
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
 const AGAIN_GATE = 'review-again';
@@ -117,8 +117,7 @@ const pin: Handler = async (input) => {
     await pinAssembled(runtime, bundle, { omissions: scope.omissions, ledger: scope.ledger, append: (fields) => input.ledger.append(fields) });
     return { state: 'ok', payload: null };
   } catch (error) {
-    if (!isAmbicodeError(error)) throw error;
-    return { state: 'failed', code: error.code, message: error.message, recoverable: false };
+    return failed(error);
   }
 };
 

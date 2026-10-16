@@ -43,7 +43,7 @@ export async function chainEntries(input: HandlerInput): Promise<LedgerEntry[]> 
   return read.state === 'ok' ? read.entries.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
 }
 
-const failed = (error: unknown): HandlerResult => {
+export const failed = (error: unknown): HandlerResult => {
   if (error instanceof AmbicodeError) return { state: 'failed', code: error.code, message: error.message, recoverable: false };
   throw error;
 };

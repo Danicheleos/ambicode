@@ -1,6 +1,5 @@
 skill: review
 version: 3
-revisable: []
 steps:
   - id: fetch
     actor: model

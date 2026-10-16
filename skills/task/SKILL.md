@@ -1,7 +1,7 @@
 ---
 name: task
 description: "Make one bounded code change with the record to prove it — the smallest change with its tests, formatted and checked, an independent review offered, and a report built from the ledger; it never commits, pushes, or publishes. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL to implement, or says to go ahead with or resume a plan."
-argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>] [--from-draft <file>]
+argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>]
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
 ---
@@ -9,7 +9,7 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 # Implement a change
 
 A route hands you one step at a time: the change with its tests, format, an independent review
-offered, then the report. Do what each step says; the output of the command it ends with brings the next step.
+offered, then the report. Name `iteration N` in the request to run only that iteration of the plan; without it every iteration runs from the first not done, each with its review. Do what each step says; the output of the command it ends with brings the next step.
 
 ## Git boundary
 
@@ -21,5 +21,5 @@ out of this task's review.
 If no step message appeared, start the route yourself with the arguments unchanged (they begin `$0`):
 
 ```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "<request>" [--requirement <url>]... [--plan <file>] [--from-draft <file>]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "<request>" [--requirement <url>]... [--plan <file>]
 ```

@@ -1,5 +1,9 @@
+import { dirKindFor } from '#types/defaults';
 import { AgentToolResponse, type HookInput, type HookDeps } from '#types/hook';
-import { agentReturn } from './agent-return.ts';
+import type { SessionRepository } from '#types/composition';
+import { readLedger } from '#platform/ledger/ledger';
+import { liveRouteOf } from '#harness/session/active-route';
+import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { pendingReview, REVIEWER_AGENT_TYPE } from '#modules/review/answer/captured';
 import { recordReviewerAnswer, renderRecord, type RecordedReview } from '#skills/review/record-answer';
 import { HOOK_LIMIT } from '#harness/engine/execute';
@@ -20,10 +24,13 @@ const answerText = (input: HookInput): string => (AgentToolResponse.safeParse(in
  * A background launch has no answer yet (`async_launched`); `review record` takes it on stdin.
  * Null means this call is not a pending review's answer.
  */
-export async function recordReviewerCall(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
-  const call = await agentReturn(runtime, input, deps, { type: REVIEWER_AGENT_TYPE, statuses: ['completed'] });
-  if (call === null || pendingReview(call.entries, null) === undefined) return null;
-  const { repositoryRoot, active } = call;
+export async function recordReviewerCall(runtime: Runtime, input: HookInput, deps: HookDeps, found: SessionRepository): Promise<string | null> {
+  if (input.agent_id !== undefined || input.tool_name !== 'Agent' || !REVIEWER_AGENT_TYPE.test(input.tool_input?.subagent_type ?? '')) return null;
+  if (AgentToolResponse.safeParse(input.tool_response).data?.status !== 'completed') return null;
+  if (typeof found === 'string') return null;
+  const { repositoryRoot } = found;
+  const active = await liveRouteOf(runtime.fs, repositoryRoot, input.session_id);
+  if (active === null || pendingReview(await readLedger(runtime.fs, taskDirFor(repositoryRoot, active.task, '.', dirKindFor(active.skill)).root), null) === undefined) return null;
 
   const cli = `node "${runtime.pluginRoot}/scripts/ambicode.mjs"`;
   let recorded;
@@ -33,7 +40,7 @@ export async function recordReviewerCall(runtime: Runtime, input: HookInput, dep
     return `[ambicode] The reviewer's answer was not recorded automatically (${messageOf(error)}). Run \`${cli} review record --task ${active.task}\`; paste the subagent's JSON block on standard input if asked.`;
   }
   try {
-    const message = await (await deps.load(repositoryRoot)).engine.advance({ task: active.task, session: active.owner, cause: 'review-hook', produced: [recorded.entryId], ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
+    const message = await (await deps.load(repositoryRoot)).engine.advance({ task: active.task, cause: 'review-hook', produced: [recorded.entryId], ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
     return contextOf(recorded, message.text);
   } catch (error) {
     return `${contextOf(recorded)}\n\n[ambicode] The review is recorded, but the route did not advance (${messageOf(error)}). Run \`${cli} route next --task ${active.task}\`.`;

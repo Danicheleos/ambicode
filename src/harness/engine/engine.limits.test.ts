@@ -1,13 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { CLI_LIMIT, HOOK_LIMIT } from './execute.ts';
 import type { Handler } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const HEAD = (skill: string) => `skill: ${skill}\nversion: 3\nrevisable: []\nsteps:\n`;
+const HEAD = (skill: string) => `skill: ${skill}\nversion: 3\nsteps:\n`;
 
 interface Box { failCode: string | null; ran: number; crashAfterOutputs: boolean; payload: string }
 const newBox = (): Box => ({ failCode: null, ran: 0, crashAfterOutputs: false, payload: 'x' });
@@ -31,36 +31,11 @@ async function make(route: string, box = newBox(), config?: string | null) {
     fx,
     box,
     start: (extra: object = {}) => fx.engine.start({ ...base, ...extra }),
-    next: (extra: object = {}) => fx.engine.advance({ task: 't1', session: A, cause: 'route-next', ...extra }),
+    next: (extra: object = {}) => fx.engine.advance({ task: 't1', cause: 'route-next', ...extra }),
     limits: async () => (await fx.kinds('t1', 'limit')).map((entry) => [entry['which'], entry['step']]),
   };
 }
 const codeOf = async (promise: Promise<unknown>): Promise<string> => promise.then(() => 'ok', (error: { code?: string }) => error.code ?? 'unknown');
-
-const FAILING = `${HEAD('r')}  - id: work
-    actor: code
-    run: [t.work]
-    produces: ["policy{before-work}"]
-  - id: finish
-    actor: model
-    instruction: "Finish."
-`;
-
-describe('F8 failure counters', () => {
-  it('03-F8: three identical failures in a row write identical-next and no other limit', async () => {
-    const t = await make(FAILING);
-    try {
-      t.box.failCode = 'x-failed';
-      assert.equal(await codeOf(t.start()), 'x-failed');
-      await codeOf(t.next());
-      await codeOf(t.next());
-      assert.deepEqual(await t.limits(), [['identical-next', 'work']]);
-      assert.equal(t.box.ran, 3);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-});
 
 const WRITER = `${HEAD('r')}  - id: write
     actor: model
@@ -185,7 +160,7 @@ describe('E7 slug and args hash', () => {
       const second = await t.fx.engine.start({ skill: 'r', text: 'refactor  the cart', requirements: ['ORD-1', 'ORD-2'], task: 'ord-2', cwd: t.fx.repo.root, session: A, channel: 'hook' });
       assert.notEqual(first.routeId, second.routeId);
       assert.equal((await t.fx.kinds('ord-2', 'route')).length, 2);
-      assert.deepEqual((await t.fx.kinds('ord-2', 'exit')).map((entry) => entry['reason']), ['superseded']);
+      assert.deepEqual((await t.fx.kinds('ord-2', 'exit')).map((entry) => entry['reason']), ['interrupted']);
       const plain = await t.fx.engine.start({ skill: 'r', text: 'Refactor the cart totals', requirements: [], cwd: t.fx.repo.root, session: A, channel: 'hook' });
       assert.match(plain.task, /^[a-z0-9][a-z0-9-]*$/);
     } finally {

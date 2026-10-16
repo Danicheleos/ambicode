@@ -126,11 +126,11 @@ describe('context listing of nested notes', () => {
   });
 
   it('lists every level while at most 20 lines result, indented, in directory order', () => {
-    const names = ['modules/src.md', 'modules/src/a.md', 'modules/src/a/x.md', 'modules/src/a/x/y.md', 'modules/src/b.md', 'modules/src-old.md', 'modules/src.b.md'];
+    const names = ['modules/src/overview.md', 'modules/src/a/overview.md', 'modules/src/a/x/overview.md', 'modules/src/a/x/y.md', 'modules/src/b.md', 'modules/src-old.md', 'modules/src.b.md'];
     assert.deepEqual(renderListing(names.map((name) => file(name)), BIG).split('\n'), [
-      'modules/src.md  src module  ~100 tokens',
-      '  modules/src/a.md  src/a module  ~100 tokens',
-      '    modules/src/a/x.md  src/a/x module  ~100 tokens',
+      'modules/src/overview.md  src/overview module  ~100 tokens',
+      '  modules/src/a/overview.md  src/a/overview module  ~100 tokens',
+      '    modules/src/a/x/overview.md  src/a/x/overview module  ~100 tokens',
       '      modules/src/a/x/y.md  src/a/x/y module  ~100 tokens',
       '  modules/src/b.md  src/b module  ~100 tokens',
       'modules/src-old.md  src-old module  ~100 tokens',
@@ -140,11 +140,11 @@ describe('context listing of nested notes', () => {
   });
 
   it('beyond 20 lines keeps the deepest level that fits and counts the rest on their ancestor', () => {
-    const names = ['modules/src.md'];
-    for (let i = 0; i < 10; i += 1) names.push(`modules/src/m${i}.md`, `modules/src/m${i}/a.md`, `modules/src/m${i}/b.md`, `modules/src/m${i}/b/c.md`);
+    const names = ['modules/src/overview.md'];
+    for (let i = 0; i < 10; i += 1) names.push(`modules/src/m${i}/overview.md`, `modules/src/m${i}/a.md`, `modules/src/m${i}/b/overview.md`, `modules/src/m${i}/b/c.md`);
     const lines = renderListing(names.map((name) => file(name)), BIG).split('\n');
-    assert.equal(lines[0], 'modules/src.md  src module  ~100 tokens');
-    assert.equal(lines[1], '  modules/src/m0.md  src/m0 module  ~100 tokens  (+3 notes below)');
+    assert.equal(lines[0], 'modules/src/overview.md  src/overview module  ~100 tokens');
+    assert.equal(lines[1], '  modules/src/m0/overview.md  src/m0/overview module  ~100 tokens  (+3 notes below)');
     assert.equal(lines.length, 1 + 10 + 2);
     assert.match(lines.at(-2)!, /^notes below are named in the Submodules section/);
     assert.ok(!lines.some((line) => line.includes('/a.md') || line.includes('/c.md')));
@@ -232,6 +232,19 @@ describe('module notes', () => {
     assert.equal(noteOf('.github/ci'), 'modules/.github/ci.md');
   });
 
+  it('a module with submodules keeps its note inside its folder as overview.md; a leaf stays <dir>.md', () => {
+    const modules = tree([...many('main', 4), ...many('main/utils', 3)]).modules;
+    assert.deepEqual(modules.map((module) => module.note), ['modules/main/overview.md', 'modules/main/utils.md']);
+    assert.equal(noteOf('main', true), 'modules/main/overview.md');
+  });
+
+  it('context write accepts modules/<dir>/overview.md beside a leaf note (the old parent path is also still accepted: the rule sees one file at a time)', async (t) => {
+    const root = await sandbox(t);
+    const out = await writeContext(nodeFileSystem, root, bundle(['modules/main/overview.md', '# main module\n'], ['modules/main/utils.md', '# main/utils module\n']), LIMITS, false);
+    assert.deepEqual(out.check.problems, []);
+    assert.deepEqual(out.written, ['modules/main/overview.md', 'modules/main/utils.md']);
+  });
+
   it('the cap follows maxTotalTokens: (60000 - 3000) / 400 = 142 with the defaults', () => {
     assert.equal(maxModulesFor({ maxTotalTokens: 60000, maxFileTokens: 2500 }), 142);
     assert.equal(maxModulesFor({ maxTotalTokens: 100, maxFileTokens: 50 }), 1);
@@ -240,7 +253,7 @@ describe('module notes', () => {
   it('renderTree prints one line per module with its note, directory, depth, subtree files and submodules', () => {
     const text = renderTree(tree([...many('src/a', 4), ...many('src/a/deep', 3)], ['src']));
     assert.deepEqual(text.split('\n').slice(1), [
-      'modules/src/a.md  dir src/a  depth 2  files 7  submodules: modules/src/a/deep.md',
+      'modules/src/a/overview.md  dir src/a  depth 2  files 7  submodules: modules/src/a/deep.md',
       'modules/src/a/deep.md  dir src/a/deep  depth 3  files 3',
     ]);
   });

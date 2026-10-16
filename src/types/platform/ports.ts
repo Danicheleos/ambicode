@@ -44,8 +44,8 @@ export interface FileSystem {
 
 export interface IdSource {
   reviewId(): string;
-  /** Names the holder of a route; recorded in the ledger, never a grant of consent. */
-  ownerId(): string;
+  /** The session id of a route started outside Claude Code, where no `CLAUDE_CODE_SESSION_ID` is set. */
+  sessionId(): string;
   /** URL-safe capability with at least 128 bits of entropy. */
   capability(): string;
   csrfToken(): string;

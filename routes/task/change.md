@@ -1,6 +1,5 @@
 # Implement the change
-Invoke the `ambicode:implementer` subagent with the Agent tool and `run_in_background: false`: a background implementer outlives the turn. Its prompt:
-`Implement the work described in {work}. The code is in the checkout.`
-The hook prints the touched files and the next step when it returns; follow that.
+Launch the `ambicode:implementer` subagent on {work}: `Implement the work described in {work}. The code is in the checkout.`
+When it returns, run the Then command.
 - Do not edit the code yourself, and do not run tests: the implementer records the green check.
 - Keep its `Changed:` list for the final report.

@@ -1,9 +1,9 @@
 import type { TypedEntry } from '#platform/ledger/kinds';
-import type { Runtime } from './composition.ts';
+import type { Runtime, SessionRepository } from './composition.ts';
 import type { HookInput, StopHookOutput } from './hook.ts';
 import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './modules/evidence.ts';
 
-export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded'] as const;
+export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'interrupted'] as const;
 
 export type Exit = (typeof EXITS)[number];
 
@@ -18,8 +18,9 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'plan.isDraft' | 'revised' }
-  | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string };
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'iterations.continue' | 'revised' }
+  | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string }
+  | { predicate: 'any'; of: When[] };
 
 export interface GateDef {
   id: string;
@@ -46,7 +47,6 @@ export interface RouteArgs {
   requirements: readonly string[];
   project: string | null;
   plan: string | null;
-  fromDraft: string | null;
   answers: readonly string[];
   headless: boolean;
   hasRequirement: boolean;
@@ -66,7 +66,7 @@ export const HANDLER_NAMES = [
   'evidence.notes.promote',
   'task.start',
   'task.report',
-  'task.iterations',
+  'task.continue',
   'checks.baseline',
   'checks.preflight',
   'checks.format',
@@ -100,7 +100,6 @@ export interface StepDef {
 export interface RouteDef {
   skill: string;
   version: 3;
-  revisable: readonly string[];
   steps: readonly StepDef[];
 }
 
@@ -115,9 +114,9 @@ export type StartChannel = 'hook' | 'cli';
 
 export type CommandName =
   | 'requirements normalize' | 'check' | 'policy check --drafts' | 'rules apply'
-  | 'note save' | 'note promote' | 'review record';
+  | 'note save' | 'review record';
 
-export type Cause = 'route-next' | 'gate-hook' | 'review-hook' | 'implementer-hook' | CommandName;
+export type Cause = 'route-next' | 'gate-hook' | 'review-hook' | CommandName;
 
 export type AcceptanceEntry = Extract<TypedEntry, { kind: 'acceptance' }>;
 
@@ -139,12 +138,9 @@ export type ConsentResult =
 
 /** What a guarded command may ask of the route it speaks for; the engine builds it, modules only read through it. */
 export interface CommandContext {
-  resolve(task: string, session: string): Promise<RouteView | null>;
-  /** Like `resolve`, but null once the route has ended. */
+  /** The session's route on the task, null once it has ended. */
   open(task: string, session: string): Promise<RouteView | null>;
-  assertOwner(view: RouteView): Promise<void>;
   window(view: RouteView, stepId: string): Promise<readonly LedgerEntry[]>;
-  object(view: RouteView, gateId: string): Promise<ArtifactRef | null>;
   consent(view: RouteView, gateId: string, binding?: object): Promise<ConsentResult>;
   /** The task ledger, read strictly. */
   entries(task: string): Promise<LedgerEntry[]>;
@@ -152,7 +148,7 @@ export interface CommandContext {
   raise(ledger: LockedLedger, view: RouteView, input: { gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy: string; openAt?: string }): Promise<LedgerEntry>;
 }
 
-/** One guarded command a skill declares: `owned` refuses unless exactly one live route binds the call to an owner. */
+/** One guarded command a skill declares: `owned` refuses unless the task has a live route. */
 export interface GuardedCommand {
   name: string;
   skill: string;
@@ -161,10 +157,9 @@ export interface GuardedCommand {
 
 export interface CommandScope {
   task: string;
-  /** The owner of the task's one live route, null when none or several. */
+  /** The session of the task's live route, null when it has none. */
   session: string | null;
-  binding: SessionBinding;
-  /** The session's open route, null without one. */
+  /** The task's live route, null without one. */
   view: RouteView | null;
   context: CommandContext;
 }
@@ -177,26 +172,20 @@ export interface StartInput {
   headless?: boolean;
   project?: string;
   answers?: readonly Answer[];
-  fresh?: boolean;
   cwd: string;
-  /** The route's owner: an opaque key the engine only compares. */
+  /** The Claude session the route belongs to; keys the hook state. */
   session: string;
-  /** The Claude session a hook started it for; recorded on the route and keys the hook's own state. */
-  harnessSession?: string;
   channel: StartChannel;
   scratchpadDir?: string;
-  /** `--plan <file>`: the plan a task route implements; `--from-draft <file>`: a draft, implemented anyway. */
+  /** `--plan <file>`: the plan a task route implements. */
   plan?: string;
-  fromDraft?: string;
   /** Review only (08-R2); part of the args hash when present. */
   target?: ReviewTargetArgs;
 }
 
 export interface AdvanceInput {
   task: string;
-  session: string;
   answers?: readonly (Answer & { question?: string })[];
-  revise?: string;
   project?: string;
   cause: Cause;
   scratchpadDir?: string;
@@ -217,14 +206,12 @@ export interface StepMessage {
 export interface Engine {
   start(input: StartInput): Promise<StepMessage>;
   advance(input: AdvanceInput): Promise<StepMessage>;
-  /** Fold and deliver the session's open route again, writing and running nothing (03-E2). */
-  deliver(task: string, session: string, scratchpadDir?: string): Promise<StepMessage | null>;
+  /** Fold and deliver the task's live route again, writing and running nothing (03-E2). */
+  deliver(task: string, scratchpadDir?: string): Promise<StepMessage | null>;
   /** Stop: the checks on the final message under one ledger lock and the single block they may cause. */
-  stopHook(input: HookInput): Promise<StopHookOutput | null>;
-  /** Ends the session's open route with an `exit` entry and clears its pointer. */
-  stop(task: string, session: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;
-  /** Whether the task has a route no exit has closed. */
-  live(task: string): Promise<boolean>;
+  stopHook(input: HookInput, found: SessionRepository): Promise<StopHookOutput | null>;
+  /** Ends the task's live route with an `exit` entry. */
+  stop(task: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;
   /** Runs a guarded command's body with the route the call speaks for resolved and its context supplied. */
   command<T>(spec: GuardedCommand, request: { task: string }, body: (scope: CommandScope) => Promise<T>): Promise<T>;
 }
@@ -250,7 +237,7 @@ export interface HandlerInput {
  * makes an approval revise that step; the print stays open at the running one.
  */
 export type HandlerResult =
-  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string; exitDetail?: string }
+  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string; exitDetail?: string; restart?: boolean }
   | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>> } }
   | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy?: string };
 
@@ -258,24 +245,8 @@ export type Handler = (input: HandlerInput) => Promise<HandlerResult>;
 
 export interface HandlerRegistry {
   get(name: string): Handler | null;
-  names(): readonly string[];
 }
 
 export const MARKER = /\[ambicode gate ([\w:.-]+)(?: ([\w-]+))?\]/;
-
-export interface ActiveRoutePointer {
-  write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string; headless?: boolean }): Promise<void>;
-  clear(session: string, scratchpad: string | undefined): Promise<void>;
-  read(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; owner?: string } | null>;
-}
-
-export type PlanOwnership =
-  | { task: string; state: 'owned'; session: string; routeId: string; chainIds: string[] }
-  | { task: string; state: 'none' }
-  | { task: string; state: 'unknown'; reason: string };
-
-export type SessionBinding =
-  | { state: 'bound'; session: string; via: 'hook' | 'task' }
-  | { state: 'unbound'; reason: 'missing' | 'stale' | 'ambiguous' };
 
 export const RAISED_BY = '$raisedBy';

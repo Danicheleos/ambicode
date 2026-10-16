@@ -32,7 +32,7 @@ export async function investigation() {
   await fx.repo.write('src/cart.ts', 'export function addToCart(items: string[], item: string): string[] {\n  return [...items, item];\n}\n');
   await fx.repo.write('src/checkout.ts', "import { addToCart } from '../cart.ts';\n\nexport const checkout = (): string[] => addToCart([], 'book');\n");
   await fx.repo.commitAll('cart');
-  const hooked = hookRunner(fx, fx.runtime, { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) });
+  const hooked = hookRunner(fx, fx.runtime, { load: async () => ({ engine: fx.engine, routes: fx.routes }) });
   return {
     fx,
     hooked,

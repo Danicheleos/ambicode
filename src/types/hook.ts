@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Engine, RouteRegistry, ActiveRoutePointer } from './harness.ts';
+import type { Engine, RouteRegistry } from './harness.ts';
 
 /**
  * `looseObject`: the real payload has many fields this hook never reads. A malformed
@@ -66,11 +66,10 @@ export const AgentToolResponse = z.looseObject({ status: z.string().optional(), 
 export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd'] as const;
 export const REGISTERED_HOOK_ENTRIES = 15;
 
-export interface RouteHookDeps { engine: Engine; routes: RouteRegistry; pointer: ActiveRoutePointer }
+export interface RouteHookDeps { engine: Engine; routes: RouteRegistry }
 
-/** The pointer is cheap to open; the route registry and the engine are built only by an event that needs them. */
+/** The route registry and the engine are built only by an event that needs them. */
 export interface HookDeps {
-  pointer: ActiveRoutePointer;
   /** The engine is built on the session's repository root, or on the process cwd when the session has none. */
   load(repositoryRoot: string | null): Promise<RouteHookDeps>;
 }

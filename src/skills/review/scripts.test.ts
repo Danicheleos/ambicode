@@ -25,7 +25,7 @@ describe('review scripts (C7)', () => {
       await writeFile(path.join(reviewDir, 'result.json'), JSON.stringify({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [{ id: 'ORD-1', title: 'Totals', content: 'Sum them.' }], checks: [] }));
       const ledger = (...extra: object[]) => [{ kind: 'review', result: path.relative(root, path.join(reviewDir, 'result.json')) }, ...extra].map((entry) => JSON.stringify(entry)).join('\n');
       await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger()}\n`);
-      await writeFile(path.join(taskDir, 'steps', 'payload-x-policy-before-work-review.txt'), 'RULE no-eval: never eval.');
+      await writeFile(path.join(taskDir, 'steps', 'x-policy-before-work-review.md'), 'RULE no-eval: never eval.');
       const out = run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
       assert.equal(out['payload'], `brief: ${path.join(reviewDir, 'brief.md')}`);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');

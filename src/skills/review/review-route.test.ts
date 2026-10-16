@@ -51,9 +51,8 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['fetch', 'model'], ['ground', 'code'], ['mr-fetch', 'model'], ['estimate-step', 'code'], ['estimate', 'human'], ['brief', 'code'], ['review-agent', 'model'], ['readback', 'model'], ['publish-list', 'code'], ['publish', 'human'], ['publish-run', 'model']]);
     const gate = route.steps.find((step) => step.id === 'estimate')!.gate!;
     assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['run', 'narrow', 'skip'], ['run'], 'skip']);
-    const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[]; repeat?: number };
-    // Pin and checks run in code; a check answer revises this step, so it may run twice.
-    assert.deepEqual([brief.when, brief.run, brief.repeat], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)'], 2]);
+    const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[] };
+    assert.deepEqual([brief.when, brief.run], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)']]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces: string[]; instruction: string };
@@ -310,9 +309,9 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.doesNotMatch(readback.text, /route next/);
       const steps = (await t.kinds('step')).map((entry) => `${entry['step']}:${entry['status']}`);
       assert.ok(steps.includes('review-agent:delivered') && steps.includes('readback:delivered'), steps.join(' '));
-      assert.notEqual(await t.fx.engine.deliver(CHECK_TASK, SESSION_A, t.fx.scratchpad), null, 'a resume or another prompt does not close it');
+      assert.notEqual(await t.fx.engine.deliver(CHECK_TASK, t.fx.scratchpad), null, 'a resume or another prompt does not close it');
       assert.equal((await t.kinds('exit')).length, 0);
-      await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
+      await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad }, { repositoryRoot: t.fx.repo.root, where: '.' });
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
     });
   });
@@ -320,7 +319,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
   describe('PostToolUse on Agent records the reviewer answer', () => {
     const answer = '```json\n{"findings":[],"coverageNotes":["read only the diff"]}\n```';
     const agentDone = (t: Fixture, extra: Record<string, unknown> = {}, engine = t.fx.engine) =>
-      runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'ambicode:reviewer', prompt: 'Review it' }, tool_response: { status: 'completed', content: [{ type: 'text', text: answer }] }, ...extra }), { pointer: t.fx.pointer, load: async () => ({ engine, routes: t.fx.routes, pointer: t.fx.pointer }) }) as Promise<{ hookSpecificOutput?: { hookEventName: string; additionalContext: string } }>;
+      runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'ambicode:reviewer', prompt: 'Review it' }, tool_response: { status: 'completed', content: [{ type: 'text', text: answer }] }, ...extra }), { load: async () => ({ engine, routes: t.fx.routes }) }) as Promise<{ hookSpecificOutput?: { hookEventName: string; additionalContext: string } }>;
     const pendingReview = async (t: Fixture) => {
       await t.start();
       await t.hook('estimate', 'run');
@@ -390,7 +389,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       await withReview(async (t) => {
         await pendingReview(t);
         const fs = { ...t.fx.runtime.fs, writeText: async (file: string, text: string) => (file.endsWith('report.txt') ? Promise.reject(new Error('disk full')) : t.fx.runtime.fs.writeText(file, text)) };
-        const output = await runHook({ ...t.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'ambicode:reviewer', prompt: 'Review it' }, tool_response: { status: 'completed', content: [{ type: 'text', text: answer }] } }), { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) }) as { hookSpecificOutput?: { additionalContext: string } };
+        const output = await runHook({ ...t.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'ambicode:reviewer', prompt: 'Review it' }, tool_response: { status: 'completed', content: [{ type: 'text', text: answer }] } }), { load: async () => ({ engine: t.fx.engine, routes: t.fx.routes }) }) as { hookSpecificOutput?: { additionalContext: string } };
         const recorded = (await lastReview(t))['stage'] === 'recorded';
         assert.equal(/not recorded automatically/.test(output.hookSpecificOutput?.additionalContext ?? ''), !recorded);
       });
@@ -433,6 +432,16 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       const result = JSON.parse(await readFile(path.join(t.dir, 'result.json'), 'utf8')) as { omissions: string[] };
       assert.match(result.omissions.join('\n'), /narrowed on request: only paths matching "src\/\*\*"/);
       assert.match(result.omissions.join('\n'), /narrowed on request: paths matching "docs\/\*\*"/);
+    });
+  });
+
+  // Reproduces: a flag answer takes the model revise path, which the target's default repeat 1 refuses. Not fixed (task-lifecycle P3).
+  it('08-R5: narrow given by --answer flag reprints the estimate gate instead of hitting the repeat limit', { todo: true }, async () => {
+    await withReview(async (t) => {
+      await t.start();
+      const narrowed = await t.next({ answers: [{ gate: 'estimate', option: 'narrow' }] });
+      assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), []);
+      assert.equal(narrowed.position, 'estimate');
     });
   });
 

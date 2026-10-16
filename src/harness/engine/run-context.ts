@@ -1,8 +1,11 @@
+import path from 'node:path';
 import { refOf } from '#modules/evidence/ledger-chain';
+import { renderSummary } from '#modules/evidence/report/summary';
 import { buildChain, foldRoute, matches, windowOf } from './fold.ts';
 import { instantiateGate } from '../gates/gates.ts';
 import type { GateDef } from '../definition/routes.ts';
-import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
+import type { ArtifactRef, LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
+import type { Runtime } from '#types/composition';
 import type { RouteView, StepDef } from '#types/harness';
 import type { Chain, Run } from '../types/engine.ts';
 
@@ -11,20 +14,30 @@ export const chainOf = (run: Run): Chain => buildChain(run.entries, run.head);
 /** The run's ledger tracks what it writes: the shared entry list and the run's written ids. */
 export const append = (run: Run, entry: { kind: string; [field: string]: unknown }): Promise<LedgerEntry> => run.ledger.append(entry);
 
-export function viewFor(run: Run, position: string | 'complete'): RouteView {
-  const head = run.head;
+/** Every route exit is written here: the exit entry, then the route's scratch files are removed and the task summary is rewritten. */
+export async function closeRoute(runtime: Runtime, dir: TaskDir, ledger: LockedLedger, exit: { route: string; reason: string; detail?: string; [field: string]: unknown }): Promise<void> {
+  await ledger.append({ kind: 'exit', ...exit });
+  await runtime.fs.remove(dir.steps);
+  const read = await ledger.read();
+  if (read.state === 'ok') await runtime.fs.writeText(path.join(dir.root, 'summary.md'), renderSummary(dir.slug, read.entries));
+}
+
+export function routeView(task: string, chain: Chain, position: string): RouteView {
+  const head = chain.head;
   return {
-    task: run.task,
+    task,
     routeId: head.id,
-    chainIds: [...chainOf(run).ids],
+    chainIds: [...chain.ids],
     skill: String(head['skill']),
-    session: run.session,
+    session: String(head['session']),
     mode: head['mode'] === 'headless' ? 'headless' : 'interactive',
     channel: head['channel'] as RouteView['channel'],
     trusted: head['trusted'] === true,
     position,
   };
 }
+
+export const viewFor = (run: Run, position: string): RouteView => routeView(run.task, chainOf(run), position);
 
 /** A route's own gate, or a registry gate instantiated from the values its print recorded. */
 export function gateFor(run: Run, gateId: string, print?: LedgerEntry | null): GateDef | null {

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -61,17 +60,6 @@ function postToolUse(options: {
 }
 
 describe('G/H: ambicode hook', () => {
-  it('PostToolUse on an Edit of a rule-scoped path injects nothing: the edit reminder is gone', async () => {
-    const { repo, dispose } = await fixtureWithPack();
-    try {
-      const runtime = await createRuntime({ cwd: repo.root });
-      const output = await runHook(runtime, postToolUse({ sessionId: randomUUID(), filePath: path.join(repo.root, 'src/orders/service.ts'), cwd: repo.root }));
-      assert.deepEqual(output, {});
-    } finally {
-      await dispose();
-    }
-  });
-
   it('PostToolUse on Glob drops git-ignored results under the configured entries, from a cwd above the repository', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {

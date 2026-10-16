@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { instantiateGate, registryGate } from '../gates/gates.ts';
+import { registryGate } from '../gates/gates.ts';
 import { routeRegistry, validateRouteFiles } from './routes.ts';
 import { REPO_ROOT } from '#testing/paths';
 import { HANDLER_NAMES } from '#types/harness';
@@ -11,7 +11,7 @@ import { HANDLER_NAMES } from '#types/harness';
 const HANDLERS = ['code.one', 'code.two'];
 
 const BASE = {
-  head: 'skill: demo\nversion: 3\nrevisable: []\nsteps:\n',
+  head: 'skill: demo\nversion: 3\nsteps:\n',
   code: '  - id: ground\n    actor: code\n    run: code.one\n    produces: [envelope]\n    repeat: 2\n',
   model: '  - id: read\n    actor: model\n    instruction: Read the code.\n',
   gate: [
@@ -70,7 +70,7 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
 
 test('03-R2: when accepts the fixed vocabulary and gate predicates of this route only', async (t) => {
   const withWhen = (when: string): string => `${BASE.head}${BASE.code}${BASE.gate}  - id: after\n    actor: code\n    run: code.two\n    when: "${when}"\n`;
-  for (const when of ['args.hasRequirement', 'map.empty', 'plan.isDraft', 'revised', 'gate.ask.is(Yes)']) {
+  for (const when of ['args.hasRequirement', 'map.empty', 'revised', 'gate.ask.is(Yes)']) {
     const directory = await root(t, { 'routes/demo/demo.yaml': withWhen(when) });
     await validateRouteFiles(directory, { handlers: HANDLERS });
   }
@@ -94,8 +94,6 @@ test('03-R6: revision targets are earlier steps, the firing step, $raisedBy or t
   await refuses(t, withGate('ghost'), /onAnswer\.Back: "ghost" is not a step/);
   const human = `${BASE.head}  - id: ask\n    actor: human\n    gate: { question: Q, options: [Go], default: Go }\n  - id: after\n    actor: code\n    run: code.one\n    onFail: revise ask\n`;
   await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': human }), { handlers: HANDLERS });
-  await refuses(t, `${BASE.head.replace('revisable: []', 'revisable: [ghost]')}${BASE.model}`, /revisable: "ghost" is not a step/);
-  await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': `${BASE.head.replace('revisable: []', 'revisable: [ground]')}${BASE.code}` }), { handlers: HANDLERS });
 });
 
 test('03-R7: every registry gate has a question and a default that is never acting', async () => {

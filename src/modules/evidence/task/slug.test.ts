@@ -7,7 +7,8 @@ describe('mintTaskSlug names a task from the request alone', () => {
     const a = mintTaskSlug('How does the order total validation work?');
     assert.equal(a, 'how-does-the-order-total-validation-work');
     assert.equal(mintTaskSlug('how does the Order Total validation work'), a);
-    assert.equal(mintTaskSlug('ORD-17 which files?'), 'ord-17-which-files');
+    assert.equal(mintTaskSlug('which files? ORD-17'), 'ord-17', 'an issue key names the task');
+    assert.equal(mintTaskSlug('https://inseer.atlassian.net/browse/VS-6735'), 'vs-6735');
   });
 
   it('caps the length and never ends on a hyphen', () => {

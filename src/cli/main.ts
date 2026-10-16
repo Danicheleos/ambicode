@@ -10,7 +10,7 @@ import { contextListCommand, contextTreeCommand, contextWriteCommand } from './c
 import { rulesApplyCommand } from './commands/policy/rules.ts';
 import { checkCommand } from './commands/checks/check.ts';
 import { policyCheckCommand } from './commands/policy/policy-check.ts';
-import { notePromoteCommand, noteSaveCommand } from './commands/route/note.ts';
+import { noteSaveCommand } from './commands/route/note.ts';
 import { reportCommand } from './commands/route/report.ts';
 import { mapCommand, refsCommand } from './commands/search/search.ts';
 import { requirementsNormalizeCommand } from './commands/requirements/requirements.ts';
@@ -78,7 +78,7 @@ const versionCommand: CliCommand = {
 };
 
 const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
-  configValidateCommand, configPacksCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
+  configValidateCommand, configPacksCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand,
   checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
   requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand,
 ].map((entry) => [entry.name, entry]));

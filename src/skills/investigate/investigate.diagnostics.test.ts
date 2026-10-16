@@ -44,7 +44,7 @@ describe('investigate diagnostics (07-I1)', () => {
     try {
       await check({ name: 'unit' });
       const [print] = await fx.kinds(CHECK_TASK, 'gate');
-      const after = await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
+      const after = await fx.engine.advance({ task: CHECK_TASK, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       assert.equal(after.position, 'read');
       assert.deepEqual((await fx.kinds(CHECK_TASK, 'revise')).map((entry) => entry['from']), ['read']);
       assert.equal((await check({ name: 'unit' })).outcome, 'ran');
@@ -60,7 +60,7 @@ describe('investigate diagnostics (07-I1)', () => {
     try {
       await check({ name: 'unit' });
       const [print] = await fx.kinds(CHECK_TASK, 'gate');
-      await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
+      await fx.engine.advance({ task: CHECK_TASK, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       assert.equal((await check({ name: 'e2e' })).outcome, 'waiting');
       assert.deepEqual(runner.calls, []);
     } finally {

@@ -17,8 +17,7 @@ interface AuthorizeOptions {
 export function authorizeCommand(options: AuthorizeOptions): CommandAuthorization {
   const { action } = decisionFor(options.policy, options.commandId);
 
-  // Absence is not permission, so "undeclared" refuses exactly like "forbid".
-  if (action === 'forbid' || action === 'undeclared') {
+  if (action === 'forbid') {
     return { kind: 'refused', reason: explainRefusal(options.policy, options.commandId) };
   }
 

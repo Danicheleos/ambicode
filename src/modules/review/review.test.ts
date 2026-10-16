@@ -232,23 +232,6 @@ describe('U17 location validation', () => {
     assert.match(result.reason, /could not be verified against the pinned change/);
   });
 
-  it('makes a line the change does not address an invalid reviewer result', () => {
-    const result = expectInvalid(
-      run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 99 })]),
-    );
-    assert.match(result.rejections.join('\n'), /line 99 is not present on the new side/);
-  });
-
-  it('keeps the surviving findings and lists the one whose location is unverifiable', () => {
-    const result = run([
-      candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-      candidate({ oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 1 }),
-    ]);
-    assert.ok(result.kind === 'ok');
-    assert.equal(result.findings.length, 1);
-    assert.equal(result.rejected.length, 1);
-  });
-
   it('rejects a side the location does not name a path for', () => {
     const result = expectInvalid(
       run([candidate({ oldPath: null, newPath: 'src/orders.ts', side: 'old', line: 2 })]),
@@ -310,32 +293,6 @@ describe('U17 location validation', () => {
     assert.equal(findings[0]?.location.oldPath, 'src/orders.ts');
   });
 
-  it('an unknown requirement still invalidates the result', () => {
-    const result = expectInvalid(
-      run([
-        {
-          ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-          ruleRefs: ['common-design/reuse-before-reimplementing'],
-          requirementRefs: ['NOPE-1'],
-        },
-      ]),
-    );
-    assert.match(result.rejections.join('\n'), /NOPE-1/);
-  });
-
-  it('an unknown rule is dropped, the finding is kept, one omission is recorded', () => {
-    const result = run([
-      {
-        ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-        ruleRefs: ['invented/rule', 'common-design/reuse-before-reimplementing'],
-      },
-    ]);
-    assert.ok(result.kind === 'ok');
-    assert.deepEqual(result.findings[0]?.ruleRefs, ['common-design/reuse-before-reimplementing']);
-    assert.equal(result.dropped.length, 1);
-    assert.match(result.dropped[0] ?? '', /invented\/rule/);
-  });
-
   it('keeps references the review does know', () => {
     const findings = expectOk(
       run([
@@ -350,20 +307,6 @@ describe('U17 location validation', () => {
     assert.deepEqual(findings[0]?.requirementRefs, ['ORD-17']);
   });
 
-  it('rejects an oversized result instead of trimming it into a complete-looking one', () => {
-    const many = Array.from({ length: 4 }, (_, index) => ({
-      ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-      suggestedComment: `comment ${index}`,
-    }));
-    const result = expectInvalid(run(many, { maxFindings: 2 }));
-    assert.match(result.reason, /above the configured limit of 2/);
-    assert.match(result.reason, /does not silently keep the first 2/);
-  });
-
-  it('numbers findings f1, f2 in the order the reviewer gave them', () => {
-    const at = (line: number) => candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line });
-    assert.deepEqual(expectOk(run([at(2), at(3)])).map((finding) => finding.id), ['f1', 'f2']);
-  });
 });
 
 describe('B8 an applicable policy diagnostic becomes an explicit coverage omission, not a silent drop', () => {

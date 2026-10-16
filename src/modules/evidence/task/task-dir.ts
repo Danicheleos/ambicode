@@ -3,6 +3,7 @@ import { openRepository } from '#platform/git/open';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { REVIEWS_DIR, TASKS_DIR, type DirKind } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
+import { TASK_PATH, mintTaskSlug } from './slug.ts';
 import type { Runtime } from '#types/composition';
 import { LEDGER_FILE, type TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
@@ -41,6 +42,19 @@ export async function resolveTaskDir(runtime: Runtime, slug: string, kind?: DirK
   if (await runtime.fs.exists(task.ledger)) return task;
   const review = taskDirFor(repositoryRoot, slug, where, 'review');
   return (await runtime.fs.exists(review.ledger)) ? review : task;
+}
+
+/**
+ * The task a request names: its first word as a `.ambicode/tasks/<slug>` path, or as the slug or issue key of an
+ * existing task; otherwise a new one, named by the text's issue key or slug, or by the skill when there is no text.
+ */
+export async function taskNameFor(runtime: Runtime, kind: DirKind, text: string, skill: string): Promise<string> {
+  const first = text.trim().split(/\s+/)[0] ?? '';
+  const word = first.toLowerCase();
+  const named = TASK_PATH.exec(first)?.[1];
+  if (named !== undefined) return named;
+  const existing = /^[a-z0-9][a-z0-9-]*$/.test(word) && (await runtime.fs.exists((await resolveTaskDir(runtime, word, kind)).root));
+  return existing ? word : (mintTaskSlug(text) ?? skill);
 }
 
 /**

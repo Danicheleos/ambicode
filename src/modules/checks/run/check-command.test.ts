@@ -244,7 +244,7 @@ describe('check --name (07-C)', () => {
       await start();
       await check({ name: 'e2e' });
       const [print] = await kinds(fx, 'gate');
-      await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
+      await fx.engine.advance({ task: CHECK_TASK, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       runner.out = { exitCode: 1, stdout: '  1 failed\n  3 passed\n' };
       assert.equal((await check({ name: 'e2e' })).outcome, 'ran');
       assert.equal((await check({ name: 'e2e' })).outcome, 'ran');
@@ -260,7 +260,7 @@ describe('check --name (07-C)', () => {
     try {
       await start('hook', true, { answers: [{ gate: 'check-only-unauthorized', option: 'approve' }] });
       assert.equal((await check({ name: 'e2e' })).outcome, 'waiting');
-      await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'check', scratchpadDir: fx.scratchpad });
+      await fx.engine.advance({ task: CHECK_TASK, cause: 'check', scratchpadDir: fx.scratchpad });
       assert.equal((await kinds(fx, 'acceptance')).at(-1)?.['via'], 'prompt');
       assert.equal((await check({ name: 'e2e' })).outcome, 'ran');
       assert.equal(runner.calls.length, 1);

@@ -7,7 +7,7 @@ import { cycleEntries, liveHeads } from '#modules/evidence/ledger-chain';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
-import { normalizeRelative } from '#util/paths';
+import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
 import { runOne, shellQuote } from './run.ts';
 import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
@@ -41,11 +41,8 @@ export const withLedger = <T>(deps: NoteDeps, dir: TaskDir, body: (ledger: Locke
   deps.ledger !== undefined ? body(deps.ledger) : withLedgerLock(deps.runtime.fs, dir.root, () => deps.runtime.clock.now(), deps.session ?? deps.runtime.ids.writerId(), body);
 
 /** Commands run in the project root; a repository-relative path names the same file from there. */
-export const projectRelative = (project: ProjectConfig, file: string): string => {
-  const root = normalizeRelative(project.root);
-  const relative = normalizeRelative(file);
-  return root === '' || root === '.' || !relative.startsWith(`${root}/`) ? relative : relative.slice(root.length + 1);
-};
+export const projectRelative = (project: ProjectConfig, file: string): string =>
+  toProjectRelative(normalizeRelative(project.root), file) ?? normalizeRelative(file);
 
 /** The check keys of a project, sorted; `command` is false for a key whose `all` and `file` are both null (it exists but cannot run). */
 export const checkKeys = (project: ProjectConfig): { key: string; all: boolean; file: boolean; command: boolean }[] =>
@@ -56,6 +53,17 @@ export const FORMAT_CHECK = 'format';
 
 /** The checks a model may run: those with a command (or, with `form`, with that file/all form), formatting left out. */
 export const runnableKeys = (project: ProjectConfig, form: 'command' | 'file' = 'command'): ReturnType<typeof checkKeys> => checkKeys(project).filter((entry) => entry[form] && entry.key !== FORMAT_CHECK);
+
+/** What `check` will do with each runnable check: the same decision, so the listing cannot promise a run that is refused. `approval` marks a `propose`. */
+export async function runnableChecks(workspace: Workspace, project: ProjectConfig, form: 'command' | 'file' = 'command'): Promise<(ReturnType<typeof checkKeys>[number] & { approval: boolean })[]> {
+  const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: [] });
+  const listed: (ReturnType<typeof checkKeys>[number] & { approval: boolean })[] = [];
+  for (const entry of runnableKeys(project, form)) {
+    const { kind } = authorizeCommand({ policy, commandId: entry.key, approvalKey: checkApprovalKey(project.id, entry.key), approvals: new Set() });
+    if (kind !== 'refused') listed.push({ ...entry, approval: kind === 'needs-approval' });
+  }
+  return listed;
+}
 
 const stepOf = (view: RouteView): string => (view.position === 'complete' ? 'complete' : view.position);
 
@@ -102,7 +110,7 @@ export async function consentForKey(
   });
 }
 
-/** `forbid` and undeclared refuse with a `check-forbidden` limit in route mode; standalone `propose` refuses (07-K1, 07-K5). */
+/** `forbid` refuses with a `check-forbidden` limit in route mode; standalone `propose` refuses (07-K1, 07-K5). */
 export async function authorizeKey(
   deps: CheckDeps,
   routed: Routed | null,

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { NAMED_ITERATION } from '#modules/evidence/task/slug';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { HandlerInput } from '#types/harness';
 
@@ -8,10 +9,13 @@ const ITERATION = /^##\s+Iteration\s+(\d+)\b.*$/gim;
 export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry[]): Promise<{ planPath: string | null; iteration: number; iterations: number; brief: string | null }> {
   const planPath = input.args.plan ?? (entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')?.['path'] as string | undefined) ?? null;
   const plan = planPath === null ? null : await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null);
-  const done = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'notes' && typeof entry['iteration'] === 'number')?.['iteration'] as number | undefined;
-  const named = /^\s*iteration\s+(\d+)\b/i.exec(input.args.text);
-  const iteration = named === null ? (done ?? 0) + 1 : Number(named[1]);
+  // An iteration is done when its route exited `done`, however the review went; an interrupted route leaves it open.
+  const done = new Set(entries.filter((exit) => exit.kind === 'exit' && exit['reason'] === 'done').map((exit) => entries.find((entry) => entry.kind === 'step' && entry['step'] === 'start' && entry['route'] === exit['route'])?.['iteration']));
+  const named = NAMED_ITERATION.exec(input.args.text);
   const headings = plan === null ? [] : [...plan.matchAll(ITERATION)];
+  // Without iteration headings the request is the one brief, and it may run again.
+  let iteration = named === null ? 1 : Number(named[1]);
+  while (named === null && headings.length > 0 && done.has(iteration)) iteration += 1;
   const at = headings.findIndex((heading) => Number(heading[1]) === iteration);
   const brief = plan === null ? null : headings.length === 0 ? plan : at < 0 ? null : plan.slice(headings[at]!.index, headings[at + 1]?.index ?? plan.length);
   return { planPath, iteration, iterations: Math.max(1, headings.length), brief: brief?.trim() ?? null };

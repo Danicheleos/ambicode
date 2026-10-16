@@ -1,20 +1,20 @@
 import { AmbicodeError } from '#util/errors';
 import { executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
-import { raisedAnswerHandler, offersOption, shapePrint, stripRecommended } from './gates.ts';
-import { append, chainOf, gateFor, latestPrint, objectOf, viewFor } from '../engine/run-context.ts';
+import { offersOption, shapePrint, stripRecommended } from './gates.ts';
+import { append, chainOf, closeRoute, gateFor, latestPrint, objectOf } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
-import { RAISED_BY, type Answer, type Exit, type GateDef, type Revise } from '#types/harness';
+import { RAISED_BY, type Answer, type Exit, type GateDef, type Revise, type RouteDef, type RouteRegistry } from '#types/harness';
 import type { Run } from '../types/engine.ts';
 
 type RevisePath = 'gate' | 'code' | 'model';
 
 export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
-  await append(run, { kind: 'exit', reason, ...(detail === undefined ? {} : { detail }), ...extra });
+  await closeRoute(run.runtime, run.dir, run.ledger, { route: run.head.id, reason, ...(detail === undefined ? {} : { detail }), ...extra });
   run.exited = reason;
 }
 
 /** An option named `stop` records an exit: a project question `human`, the rest `blocked` (D12). */
-export const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
+export const stopReason = (gate: string): string => (gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
 
 /** The window a gate's answers are read in: its own step's, or for a raised gate the step that raised it. */
 function gateWindow(run: Run, gateId: string): LedgerEntry[] {
@@ -86,17 +86,16 @@ async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedB
     await append(run, { kind: 'declined', ...body, reason: 'max-revises' });
     return;
   }
-  const written = await append(run, { kind: recorded.kind, ...body });
-  if (recorded.kind === 'acceptance') await raisedAnswerHandler(gate.id)?.({ view: viewFor(run, raisedBy ?? ''), ledger: run.ledger, acceptance: written, routes: run.routes });
+  await append(run, { kind: recorded.kind, ...body });
   if (recorded.answer === 'stop' || recorded.answer === 'pause') return exitRoute(run, stopReason(gate.id), `${gate.id}: stop`);
   if (revise !== undefined) {
     await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, repeat: gate.repeat, ...(raisedBy === undefined ? {} : { raisedBy }) });
   }
 }
 
-const unknownGate = (run: Run, gate: string): AmbicodeError =>
-  new AmbicodeError('gate-unknown', `Route ${run.def.skill} has no gate "${gate}".`, {
-    details: [`Gates of this route: ${run.def.steps.filter((step) => step.gate !== null).map((step) => step.id).join(', ') || 'none'}.`, `Registry gates: ${run.routes.gates().map((gate) => gate.id).join(', ')}.`],
+export const unknownGate = (def: RouteDef, routes: RouteRegistry, gate: string): AmbicodeError =>
+  new AmbicodeError('gate-unknown', `Route ${def.skill} has no gate "${gate}".`, {
+    details: [`Gates of this route: ${def.steps.filter((step) => step.gate !== null).map((step) => step.id).join(', ') || 'none'}.`, `Registry gates: ${routes.gates().map((gate) => gate.id).join(', ')}.`],
   });
 
 /** `route next --answer <gate>=<option>`: a model-typed answer. It selects a non-acting option and never authorizes (03-G1). */
@@ -105,7 +104,7 @@ export async function recordFlagAnswer(run: Run, given: Answer): Promise<void> {
   const window = gateWindow(run, answer.gate);
   const print = latestPrint(window, answer.gate);
   const gate = gateFor(run, answer.gate, print);
-  if (gate === null) throw unknownGate(run, answer.gate);
+  if (gate === null) throw unknownGate(run.def, run.routes, answer.gate);
   const options = (print?.['options'] as string[] | undefined) ?? gate.options;
   const known = offersOption(options, answer.option);
   if (!known && gate.onAnswer['*'] === undefined && gate.class !== 'decision') {

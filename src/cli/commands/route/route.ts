@@ -1,23 +1,21 @@
 import { createApp } from '#composition/app';
-import { parseAnswerFlag } from '#harness/definition/flags';
-import { sessionUnbound, taskSessionSource } from '#harness/session/session';
+import { answersOf, parseAnswerFlag } from '#harness/definition/flags';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { AmbicodeError } from '#util/errors';
 import { startTarget } from '#composition/start';
 import type { Runtime } from '#types/composition';
 import { EXITS } from '#types/harness';
-import type { Exit, StepMessage, SessionBinding } from '#types/harness';
+import type { Exit, StepMessage } from '#types/harness';
 import type { ParsedArgs, RouteTools, CliCommand } from '../../types/cli.ts';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 
 export { startTarget };
 
-export const ROUTE_NEXT_OPTIONS = { values: ['task', 'revise', 'project'], repeated: ['answer'], flags: ['json'] } as const;
+export const ROUTE_NEXT_OPTIONS = { values: ['task', 'project'], repeated: ['answer'], flags: ['json'] } as const;
 
-/** The engine over the shipped routes; `binding` is the owner of the named task's one live route, unbound when there is none to name. */
-export async function routeTools(runtime: Runtime, task: string | null): Promise<RouteTools> {
+export async function routeTools(runtime: Runtime): Promise<RouteTools> {
   const { engine, routes } = await createApp(runtime);
-  return { engine, routes, binding: task === null ? { state: 'unbound', reason: 'missing' } : await taskSessionSource(task).resolve(runtime) };
+  return { engine, routes };
 }
 
 export function taskOf(command: string, args: ParsedArgs): string {
@@ -26,24 +24,18 @@ export function taskOf(command: string, args: ParsedArgs): string {
   return task;
 }
 
-/** The owner a call speaks for; a task with no live route or with several is an error, not a guess. */
-export function ownerFor(binding: SessionBinding, task: string): string {
-  if (binding.state === 'unbound') throw sessionUnbound(binding, task);
-  return binding.session;
-}
-
 interface RouteOutput extends StepMessage { command: string }
 
 export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {
   const [skill, ...words] = args.positionals;
   if (skill === undefined) throw new AmbicodeError('bad-argument', '"route start" needs a skill: route start <skill> [request…].', { field: 'skill' });
-  const { engine } = await routeTools(runtime, null);
-  const session = runtime.ids.ownerId();
+  const { engine } = await routeTools(runtime);
+  // Claude Code exports its session id to every Bash call, so a CLI start is the session the hooks bind by.
+  const session = runtime.env['CLAUDE_CODE_SESSION_ID'] || runtime.ids.sessionId();
   const text = words.join(' ');
   const task = args.value('task');
   const project = args.value('project');
   const plan = args.value('plan');
-  const fromDraft = args.value('from-draft');
   const target = startTarget(skill, args);
   const message = await engine.start({
     skill,
@@ -53,10 +45,8 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     headless: args.flag('headless'),
     ...(project === null ? {} : { project }),
     ...(plan === null ? {} : { plan }),
-    ...(fromDraft === null ? {} : { fromDraft }),
     ...(target === undefined ? {} : { target }),
-    answers: args.all('answer').map(parseAnswerFlag),
-    fresh: args.flag('fresh'),
+    answers: answersOf(args),
     cwd: runtime.cwd,
     session,
     channel: 'cli',
@@ -66,16 +56,12 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
 
 export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {
   const task = taskOf('route next', args);
-  const { engine, binding } = await routeTools(runtime, task);
-  const session = ownerFor(binding, task);
-  const revise = args.value('revise');
+  const { engine } = await routeTools(runtime);
   const project = args.value('project');
   const message = await engine.advance({
     task,
-    session,
     cause: 'route-next',
     answers: args.all('answer').map(parseAnswerFlag),
-    ...(revise === null ? {} : { revise }),
     ...(project === null ? {} : { project }),
   });
   return { command: 'route next', ...message };
@@ -112,9 +98,9 @@ export const routeStopCommand: CliCommand = {
     const task = taskOf('route stop', args);
     const reason = EXITS.find((exit) => exit === args.value('reason'));
     if (reason === undefined || !STOP_REASONS.includes(reason)) throw new AmbicodeError('bad-argument', `--reason is one of ${STOP_REASONS.join(', ')}.`, { field: 'reason' });
-    const { engine, binding } = await routeTools(runtime, task);
+    const { engine } = await routeTools(runtime);
     const detail = args.value('detail') ?? undefined;
-    await engine.stop(task, ownerFor(binding, task), reason, detail);
+    await engine.stop(task, reason, detail);
     return { text: `Route on ${task} stopped: ${reason}.`, data: { command: 'route stop', task, reason, ...(detail === undefined ? {} : { detail }) } };
   },
 };

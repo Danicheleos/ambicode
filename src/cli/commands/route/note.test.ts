@@ -132,16 +132,6 @@ function cli(repo: TempRepo, argv: string[], input = ''): { status: number | nul
 }
 
 describe('the note and report commands', () => {
-  it('02-D2/5.1: note promote on a task with no live route refuses with route-not-open and writes nothing', async () => {
-    await inRepo(async (repo) => {
-      const out = cli(repo, ['note', 'promote', '--task', 'ORD-17']);
-      assert.equal(out.status, 2);
-      assert.match(out.stderr, /error \[route-not-open\]/);
-      assert.match(out.stderr, /route start/);
-      await assert.rejects(readdir(path.join(repo.root, '.ambicode')));
-    });
-  });
-
   it('02-D2/5.1: a plan-draft save on a task with a live plan route is the owner of that route, found by --task', async () => {
     await inRepo(async (repo) => {
       const dir = path.join(repo.root, '.ambicode/tasks/ORD-17');

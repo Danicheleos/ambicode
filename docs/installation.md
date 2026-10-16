@@ -23,7 +23,7 @@ From the AMBICODE checkout:
 ```text
 npm ci
 npm run package:candidate
-node tools/install-local.mjs install dist/ambicode-0.3.1
+node tools/install-local.mjs install dist/ambicode-0.6.0
 ```
 
 The default configuration directory is the same one ordinary Claude Code
@@ -91,7 +91,7 @@ on the generated `bin/ambicode` shell script:
 ```powershell
 npm ci
 npm run package:candidate
-node .\tools\install-local.mjs install .\dist\ambicode-0.3.1
+node .\tools\install-local.mjs install .\dist\ambicode-0.6.0
 claude plugin list
 claude plugin details ambicode@ambicode-team
 node .\tools\install-local.mjs inspect
@@ -109,13 +109,13 @@ The default is `--scope user`. For a project-specific installation, identify
 the target explicitly:
 
 ```text
-node tools/install-local.mjs install dist/ambicode-0.3.1 --scope project --project-dir /absolute/path/to/product
+node tools/install-local.mjs install dist/ambicode-0.6.0 --scope project --project-dir /absolute/path/to/product
 ```
 
 PowerShell example:
 
 ```powershell
-node .\tools\install-local.mjs install .\dist\ambicode-0.3.1 --scope project --project-dir C:\work\product
+node .\tools\install-local.mjs install .\dist\ambicode-0.6.0 --scope project --project-dir C:\work\product
 ```
 
 `local` scope uses the same explicit `--project-dir` requirement. Claude Code
@@ -128,7 +128,7 @@ Use `--config-dir` only when you deliberately want an isolated Claude
 configuration for testing:
 
 ```text
-node tools/install-local.mjs install dist/ambicode-0.3.1 --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs install dist/ambicode-0.6.0 --config-dir /absolute/path/to/test-config
 node tools/install-local.mjs inspect --config-dir /absolute/path/to/test-config
 ```
 
@@ -241,7 +241,7 @@ stages and validates the replacement first, preserves the previous source until
 native postconditions pass, and writes state atomically.
 
 ```text
-node tools/install-local.mjs install dist/ambicode-0.3.1
+node tools/install-local.mjs install dist/ambicode-0.6.0
 node tools/install-local.mjs uninstall
 ```
 
@@ -265,7 +265,7 @@ command. Otherwise confirm the install command did not inherit an unintended
 `CLAUDE_CONFIG_DIR`.
 
 **Skills are absent in the target repository.** Confirm plugin details report
-the five skills, start Claude with the target repository as its working
+the six skills, start Claude with the target repository as its working
 directory, then run `/reload-plugins`. Project/local installs must use the same
 canonical `--project-dir` recorded during installation.
 

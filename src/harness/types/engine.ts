@@ -2,8 +2,8 @@ import type { Runtime } from '#types/composition';
 import type { LedgerEntry, TaskDir, LockedLedger } from '#types/modules/evidence';
 import type { RouteRegistry, RouteDef } from '#types/harness';
 
-/** Binds an answer to what it consents to: a check key, or the values and the draft hash its print showed. */
-export interface ConsentBinding { key?: string; set?: readonly string[]; draft?: string }
+/** Binds an answer to what it consents to: the check key its print showed. */
+export interface ConsentBinding { key?: string }
 
 export type DeliveryChannel = 'cli' | 'hook';
 
@@ -33,8 +33,6 @@ export interface Run {
   entries: LedgerEntry[];
   head: LedgerEntry;
   session: string;
-  /** The Claude session whose hook state (pointer, delivery markers) this route writes: its harness session, else its owner. */
-  stateKey: string;
   cause: string;
   channel: DeliveryChannel;
   scratchpadDir: string | undefined;
@@ -43,6 +41,8 @@ export interface Run {
   written: string[];
   notes: string[];
   exited: string | null;
+  /** A code step ended the route `done` and asked for the next iteration: the caller starts the route again. */
+  restart: boolean;
   /** Entry ids the advancing command wrote for the step it completes (D1). */
   produced?: readonly string[];
 }

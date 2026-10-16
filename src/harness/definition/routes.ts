@@ -1,11 +1,10 @@
 import path from 'node:path';
-import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { RawGate, invalid, normalizeGate, parseCall, parseOnError, parseQualified, parseRevise, parseWhen } from './dsl.ts';
+import { RawGate, invalid, normalizeGate, parseCall, parseOnError, parseQualified, parseRevise, parseWhen, parseYamlFile } from './dsl.ts';
 import { parseRegistry } from '../gates/gates.ts';
 import { KINDS } from '#types/modules/evidence';
-import { HANDLER_NAMES, RAISED_BY, type GateDef, type Qualified, type Revise, type RouteDef, type StepDef, type RouteRegistry } from '#types/harness';
+import { HANDLER_NAMES, RAISED_BY, type GateDef, type Revise, type RouteDef, type StepDef, type RouteRegistry } from '#types/harness';
 import type { FileSystem } from '#types/platform/ports';
 
 export type { Call, Exit, GateDef, OnError, Qualified, Revise, When } from '#types/harness';
@@ -31,27 +30,15 @@ const RawStep = z.strictObject({
 const RawRoute = z.strictObject({
   skill: z.string().min(1),
   version: z.literal(3),
-  revisable: z.array(z.string()).default([]),
   steps: z.array(RawStep).min(1),
 });
 
 interface LoaderContext {
-  /** The plugin root: `file:` instructions resolve under it. */
-  root: string;
   handlers: readonly string[];
   readInstruction(relative: string): Promise<string>;
 }
 
-function parseYamlFile(file: string, text: string): unknown {
-  try {
-    return parseYaml(text);
-  } catch (cause) {
-    const line = (cause as { linePos?: { line: number }[] }).linePos?.[0]?.line;
-    throw invalid(file, line === undefined ? 'yaml' : `line ${line}`, cause instanceof Error ? cause.message.split('\n')[0]! : String(cause));
-  }
-}
-
-export async function loadRoute(file: string, text: string, context: LoaderContext, registry: readonly GateDef[] = []): Promise<RouteDef> {
+export async function loadRoute(file: string, text: string, context: LoaderContext): Promise<RouteDef> {
   const document = parseYamlFile(file, text);
   const parsed = RawRoute.safeParse(document);
   if (!parsed.success) {
@@ -70,10 +57,9 @@ export async function loadRoute(file: string, text: string, context: LoaderConte
   const route: RouteDef = {
     skill: raw.skill,
     version: 3,
-    revisable: raw.revisable,
     steps,
   };
-  validateRoute(file, route, registry);
+  validateRoute(file, route);
   return route;
 }
 
@@ -125,19 +111,18 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
   };
 }
 
-function validateRoute(file: string, route: RouteDef, registry: readonly GateDef[]): void {
+function validateRoute(file: string, route: RouteDef): void {
   const byId = new Map(route.steps.map((step) => [step.id, step]));
   const gates = new Map(route.steps.filter((step) => step.gate !== null).map((step) => [step.id, step.gate!]));
 
-  for (const id of route.revisable) if (!byId.has(id)) throw invalid(file, 'revisable', `"${id}" is not a step of this route`);
-
   for (const step of route.steps) {
     const where = `step ${step.id}`;
-    if (step.when?.predicate === 'gate.is' || step.when?.predicate === 'gate.isnt') {
-      const gate = gates.get(step.when.gate);
-      if (gate === undefined) throw invalid(file, `${where}.when`, `"${step.when.gate}" is not a gate of this route`);
-      if (!gate.options.includes(step.when.option)) {
-        throw invalid(file, `${where}.when`, `"${step.when.option}" is not an option of gate ${gate.id}`);
+    for (const when of step.when?.predicate === 'any' ? step.when.of : step.when === null ? [] : [step.when]) {
+      if (when.predicate !== 'gate.is' && when.predicate !== 'gate.isnt') continue;
+      const gate = gates.get(when.gate);
+      if (gate === undefined) throw invalid(file, `${where}.when`, `"${when.gate}" is not a gate of this route`);
+      if (!gate.options.includes(when.option)) {
+        throw invalid(file, `${where}.when`, `"${when.option}" is not an option of gate ${gate.id}`);
       }
     }
 
@@ -164,7 +149,6 @@ export async function validateRouteFiles(root: string, options: { handlers?: rea
   }), kinds);
 
   const context: LoaderContext = {
-    root,
     handlers: options.handlers ?? HANDLER_NAMES,
     readInstruction: (relative) => fs.readText(path.join(root, relative)),
   };
@@ -175,7 +159,7 @@ export async function validateRouteFiles(root: string, options: { handlers?: rea
     const text = await fs.readText(path.join(root, file)).catch(() => {
       throw invalid(file, 'file', `routes/${entry.name}/ holds no ${entry.name}.yaml`);
     });
-    const route = await loadRoute(file, text, context, registry);
+    const route = await loadRoute(file, text, context);
     if (entry.name !== route.skill) throw invalid(file, 'skill', `"${route.skill}" does not match the folder name`);
     routes.push(route);
   }

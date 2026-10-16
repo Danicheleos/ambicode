@@ -1,22 +1,15 @@
-import { parse as parseYaml } from 'yaml';
-import { AmbicodeError, messageOf } from '#util/errors';
+import { AmbicodeError } from '#util/errors';
 import { PLATFORM, type PlatformFlags } from '#types/platform/claude';
-import { RawGate, invalid, normalizeGate } from '../definition/dsl.ts';
+import { RawGate, invalid, normalizeGate, parseYamlFile } from '../definition/dsl.ts';
 import type { Runtime } from '#types/composition';
 import type { TaskDir, LedgerEntry, LockedLedger, ArtifactRef } from '#types/modules/evidence';
-import type { RouteView, GateDef, RouteRegistry } from '#types/harness';
+import { type RouteView, type GateDef, type RouteRegistry } from '#types/harness';
 import { hash12 } from '#util/hash';
 
 const DECISION_PREFIX = 'decision:';
 
 export function parseRegistry(file: string, text: string, kinds: readonly string[]): GateDef[] {
-  let document: unknown;
-  try {
-    document = parseYaml(text);
-  } catch (cause) {
-    const line = (cause as { linePos?: { line: number }[] }).linePos?.[0]?.line;
-    throw invalid(file, line === undefined ? 'yaml' : `line ${line}`, messageOf(cause));
-  }
+  const document = parseYamlFile(file, text);
   if (document === null || typeof document !== 'object' || Array.isArray(document)) throw invalid(file, 'root', 'must be a mapping of gate ids');
   const gates: GateDef[] = [];
   for (const [key, value] of Object.entries(document)) {
@@ -153,13 +146,6 @@ export async function raiseGate(
 export const stripRecommended = (option: string): string => option.replace(/\s*\(Recommended\)\s*$/i, '');
 
 export const offersOption = (options: readonly string[], option: string): boolean => options.includes(option) || options.includes(stripRecommended(option));
-
-type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry; routes: RouteRegistry }) => Promise<void>;
-const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
-
-/** Runs once, inside the advance that folds the acceptance, when a raised gate gets a bound answer. */
-export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void => void ANSWER_HANDLERS.set(gate, handler);
-export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);
 
 /** Print-time text and offered options a module adds to a gate's question (09-G1). */
 interface PrintShape { line: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }

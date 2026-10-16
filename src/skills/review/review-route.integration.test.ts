@@ -38,10 +38,9 @@ async function regression() {
   const runner = new SplitRunner(base.runner);
   runner.out = { exitCode: 0, stdout: '' };
   const runtime: Runtime = { ...base, runner };
-  const tools = await routeTools(runtime, null);
+  const tools = await routeTools(runtime);
   const dir = path.join(root, '.ambicode', 'reviews', TASK);
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, dir);
-  const owner = async (): Promise<string> => String((await ledger()).find((entry) => entry.kind === 'route')!['session']);
   return {
     root, runtime, runner, ledger,
     start: (...argv: string[]) => runRouteStart(runtime, parseArgs('route start', ['review', '--task', TASK, ...argv, 'review my change'], ROUTE_START_OPTIONS)),
@@ -49,7 +48,7 @@ async function regression() {
     /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
     answer: async (gate: string, option: string) => {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
-      return tools.engine.advance({ task: TASK, session: await owner(), cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
+      return tools.engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
     },
     dispose: () => rm(scratch, { recursive: true, force: true }),
   };

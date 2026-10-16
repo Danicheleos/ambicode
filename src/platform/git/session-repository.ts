@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { openRepository } from './open.ts';
-import type { Runtime } from '#types/composition';
+import type { Runtime, SessionRepository } from '#types/composition';
 
 /** The repository the skill is about: the session's own when it carries a configuration, else the one
  * configured repository directly below it (a session started in a git work tree that merely contains it
  * would otherwise pick the wrong one). */
-export async function findSessionRepository(runtime: Runtime, directory: string): Promise<{ repositoryRoot: string; where: string } | string> {
+export async function findSessionRepository(runtime: Runtime, directory: string): Promise<SessionRepository> {
   const { fs } = runtime;
   const isRepository = (candidate: string): Promise<string | null> =>
     openRepository({ ...runtime, cwd: candidate }).then((opened) => opened.repositoryRoot).catch(() => null);

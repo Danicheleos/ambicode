@@ -3,12 +3,11 @@ import { readLedgerStrict } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { evaluateConsent } from '../gates/consent.ts';
 import { raiseGate } from '../gates/gates.ts';
-import { buildChain, exitOf, foldRoute, latestRouteOf, matches, windowOf } from './fold.ts';
-import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
+import { routeView } from './run-context.ts';
+import { buildChain, exitOf, foldRoute, latestRouteOf, windowOf } from './fold.ts';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/modules/evidence';
-import type { RouteDef, RouteRegistry, RouteView, StartChannel, CommandContext } from '#types/harness';
-import { refOf } from '#modules/evidence/ledger-chain';
+import type { LedgerEntry, StrictRead } from '#types/modules/evidence';
+import type { RouteDef, RouteRegistry, RouteView, CommandContext } from '#types/harness';
 import type { Chain, ConsentBinding } from '../types/engine.ts';
 
 export const ledgerUnreadable = (task: string, reason: string): AmbicodeError =>
@@ -16,39 +15,18 @@ export const ledgerUnreadable = (task: string, reason: string): AmbicodeError =>
     details: [`Continue under a new task: route start --task ${task}-2.`],
   });
 
-export async function readEntries(runtime: Runtime, task: string): Promise<LedgerEntry[]> {
-  const dir = await resolveTaskDir(runtime, task);
-  const read = await readLedgerStrict(runtime.fs, dir.root);
+export function entriesOf(task: string, read: StrictRead): LedgerEntry[] {
   if (read.state === 'unreadable') throw ledgerUnreadable(task, read.reason);
   return read.state === 'ok' ? read.entries : [];
 }
 
-function viewOf(task: string, def: RouteDef, chain: Chain): RouteView {
-  const head = chain.head;
-  const fold = foldRoute(def, chain);
-  return {
-    task,
-    routeId: head.id,
-    chainIds: [...chain.ids],
-    skill: String(head['skill']),
-    session: String(head['session']),
-    mode: head['mode'] === 'headless' ? 'headless' : 'interactive',
-    channel: head['channel'] as StartChannel,
-    trusted: head['trusted'] === true,
-    position: fold.position?.id ?? 'complete',
-  };
+export async function readEntries(runtime: Runtime, task: string): Promise<LedgerEntry[]> {
+  const dir = await resolveTaskDir(runtime, task);
+  return entriesOf(task, await readLedgerStrict(runtime.fs, dir.root));
 }
 
-/** Throws unless this view may write: the plan route's one live owner passes, any other session no longer owns its files (03-O5). */
-export function checkOwner(entries: readonly LedgerEntry[], view: RouteView): void {
-  if (!OWNING_SKILLS.has(view.skill)) return;
-  const owner = ownerOf(entries, view.task);
-  if (owner.state === 'unknown') throw ledgerUnreadable(view.task, owner.reason);
-  if (owner.state === 'none' || owner.session === view.session) return;
-  throw new AmbicodeError('route-taken-over', `The plan route of task ${view.task} now belongs to session ${owner.session}; this session no longer writes its files.`, {
-    details: ['Restart it with --fresh or continue under another --task.'],
-  });
-}
+export const routeNotOpen = (task: string): AmbicodeError =>
+  new AmbicodeError('route-not-open', `Task ${task} has no live route.`, { details: [`Start one: route start <skill> --task ${task}`] });
 
 /** The session's route when it has not ended; a finished route owns nothing and tags no later entry. */
 export async function openRouteView(runtime: Runtime, routes: RouteRegistry, task: string, session: string): Promise<RouteView | null> {
@@ -57,7 +35,7 @@ export async function openRouteView(runtime: Runtime, routes: RouteRegistry, tas
   const def = head === null ? null : routes.route(String(head['skill']));
   if (head === null || def === null) return null;
   const chain = buildChain(entries, head);
-  return exitOf(chain) === null ? viewOf(task, def, chain) : null;
+  return exitOf(chain) === null ? routeView(task, chain, foldRoute(def, chain).position?.id ?? 'complete') : null;
 }
 
 export function commandContext(deps: { runtime: Runtime; routes: RouteRegistry }): CommandContext {
@@ -75,32 +53,12 @@ export function commandContext(deps: { runtime: Runtime; routes: RouteRegistry }
     return step;
   };
   return {
-    async resolve(task, session) {
-      const entries = await readEntries(runtime, task);
-      const head = latestRouteOf(entries, session);
-      const def = head === null ? null : routes.route(String(head['skill']));
-      return head === null || def === null ? null : viewOf(task, def, buildChain(entries, head));
-    },
     open: (task, session) => openRouteView(runtime, routes, task, session),
     entries: (task) => readEntries(runtime, task),
     raise: (ledger, view, input) => raiseGate(ledger, view, input, routes),
-    async assertOwner(view) {
-      checkOwner(await readEntries(runtime, view.task), view);
-    },
     async window(view, stepId) {
       const { def, chain } = await loaded(view);
       return windowOf(foldRoute(def, chain), stepOf(def, stepId));
-    },
-    async object(view, gateId) {
-      const { def, chain } = await loaded(view);
-      const step = def.steps.find((candidate) => candidate.gate?.id === gateId);
-      const object = step?.gate?.object;
-      if (step === undefined || object === null || object === undefined) return null;
-      const fold = foldRoute(def, chain);
-      const producer = def.steps.slice(0, step.index).find((earlier) => earlier.produces.some((produced) => produced.kind === object.kind && (object.value === null || produced.value === object.value)));
-      if (producer === undefined) return null;
-      const entry = windowOf(fold, producer).findLast((candidate) => matches(candidate, object));
-      return entry === undefined ? null : refOf(entry, object.kind, object.value);
     },
     async consent(view, gateId, binding) {
       const { def, chain } = await loaded(view);

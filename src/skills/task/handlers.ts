@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { openWorkspace } from '#modules/config/workspace';
 import { baselineIn, touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
@@ -8,7 +9,7 @@ import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { briefOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
-import { runnableKeys } from '#modules/checks/run/check-command';
+import { runnableChecks } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { buildReport } from '#modules/evidence/report/report';
 import { GATE as CHECK_GATE, type ReviewEntry } from '#types/modules/checks';
@@ -54,8 +55,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'checks.preflight': async (input) => {
     const project = await projectOf(input, await configOf(input));
     if (isResult(project)) return project;
-    const runnable = runnableKeys(project).length > 0;
-    if (runnable) return { state: 'ok', payload: null };
+    if ((await runnableChecks(await openWorkspace(input.runtime), project)).length > 0) return { state: 'ok', payload: null };
     const detail = `no-check: project "${project.id}" has no check with a configured command, so no check run can be recorded`;
     return { state: 'ok', payload: `${detail}. Configure one in .ambicode/config.yaml, then start the task again.`, exit: 'blocked', exitDetail: detail };
   },
@@ -63,10 +63,12 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'checks.runnable': async (input) => {
     // Every project, never `projectOf`: a review spans the repository, and a project question here stopped multi-project reviews.
     const forms = (entry: { all: boolean; file: boolean }): string => (entry.all && entry.file ? 'all or --file' : entry.all ? 'all only' : '--file only');
-    const lines = (await configOf(input)).projects.flatMap((project) => {
-      const runnable = runnableKeys(project);
-      return runnable.length === 0 ? [] : [`Project ${project.id}: ${runnable.map((entry) => `${entry.key} (${forms(entry)})`).join(', ')}.`];
-    });
+    const workspace = await openWorkspace(input.runtime);
+    const lines: string[] = [];
+    for (const project of workspace.config.projects) {
+      const runnable = await runnableChecks(workspace, project);
+      if (runnable.length > 0) lines.push(`Project ${project.id}: ${runnable.map((entry) => `${entry.key} (${forms(entry)}${entry.approval ? ', needs approval' : ''})`).join(', ')}.`);
+    }
     return { state: 'ok', payload: lines.length === 0 ? 'No check has a command configured: run no tests; the report states that nothing was verified by execution.' : lines.join('\n') };
   },
 
@@ -89,6 +91,9 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
       : { state: 'ok', payload: null };
   },
 
+  /** The route's own end for an iteration with more to come: the engine opens the next route on this task. */
+  'task.continue': async () => ({ state: 'ok', payload: null, exit: 'done', restart: true }),
+
   'task.report': async (input) => {
     const chain = await chainEntries(input);
     const head = chain.find((entry) => entry.kind === 'route' && entry.id === input.view.routeId);
@@ -96,14 +101,6 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     const report = buildReport(chain, current === undefined ? {} : { current });
     const text = `${report.evidence}\n${report.notVerified}`;
     return { state: 'ok', payload: cutTo(text, MAX_REPORT_BYTES, `[cut: \`report --task ${input.view.task}\` prints all of it]`) };
-  },
-
-  /** Saving the report and the context are for a plan with a later iteration to read them; a single-iteration task has none. */
-  'task.iterations': async (input) => {
-    const planned = (await chainEntries(input)).findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['iterations'];
-    if (typeof planned !== 'number' || planned <= 1) return { state: 'ok', payload: null };
-    const cli = `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs"`;
-    return { state: 'ok', payload: `Save this iteration's notes before the final message with \`${cli} note save --task ${input.view.task} --kind notes --iteration <n>\` (report on standard input).\nLearned how to navigate or write code here? Add it with \`${cli} context write\` (no duplicates).` };
   },
 };
 

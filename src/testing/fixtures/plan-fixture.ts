@@ -14,7 +14,6 @@ export const PLAN_TASK = 'ORD-17';
 /** A plan-shaped route: the S2–S5 and S10–S14 mechanisms run on it until the real plan route ships (step 06). */
 export const PLAN = `skill: plan
 version: 3
-revisable: [design]
 steps:
   - id: design
     actor: model
@@ -75,7 +74,7 @@ export interface PlanFixture {
   next(input?: Partial<AdvanceInput>): Promise<StepMessage>;
   hook(gate: string, option: string, instance: string | undefined, input?: Partial<AdvanceInput>): Promise<StepMessage>;
   body(text: string, task?: string): Promise<void>;
-  /** The `note save --from` and `note promote` commands, as a command run by `session`. */
+  /** The plan-check save and the promote step, as run by `session`. */
   saveDraft(text: string, session?: string): Promise<unknown>;
   promote(session?: string): ReturnType<typeof promotePlan>;
   /** Walks a fresh plan route to the plan-accept print. */
@@ -87,7 +86,7 @@ export interface PlanFixture {
 /** The shipped `routes/plan/plan.yaml` with its step texts and the real handlers; `state` is then left untouched. */
 async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
   const step: Record<string, string> = {};
-  for (const name of ['plan/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['investigate/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   return { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8'), step, handlers: skillHandlers() };
 }
 
@@ -106,7 +105,7 @@ export async function planFixture(options: { extra?: Record<string, string>; han
   }
   const start = (input: Partial<StartInput> = {}) =>
     fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: PLAN_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
-  const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const body = async (text: string, task = PLAN_TASK): Promise<void> => {
     const file = path.join(fx.repo.root, '.ambicode', 'tasks', task, 'steps', 'plan-body.md');
     await mkdir(path.dirname(file), { recursive: true });
@@ -122,7 +121,7 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     body,
     async saveDraft(text, session = SESSION_A) {
       await body(text);
-      return saveNote({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: PLAN_TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md', iteration: null });
+      return saveNote({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: PLAN_TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md' });
     },
     promote: (session = SESSION_A) => promotePlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
     async toGate(input = {}) {

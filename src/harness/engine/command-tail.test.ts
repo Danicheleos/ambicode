@@ -4,12 +4,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { runCommandTail } from './engine.ts';
 import { insideEngine } from './engine.ts';
-import { hookBinding } from '../session/session.ts';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';
 import type { Engine } from '#types/harness';
-import { SESSION_A } from '#testing/fixtures/ids';
 
 const run = promisify(execFile);
 
@@ -19,12 +17,12 @@ function counting(engine: Engine): { engine: Engine; calls: string[] } {
 }
 
 describe('command tail', () => {
-  it('03-T1: a bound session advances once per wrapper invocation, with the wrapper as the cause', async () => {
+  it('03-T1: a live route advances once per wrapper invocation, with the wrapper as the cause', async () => {
     const plan = await planFixture();
     try {
       await plan.start();
       const { engine, calls } = counting(plan.fx.engine);
-      const message = await runCommandTail({ engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding(SESSION_A), scratchpadDir: plan.fx.scratchpad });
+      const message = await runCommandTail({ engine }, { task: PLAN_TASK, cause: 'note save', scratchpadDir: plan.fx.scratchpad });
       assert.deepEqual(calls, ['note save']);
       assert.ok(message !== null);
     } finally {
@@ -32,45 +30,15 @@ describe('command tail', () => {
     }
   });
 
-  it('03-T1: no open route for the session on the slug means nothing happens', async () => {
+  it('03-T1: no live route on the task means nothing happens', async () => {
     const plan = await planFixture();
     try {
       await plan.start();
       const { engine, calls } = counting(plan.fx.engine);
-      assert.equal(await runCommandTail({ engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding('cccccccc-3333-4333-8333-333333333333') }), null);
-      assert.equal(await runCommandTail({ engine }, { task: 'no-such-task', cause: 'note save', session: hookBinding(SESSION_A) }), null);
-      assert.equal(calls.length, 2);
+      assert.equal(await runCommandTail({ engine }, { task: 'no-such-task', cause: 'note save' }), null);
+      assert.equal(calls.length, 1);
     } finally {
       await plan.dispose();
-    }
-  });
-
-  it('03-T1/5.1: an ambiguous task keeps the write, advances nothing and warns on stderr naming the task', async () => {
-    const plan = await planFixture();
-    try {
-      await plan.start();
-      const { engine, calls } = counting(plan.fx.engine);
-      const warnings: string[] = [];
-      const before = await plan.fx.ledger(PLAN_TASK);
-      const message = await runCommandTail({ engine, warn: (line) => warnings.push(line) }, { task: PLAN_TASK, cause: 'note save', session: { state: 'unbound', reason: 'ambiguous' } });
-      assert.equal(message, null);
-      assert.deepEqual(calls, []);
-      assert.match(warnings.join('\n'), /Task ORD-17 has more than one live route/);
-      assert.match(warnings.join('\n'), /--fresh/);
-      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('03-T1: an unbound call on a task with no route is silent', async () => {
-    const fx = await routeFixture({ routes: {} });
-    try {
-      const warnings: string[] = [];
-      assert.equal(await runCommandTail({ engine: fx.engine, warn: (line) => warnings.push(line) }, { task: 'none', cause: 'note save', session: { state: 'unbound', reason: 'missing' } }), null);
-      assert.deepEqual(warnings, []);
-    } finally {
-      await fx.dispose();
     }
   });
 
@@ -82,7 +50,7 @@ describe('command tail', () => {
       handlers: {
         't.step': async ({ ledger }) => {
           flag = insideEngine();
-          nested = await runCommandTail({ engine: plan0!.fx.engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding(SESSION_A) }).catch((error: unknown) => error);
+          nested = await runCommandTail({ engine: plan0!.fx.engine }, { task: PLAN_TASK, cause: 'note save' }).catch((error: unknown) => error);
           await ledger.append({ kind: 'policy', stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 1 });
           return { state: 'ok', payload: null };
         },

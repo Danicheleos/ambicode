@@ -45,7 +45,7 @@ async function offByOne() {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
-  for (const name of ['plan/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step });
   const engine = assembled.build(skillHandlers());
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
@@ -53,13 +53,13 @@ async function offByOne() {
   const runtime: Runtime = { ...assembled.runtime, runner };
   const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
   const tail = (cause: 'check', produced: string[]) =>
-    runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
+    runCommandTail({ engine }, { task: TASK, cause, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {
     const result = await runCheckOnly(deps, { task: TASK, name: 'unit', project: null, files: [SPEC], phase, approve: [], decline: [] });
     assert.equal(result.outcome, 'ran');
     return tail('check', result.outcome === 'ran' ? [result.entry.id] : []);
   };
-  const hookDeps: HookDeps = { pointer: assembled.pointer, load: async () => ({ engine, routes: assembled.routes, pointer: assembled.pointer }) };
+  const hookDeps: HookDeps = { load: async () => ({ engine, routes: assembled.routes }) };
   const stop = async (text: string) => {
     const transcript = path.join(scratchpad, 'transcript.jsonl');
     await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
@@ -68,11 +68,11 @@ async function offByOne() {
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return {
     root, engine, runner, check, stop,
-    start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page.', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
+    start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page. iteration 1', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
     ledger,
     skip: async () => {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'review-offer');
-      return engine.advance({ task: TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'review-offer', option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
+      return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate: 'review-offer', option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
     },
     work: (step = 'change') => readFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', `work-${step}.md`), 'utf8'),
     write: (file: string, text: string) => writeFile(path.join(root, file), text),

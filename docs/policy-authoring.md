@@ -115,6 +115,13 @@ built-in's `source.externalVersion` differs from the copy's it prints
 the copy wins. `.ambicode/` is gitignored by init, so copies are per-user unless
 the team un-ignores `.ambicode/policies/`.
 
+## Checks run unless a pack narrows them
+
+A check configured in `config.yaml` runs. `commandPolicy` only narrows that, per
+command name: `propose` asks the user before each run, `forbid` refuses it. A
+command no pack mentions runs, so a copied pack listing only `e2e` still allows
+`test` and `typecheck`. `checks.runnable` lists exactly what `check` will run.
+
 ## Two smaller things worth knowing
 
 **`appliesTo` is project-relative.** The globs are matched against paths

@@ -296,13 +296,18 @@ describe('P2.3 task skill', () => {
     for (const usage of [...[...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]), hint]) assert.ok(!/--requirements\b/.test(usage), usage);
   });
 
-  it('07-M1 the four judgments are delivered by the change and fix work briefs, not repeated in the SKILL.md', async () => {
-    const steps = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'change-work.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'task', 'fix-work.md'), 'utf8'));
+  it('07-M1 the four judgments are delivered once by the implementer agent and the fix work brief, not repeated in the SKILL.md or the change brief', async () => {
+    const read = (...parts: string[]): Promise<string> => readFile(path.join(repositoryRoot, ...parts), 'utf8');
     const content = (await task()).replace(/^---[\s\S]*?\n---/, '').replace(/\s+/g, ' ');
-    for (const judgment of [/smallest change/i, /reuse before adding/i, /never weaken/i, /outside the brief is the user's call/i]) {
-      assert.match(steps, judgment);
+    const agent = await read('agents', 'implementer.md');
+    const works = (await read('routes', 'task', 'change-work.md')) + (await read('routes', 'task', 'fix-work.md'));
+    for (const judgment of [/smallest change/i, /reuse existing code/i, /never weaken/i]) {
+      assert.match(agent, judgment);
+      assert.doesNotMatch(works, judgment);
       assert.doesNotMatch(content, judgment);
     }
+    assert.match(works, /outside the brief is the user's call/i);
+    assert.doesNotMatch(content, /outside the brief is the user's call/i);
   });
 
   it('07-M1 states the git boundary with its reason', async () => {
@@ -323,7 +328,7 @@ describe('P2.3 task skill', () => {
 
   it('07-M1 has the fallback start line and no LSP or prepare', async () => {
     const content = await task();
-    assert.ok(content.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "<request>" [--requirement <url>]... [--plan <file>] [--from-draft <file>]'));
+    assert.ok(content.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "<request>" [--requirement <url>]... [--plan <file>]'));
     assert.doesNotMatch(content, /\bLSP\b|findReferences|\bprepare\b/);
   });
 });

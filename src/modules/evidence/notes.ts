@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { ownerOf } from '#modules/evidence/ownership';
+import { liveHeads } from './ledger-chain.ts';
 import { AmbicodeError } from '#util/errors';
 import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
 import { contentHash, hash12 } from '#util/hash';
@@ -26,10 +26,6 @@ const unreadable = (task: string, reason: string): AmbicodeError =>
   new AmbicodeError('ledger-unreadable', `The ledger of task ${task} cannot be read: ${reason}. Nothing was written.`, {
     details: [`Continue under a new task: --task ${task}-2.`],
   });
-const noRouteSession = (task: string): AmbicodeError =>
-  new AmbicodeError('session-unbound', `Task ${task}: this call has no route owner, so the CLI cannot tell whose plan route it speaks for.`, {
-    details: ['Pass --task <slug> of a task with exactly one live route.'],
-  });
 const notAccepted = (reason: string, why: string): AmbicodeError =>
   new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
 const draftMissing = (task: string): AmbicodeError =>
@@ -38,17 +34,11 @@ const draftMissing = (task: string): AmbicodeError =>
   });
 
 /** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */
-export async function owningRoute(ledger: LockedLedger, session: string | null, task: string): Promise<string | null> {
+export async function owningRoute(ledger: LockedLedger, task: string): Promise<string | null> {
   const read = await ledger.read();
   if (read.state === 'unreadable') throw unreadable(task, read.reason);
-  const owner = ownerOf(read.state === 'ok' ? read.entries : [], task);
-  if (owner.state === 'none') return null;
-  if (owner.state === 'unknown') throw unreadable(task, owner.reason);
-  if (session === null) throw noRouteSession(task);
-  if (session === owner.session) return owner.routeId;
-  throw new AmbicodeError('route-taken-over', `The plan route of task ${task} belongs to session ${owner.session}; this session does not write its files.`, {
-    details: ['Restart it with --fresh or continue under another task: --task <slug>-2.'],
-  });
+  const live = liveHeads(read.state === 'ok' ? read.entries : []).at(-1);
+  return live?.['skill'] === 'plan' ? live.id : null;
 }
 
 async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: string): Promise<string> {
@@ -65,14 +55,11 @@ async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: s
 
 export async function saveNote(
   deps: NoteDeps,
-  input: { task: string; kind: SaveKind; body: string | null; from: string | null; iteration: number | null; route?: string | null },
+  input: { task: string; kind: SaveKind; body: string | null; from: string | null; route?: string | null },
 ): Promise<SavedNote> {
   const { runtime, session } = deps;
-  const { task, kind, from, iteration } = input;
-  if (!SAVE_KINDS.includes(kind)) throw badArgument(`A note is saved as ${SAVE_KINDS.join(', ')}; an accepted plan comes only from "note promote".`, 'kind');
-  if (iteration !== null && (kind !== 'notes' || !Number.isInteger(iteration) || iteration < 1)) {
-    throw badArgument('--iteration takes an integer of at least 1 and goes with --kind notes only.', 'iteration');
-  }
+  const { task, kind, from } = input;
+  if (!SAVE_KINDS.includes(kind)) throw badArgument(`A note is saved as ${SAVE_KINDS.join(', ')}; an accepted plan comes only from the plan route.`, 'kind');
   if (from !== null && kind !== 'plan-draft') throw badArgument('--from goes with --kind plan-draft only.', 'from');
   if (from === null && (input.body === null || input.body.trim() === '')) {
     throw badArgument(`"note save" reads the note from standard input, up to ${MAX_NOTE_BYTES} bytes; it got nothing usable.`, 'stdin');
@@ -85,7 +72,7 @@ export async function saveNote(
   const text = `${body.trimEnd()}\n`;
 
   const work = async (ledger: LockedLedger): Promise<SavedNote> => {
-    const route = kind === 'plan-draft' ? await owningRoute(ledger, session, task) : (input.route ?? null);
+    const route = kind === 'plan-draft' ? await owningRoute(ledger, task) : (input.route ?? null);
     await runtime.fs.mkdirp(dir.root);
     const relative = relativeTo(dir, await writeNote(runtime, dir, kind, text));
     const entry = await ledger.append({
@@ -93,7 +80,6 @@ export async function saveNote(
       note: kind,
       path: relative,
       contentHash: contentHash(text),
-      ...(iteration === null ? {} : { iteration }),
       ...(from === null ? {} : { from: path.relative(dir.root, dir.planBody).split(path.sep).join('/') }),
       ...(route === null ? {} : { route }),
     });
@@ -112,14 +98,13 @@ export async function promotePlan(
   task: string,
 ): Promise<{ outcome: 'promoted' | 'plan-already-promoted'; path: string; promotedFrom: string }> {
   const { runtime, session, context } = deps;
-  if (session === null) throw noRouteSession(task);
-  if (context === null) throw new AmbicodeError('internal', 'note promote has no route context to evaluate acceptance against.');
+  if (session === null) throw notAccepted('no-plan-route', `task ${task} has no live plan route.`);
+  if (context === null) throw new AmbicodeError('internal', 'The plan promotion has no route context to evaluate acceptance against.');
   const dir = await resolveTaskDir(runtime, task);
 
   const work = async (ledger: LockedLedger) => {
-    const view = await context.resolve(task, session);
+    const view = await context.open(task, session);
     if (view === null || view.skill !== 'plan') throw notAccepted('no-plan-route', `task ${task} has no plan route for this session.`);
-    await context.assertOwner(view);
     const draft = (await context.window(view, 'plan-check')).filter((entry): entry is PlanNote => isNote(entry, 'plan-draft')).at(-1);
     if (draft === undefined) throw draftMissing(task);
 
@@ -140,7 +125,6 @@ export async function promotePlan(
     const promoted = (read.state === 'ok' ? read.entries : []).find((entry) => isNote(entry, 'plan') && entry.promotedFrom === draft.id) as PlanNote | undefined;
     if (promoted !== undefined) return { outcome: 'plan-already-promoted' as const, path: shown(dir, promoted.path), promotedFrom: draft.id };
 
-    await context.assertOwner(view);
     const draftName = path.basename(draft.path);
     const planName = draftName.replace(/^plan-draft_/, 'plan_');
     if (planName === draftName) throw new AmbicodeError('internal', `${draft.path} is not named plan-draft_<timestamp>.md.`);

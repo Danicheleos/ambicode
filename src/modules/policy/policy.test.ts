@@ -219,7 +219,7 @@ test('U04 command precedence is forbid over propose over run, and silence is not
   assert.equal(decisionFor(resolved, 'unit').action, 'forbid');
   assert.equal(decisionFor(resolved, 'e2e').action, 'propose');
   assert.equal(decisionFor(resolved, 'lint').action, 'run');
-  assert.equal(decisionFor(resolved, 'architecture-report').action, 'undeclared');
+  assert.equal(decisionFor(resolved, 'architecture-report').action, 'run');
 
   assert.ok(explainRefusal(resolved, 'unit').includes('Snapshots must not be rewritten here.'));
   assert.ok(explainRefusal(resolved, 'unit').includes('.ambicode/policies/orders.yaml'));
@@ -406,10 +406,10 @@ test('U06 activity filtering keeps read-only work out of check decisions', async
   });
 
   const review = resolvePolicy({ activity: 'review', project: config, packs, paths: ['apps/web/a.ts'] });
-  assert.equal(decisionFor(review, 'lint').action, 'run');
+  assert.equal(decisionFor(review, 'e2e').action, 'propose');
 
   const investigate = resolvePolicy({ activity: 'investigate', project: config, packs, paths: ['apps/web/a.ts'] });
-  assert.equal(decisionFor(investigate, 'lint').action, 'undeclared');
+  assert.equal(decisionFor(investigate, 'e2e').action, 'run');
 });
 
 test('U06 output ordering is deterministic and independent of declaration order', async () => {

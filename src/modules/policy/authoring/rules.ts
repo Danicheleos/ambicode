@@ -30,10 +30,8 @@ async function addPolicyFile(fs: { readText(p: string): Promise<string>; writeTe
 
 export async function applyRules(deps: ApplyDeps, input: { task: string; project: string | null }) {
   const { runtime, session, context } = deps;
-  if (session === null) throw new AmbicodeError('session-unbound', `rules apply cannot tell which route it speaks for: task ${input.task} has no single live route.`, { details: ['Start the rules route in /ambicode:rules; rules apply runs inside it.'] });
-  const view = context === null ? null : await context.resolve(input.task, session);
+  const view = context === null || session === null ? null : await context.open(input.task, session);
   if (context === null || view === null || view.skill !== 'rules') throw unconfirmed('no-rules-route');
-  await context.assertOwner(view);
   const consent = await context.consent(view, 'rules-table');
   if (consent.state === 'refused') throw unconfirmed(consent.reason);
   const source = consent.source as unknown as Record<string, unknown>;
@@ -74,8 +72,7 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
     if (await runtime.fs.exists(path.join(root, pack.live))) throw new AmbicodeError('bad-argument', `${pack.live} already exists; a live pack is never overwritten. Rename the draft or remove the live pack first.`, { field: 'rules apply' });
   }
 
-  return withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, async (ledger) => {
-    await context.assertOwner(view);
+  return withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, async (ledger) => {
     await verify();
     for (const pack of plan) {
       await runtime.fs.writeText(path.join(root, pack.live), pack.text);
@@ -93,8 +90,6 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
       ...plan.flatMap((pack) => pack.lines),
     ].join('\n');
     const text = `${table}\n<!-- ambicode rules ${contentHash(table)} -->\n`;
-    await runtime.fs.mkdirp(dir.steps);
-    await runtime.fs.writeText(path.join(dir.steps, 'rules-apply.md'), text);
     return { packs, skipped, text };
   });
 }

@@ -58,7 +58,7 @@ async function shipped(options: { requirements?: string[]; headless?: boolean; s
       { ...deps, asked: extra.asked ?? [TASK] },
     ));
   const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, ...overrides }));
-  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task: TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(TASK, 'exit')).map((entry) => String(entry['reason']));
   return { fx, task: TASK, capture, normalize, next, exits };
 }

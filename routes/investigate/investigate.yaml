@@ -1,6 +1,5 @@
 skill: investigate
 version: 3
-revisable: [ground]
 steps:
   - id: fetch
     actor: model

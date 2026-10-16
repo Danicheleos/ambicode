@@ -12,22 +12,6 @@ export type ReviewStatus = z.infer<typeof ReviewStatus>;
 export const CheckStatus = z.enum(['passed', 'failed', 'skipped', 'timed-out', 'error']);
 export type CheckStatus = z.infer<typeof CheckStatus>;
 
-/**
- * `failed-before-send` is safe to retry; `uncertain` is not, because a request
- * whose answer was lost may already have created the comment.
- */
-export const PublicationState = z.enum([
-  'draft',
-  'publishing',
-  'published',
-  'already-published',
-  'failed-before-send',
-  'uncertain',
-  'stale',
-  'not-selected',
-]);
-export type PublicationState = z.infer<typeof PublicationState>;
-
 export const Authority = z.enum(['team', 'observed', 'inherited']);
 export type Authority = z.infer<typeof Authority>;
 

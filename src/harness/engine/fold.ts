@@ -2,6 +2,7 @@ import type { GateDef, Qualified, When } from '../definition/routes.ts';
 import type { RouteDef, StepDef } from '#types/harness';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Chain } from '#types/modules/evidence';
+import { NAMED_ITERATION } from '#modules/evidence/task/slug';
 import { buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
 export { buildChain, cycleEntries, exitOf, isBoundAnswer, latestBound, liveHeads };
@@ -38,9 +39,9 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
   return index + 1;
 }
 
-interface FoldContext { args: { hasRequirement?: boolean; target?: { mr?: string | null }; plan?: string | null; fromDraft?: string | null } }
+interface FoldContext { args: { text?: string; hasRequirement?: boolean; target?: { mr?: string | null } } }
 
-function evaluate(when: When, window: readonly LedgerEntry[], all: readonly LedgerEntry[], context: FoldContext, gateWindow: (gate: string) => readonly LedgerEntry[], opener: LedgerEntry | undefined, step: StepDef): boolean {
+function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext, gateWindow: (gate: string) => readonly LedgerEntry[], opener: LedgerEntry | undefined, step: StepDef): boolean {
   switch (when.predicate) {
     case 'args.hasRequirement': return context.args.hasRequirement === true;
     case 'args.hasMergeRequest': return typeof context.args.target?.mr === 'string';
@@ -48,9 +49,17 @@ function evaluate(when: When, window: readonly LedgerEntry[], all: readonly Ledg
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    // `--from-draft` is the user's own "implement anyway", so the draft question is never asked under it.
-    case 'plan.isDraft': return context.args.fromDraft == null && /(^|[\\/])plan-draft[^\\/]*$/.test(context.args.plan ?? '');
+    case 'iteration.named': return NAMED_ITERATION.test(context.args.text ?? '');
+    case 'iteration.unnamed': return !NAMED_ITERATION.test(context.args.text ?? '');
+    // The start step recorded which iteration this route is at and how many the plan has.
+    // A change released red by a limit still reaches here; the next iteration must not build on it.
+    case 'iterations.continue': {
+      const start = all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start');
+      const check = all.findLast((entry) => entry.kind === 'check');
+      return !NAMED_ITERATION.test(context.args.text ?? '') && Number(start?.['iteration']) < Number(start?.['iterations']) && check?.['exit'] === 0;
+    }
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
+    case 'any': return when.of.some((part) => evaluate(part, all, context, gateWindow, opener, step));
     case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;
     case 'gate.isnt': {
       const answer = latestBound(gateWindow(when.gate), when.gate)?.['answer'];
@@ -63,7 +72,7 @@ const ownCompletion = (window: readonly LedgerEntry[], step: StepDef): boolean =
   window.some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'completed');
 
 const limited = (window: readonly LedgerEntry[], step: StepDef): boolean =>
-  window.some((entry) => entry.kind === 'limit' && entry['step'] === step.id && (entry['which'] === 'missing-produces' || entry['which'] === 'identical-next'
+  window.some((entry) => entry.kind === 'limit' && entry['step'] === step.id && (entry['which'] === 'missing-produces'
     || (entry['which'] === 'check' && step.produces.some((produced) => produced.kind === 'check' && produced.value === entry['phase']))));
 
 /** Done-ness per actor (03-F3). */
@@ -104,7 +113,7 @@ export function foldRoute(def: RouteDef, chain: Chain): Fold {
     const start = windowStart(def, chain.entries, step.index);
     const window = chain.entries.slice(start);
     let state: StepState['state'];
-    const whenFalse = step.when !== null && !evaluate(step.when, window, chain.entries, context, gateWindow, chain.entries[start - 1], step);
+    const whenFalse = step.when !== null && !evaluate(step.when, chain.entries, context, gateWindow, chain.entries[start - 1], step);
     if (position !== null) state = 'pending';
     else if (whenFalse) state = 'skipped';
     else if (isDone(step, window)) state = 'done';

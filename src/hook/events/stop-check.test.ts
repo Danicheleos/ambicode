@@ -12,7 +12,6 @@ const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'ORD-17';
 const INV = `skill: inv
 version: 3
-revisable: []
 steps:
   - id: read
     actor: model
@@ -28,7 +27,7 @@ interface Stopper { fx: RouteFixture; say(text: string): Promise<void>; stop(ext
 async function stopper(): Promise<Stopper> {
   const fx = await routeFixture({ routes: { inv: INV } });
   await fx.engine.start({ skill: 'inv', text: 'why is it slow', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
-  const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
+  const deps: HookDeps = { load: async () => ({ engine: fx.engine, routes: fx.routes }) };
   let last = '';
   const say = async (text: string) => void (last = text);
   return {
@@ -39,7 +38,7 @@ async function stopper(): Promise<Stopper> {
     dispose: () => fx.dispose(),
   };
 }
-const toWrite = async (s: Stopper): Promise<void> => void (await s.fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: s.fx.scratchpad }));
+const toWrite = async (s: Stopper): Promise<void> => void (await s.fx.engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: s.fx.scratchpad }));
 
 describe('03-K1 conditions', () => {
   it('a conversational stop allows; a stop that opens with the last step heading is checked and blocks once on a drifted report', async () => {
@@ -122,8 +121,8 @@ describe('03-K3 checks', () => {
     const fx = await routeFixture({ routes: { inv: withReport } });
     try {
       await fx.engine.start({ skill: 'inv', text: 'why is it slow', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
-      await fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad });
-      const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
+      await fx.engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: fx.scratchpad });
+      const deps: HookDeps = { load: async () => ({ engine: fx.engine, routes: fx.routes }) };
       const out = (await runHook(fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: fx.repo.root, scratchpad_dir: fx.scratchpad, last_assistant_message: `${heading}Done, nothing else to add.` }), deps)) as { decision?: string; reason?: string };
       assert.equal(out.decision, 'block');
       assert.match(out.reason!, /Evidence section is missing/);

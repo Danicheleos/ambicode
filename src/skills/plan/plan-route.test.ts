@@ -7,15 +7,13 @@ import YAML from 'yaml';
 import { answerGates } from '#hook/events/gate-answer';
 import { runHook } from '#hook/events/run-hook';
 import { buildReport } from '#modules/evidence/report/report';
-import { appendLedger } from '#platform/ledger/ledger';
-import { nodeFileSystem } from '#platform/ports/filesystem';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = 'f313ef1b2d4a84dc25f7167a637152de7cdef8227c0c7ca4951eb86e7895e7ba';
+const CONTRACT_SHA256 = 'c05ac271e0cfdf68b9f01ca693072bce6740065e8be8596cabf6d74a8283ba17';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -46,7 +44,7 @@ const hookAnswer = (plan: PlanFixture, question: string, label: string, options:
   tool_input: { questions: [{ question, options: options.map((value) => ({ label: value })) }] },
   tool_response: { answers: { [question]: label } },
 });
-const hookDeps = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer });
+const hookDeps = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes });
 
 describe('06-R1/06-R2 the shipped plan route', () => {
   it('06-R2: with a requirement, fetch is delivered first', async () => {
@@ -72,7 +70,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
   });
 
   it('06-R2: each step text is at most 1,500 characters and leaves the Then command to the step header', async () => {
-    for (const name of ['plan/fetch', 'plan/design']) {
+    for (const name of ['investigate/fetch', 'plan/design']) {
       const text = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
       assert.doesNotMatch(text, /route next/, name);
@@ -191,18 +189,18 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
     }
   });
 
-  it('06-R6/06-R7 #105: Accept through the hook promotes once, completes the route, and note promote asks nothing again', async () => {
+  it('06-R6/06-R7 #105: Accept through the hook promotes once, completes the route, and note promote has no live route left', async () => {
     const plan = await shipped();
     try {
       await plan.toGate();
       const print = await lastPrint(plan);
-      const done = await answerGates(plan.fx.runtime, hookAnswer(plan, `Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept', ['Accept', 'Revise', 'Reject']) as never, hookDeps(plan), PLATFORM);
+      const done = await answerGates(plan.fx.runtime, hookAnswer(plan, `Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept', ['Accept', 'Revise', 'Reject']) as never, hookDeps(plan), { repositoryRoot: plan.fx.repo.root, where: '.' }, PLATFORM);
       assert.notEqual(done, null);
       const promoted = await notes(plan, 'plan');
       assert.equal(promoted.length, 1);
       assert.ok(typeof promoted[0]!['promotedFrom'] === 'string');
-      assert.equal(await plan.fx.engine.live(PLAN_TASK), false);
-      assert.equal((await plan.promote()).outcome, 'plan-already-promoted');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).length, 1);
+      await assert.rejects(plan.promote(), { code: 'plan-not-accepted' });
       assert.equal((await notes(plan, 'plan')).length, 1);
     } finally {
       await plan.dispose();
@@ -243,7 +241,6 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
     const plan = await shipped();
     try {
       await plan.start();
-      await assert.rejects(plan.next({ revise: 'design' }), /not revisable/);
       await plan.body('# Plan\n\n1. Do it.\n');
       await plan.next();
       await plan.hook('plan-accept', 'Revise', (await lastPrint(plan)).id);
@@ -350,7 +347,7 @@ describe('06-H3 without hook support', () => {
       await plan.toGate();
       const print = await lastPrint(plan);
       const unsupported = { askBinding: 'unsupported', answerContext: 'unsupported' } as const;
-      assert.equal(await answerGates(plan.fx.runtime, hookAnswer(plan, `Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept', ['Accept', 'Revise', 'Reject']) as never, hookDeps(plan), unsupported), null);
+      assert.equal(await answerGates(plan.fx.runtime, hookAnswer(plan, `Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept', ['Accept', 'Revise', 'Reject']) as never, hookDeps(plan), { repositoryRoot: plan.fx.repo.root, where: '.' }, unsupported), null);
       await plan.next({ answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'acceptance')).filter((entry) => entry['gate'] === 'plan-accept').length, 0);
@@ -367,7 +364,7 @@ describe('06-R3 decision gates', () => {
     try {
       await plan.start();
       const question = 'Store the limit per customer or per order? [ambicode gate decision:limit-scope]';
-      await answerGates(plan.fx.runtime, hookAnswer(plan, question, 'Per order', ['Per customer', 'Per order']) as never, hookDeps(plan), PLATFORM);
+      await answerGates(plan.fx.runtime, hookAnswer(plan, question, 'Per order', ['Per customer', 'Per order']) as never, hookDeps(plan), { repositoryRoot: plan.fx.repo.root, where: '.' }, PLATFORM);
       const gate = (await plan.prints()).find((entry) => entry['gate'] === 'decision:limit-scope');
       assert.equal(gate?.['class'], 'decision');
       const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).find((entry) => entry['gate'] === 'decision:limit-scope');
@@ -402,7 +399,7 @@ describe('06-P9/D1 interruption', () => {
       await plan.hook('plan-accept', 'Accept', (await lastPrint(plan)).id);
       const ledger = await plan.fx.ledger(PLAN_TASK);
       const promoted = ledger.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')!;
-      const kept = ledger.filter((entry) => entry.id !== promoted.id && !(entry.kind === 'step' && entry['step'] === 'promote'));
+      const kept = ledger.filter((entry) => entry.id !== promoted.id && entry.kind !== 'exit' && !(entry.kind === 'step' && entry['step'] === 'promote'));
       await writeFile(path.join(taskDir(plan), 'ledger.jsonl'), kept.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
       await assert.rejects(plan.promote(), (error: { code?: string }) => error.code === 'plan-draft-missing');
       assert.equal((await notes(plan, 'plan')).length, 0);
@@ -412,19 +409,17 @@ describe('06-P9/D1 interruption', () => {
   });
 });
 
-describe('06-N2 write-time ownership on the shipped route', () => {
-  it('S11: another session is route-busy; after --fresh the old owner is refused every write, and time changes nothing', async () => {
+describe('06-N2 one live plan route per task', () => {
+  it('another session starting the task interrupts the route, and the draft is saved for the new one', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan);
-      await assert.rejects(plan.start({ session: SESSION_B }), (error: { code?: string }) => error.code === 'route-busy');
-      await plan.start({ session: SESSION_B, fresh: true });
-      plan.fx.advanceClock(60 * 60_000);
-      const taken = (error: { code?: string }) => error.code === 'route-taken-over' || error.code === 'route-not-open';
-      await assert.rejects(plan.next(), taken);
-      await assert.rejects(plan.saveDraft('# Plan\n'), taken);
-      await assert.rejects(plan.promote(SESSION_A), taken);
-      assert.equal((await notes(plan, 'plan-draft')).length, 0);
+      await plan.start({ session: SESSION_B });
+      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'exit')).map((entry) => entry['reason']), ['interrupted']);
+      await plan.saveDraft('# Plan\n');
+      const [first, second] = await plan.fx.kinds(PLAN_TASK, 'route');
+      const draft = (await notes(plan, 'plan-draft')).at(-1)!;
+      assert.deepEqual([draft['route'] === second!.id, draft['route'] === first!.id], [true, false]);
     } finally {
       await plan.dispose();
     }
@@ -435,7 +430,7 @@ describe('06-R11 launch', () => {
   it('06-R11: a typed /ambicode:plan starts the shipped route on the hook channel and runs no prepare', async () => {
     const plan = await shipped();
     try {
-      const deps = { pointer: plan.fx.pointer, load: async () => hookDeps(plan) };
+      const deps = { load: async () => hookDeps(plan) };
       const output = (await runHook(plan.fx.runtime, JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, prompt: `/ambicode:plan add an order limit --task ${PLAN_TASK}` }), deps)) as { hookSpecificOutput?: { additionalContext: string } };
       const text = output.hookSpecificOutput?.additionalContext ?? '';
       assert.match(text, new RegExp(`\\[ambicode\\] plan · task ${PLAN_TASK} · step design`));

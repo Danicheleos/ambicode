@@ -1,9 +1,7 @@
-import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { describeIssues } from '#modules/config/load';
 import { PolicyPack, type Diagnostic, type LoadedPack, type PackConstraints } from '#types/modules/policy';
-import { AmbicodeError, messageOf } from '#util/errors';
-import { resolveInsideBoundary } from '#util/paths';
+import { messageOf } from '#util/errors';
 import type { FileSystem } from '#types/platform/ports';
 
 interface PackSource {
@@ -56,7 +54,6 @@ export async function validatePack(
   }
 
   const pack = parsed.data;
-  const packDirectory = path.dirname(filePath);
 
   for (const rule of pack.rules) {
     const outside = (rule.activities ?? []).filter((activity) => !pack.activities.includes(activity));

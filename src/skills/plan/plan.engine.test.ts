@@ -63,8 +63,7 @@ describe('S3 re-accept after a new draft', () => {
       assert.equal(plan.state.steps, writes);
       assert.equal((await plan.hook('plan-accept', 'Accept', printB.id)).position, 'complete');
       assert.equal((await planFiles(plan, 'plan_')).length, 1);
-      const again = await plan.promote();
-      assert.equal(again.outcome, 'plan-already-promoted');
+      await assert.rejects(plan.promote(), { code: 'plan-not-accepted' });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {
       await plan.dispose();

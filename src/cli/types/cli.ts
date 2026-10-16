@@ -1,5 +1,5 @@
 import type { Runtime } from '#types/composition';
-import type { Engine, RouteRegistry, SessionBinding } from '#types/harness';
+import type { Engine, RouteRegistry } from '#types/harness';
 import type { JsonFormat } from '#types/util';
 
 export type { OptionSpec, ParsedArgs } from '#types/cli';
@@ -29,4 +29,4 @@ export interface CliCommand {
   run(runtime: Runtime, args: ParsedArgs): Promise<Rendered>;
 }
 
-export interface RouteTools { engine: Engine; routes: RouteRegistry; binding: SessionBinding }
+export interface RouteTools { engine: Engine; routes: RouteRegistry }

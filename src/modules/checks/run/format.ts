@@ -7,7 +7,7 @@ import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { authorizeCommand } from '../selection/authorize.ts';
 import { authorizeKey, commandFor, FORMAT_CHECK, projectRelative, routedOf, withLedger } from './check-command.ts';
 import { shellArgv } from './run.ts';
-import { fingerprintWorkspace } from '../workspace/mutations.ts';
+import { hashFiles } from '../workspace/mutations.ts';
 import { baselineOf, touchedSet } from '../workspace/baseline.ts';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import type { CheckDeps, FormatEntry } from '#types/modules/checks';
@@ -55,7 +55,7 @@ export async function runFormat(deps: CheckDeps, input: { task: string; waiting:
       continue;
     }
     const relative = files.map((file) => projectRelative(project, file));
-    const hashes = () => fingerprintWorkspace({ fs: deps.runtime.fs, git: workspace.git, repositoryRoot: workspace.repositoryRoot, paths: files }).then((print) => print.fileHashes);
+    const hashes = () => hashFiles(deps.runtime.fs, workspace.repositoryRoot, files);
     const before = await hashes();
     const outcome = await deps.runtime.runner.run({
       argv: shellArgv(commandFor(template, relative)),
