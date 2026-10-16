@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createRuntime } from '#composition/root';
+import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
+import { TempRepo } from '#testing/fixtures/temp-repo';
+import { parseArgs } from '#util/args';
+import { contextTreeCommand } from './commands/context/context.ts';
 import { SPECS, USAGE } from './main.ts';
 import { STEP_PRINTING } from '../hook/guard/rules/output.ts';
 
@@ -23,6 +28,7 @@ const TABLE: Record<string, readonly string[]> = {
   'config packs': ['list'],
   'context list': [],
   'context write': [],
+  'context tree': ['root'],
   version: [],
 };
 
@@ -110,5 +116,30 @@ describe('the guard knows which commands print a route step', () => {
   });
   it('names only registered commands', () => {
     for (const name of STEP_PRINTING) assert.ok(name.replace(' --drafts', '') in SPECS, name);
+  });
+});
+
+describe('context tree', () => {
+  it('walks a deep source folder from git, skips tests, and names the mirrored note and submodules of each module', async () => {
+    const repo = await TempRepo.create();
+    try {
+      for (const name of ['a', 'b', 'c']) await repo.write(`src/app/features/${name}.ts`, `export function make${name}() {}\n`);
+      for (const name of ['d', 'e', 'f']) await repo.write(`src/app/features/dashboard/widgets/${name}.ts`, `export class Widget${name} {}\n`);
+      await repo.write('src/app/features/a.test.ts', 'export function onlyInTest() {}\n');
+      await repo.write('docs/guide.md', '# guide\n');
+      await repo.commitAll('base');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await initConfig(runtime, FIXTURE_CONFIG);
+      const run = (...argv: string[]) => contextTreeCommand.run(runtime, parseArgs('context tree', argv, contextTreeCommand.options));
+      const out = await run('--root', 'src');
+      assert.match(out.text, /^source files 6, modules 2 /);
+      assert.match(out.text, /modules\/src\/app\/features\.md {2}dir src\/app\/features {2}depth 3 {2}files 6 {2}submodules: modules\/src\/app\/features\/dashboard\/widgets\.md/);
+      assert.match(out.text, /modules\/src\/app\/features\/dashboard\/widgets\.md {2}dir src\/app\/features\/dashboard\/widgets {2}depth 5 {2}files 3\n?$/);
+      assert.doesNotMatch(out.text, /onlyInTest|docs\/guide/);
+      assert.deepEqual((out.data as { modules: { parent: string | null }[] }).modules.map((module) => module.parent), [null, 'src/app/features']);
+      assert.match((await run('--root', 'docs')).text, /^source files 0, modules 0 /);
+    } finally {
+      await repo.dispose();
+    }
   });
 });

@@ -4,7 +4,7 @@ schemaVersion: 5
 id: __PROJECT_ID__
 baseline: origin/main            # branch review needs it or --base
 context:                         # limits for .ambicode/context (tokens = chars / 4)
-  maxTotalTokens: 24000
+  maxTotalTokens: 60000
   maxFileTokens: 2500
 skills:                          # every skill: model, effort, timeoutMinutes, plus its own keys
   init:

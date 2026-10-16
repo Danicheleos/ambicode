@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { loadConfig } from '#modules/config/load';
-import { listContext, renderListing, writeContext } from '#modules/context/context';
+import { buildModuleTree, listContext, maxModulesFor, renderListing, renderTree, writeContext } from '#modules/context/context';
 import { CONTEXT_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { MAX_HOOK_INPUT_BYTES } from '#types/hook';
@@ -33,5 +33,17 @@ export const contextListCommand: CliCommand = {
     const { config } = await loadConfig(runtime.fs, root);
     const files = await listContext(runtime.fs, root);
     return { text: renderListing(files, config.context), data: { files, limits: config.context, dir: path.join(root, CONTEXT_DIR) } };
+  },
+};
+
+export const contextTreeCommand: CliCommand = {
+  name: 'context tree',
+  summary: 'Source modules, full depth.',
+  options: { repeated: ['root'], flags: ['json'] },
+  run: async (runtime, args) => {
+    const { repositoryRoot: root, git } = await openRepository(runtime);
+    const { config } = await loadConfig(runtime.fs, root);
+    const result = buildModuleTree(await git.listFiles(null), { roots: args.all('root'), maxModules: maxModulesFor(config.context) });
+    return { text: renderTree(result), data: result };
   },
 };

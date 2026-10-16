@@ -6,7 +6,7 @@ import { parseArgs } from '#util/args';
 import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
 import { configValidateCommand } from './commands/config/validate.ts';
 import { configPacksCommand } from './commands/config/packs.ts';
-import { contextListCommand, contextWriteCommand } from './commands/context/context.ts';
+import { contextListCommand, contextTreeCommand, contextWriteCommand } from './commands/context/context.ts';
 import { rulesApplyCommand } from './commands/policy/rules.ts';
 import { checkCommand } from './commands/checks/check.ts';
 import { policyCheckCommand } from './commands/policy/policy-check.ts';
@@ -80,7 +80,7 @@ const versionCommand: CliCommand = {
 const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
   configValidateCommand, configPacksCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
   checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
-  requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand,
+  requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand,
 ].map((entry) => [entry.name, entry]));
 
 /** Generated from `COMMANDS`, so a command cannot be registered and missing from the usage text, or the reverse. */
