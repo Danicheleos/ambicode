@@ -1,0 +1,157 @@
+import { z } from 'zod';
+import { Activity, Authority, CommandAction, RuleCategory } from '../primitives.ts';
+
+export const RuleCheck = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('reviewer'),
+    explanation: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal('command'),
+    command: z.string().min(1),
+    explanation: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal('none'),
+    explanation: z.string().min(1),
+  }),
+]);
+export type RuleCheck = z.infer<typeof RuleCheck>;
+
+/** Where a migrated rule came from: the verbatim text and its file or URL (09-Q1). */
+export const RuleSource = z.strictObject({ quote: z.string(), location: z.string().min(1) });
+export type RuleSource = z.infer<typeof RuleSource>;
+
+const KebabId = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be kebab-case' });
+
+const Globs = z.array(z.string().min(1)).min(1);
+
+export const PolicyRule = z.strictObject({
+  id: KebabId,
+  category: RuleCategory,
+  instruction: z.string().min(1),
+  check: RuleCheck,
+  source: RuleSource.optional(),
+  /** Narrow the pack's own `activities` for this rule; absent means the pack's. */
+  activities: z.array(Activity).min(1).optional(),
+});
+export type PolicyRule = z.infer<typeof PolicyRule>;
+
+/** A rule in `.ambicode/policies/drafts/`: it must say where it came from. */
+export const DraftPolicyRule = PolicyRule.extend({ source: RuleSource });
+export type DraftPolicyRule = z.infer<typeof DraftPolicyRule>;
+
+export const PolicyCommandDecision = z.strictObject({
+  command: z.string().min(1),
+  action: CommandAction,
+  reason: z.string().min(1).optional(),
+});
+export type PolicyCommandDecision = z.infer<typeof PolicyCommandDecision>;
+
+export const PolicyPack = z.strictObject({
+  schemaVersion: z.literal(1),
+  id: KebabId,
+  authority: Authority,
+  appliesTo: Globs,
+  activities: z.array(Activity).min(1),
+  /** One line saying what the pack covers; init shows it so the model can choose built-ins. */
+  description: z.string().min(1).optional(),
+  source: z.strictObject({
+    location: z.string().min(1),
+    externalVersion: z.string().min(1).optional(),
+  }),
+  rules: z.array(PolicyRule).default([]),
+  commandPolicy: z.array(PolicyCommandDecision).default([]),
+  /** Only a project pack may declare this. */
+  replaces: z
+    .string()
+    .regex(/^builtin\/[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be "builtin/<pack-id>"' })
+    .optional(),
+});
+export type PolicyPack = z.infer<typeof PolicyPack>;
+
+export interface LoadedPack {
+  pack: PolicyPack;
+  reference: string;
+  origin: 'builtin' | 'project';
+  /** Absolute path of the pack file; prompt references resolve against its directory. */
+  filePath: string;
+}
+
+export interface ResolvedRule {
+  qualifiedId: string;
+  packId: string;
+  packReference: string;
+  /** Absolute path of the pack file the rule is written in. */
+  packFile: string;
+  authority: z.infer<typeof Authority>;
+  sourceLocation: string;
+  category: z.infer<typeof RuleCategory>;
+  instruction: string;
+  check: RuleCheck;
+}
+
+export interface ResolvedCommandDecision {
+  command: string;
+  action: z.infer<typeof CommandAction>;
+  sources: Array<{ packId: string; packReference: string; action: z.infer<typeof CommandAction>; reason?: string }>;
+}
+
+export type DiagnosticSeverity = 'error' | 'warning' | 'notice';
+
+export interface Diagnostic {
+  severity: DiagnosticSeverity;
+  code: string;
+  message: string;
+  where?: string;
+}
+
+export interface ResolvedPolicy {
+  activity: z.infer<typeof Activity>;
+  projectId: string | null;
+  packs: Array<{
+    id: string;
+    reference: string;
+    authority: z.infer<typeof Authority>;
+    sourceLocation: string;
+    matchedPaths: string[];
+  }>;
+  rules: ResolvedRule[];
+  commandDecisions: ResolvedCommandDecision[];
+  diagnostics: Diagnostic[];
+}
+
+export interface StagePayload {
+  stage: 'before-work';
+  text: string;
+  bytes: number;
+  /** The `policy` ledger entry's fields. */
+  entry: { stage: 'before-work'; packs: string[]; rules: number; bytes: number };
+}
+
+export const DRAFTS_DIR = '.ambicode/policies/drafts';
+
+export interface DraftsCheck {
+  files: { path: string; contentHash: string; packId: string | null }[];
+  diagnostics: Diagnostic[];
+  rulesBySource: Record<string, number>;
+  notMigrated: { rule: string; reason: string }[];
+  aggregateHash: string;
+  ok: boolean;
+  /** Every draft rule as `<pack>/<rule>`. */
+  rules: string[];
+}
+
+export interface PackConstraints {
+  /**
+   * `null` when no project owns the pack yet: command checks are then reported as skipped
+   * rather than guessed against an arbitrary project's catalog.
+   */
+  commands: Readonly<Record<string, unknown>> | null;
+  projectId: string | null;
+  /** Command names each built-in pack (by id) itself names; a `replaces` copy may keep them undeclared. */
+  builtinCommands(): Promise<ReadonlyMap<string, ReadonlySet<string>>>;
+}

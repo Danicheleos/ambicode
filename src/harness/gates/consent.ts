@@ -1,0 +1,53 @@
+import { isBoundAnswer, latestBound } from '../engine/fold.ts';
+import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
+import type { AcceptanceEntry, ConsentResult } from '#types/harness';
+import type { ConsentBinding } from '../types/engine.ts';
+
+
+const ANSWER_KINDS = ['acceptance', 'declined', 'default-taken'];
+
+/**
+ * The answer a consumer may act on (03-G11): the latest bound answer of the gate's window, an acceptance, and for an
+ * acting option one that came from a printed instance through the hook or from a preanswer written at a trusted start.
+ */
+export function evaluateConsent(input: {
+  window: readonly LedgerEntry[];
+  chain: readonly LedgerEntry[];
+  gate: string;
+  acting: readonly string[];
+  binding?: ConsentBinding | undefined;
+}): ConsentResult {
+  const { window, chain, gate, acting, binding } = input;
+  const answers = window.filter((entry) => ANSWER_KINDS.includes(entry.kind) && entry['gate'] === gate);
+  const bound = latestBound(window, gate);
+  if (bound === null) {
+    if (answers.some((entry) => entry['unbound'] === true)) return { state: 'refused', reason: 'unbound', source: answers.findLast((entry) => entry['unbound'] === true) ?? null };
+    const declined = answers.findLast((entry) => entry.kind === 'declined' && entry['reason'] === 'acting-needs-human');
+    return declined === undefined ? { state: 'refused', reason: 'no-answer', source: null } : { state: 'refused', reason: 'acting-needs-human', source: declined };
+  }
+  if (bound.kind !== 'acceptance') {
+    const earlier = window.slice(0, window.indexOf(bound)).some((entry) => entry.kind === 'acceptance' && isBoundAnswer(entry) && entry['gate'] === gate);
+    return { state: 'refused', reason: earlier ? 'superseded' : 'not-accepted', source: bound };
+  }
+  const option = String(bound['answer']);
+  // A gate with acting options: any other answer (`decline`, `skip`) is a decline, and a decline is never consent to act.
+  if (acting.length > 0 && !acting.includes(option)) return { state: 'refused', reason: 'not-accepted', source: bound };
+  if (acting.includes(option)) {
+    const printed = bound['via'] === 'hook' && typeof bound['instance'] === 'string' && chain.some((entry) => entry.kind === 'gate' && entry.id === bound['instance'] && entry['gate'] === gate);
+    const prompted = bound['via'] === 'prompt' && bound['trusted'] === true;
+    if (!printed && !prompted) return { state: 'refused', reason: 'acting-needs-human', source: bound };
+  }
+  if (binding?.key !== undefined) {
+    const print = chain.find((entry) => entry.kind === 'gate' && entry.id === bound['instance']);
+    const keys = (print?.['values'] as { key?: unknown } | undefined)?.key;
+    if (!Array.isArray(keys) || !keys.includes(binding.key)) return { state: 'refused', reason: 'not-accepted', source: bound };
+  }
+  if (binding?.set !== undefined || binding?.draft !== undefined) {
+    const shown = (chain.find((entry) => entry.kind === 'gate' && entry.id === bound['instance'])?.['values'] ?? {}) as { set?: unknown; draft?: unknown };
+    const accepted = Array.isArray(shown.set) ? (shown.set as string[]) : [];
+    if (binding.set !== undefined && JSON.stringify([...accepted].sort()) !== JSON.stringify([...binding.set].sort())) return { state: 'refused', reason: 'not-accepted', source: bound };
+    if (binding.draft !== undefined && shown.draft !== binding.draft) return { state: 'refused', reason: 'not-accepted', source: bound };
+  }
+  return { state: 'honoured', source: bound as unknown as AcceptanceEntry, object: (bound['object'] as ArtifactRef | undefined) ?? null };
+}
+

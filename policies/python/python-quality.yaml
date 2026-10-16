@@ -1,0 +1,72 @@
+schemaVersion: 1
+id: python-quality
+authority: inherited
+description: "Python: exception specificity, resource lifetime, mutable defaults, blocking calls in async code, import side effects."
+appliesTo:
+  - "**/*.py"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Python baseline, written for this release rather than translated
+    from the TypeScript rule packs.
+  externalVersion: "python-v2"
+
+rules:
+  - id: exception-specificity
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      Catch the exception types the code can actually handle. A bare `except:`
+      also catches KeyboardInterrupt and SystemExit; a bare `except Exception`
+      that logs and continues turns a failure into a silent one. Re-raise with
+      `raise` to keep the traceback, or `raise NewError(...) from original` when
+      translating.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed except clauses and what they do.
+
+  - id: resource-lifetime
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      Acquire files, sockets, locks, database sessions, and subprocesses through
+      a context manager or an explicit close in a finally block, so the resource
+      is released on the failure path too.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed acquisition sites.
+
+  - id: mutable-default-arguments
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      A default argument is evaluated once at definition time, so a list, dict,
+      or set default is shared by every call. Use None and build the value in
+      the body.
+    check:
+      kind: reviewer
+      explanation: Visible in the changed signature; verifiable by reading it.
+
+  - id: async-blocking-calls
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      A synchronous call inside a coroutine blocks the whole event loop. Use the
+      asynchronous client, or move the blocking work to an executor.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed coroutines.
+
+  - id: import-side-effects
+    category: architecture
+    activities: [task, review]
+    instruction: >-
+      Keep work out of module import time. Configuration reads, network calls,
+      and singleton construction at import make behaviour depend on import
+      order and make tests hard to isolate.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed module level statements.
+
+commandPolicy: []

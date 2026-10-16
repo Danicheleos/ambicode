@@ -1,123 +1,143 @@
-# Baseline evaluation suite
+# Evals: skill coverage
 
-The frozen Phase 1 case set (doc 07, "Native model evaluation"): twelve review
-cases, two per category, six TypeScript and six Python.
+Seventeen synthetic cases, at least one per skill, each checking one behaviour. Twelve of them also run with no
+plugin loaded, which is the baseline. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
+here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
+and are not run any more.
 
-```sh
-claude plugin eval . --runs 3 --ablation with-without --scaffold \
-  --allow-tools Bash --no-publish --json ./eval-results.json
+```
+evals/
+  scripts/cases.mjs       the single source: every case, its prompt per arm, its graders
+  cases/<case>/           plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/)
+  bare/<case>/            no-plugin arm, generated: same request in plain words, shared graders only
+  scripts/run.mjs         runs one arm through `claude plugin eval`, then tracks the result
+  scripts/track.mjs       appends one row per case to history.jsonl and rewrites history.md
+  scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
+  scripts/trace.mjs       trace parsing and `mean`, shared by the scripts below
+  scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`)
+  scripts/chain.mjs       turn-by-turn chain of a run; after each run, of the one with the most model calls (chains/<arm>-longest.md)
+  scripts/breakdown.mjs   where a run's calls, tokens, seconds and injected bytes go (`npm run evals:breakdown -- <trace.jsonl | dir>`)
+  cases/results/          raw output of the last run per arm, and traces/<arm>/<case>-<n>.jsonl (gitignored)
+  history.jsonl           every run, one row per case, in git
+  history.md              latest plugin row and latest bare row per case, with the lift
 ```
 
-`--ablation with-without` is what makes this a comparison: the `without` arm is
-the ordinary-prompting baseline doc 07 requires, and the `with` arm is the same
-request with AMBICODE loaded. Graders marked `arm: with-only` record that the
-plugin fired and stay out of the score.
-
-Two grants are needed and they are not the same thing. Each case declares `Bash`
-in `allowed_tools` because the review skill runs the packaged helper; the
-operator grants it with `--allow-tools Bash`. `--scaffold` authorizes the fixture
-setup script only — it does not give the evaluated agent Bash.
-
-Each case scaffolds its fixture from `fixtures/definitions.mjs`, so the cases
-carry no second copy of the repositories the unit tests already use.
-
-The two requirement cases also scaffold a frozen `requirement-evidence.json`
-beside `repo/`, because an eval session holds no MCP connection. Both arms can
-read it, so the comparison stays fair, and it sits outside the repository so it
-is not part of the change under review. This is a model-quality comparison on
-frozen evidence, never a test of live Jira or Confluence retrieval — that is
-M05.
-
-Three `arm: with-only` graders record what actually happened, and none of them
-is part of the score:
-
-- `plugin-fired` matches a `Skill` call naming `ambicode:review`. It proves
-  routing and nothing else.
-- `helper-ran` matches a `Bash` call whose input holds `ambicode review`. It
-  matches the tool **input**, so it proves only that the call was attempted: not
-  the exit status, not the working directory, not that a bundle came out.
-- `helper-output-used` reads the final message for values only a completed run
-  produces — a review id, the pinned target, per-check status, the omissions.
-  That is the closest a grader gets to "the result was read".
-
-None of the three establishes that the run succeeded. E02 does, by inspecting
-one authorized trace.
-
-## E02, when model access is authorized
-
-E02 is not satisfied by a grader verdict. Run one case with a trace and read it:
+## Run
 
 ```sh
-claude plugin eval . --case correctness-ts --runs 1 --ablation none \
-  --scaffold --allow-tools Bash --no-publish \
-  --verbose --debug-file ./evals/results/e02-trace.log
+npm run build                       # cases run scripts/ambicode.mjs, not src/
+npm run evals                       # plugin arm: 17 cases
+npm run evals:bare                  # bare arm: 12 cases, no plugin
+npm run evals -- --case 'task-*'    # one skill (a glob; --case is not repeatable)
+npm run evals -- --tag gate         # by tag
+npm run evals -- --runs 3           # more runs per case, for a decision
+npm run evals:dry                   # print both commands and change nothing
 ```
 
-The trace must show all of:
+Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap per arm. Override any of them with
+`--model`, `--effort`, `--runs` or `--max-cost-usd`. The harness has no effort flag, so `run.mjs` sets
+`CLAUDE_CODE_EFFORT_LEVEL` in the environment. A probe showed the variable inside the run. It does not prove the
+model honoured it.
 
-1. the `ambicode:review` skill being invoked;
-2. a `Bash` call running `ambicode review` **with `repo/` as its working
-   directory**, exiting 0 — a run from the harness directory is a failed case;
-3. the agent reading that run's output and reporting its review id, target and
-   check evidence rather than describing the diff;
-4. `.ambicode/reviews/<id>/result.json` present inside the fixture, with a
-   `reviewer` block naming `Read,Grep,Glob`;
-5. both arms receiving the same non-plugin tool grants.
+Each run also writes `evals/chains/<arm>-longest.md`, linked from `history.md`: the turn-by-turn chain of the run with the most model calls.
+Each line shows the time since the start, the context, the tool call and its result with the time it took. A gap of
+30 s or more is marked ⏱. `node evals/scripts/chain.mjs evals/cases/results/traces/<arm>/<run time>/<case>-1.jsonl` prints the
+chain of any other run.
 
-Until that trace exists and has been read, E02 is outstanding. Record it in a
-sanitized dated acceptance record, without workstation paths or private source.
+## Recall, precision, drift
 
-## Status
+A case with `metrics` in `cases.mjs` is scored on the files its answer lists. The prompt asks both arms for a
+`## Files` section, and only that section counts, because answers also name decoys in order to rule them out.
+- **Recall** is the share of the `relevant` files the list names.
+- **Precision** is the share of listed files that are `relevant` or `allowed`.
+- **F1** combines the two.
 
-The suite loads and both arms resolve: `claude plugin eval . --scaffold
---allow-tools Bash --max-cost-usd 0` reports 2 arms × 12 cases (72 runs), and a
-deliberately malformed case is refused with its field errors. That is E01.
+A run with no Files section scores recall 0 and F1 0, and is counted separately.
 
-No arm has been run. Doc 07 allows the ordinary-prompting baseline only in an
-approved disposable environment with authorized model access, which this
-environment does not have. E02 is outstanding, so the case set is not yet
-frozen and no score exists.
+With `--runs N`, the `Runs` section of `history.md` lists every run of the latest row: score, recall, precision, F1,
+calls, tools, context, cost, and the files missed and extra. A spread line under it gives mean ± sample standard deviation.
+That section is where drift on one task shows.
 
-A zero-case, cost-ceiling or otherwise partial run is diagnostic evidence, not a
-result. `evals/results/` is gitignored for that reason.
+Raise a case's `version` whenever its prompt or graders change. A lift is shown only between rows of the current
+version.
 
-## Categories
+Each run appends to `history.jsonl` and rewrites `history.md`. Read `history.md`, not the exit code. The harness
+exits 1 whenever any case scores below 1.0.
 
-Case names, descriptions and tags are neutral: the expected defect lives in
-`ground-truth.md` and the graders, never in anything the evaluated agent sees.
+## How a case works
 
-| Cases | Category | Fixtures |
-|---|---|---|
-| clean-ts, clean-py | Clean or trivial change; any finding is a false positive | `ts-staged-unstaged`, `py-clean-docstring` |
-| correctness-ts, correctness-py | A defect in the changed lines | `ts-off-by-one`, `py-none-guard` |
-| regression-ts, regression-py | Source-only change breaking an unchanged test | `ts-source-regression`, `py-source-regression` |
-| requirement-ts, requirement-py | Code contradicts the stated requirement | `ts-requirement-mismatch`, `py-requirement-mismatch` |
-| duplication-ts, complexity-py | Reuse and unjustified complexity | `ts-duplication`, `py-complexity` |
-| degraded-ts, degraded-py | Evidence is missing; silence is the failure mode | `ts-rename-delete`, `py-no-runner` |
+1. **Scaffold.** `scaffold.sh` replays a fixture into `repo/`, a fresh git repository with known history. The
+   plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real. `--context` also writes
+   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (8 of the 17 cases).
+2. **Prompt.** The plugin arm types the skill exactly as a user would, for example
+   `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() …`. `--task` fixes the slug so
+   graders can find the ledger. `--answer` pre-answers a gate. A case with no answer tests the gate's default. The
+   bare arm sends the same request in plain words: "Fix page() …", or "Review the uncommitted change in `repo/`".
+3. **Graders.** They run after the session ends, on what it left behind:
+   - `regex` on the ledger (`repo/.ambicode/tasks/<slug>/ledger.jsonl`), on a produced file, or on the final message.
+   - `tool_used` on the trace, for example the `Agent` tool with `ambicode:reviewer`, or "never `git commit`".
+   - `file_exists` for files the run created.
+   - `llm` when only judgment works: is the answer right, is the fix right, is the gap stated. Haiku judges with
+     three votes.
+4. **Score.** The weighted share of graders that passed.
 
-## Navigation cost (R4)
+## Plugin against bare
 
-`p2-investigate-boundary-shortlist` is the one case whose point is not the
-verdict. Both arms are expected to be able to answer it; the fixture
-(`ts-feature-boundary`) is built so keyword matching alone ranks a retired
-decoy exactly like the two real files that share its keyword, and only
-co-change separates them.
+Graders come in two kinds:
 
-What it measures is what the answer cost, read from the run record rather than
-from a grader:
+- **Shared graders** judge the outcome: the answer, the code, the review finding, the boundary (no edits, no git).
+  They run in both arms.
+- **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
+  They run in the plugin arm only.
 
-- tool calls before all four boundary files were open or cited;
-- input and output tokens for the run;
-- whether the decoy was read at all.
+`history.md` shows per case:
 
-A grader can say the answer was right; none of them can say it was cheap. Both
-figures are recorded per arm, with the caveat that three runs of one case is a
-signal to accumulate, not a benchmark. `shortlist-requested` is an
-`arm: with-only` indicator like `helper-ran`: it matches the tool **input**, so
-it proves the call was attempted and nothing more.
+| Column | Meaning |
+| --- | --- |
+| plugin | Full score of the plugin arm. |
+| outcome | Shared graders only, in the plugin arm. |
+| bare | Shared graders in the bare arm. |
+| lift | outcome − bare. Shown only when both rows ran the same model and effort. |
+| plugin $, bare $ | Session cost from the trace's `total_cost_usd`: subagents included, the Haiku judge excluded (`history.jsonl` keeps it as `judgeCostUsd`). |
+| session s | Seconds the session ran, plugin / bare, from the trace's result event. `history.jsonl` also keeps `apiSeconds` (model time) and `seconds` (the harness's, which counts scaffold and graders). |
+| model calls/tools | Distinct main-session model calls and tool calls, plugin · bare. The harness `turns` counts every tool result, so parallel reads inflate it; rows keep it, the table does not show it. |
+| context k | Largest context the main session sent the model in one call, in thousands of tokens (input plus cache), plugin / bare. `history.jsonl` also keeps `contextFinal`, the last call's context. Subagent calls are left out, because the trace records only some of them. |
 
-## Adjudication
+Five cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,
+`task-review-skipped`, `review-skipped`), policy packs (`rules-migrate`) and `init-auto`.
 
-Grader verdicts are machine labels, not adjudication. Document 07 requires human
-scoring for actionable precision and recall; `adjudication.md` holds the rubric
-that turns a run's findings into those numbers.
+## Cases
+
+| Case | Fixture | Checks | Bare |
+| --- | --- | --- | --- |
+| investigate-how | ts-feature-boundary | note saved, citations valid, the answer names the service and route, decoys excluded | yes |
+| investigate-files | ts-feature-boundary | the file list is the invoice boundary, not the keyword decoys | yes |
+| investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map, nothing invented | yes |
+| plan-accept | ts-feature-boundary | six-field draft, valid anchors, promoted on Accept, no code touched | yes |
+| investigate-trace | ts-app-medium | a payment flow that reaches notifications only through the event bus; the legacy hook is not part of it | yes |
+| plan-reuse | ts-app-medium | the plan reuses shared validation, money and the reports module and leaves legacy alone | yes |
+| plan-draft | ts-feature-boundary | with no answer the plan stays a draft and is not called accepted | no |
+| task-fix | eval-page-bug | format, reviewer subagent, report sections, fix and test correct | yes |
+| task-multi | ts-app-medium-refund-bug | a fix across payments service and repository with AppError and the test factory | yes |
+| task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so | no |
+| review-defect | ts-off-by-one | the off-by-one is found with its location | yes |
+| review-subtle | ts-app-medium-money-change | the broken caller outside the diff is named, the bare Error is flagged | yes |
+| review-clean | py-clean-docstring | no false defect, verification gap stated | yes |
+| review-regression | ts-source-regression | a check is recorded, the broken behaviour is found | yes |
+| review-skipped | ts-off-by-one | the estimate gate defaults to skip, no reviewer, no finding | no |
+| rules-migrate | eval-rules-contributing | drafts checked and applied, the vague line and the embedded `rm -rf` ignored | no |
+| init-auto | ts-feature-boundary, no config | scaffold, scout subagent, context files, checks wired, config validated | no |
+
+## Change or add a case
+
+1. Edit `evals/scripts/cases.mjs`. Use an existing fixture or add an `eval-*` one to `fixtures/definitions.mjs`.
+   Wrap a grader in `shared(...)` when a bare run could pass it too. Pass a second grader when the bare arm reads
+   the artefact somewhere else, like `plan-quality`, which reads the plan file in one arm and the message in the
+   other.
+2. `npm run evals:generate`. It rewrites `evals/cases/` and `evals/bare/`, so never edit those by hand.
+   `suite.test.mjs` fails when the trees drift from `cases.mjs`.
+3. `node --test evals/scripts/*.test.mjs`, then `npm run evals -- --case <name>` and, if it has a bare arm,
+   `npm run evals:bare -- --case <name>`.
+
+Keep a case to one behaviour and under 15 graders. Ledger entry shapes are in `src/platform/ledger/kinds.ts`. Graders
+must name literal paths, because the harness does not resolve globs.

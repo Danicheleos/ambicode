@@ -9,7 +9,7 @@
       "source": {
         "source": "url",
         "url": "git@github.com:Danicheleos/ambicode.git",
-        "ref": "ambicode-plugin-v0.4.1"
+        "ref": "ambicode-plugin-v0.6.0"
       }
     }
   ]

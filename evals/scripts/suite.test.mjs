@@ -1,0 +1,64 @@
+// Static checks over the suite: every case is well-formed, and both trees match cases.mjs, before a paid run finds out.
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { FIXTURES } from '../../fixtures/definitions.mjs';
+import { CASES, EVALS, render } from './cases.mjs';
+
+const ROOT = path.dirname(EVALS);
+const SKILLS = readdirSync(path.join(ROOT, 'skills')).filter((name) => !name.startsWith('.'));
+const FILES = render();
+
+function onDisk(tree) {
+  const out = [];
+  const walk = (relative) => {
+    for (const name of readdirSync(path.join(EVALS, relative))) {
+      const child = `${relative}/${name}`;
+      if (name === 'results' || name.startsWith('.')) continue;
+      if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
+      else out.push(child);
+    }
+  };
+  walk(tree);
+  return out.sort();
+}
+
+describe('skill coverage suite', () => {
+  it('evals/cases and evals/bare are exactly what cases.mjs renders (run node evals/scripts/cases.mjs after editing it)', () => {
+    const disk = [...onDisk('cases'), ...onDisk('bare')].sort();
+    assert.deepEqual(disk, [...FILES.keys()].sort());
+    for (const file of disk) assert.equal(readFileSync(path.join(EVALS, file), 'utf8'), FILES.get(file), file);
+  });
+
+  it('covers every skill with at least one case, and only skills that exist', () => {
+    assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), [...SKILLS].sort());
+  });
+
+  for (const c of CASES) {
+    const skill = c.name.split('-')[0];
+    it(`${c.name}: the prompt types the skill with a fixed --task slug, graders read literal paths, the fixture exists`, () => {
+      assert.ok(c.prompt.startsWith(`/ambicode:${skill}`));
+      const slug = /--task (\S+)/.exec(c.prompt)?.[1] ?? null;
+      if (skill !== 'init') assert.ok(slug !== null, 'a route case fixes its task slug so graders can name the ledger');
+      assert.ok(c.graders.length >= 4, 'at least four graders');
+      assert.equal(new Set(c.graders.map((g) => g.name)).size, c.graders.length, 'grader names are unique');
+      for (const grader of c.graders) {
+        const file = /path: (\S+)/.exec(grader.text)?.[1];
+        if (file === undefined) continue;
+        assert.doesNotMatch(file, /[*?{]/, `${grader.name}: the harness resolves no globs`);
+        if (file.includes('/tasks/') || file.includes('/reviews/')) assert.ok(file.includes(`/${slug}/`), `${grader.name}: ledger path uses the prompt's slug`);
+      }
+      assert.ok(FIXTURES.some((entry) => entry.name === c.fixture), `${c.fixture} is a fixture`);
+    });
+
+    if (c.bare === null) continue;
+    it(`${c.name}: the bare arm asks the same thing with nothing of the plugin in prompt, graders or scaffold`, () => {
+      assert.doesNotMatch(c.bare, /ambicode|--task|--answer|--headless/i);
+      const shared = c.graders.filter((g) => g.shared);
+      assert.ok(shared.length >= 2, 'at least two shared graders');
+      for (const grader of shared) assert.doesNotMatch(grader.bare.text, /\.ambicode|ambicode:|Evidence/, `${grader.name} reads only what a bare run can produce`);
+      assert.doesNotMatch(FILES.get(`bare/${c.name}/scaffold.sh`), /--ambicode-init/);
+    });
+  }
+});

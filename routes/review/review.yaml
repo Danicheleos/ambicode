@@ -1,0 +1,30 @@
+skill: review
+version: 3
+revisable: []
+steps:
+  - { id: fetch, actor: model, when: args.hasRequirement, instruction: file:routes/review/fetch.md }
+  - { id: ground, actor: code, when: args.hasRequirement, run: requirements.normalize, produces: [envelope], repeat: 2 }
+  - { id: mr-fetch, actor: model, when: args.hasMergeRequest, instruction: file:routes/review/mr-fetch.md }
+  - { id: estimate-step, actor: code, run: review.estimate }
+  - id: estimate
+    actor: human
+    gate:
+      question: "Run the independent reviewer on this change?"   # followed by renderEstimate()
+      options: [run, narrow, skip]
+      acting: [run]
+      default: skip
+      onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
+  - { id: brief, actor: code, when: gate.estimate.is(run), run: [review.pin, "policy.stage(before-work, review)", script(brief)], repeat: 2 }   # a check answer revises it; checks that ran are not run again
+  - { id: review-agent, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/agent.md, payload: ["script:brief"], produces: ["review{recorded}"] }
+  - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, final: true }
+  - { id: publish-list, actor: code, when: args.hasMergeRequest, run: review.publishList }
+  - id: publish
+    actor: human
+    when: args.hasMergeRequest
+    gate:
+      question: "Post which findings as merge-request comments?"   # followed by the numbered list
+      options: [all, none]
+      acting: [all]
+      default: none
+      onAnswer: { "*": revise publish-run }
+  - { id: publish-run, actor: model, when: gate.publish.isnt(none), instruction: file:routes/review/publish.md, payload: [review.publishList], final: true }

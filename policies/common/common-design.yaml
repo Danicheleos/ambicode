@@ -1,0 +1,120 @@
+schemaVersion: 1
+id: common-design
+authority: inherited
+description: "Any project: build what was asked, fix the cause, cohesion, reuse, simplicity, scope."
+appliesTo:
+  - "**/*"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE common baseline, design principles: building what was asked, fixing the cause, cohesion, reuse, simplicity, ownership and scope; distilled from the grahpt common rule packs.
+  externalVersion: "common-v3"
+
+rules:
+  - id: need
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      Build what the accepted requirement or an inherited obligation calls for.
+      Speculative branches, options, and migration hooks with no current caller
+      are unnecessary work until a requirement asks for them.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assess against the stated requirement and the callers present in the
+        change. Absence of a caller is evidence; it is not proof on its own.
+
+  - id: fix-the-cause
+    category: architecture
+    instruction: >-
+      Before writing new code (a function, branch, guard, option or file), even
+      code a plan or spec prescribes: find the existing code that produces
+      today's behaviour, edit it, and check whether the request's outcome now
+      holds. If it holds, keep that edit, skip the prescribed code and report
+      the departure. Judge by what the request asks for, not by the mechanism
+      the spec describes. Change the behaviour in place; an option no caller
+      needs only keeps the old one alive.
+    check:
+      kind: reviewer
+      explanation: >-
+        For each function, branch, guard, option or file the change adds, find
+        the existing code that produced the old behaviour. Report the addition
+        when an edit there delivers the same outcome, naming that code.
+
+  - id: cohesion
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      Keep one reason to change per unit. Where a change adds an unrelated
+      responsibility to an existing unit, say which unit should own it instead.
+    check:
+      kind: reviewer
+      explanation: Judged from the responsibilities actually present in the changed unit.
+
+  - id: reuse-before-reimplementing
+    category: architecture
+    activities: [plan, task]
+    instruction: >-
+      Before adding a helper, look for an existing one, a framework API already
+      in use, or a language built-in that covers the case. A second
+      implementation of something the codebase already has is duplication. A
+      thin wrapper is not automatically wrong: a boundary adapter can be
+      justified even with one caller, so argue from the boundary it creates
+      rather than from the number of callers.
+    check:
+      kind: reviewer
+      explanation: >-
+        Requires finding the existing implementation in the snapshot. Report a
+        suspected duplicate as a question when the original cannot be located.
+
+  - id: unjustified-complexity
+    category: architecture
+    activities: [plan]
+    instruction: >-
+      Prefer the smallest clear solution for the case at hand. Generic
+      machinery, configuration surfaces, and optimizations need a demonstrated
+      need, measured or stated in the requirement.
+    check:
+      kind: reviewer
+      explanation: >-
+        Cite the specific complexity and what it costs a reader or caller. A
+        preference for a different structure is not a defect.
+
+  - id: explicit-surface
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      Dependencies, control paths, absence cases, and side effects a caller must
+      know about belong in a typed API, a named operation, or an explicit
+      branch, not in a positional flag or an undocumented ordering requirement.
+    check:
+      kind: reviewer
+      explanation: Judged from the changed public surface and its callers.
+
+  - id: ownership-and-direction
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      Where a change crosses an ownership or dependency boundary, state which
+      unit owns the state and mutation, and keep the dependency direction the
+      project has declared.
+    check:
+      kind: reviewer
+      explanation: >-
+        Requires the project's declared structure. Without one, report the
+        boundary question rather than asserting a violation.
+
+  - id: scope
+    category: workflow
+    activities: [plan, review]
+    instruction: >-
+      Change only what the request needs. Approving a target structure or
+      noticing a better design does not authorize refactoring, renaming or
+      moving unrelated code; that belongs in its own change.
+    check:
+      kind: reviewer
+      explanation: Judged from the stated scope against the files the change touches.
+
+
+commandPolicy: []

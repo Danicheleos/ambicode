@@ -1,0 +1,31 @@
+skill: investigate
+version: 3
+revisable: [ground]
+steps:
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: "file:routes/investigate/fetch.md"
+  - id: ground
+    actor: code
+    run: [requirements.normalize, search.map(prompt), context.list]
+    produces: [envelope, map]
+    repeat: 2
+  - id: scope
+    actor: human
+    when: map.empty
+    gate:
+      question: "Nothing matched the request. Name a file, a symbol or a word to look at, or pause, and when you have more context type /ambicode:investigate again with it: the route reopens and the search reruns."
+      options: ["pause"]
+      default: "pause"
+      onAnswer: { "*": "revise ground --term $answer" }
+  - id: read
+    actor: model
+    instruction: "file:routes/investigate/read.md"
+    payload: [envelope, map, context.list]
+    produces: ["note{investigation}"]
+  - id: check-citations
+    actor: code
+    run: ["script(check-citations)"]
+    produces: [worker]
+    onFail: record                                # a bad path:line citation is listed as not verified; no second read

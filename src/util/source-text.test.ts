@@ -2,21 +2,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { NodeProcessRunner } from '../ports/node-process-runner.ts';
-import { nodeFileSystem } from '../ports/filesystem.ts';
+import { NodeProcessRunner } from '#platform/ports/node-process-runner';
+import { nodeFileSystem } from '#platform/ports/filesystem';
+import { REPO_ROOT } from '#testing/paths';
 
 /**
- * A literal control byte in a source file — a NUL above all — makes git treat
- * the file as binary: `git diff` stops showing it, and a reviewer of AMBICODE
- * itself stops being able to read the change. A character class or a separator
- * that needs one is written with a backslash escape instead of the byte.
- *
- * This is checked over the whole tree rather than one file, because the defect
- * is easy to reintroduce anywhere and invisible in an editor.
+ * A literal control byte, a NUL above all, makes git treat the file as binary and hide
+ * its diff from a reviewer; a backslash escape is used instead. Checked over the whole
+ * tree because the defect is easy to reintroduce and invisible in an editor.
  */
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repositoryRoot = REPO_ROOT;
 
 async function sourceFiles(): Promise<string[]> {
   const found = await nodeFileSystem.glob('src/**/*.ts', repositoryRoot);
@@ -37,12 +33,11 @@ describe('source files stay text', () => {
     assert.deepEqual(offenders, [], `write the character as an escape instead:\n${offenders.join('\n')}`);
   });
 
-  it('lets git diff src/review/validate.ts as text', async () => {
+  it('lets git diff src/modules/review/findings/validate.ts as text', async () => {
     const runner = new NodeProcessRunner();
-    // `--numstat` prints "-\t-" for a path git considers binary, and real
-    // counts for text, which is exactly the distinction being asserted.
+    // `--numstat` prints "-\t-" for a path git considers binary and real counts for text.
     const outcome = await runner.run({
-      argv: ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', 'src/review/validate.ts'],
+      argv: ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', 'src/modules/review/findings/validate.ts'],
       cwd: repositoryRoot,
       timeoutMs: 30_000,
       maxOutputBytes: 65_536,
