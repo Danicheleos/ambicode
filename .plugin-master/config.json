@@ -2,7 +2,7 @@
   "masterContext": [
     ".plugin-master/STATE.md"
   ],
-  "activePlan": null,
+  "activePlan": "d4d08796",
   "evalTrusted": true,
   "features": {
     "git": true,
