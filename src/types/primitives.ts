@@ -39,5 +39,5 @@ export const COMMAND_ACTION_PRECEDENCE: Record<z.infer<typeof CommandAction>, nu
 export const TargetKind = z.enum(['working', 'branch', 'merge-request']);
 export type TargetKind = z.infer<typeof TargetKind>;
 
-export const ProviderId = z.enum(['gitlab', 'github']);
-export type ProviderId = z.infer<typeof ProviderId>;
+const ProviderId = z.enum(['gitlab', 'github']);
+type ProviderId = z.infer<typeof ProviderId>;

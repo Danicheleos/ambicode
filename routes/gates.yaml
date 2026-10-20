@@ -4,7 +4,7 @@ requirements-not-captured-twice:
   default: "continue without"
   policy: { review: stop }
 check-only-unauthorized:
-  question: "Run {key} on {files}? (policy: propose)"
+  question: "Run {key} on {files|the whole project}?"
   options: [approve, decline]
   default: decline
   acting: [approve]

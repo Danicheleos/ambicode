@@ -3,13 +3,9 @@ import { ReviewResult, ReviewerOutput } from '#types/modules/review';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { openWorkspace } from '#modules/config/workspace';
 import { combineDiff } from '#platform/git/diff';
-import { appendLedger } from '#platform/ledger/ledger';
-import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { pendingReview } from '#modules/review/answer/captured';
 import { validateFindings } from '#modules/review/findings/validate';
 import { applyStatus } from '#modules/review/findings/status';
 import { renderReport } from '#modules/review/findings/report';
-import { readEntries } from '#harness/engine/context';
 import { AmbicodeError, messageOf } from '#util/errors';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -17,8 +13,10 @@ import type { LedgerEntry } from '#types/modules/evidence';
 /** The subagent's answer is a fenced block, the last one that parses winning; a bare object is accepted so a replay by hand works. */
 const FENCE = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/g;
 const REJECTED_FILE = 'rejected-output.txt';
+/** Where the reviewer's Write tool puts its answer, in the review folder; the guard's reviewer rule and the brief script name the same file. */
+export const ANSWER_FILE = 'answer.json';
 
-export interface RecordedReview { task: string; reviewId: string; resultPath: string; reportPath: string; result: ReviewResult; entryId: string }
+interface RecordedReview { reviewId: string; resultPath: string; reportPath: string; result: ReviewResult }
 
 // A reviewer may send a draft block before its final one.
 const candidates = (raw: string): string[] => {
@@ -61,30 +59,13 @@ async function checkoutText(runtime: Runtime, root: string, result: ReviewResult
   return found;
 }
 
-function locate(entries: readonly LedgerEntry[], task: string, wanted: string | null): LedgerEntry {
-  const entry = pendingReview(entries, wanted);
-  if (entry === undefined) {
-    throw new AmbicodeError('review-not-found', wanted === null ? `Task ${task} has no review waiting for its reviewer.` : `Task ${task} has no review ${wanted} waiting for its reviewer (missing, or its answer is already recorded).`, {
-      details: [`Release: run \`route next --task ${task}\`; the route's pin step prepares the diff and brief the reviewer reads. If the PostToolUse hook already recorded the answer, there is nothing left to record.`],
-    });
-  }
-  return entry;
-}
-
-/** Everything up to the ledger append and report.txt; the caller advances the route and prints. */
-export async function recordReviewerAnswer(runtime: Runtime, input: { task: string; wanted: string | null; fallback: () => Promise<string> }): Promise<RecordedReview> {
-  const { task } = input;
+/** Everything the recorded review needs: validates the answer against the pinned diff, writes the result files and appends the `recorded` entry. A missing answer is a failed review, never a clean one. */
+export async function recordReviewerAnswer(runtime: Runtime, input: { pending: LedgerEntry; answer: string | null; append: (fields: { kind: string; [field: string]: unknown }) => Promise<LedgerEntry> }): Promise<RecordedReview> {
+  const { pending } = input;
   const workspace = await openWorkspace(runtime);
-  const pending = locate(await readEntries(runtime, task), task, input.wanted);
   const resultPath = path.join(workspace.repositoryRoot, String(pending['result']));
   const reviewDirectory = path.dirname(resultPath);
-  const raw = await input.fallback();
-  // Nothing recorded: a failed review written now would leave the pending review gone, and the pasted answer with nowhere to go.
-  if (raw.trim() === '') {
-    throw new AmbicodeError('review-answer-missing', `Task ${task}: no reviewer answer came from the hook or on standard input. Nothing was recorded.`, {
-      details: ['Release: paste the subagent\'s answer on stdin (a heredoc); if it returned nothing, paste the word none, which records a failed review.'],
-    });
-  }
+  const raw = input.answer?.trim() ? input.answer : null;
   const parsedResult = ReviewResult.safeParse(JSON.parse(await runtime.fs.readText(resultPath)));
   if (!parsedResult.success) throw new AmbicodeError('review-unreadable', `${resultPath} is not a review result.`, { details: [parsedResult.error.issues[0]?.message ?? ''] });
   const result = parsedResult.data;
@@ -94,7 +75,7 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { task: stri
     status: 'ok' as 'ok' | 'failed', rejections: [] as string[], detail: null as string | null, rejectedOutputRef: null as string | null, at: runtime.clock.now().toISOString(),
   };
   let ok = true;
-  const answer = parseOutput(raw);
+  const answer = raw === null ? { ok: false as const, reason: `the reviewer wrote no ${ANSWER_FILE}` } : parseOutput(raw);
   if (!answer.ok) {
     ok = false;
     run.rejections = [answer.reason];
@@ -120,9 +101,11 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { task: stri
   }
   if (!ok) {
     run.status = 'failed';
-    run.rejectedOutputRef = REJECTED_FILE;
-    // Untrusted model text, kept for a person diagnosing the refusal; nothing reads it back as findings.
-    await runtime.fs.writeText(path.join(reviewDirectory, REJECTED_FILE), `${raw}\n`);
+    if (raw !== null) {
+      run.rejectedOutputRef = REJECTED_FILE;
+      // Untrusted model text, kept for a person diagnosing the refusal; nothing reads it back as findings.
+      await runtime.fs.writeText(path.join(reviewDirectory, REJECTED_FILE), `${raw}\n`);
+    }
   }
   result.reviewer = run;
   applyStatus(result, ok);
@@ -133,17 +116,16 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { task: stri
   // The report goes first: the ledger entry is what makes the review recorded, so nothing may fail after it.
   const reportPath = path.join(reviewDirectory, 'report.txt');
   await runtime.fs.writeText(reportPath, `${renderReport({ result, resultPath })}\n`);
-  const { entry } = await appendLedger(runtime.fs, (await resolveTaskDir(runtime, task)).root, runtime.clock.now(), runtime.ids.writerId(), {
+  await input.append({
     ...carried, kind: 'review', reviewId: result.reviewId, result: pending['result'], stage: 'recorded', reviewerRan: true, findings: result.findings.length,
     status: result.status, statusReason: result.statusReason, omissions: result.omissions.length,
   });
 
-  return { task, reviewId: result.reviewId, resultPath, reportPath, result, entryId: entry.id };
+  return { reviewId: result.reviewId, resultPath, reportPath, result };
 }
 
-/** What the model reads after a record: the report, why no findings came when the answer was refused, then the next step. */
-export function renderRecord(output: { result: ReviewResult; resultPath: string; next?: string; report?: string }): string {
-  const report = output.report ?? renderReport({ result: output.result, resultPath: output.resultPath });
-  const failed = output.result.status === 'error' ? `\n\nNo finding list was produced: ${output.result.statusReason ?? ''}\n${(output.result.reviewer?.rejections ?? []).map((line) => `  - ${line}`).join('\n')}` : '';
-  return `${report}${failed}${output.next === undefined ? '' : `\n\n${output.next}`}`;
+/** What the model reads after a record: the report, then why no findings came when the answer was refused. */
+export function renderRecord({ result, resultPath }: { result: ReviewResult; resultPath: string }): string {
+  const failed = result.status === 'error' ? `\n\nNo finding list was produced: ${result.statusReason ?? ''}\n${(result.reviewer?.rejections ?? []).map((line) => `  - ${line}`).join('\n')}` : '';
+  return `${renderReport({ result, resultPath })}${failed}`;
 }

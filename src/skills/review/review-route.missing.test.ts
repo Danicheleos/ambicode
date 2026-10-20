@@ -28,7 +28,7 @@ const ASKED = TWO_URLS;
 const TASK = 'ORD-17';
 const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
 const STEPS: Record<string, string> = {};
-for (const name of ['review/fetch', 'review/readback', 'review/agent']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+for (const name of ['review/fetch', 'review/readback', 'review/agent', 'review/agent-work']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
 
 async function shipped(options: { requirements?: string[]; headless?: boolean; server?: string | null } = {}) {
   const server = options.server === undefined ? 'atlassian' : options.server;

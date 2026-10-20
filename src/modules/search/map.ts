@@ -27,7 +27,7 @@ const GREP_CONCURRENCY = 4;
 
 interface MapLayer { name: LayerName; ms: number; hits: number }
 
-export interface MapResult {
+interface MapResult {
   mode: 'prompt' | 'context';
   layers: MapLayer[];
   layersSource: 'config' | 'default' | 'route';
@@ -52,7 +52,7 @@ export function resolveLayers(mode: 'prompt' | 'context'): { layers: string[]; s
   return { layers: [...SEARCH_LAYER_DEFAULTS[mode]], source: 'default' };
 }
 
-export interface MapInput {
+interface MapInput {
   project: ProjectConfig;
   mode: 'prompt' | 'context';
   layers: readonly string[];
@@ -242,10 +242,10 @@ const ABBREVIATION = /^(?:e\.g|i\.e|etc|vs|cf)\.?$/i;
 /** Words every question about a repository carries; as search terms they match paths like `repository.ts` or `files/`. */
 const REQUEST_WORDS = new Set(['repo', 'repository', 'file', 'files', 'change', 'changes', 'implement', 'implemented', 'below', 'above', 'touch', 'section', 'answer', 'question', 'anything', 'investigate', 'read', 'relevant', 'editing', 'explain', 'relative', 'creation', 'creations', 'deletion', 'deletions', 'pre', 'distinguish', 'existing', 'proposed', 'bullet', 'cite', 'evidence', 'assumptions']);
 
-export const isIdentifierLike = (token: string): boolean => IDENTIFIER.test(token);
+const isIdentifierLike = (token: string): boolean => IDENTIFIER.test(token);
 
 /** `Order/Refund`, `order-refund` and `orderRefund` all reduce to the same lowercased word list. */
-export function wordsOf(term: string): string[] {
+function wordsOf(term: string): string[] {
   return term
     .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
     .split(/[^\p{L}\p{N}]+/u)
@@ -254,7 +254,7 @@ export function wordsOf(term: string): string[] {
 }
 
 /** URLs, host names, UUIDs, `__`-prefixed attributes and markup carry no names from the code. */
-export function cleanRequestText(text: string): string {
+function cleanRequestText(text: string): string {
   return text
     .replace(/!?\[[^\]\n]*\]\([^)\s]*\)/g, ' ')
     .replace(/\b(?:blob:)?https?:\/\/\S+/g, ' ')
@@ -270,7 +270,7 @@ const isBoilerplate = (value: string): boolean => /^#+\s/.test(value) || /^(?:cd
 const isRequestWord = (term: string): boolean => REQUEST_WORDS.has(term.toLowerCase()) || ABBREVIATION.test(term) || (COMPOUND.test(term) && term.split(COMPOUND).every((part) => REQUEST_WORDS.has(part.toLowerCase())));
 
 /** A word-frequency heuristic; identifier-shaped tokens rank first, because naming code names the boundary. */
-export function termsFromRequirements(sources: readonly { title: string; content: string }[], limit = MAX_TERMS): string[] {
+function termsFromRequirements(sources: readonly { title: string; content: string }[], limit = MAX_TERMS): string[] {
   const found = new Map<string, { term: string; count: number; order: number; identifier: boolean }>();
   let order = 0;
   for (const source of sources) {
@@ -329,7 +329,7 @@ const STOPWORDS = new Set([
   'work', 'would', 'your',
 ]);
 const PATH_LIKE = /(?<![\w./-])((?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)+)(?::\d+(?:-\d+)?)?/g;
-export const CODE_SHAPED = /`([^`\s]{2,80})`|\b([A-Za-z_$][\w$]*(?:[a-z0-9][A-Z]|_[A-Za-z0-9])[\w$]*)\b/g;
+const CODE_SHAPED = /`([^`\s]{2,80})`|\b([A-Za-z_$][\w$]*(?:[a-z0-9][A-Z]|_[A-Za-z0-9])[\w$]*)\b/g;
 const MAX_SEEDS = 12;
 /** A path, or a file name with a short lowercase extension: not a symbol. */
 const FILE_LIKE = /\/|^[\w@-]+(?:\.[\w-]+)*\.[a-z]{1,5}$/;

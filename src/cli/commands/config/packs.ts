@@ -5,6 +5,7 @@ import { PolicyPack } from '#types/modules/policy';
 import { parseConfig } from '#modules/config/load';
 import { listBuiltinPackFiles } from '#modules/policy/packs/builtin';
 import { openRepository } from '#platform/git/open';
+import { recordInit } from '#modules/evidence/init-entry';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { messageOf } from '#util/errors';
 import { mostSpecificRoot, normalizeRelative } from '#util/paths';
@@ -68,8 +69,8 @@ type CopyPackResult = Omit<PackCopy, 'pack' | 'listed'>;
 /** Edits through the document API so the config's comments and other values stay. */
 export const configPacksCommand: CliCommand = {
   name: 'config packs',
-  summary: `Copy the built-in packs each project names in ${CONFIG_FILE} into .ambicode/policies/ and list them there; never overwrites a copy. Also sets each project's git-ignored paths. --list shows the built-ins.`,
-  options: { flags: ['json', 'list'] },
+  summary: `Copy packs ${CONFIG_FILE} names into .ambicode/policies/, no overwrite; set git-ignored paths. --list: built-ins.`,
+  options: { values: ['task'], flags: ['json', 'list'] },
   run: async (runtime, args) => {
     const { git, repositoryRoot } = await openRepository(runtime);
     const configPath = path.join(repositoryRoot, CONFIG_FILE);
@@ -113,6 +114,8 @@ export const configPacksCommand: CliCommand = {
       lines.push(`${project.id}: ${enabled.join(', ') || 'no packs'}`, `  ignored: ${ignored.join(', ') || 'none'}${unlisted === null ? '' : ` (${unlisted})`}`, ...copies.map((copy) => `  + ${copy.pack}: ${copy.path} ${copy.status === 'written' ? 'written' : copy.listed ? 'kept (edited or existing)' : 'kept, not listed in policyFiles'}${copy.note === null ? '' : `; ${copy.note}`}`), ...skipped.map((entry) => `  - ${entry.pack}: ${entry.reason}`));
     }
     await runtime.fs.writeText(configPath, document.toString({ lineWidth: 0 }));
+    const copied = projects.flatMap((project) => project.copies).filter((copy) => copy.status === 'written').length;
+    await recordInit(runtime, args.value('task'), 'config packs', `${copied} pack files written, ${projects.reduce((sum, project) => sum + project.skipped.length, 0)} skipped`);
     return { text: lines.join('\n'), data: { projects } };
   },
 };

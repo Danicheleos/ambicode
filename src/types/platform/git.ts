@@ -24,7 +24,7 @@ export interface DiffFile {
   patchSection: string;
 }
 
-export type RawChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'type-changed';
+type RawChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'type-changed';
 
 export interface RawChange {
   oldPath: string | null;

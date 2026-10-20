@@ -1,5 +1,6 @@
 import { AmbicodeError } from '#util/errors';
 import { readLedgerStrict } from '#platform/ledger/ledger';
+import { taskExists, taskUnknown } from '#platform/ledger/task-unknown';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { evaluateConsent } from '../gates/consent.ts';
 import { raiseGate } from '../gates/gates.ts';
@@ -10,9 +11,9 @@ import type { LedgerEntry, StrictRead } from '#types/modules/evidence';
 import type { RouteDef, RouteRegistry, RouteView, CommandContext } from '#types/harness';
 import type { Chain, ConsentBinding } from '../types/engine.ts';
 
-export const ledgerUnreadable = (task: string, reason: string): AmbicodeError =>
+const ledgerUnreadable = (task: string, reason: string): AmbicodeError =>
   new AmbicodeError('ledger-unreadable', `The ledger of task ${task} cannot be read: ${reason}. Nothing was written.`, {
-    details: [`Continue under a new task: route start --task ${task}-2.`],
+    details: [`Repair or delete that ledger.jsonl, then run again with --task ${task}.`],
   });
 
 export function entriesOf(task: string, read: StrictRead): LedgerEntry[] {
@@ -22,6 +23,7 @@ export function entriesOf(task: string, read: StrictRead): LedgerEntry[] {
 
 export async function readEntries(runtime: Runtime, task: string): Promise<LedgerEntry[]> {
   const dir = await resolveTaskDir(runtime, task);
+  if (!(await taskExists(runtime.fs, dir.root))) throw await taskUnknown(runtime.fs, dir.root);
   return entriesOf(task, await readLedgerStrict(runtime.fs, dir.root));
 }
 

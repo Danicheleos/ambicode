@@ -30,7 +30,7 @@ interface NoteSaveOutput {
 export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<NoteSaveOutput> {
   const kind = args.value('kind');
   if (kind === null || !(SAVE_KINDS as readonly string[]).includes(kind)) {
-    throw new AmbicodeError('bad-argument', '"note save" needs --kind investigation, plan-draft or notes.', { field: 'kind' });
+    throw new AmbicodeError('bad-argument', `"note save" needs --kind ${SAVE_KINDS.join(', ')}.`, { field: 'kind' });
   }
   const task = taskOf('note save', args);
   const body = (await runtime.stdin.read(MAX_NOTE_BYTES)) ?? null;
@@ -43,13 +43,13 @@ export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<N
   return { command: 'note save', task, kind: kind as SaveKind, path: saved.path, ...(warnings.length === 0 ? {} : { warnings }), ...(next === null ? {} : { next: next.text }) };
 }
 
-export function renderNoteSave(output: NoteSaveOutput): string {
+function renderNoteSave(output: NoteSaveOutput): string {
   return `Saved ${output.kind} note: ${output.path}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }
 
 export const noteSaveCommand: CliCommand = {
   name: 'note save',
-  summary: "Save a skill's note from standard input (--kind investigation|plan-draft|notes).",
+  summary: "Save a skill's note from stdin (--kind investigation|plan-draft|notes|result).",
   options: NOTE_SAVE_OPTIONS,
   run: async (runtime, args) => {
     const output = await runNoteSave(runtime, args);

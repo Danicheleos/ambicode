@@ -107,7 +107,7 @@ async function configFor(destination, wires) {
   return {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
     id: 'app',
-    context: { maxTotalTokens: 24000, maxFileTokens: 2500 },
+    context: { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 },
     skills: {
       init: { ...run, scout: run },
       review: { ...run, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] },

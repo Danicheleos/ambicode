@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { registryGate } from '../gates/gates.ts';
 import { routeRegistry, validateRouteFiles } from './routes.ts';
 import { REPO_ROOT } from '#testing/paths';
 import { HANDLER_NAMES } from '#types/harness';
@@ -110,10 +109,10 @@ test('03-R7: every registry gate has a question and a default that is never acti
 
 test('03-R7: a decision gate id resolves to the decision entry; others by exact id', async () => {
   const { registry } = await validateRouteFiles(REPO_ROOT, { handlers: HANDLER_NAMES });
-  assert.equal(registryGate(registry, 'decision:use-redis')?.id, 'decision:*');
-  assert.equal(registryGate(registry, 'check-only-unauthorized')?.id, 'check-only-unauthorized');
-  assert.equal(registryGate(registry, 'nope'), null);
-  assert.equal(routeRegistry({ routes: [], registry }).gate('decision:x')?.class, 'decision');
+  const routes = routeRegistry({ routes: [], registry });
+  assert.equal(routes.gate('decision:use-redis')?.id, 'decision:*');
+  assert.equal(routes.gate('check-only-unauthorized')?.id, 'check-only-unauthorized');
+  assert.equal(routes.gate('nope'), null);
 });
 
 test('03-R9: the DSL gate id is the logical id; a declared gate takes its step id', async (t) => {

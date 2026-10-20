@@ -40,12 +40,12 @@ export async function runFormat(deps: CheckDeps, input: { task: string; waiting:
       continue;
     }
     const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: files });
-    if (authorizeCommand({ policy, commandId: FORMAT_CHECK, approvalKey: key, approvals: new Set() }).kind === 'refused') {
+    if (authorizeCommand({ policy, commandId: FORMAT_CHECK, approvalKey: key, approvals: new Set(), form: 'file' }).kind === 'refused') {
       entries.push(await append({ key, files: [], exit: null, outcome: 'refused' }));
       continue;
     }
     // The task route's code step prints the gate through the engine, so the questions are collected, not raised here.
-    const decision = await authorizeKey(deps, routed, { policy, commandId: FORMAT_CHECK, key, files, approve: [], decline: [], raise: false });
+    const decision = await authorizeKey(deps, routed, { policy, commandId: FORMAT_CHECK, key, form: 'file', files, approve: [], decline: [], raise: false });
     if (decision === 'waiting') {
       input.waiting.push({ key, files });
       continue;

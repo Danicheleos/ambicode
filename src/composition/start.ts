@@ -11,7 +11,7 @@ export function validateTargetArgs(command: string, args: ParsedArgs): TargetSel
   if (branch && mr !== null) {
     throw new AmbicodeError(
       'conflicting-target',
-      `"${command}" reviews one target: pass --branch or --mr, not both.`,
+      `"${command}" reviews one target, --branch or --mr, not both; ask the user which with AskUserQuestion.`,
       {
         field: '--mr',
         details: [

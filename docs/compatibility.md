@@ -37,19 +37,21 @@ a gap.
 ## Reviewer isolation
 
 The reviewer is a plugin subagent, `agents/reviewer.md`, with the tool list
-`Read, Grep, Glob`. It has no command-running tool, no MCP tool and no way to
-post. AMBICODE spawns no `claude` process, passes no flags and builds no
+`Read, Grep, Glob, Write`. `Write` is there for its answer file; the guard
+refuses any other file tool call from this agent (`agent_type`, taken from
+Claude Code's hook input) and it has no Bash. It has no MCP tool and
+no way to post. AMBICODE spawns no `claude` process, passes no flags and builds no
 environment for it.
 
 The subagent runs inside the user's own session, so the boundary is the
 tool allowlist in the agent file and nothing stronger: the session's hooks,
 settings and managed policy still apply to it. It reads the checkout and the
-brief its request names. It cannot run commands or post, but it can `Read`
+brief its request names. It cannot post, but it can `Read`
 any file the session can. That is a property of Claude Code's tool permissions,
 not something AMBICODE enforces.
 
-The answer is not trusted. Claude pastes the subagent's JSON block into
-`review record --task <slug>`, which validates every finding against the pinned
+The answer is not trusted. The subagent writes its JSON block to `answer.json` in its review folder;
+`route next` reads it and validates every finding against the pinned
 change (path, line, excerpt, cited rules) and records a failed review when the
 block is missing or invalid. Fixtures for answer shapes are in
 `fixtures/reviewer-envelopes/`.
@@ -79,20 +81,16 @@ requirement components.
 
 ## GitLab merge requests
 
-AMBICODE has no GitLab client, and no `glab` or GitHub code. A merge request
-reaches a review through the GitLab MCP server connected to the Claude
-session: the route asks Claude to call the server's merge-request and diff
-tools, and the `PostToolUse` hook on `mcp__.*` records the diff response as
-`reviews/mr-diff.patch` and `mr-diff.json` in the task directory
-(`src/modules/review/snapshot/mr-capture.ts`). `review --mr` reads that capture
-and refuses with `mr-diff-missing` when there is none. Publication is the
-`publish` gate followed by a model step that posts through the same MCP
-server.
+A merge request reaches a review through the `glab` CLI
+(`src/platform/gitlab/glab.ts`): the route's `mr-fetch` step runs
+`glab mr diff --raw` and `glab api projects/<project>/merge_requests/<iid>`
+and writes `reviews/mr-diff.patch` and `mr-diff.json` in the task directory.
+Publication is the `publish` gate followed by a code step that posts each
+selected finding with `glab api -X POST .../discussions`. Both fail with
+`mr-fetch-failed` / `mr-publish-failed` and glab's stderr.
 
-Not verified here: the response shapes of any particular GitLab MCP server
-beyond the unit fixtures in `mr-capture.test.ts`, and a live merge request
-end to end. The capture accepts a `changes[]` list or a unified-diff string,
-and refuses a response it cannot section.
+Not verified here: a live merge request end to end. The tests fake the process
+runner; the `glab` argument shapes come from `glab api --help`.
 
 ## Skills
 
@@ -124,8 +122,8 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
-events with fifteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
-`AskUserQuestion`, `Glob` and `Agent`), `PreToolUse` (all routed to
+events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
+`AskUserQuestion` and `Glob`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
 `glab mr*`, `*.ambicode/*` and `*ambicode.mjs*`, then `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
@@ -332,7 +330,7 @@ None recorded.
 |---|---|
 | A GitLab MCP server and a sandbox project | Merge-request capture and posting are covered by unit fixtures only. Prerequisite: a private test GitLab project with a merge request carrying added, renamed and deleted lines, and an authorized MCP server. |
 | Jira / Confluence MCP | Live requirement retrieval cannot be verified here. The normalization, provenance, failure and contradiction behaviour is unit-tested against fake evidence; that is not a live-MCP test and is not reported as one. |
-| Authorized model access | The native eval cases and the adjudication rubric exist under `evals/` and load. Runs of both arms are recorded in `evals/history.jsonl` and summarised in `evals/history.md`; the adjudication rubric has not been scored against them. |
-| A live reviewer subagent | `review record` is exercised against pasted answers (unit tests, fixtures), which proves validation, not model output quality. |
+| Authorized model access | The native eval cases and the adjudication rubric exist under `evals/` and load. Runs of both arms are written to `evals/cases/results/`; the adjudication rubric has not been scored against them. |
+| A live reviewer subagent | Recording an answer file is exercised against pasted answers (unit tests, fixtures), which proves validation, not model output quality. |
 
 These are recorded as missing, not substituted with estimates.

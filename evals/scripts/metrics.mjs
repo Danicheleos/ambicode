@@ -1,6 +1,7 @@
 // Retrieval metrics of one run: which files its final answer names, scored against the case's known sets.
 // Two sources, both explicit claims rather than every path the text mentions (answers name decoys to rule them out):
 // - `files-section`: the paths under a `## Files` heading (the case's prompt asks for that section);
+// - `files-block`: the paths in the first ```files block (the navigator cases);
 // - `citations`: every `path:line` citation.
 import path from 'node:path';
 import { events } from './trace.mjs';
@@ -37,7 +38,22 @@ export function foundPaths(text, source) {
     const end = lines.findIndex((line, index) => index > start && /^#{1,6}\s/.test(line.trim()));
     body = lines.slice(start + 1, end < 0 ? undefined : end).join('\n');
   }
+  if (source === 'files-block') {
+    const block = /```files[ \t]*\r?\n([\s\S]*?)```/.exec(text);
+    if (block === null) return null;
+    body = block[1];
+  }
   const found = new Set();
+  if (source === 'files-block') {
+    // A line naming a directory (trailing `/`, or a bare extensionless path): kept with one trailing `/`, the directory-item form.
+    const rest = [];
+    for (const line of body.split('\n')) {
+      const entry = line.trim().replace(/^[-*]\s+/, '').replace(/^`|`$/g, '');
+      if (/^(?:\.\/)?[\w@.-]+(?:\/[\w@.-]+)*\/$/.test(entry) || /^(?:\.\/)?[\w@-]+(?:\/[\w@-]+)+$/.test(entry)) found.add(`${normalize(entry).replace(/\/$/, '')}/`);
+      else rest.push(line);
+    }
+    body = rest.join('\n');
+  }
   for (const match of body.matchAll(PATH)) {
     if (source === 'citations' && match[2] === undefined) continue;
     found.add(normalize(match[1]));
@@ -50,18 +66,27 @@ const ratio = (a, b) => (b === 0 ? null : Number((a / b).toFixed(3)));
 /**
  * `relevant` are the files a right answer names; `allowed` may be named without being wrong (neither hit nor miss).
  * Recall: share of relevant named. Precision: share of named that are relevant or allowed. Null when undefined.
+ * `spec.ignore` (optional predicate): matching paths are dropped from the answer before precision, neither hit nor extra.
+ * A `relevant` item ending in `/` is a directory item: hit by that directory in the answer (trailing `/`) or by a file directly
+ * inside it. An answer directory is correct when it is a directory item or the directory of a relevant file; a file directly in
+ * a directory item is correct too, since it is what satisfies the item.
  */
-export function scoreFiles(spec, found) {
+export function scoreFiles(spec, named) {
+  const found = named === null || !spec.ignore ? named : named.filter((file) => !spec.ignore(file));
   // No list at all retrieves nothing: recall and F1 are 0, as for an empty list; precision has nothing to measure.
   if (found === null) return { found: null, missed: spec.relevant, extra: [], recall: 0, precision: null, f1: 0, contract: false };
   const relevant = new Set(spec.relevant);
   const allowed = new Set(spec.allowed ?? []);
-  const hits = found.filter((file) => relevant.has(file));
-  const extra = found.filter((file) => !relevant.has(file) && !allowed.has(file));
+  const dirOf = (file) => `${path.posix.dirname(file)}/`;
+  const dirItems = new Set(spec.relevant.filter((item) => item.endsWith('/')));
+  const fileDirs = new Set(spec.relevant.filter((item) => !item.endsWith('/')).map(dirOf));
+  const isNamed = (item) => found.includes(item) || (dirItems.has(item) && found.some((file) => !file.endsWith('/') && dirOf(file) === item));
+  const hits = spec.relevant.filter(isNamed);
+  const extra = found.filter((file) => (file.endsWith('/') ? !dirItems.has(file) && !fileDirs.has(file) : !relevant.has(file) && !allowed.has(file) && !dirItems.has(dirOf(file))));
   const recall = ratio(hits.length, relevant.size);
   const precision = ratio(found.length - extra.length, found.length);
   const f1 = recall === null || precision === null || recall + precision === 0 ? (recall === 0 || precision === 0 ? 0 : null) : Number(((2 * recall * precision) / (recall + precision)).toFixed(3));
-  return { found, missed: spec.relevant.filter((file) => !found.includes(file)), extra, recall, precision, f1, contract: true };
+  return { found, missed: spec.relevant.filter((item) => !isNamed(item)), extra, recall, precision, f1, contract: true };
 }
 
 export const metricsOf = (spec, traceText) => scoreFiles(spec, foundPaths(finalTextOf(traceText), spec.source));

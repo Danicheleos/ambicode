@@ -117,10 +117,12 @@ the team un-ignores `.ambicode/policies/`.
 
 ## Checks run unless a pack narrows them
 
-A check configured in `config.yaml` runs. `commandPolicy` only narrows that, per
-command name: `propose` asks the user before each run, `forbid` refuses it. A
-command no pack mentions runs, so a copied pack listing only `e2e` still allows
-`test` and `typecheck`. `checks.runnable` lists exactly what `check` will run.
+A check configured in `config.yaml` runs on the change's files (`--file` form).
+The `all` form, a whole-suite run, asks the user before each run for every check,
+whatever the packs say. `commandPolicy` only narrows further, per command name:
+`propose` asks before each run of either form, `forbid` refuses it. A command no
+pack mentions runs, so a copied pack listing only `e2e` still allows `test` and
+`typecheck`. `checks.runnable` lists exactly what `check` will run.
 
 ## Two smaller things worth knowing
 

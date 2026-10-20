@@ -1,6 +1,6 @@
 ---
 name: task-fix
-description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, report; the review offer is left to its default.'
+description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, report; no iteration is named, so the review runs unasked.'
 tags: ["task"]
 runs: 1
 max_turns: 40

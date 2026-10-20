@@ -6,7 +6,7 @@ import { materialized } from '#testing/fixtures/materialized';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 
-async function check(root: string, body: string) {
+async function check(root: string, body: string, cwd?: string) {
   const taskDir = path.join(root, '.ambicode/tasks/t');
   await mkdir(path.join(taskDir, 'notes'), { recursive: true });
   await writeFile(path.join(taskDir, 'notes/investigation.md'), body);
@@ -17,7 +17,7 @@ async function check(root: string, body: string) {
     timeoutMs: 30_000,
     maxOutputBytes: 65_536,
     env: { kind: 'inherited' },
-    stdin: JSON.stringify({ task: 't', skill: 'investigate', repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps'), args: {}, params: [], revise: null, raisedBy: null, headless: false }),
+    stdin: JSON.stringify({ task: 't', skill: 'investigate', repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps'), args: {}, params: [], revise: null, raisedBy: null, headless: false, ...(cwd === undefined ? {} : { cwd }) }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
   return JSON.parse(outcome.stdout) as { entries: { summary: { anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
@@ -46,6 +46,24 @@ describe('skills/investigate/scripts/check-citations.mjs', () => {
       const bare = await check(root, 'Total (src/invoices/service.ts:3-5), throws (service.ts:4).\n');
       assert.equal(bare.failed?.code, 'citations-failed');
       assert.deepEqual(bare.entries[0]!.summary, { failed: true, anchorsBad: 1, anchors: ['service.ts:4 missing-file'] });
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a path relative to the session directory, whose repository is a child of it, is valid and counted against the repository file', async () => {
+    const root = await materialized('ts-feature-boundary');
+    const session = path.dirname(root);
+    const name = path.basename(root);
+    try {
+      const rebased = await check(root, `Total (${name}/src/invoices/service.ts:3-5), windows form (${name}\\src\\invoices\\service.ts:3).\n`, session);
+      assert.equal(rebased.failed, undefined);
+      assert.equal(rebased.entries[0]!.summary.anchorsBad, 0);
+      const bad = await check(root, `${name}/src/invoices/service.ts:900 ${name}/src/nope.ts:1 ${name}/../outside.ts:1\n`, session);
+      assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
+      assert.match(bad.failed!.message, /service\.ts:900 line-out-of-range.*nope\.ts:1 missing-file.*outside\.ts:1 outside-repository/);
+      const without = await check(root, `${name}/src/invoices/service.ts:3\n`);
+      assert.equal(without.entries[0]!.summary.anchorsBad, 1, 'with no session directory the old reading stands');
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

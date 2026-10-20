@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS, type HookDeps } from '#types/hook';
+import type { HookDeps } from '#types/hook';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG , stopRoute } from '#testing/fixtures/route-fixture';
 import { answerGates } from './gate-answer.ts';
@@ -21,18 +21,19 @@ const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> 
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
 
 describe('03-H1/03-H8 the hook matrix', () => {
-  it('registers seven events and fifteen handler entries, and the docs say so', async () => {
+  it('registers the events and handler entries the docs count', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
-    assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
+    assert.deepEqual(Object.keys(manifest.hooks), ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd']);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
-    assert.equal(entries.length, REGISTERED_HOOK_ENTRIES);
-    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Glob', 'Agent']);
+    const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+    const eventCount = Object.keys(manifest.hooks).length;
+    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Glob']);
     assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
       const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
-      assert.match(text, /seven events/, doc);
-      assert.match(text, /fifteen handler entries/, doc);
+      assert.match(text, new RegExp(`${words[eventCount]} events`), doc);
+      assert.match(text, new RegExp(`${words[entries.length]} handler entries`), doc);
     }
   });
 });
@@ -346,13 +347,15 @@ describe('03-H7 SessionEnd', () => {
 });
 
 describe('Agent PostToolUse', () => {
-  it('does not load the engine for a subagent that is not the reviewer', async () => {
+  it('is not a hook event any more: no subagent, the reviewer included, loads the engine', async () => {
     const plan = await planFixture();
     try {
       let loads = 0;
       const counting: HookDeps = { load: async (...args) => (loads += 1, deps(plan).load(...args)) };
-      const event = { hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'Explore' }, tool_response: { status: 'completed', content: [] } };
-      assert.deepEqual(await runHook(plan.fx.runtime, JSON.stringify(event), counting), {});
+      for (const subagent_type of ['Explore', 'ambicode:reviewer']) {
+        const event = { hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type }, tool_response: { status: 'completed', content: [{ type: 'text', text: '{"findings":[],"coverageNotes":[]}' }] } };
+        assert.deepEqual(await runHook(plan.fx.runtime, JSON.stringify(event), counting), {});
+      }
       assert.equal(loads, 0);
     } finally {
       await plan.dispose();

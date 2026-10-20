@@ -4,16 +4,18 @@ import type { HookInput, StopHookOutput } from '#types/hook';
 import { sessionRoutes } from '../session/active-route.ts';
 import { buildChain, currentIn, foldRoute } from './fold.ts';
 import { answersAsNote } from './execute.ts';
+import { writeSummary } from './run-context.ts';
 import { readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { buildReport } from '#modules/evidence/report/report';
+import { saveNote } from '#modules/evidence/notes';
+import { gapsOf } from '#modules/evidence/report/report';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef, RouteRegistry, StepMessage } from '#types/harness';
 
-export interface StopPorts {
+interface StopPorts {
   runtime: Runtime;
   routes: RouteRegistry;
   /** Completes a delivered final model step and ends the route, or ends a user-set headless route inconclusive; false when neither applies. */
@@ -25,31 +27,7 @@ export interface StopPorts {
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
 
-/** The report is written once a step that delivers it to the model has run. */
-const reportWritten = (def: RouteDef, chain: readonly LedgerEntry[]): boolean =>
-  def.steps.some((step) => step.payload.includes('report') && chain.some((entry) => entry.kind === 'step' && entry['step'] === step.id));
-
-/**
- * Only a missing heading or a Not verified that hides recorded gaps blocks: demanding an exact copy of the generated
- * block rejected reports that were right. `generated` is the block the message lacks; the block reason carries it.
- */
-function problemsOf(chain: readonly LedgerEntry[], def: RouteDef, text: string): { problems: string[]; generated: string | null } {
-  const problems: string[] = [];
-  let generated: string | null = null;
-  if (/(^|\n)Evidence\b/.test(text) || /Not verified/.test(text) || reportWritten(def, chain)) {
-    const report = buildReport(chain, { current: currentIn(def, buildChain(chain, chain.find((entry) => entry.kind === 'route')!)) });
-    const missing = [!/^[ \t#*]*Evidence\b/m.test(text) ? 'Evidence' : null, !/^[ \t#*]*Not verified\b/m.test(text) ? 'Not verified' : null].filter((name) => name !== null);
-    for (const name of missing) problems.push(`The ${name} section is missing: copy it from below.`);
-    if (missing.length > 0) generated = `${report.evidence}\n${report.notVerified}`;
-    const gaps = report.notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && !line.endsWith(' (historical)')).length;
-    const stated = /^[ \t#*]*Not verified\b[^\n]*\n?([\s\S]*)$/m.exec(text)?.[1] ?? '';
-    if (missing.length === 0 && gaps > 0 && /^(none|nothing)?(recorded)?$/i.test(stated.replace(/[\s\-*_`.]/g, ''))) {
-      problems.push(`The Not verified section hides ${gaps} recorded gap(s): list them (the generated section is below).`);
-      generated = `${report.evidence}\n${report.notVerified}`;
-    }
-  }
-  return { problems, generated };
-}
+const squash = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /** A Stop that did nothing is not the same as a Stop that was never reached: the reason is left on stderr, where the session record keeps it. */
 function skipped(reason: string): null {
@@ -75,7 +53,7 @@ async function saveAnswer(ports: StopPorts, at: { root: string; session: string;
   }
 }
 
-/** The final message must carry the generated report; it is the message the user gets, read from the hook input, not the transcript. */
+/** The final message must state every current gap; it is the message the user gets, read from the hook input, not the transcript. */
 export async function stopHook(ports: StopPorts, input: HookInput, found: SessionRepository): Promise<StopHookOutput | null> {
   const { runtime, routes } = ports;
   if (input.agent_id !== undefined) return null;
@@ -84,21 +62,24 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
   const latest = async () => (await sessionRoutes(runtime.fs, root, session))[0] ?? null;
   let route = await latest();
   let active = route?.live === true ? route : null;
+  let answered = false;
   if (active !== null && input.last_assistant_message !== undefined) {
     const saved = await saveAnswer(ports, { root, session, scratchpad }, active, input.last_assistant_message);
     if (saved !== null) {
       route = await latest();
       active = route?.live === true ? route : null;
+      answered = true;
       // The route is still open: a code step sent it back to this step, and its text is the revise. The engine's repeat bound ends the loop, so this block needs no limit entry of its own.
       if (active !== null) return { decision: 'block', reason: `Your answer was saved as the note, but a check failed. Fix it and finish again.\n\n${saved.text}` };
     }
   }
   const target = route;
   if (target === null) return skipped(`no route for session ${session} in ${root}`);
-  // A Stop sees an exit once: the ledger names the exited route, one marker says it was looked at.
-  if (active === null && !(await deliverOnce(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), 'stop-seen', target.routeId))) return null;
-
   const dir = taskDirFor(root, target.task, '.', dirKindFor(target.skill));
+  // A Stop sees an exit once, and once more after the block it answered: the marker carries the block count, so the corrected message is checked and saved.
+  const blocks = active === null ? (await readLedger(runtime.fs, dir.root).catch(() => [])).filter((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block' && entry['route'] === target.routeId).length : 0;
+  if (active === null && !(await deliverOnce(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), 'stop-seen', `${target.routeId}:${blocks}`))) return null;
+
   const message = input.last_assistant_message ?? null;
   const verdict = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, async (ledger): Promise<{ output: StopHookOutput | null; entries: number } | null> => {
     const read = await ledger.read();
@@ -106,16 +87,25 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
     const head = entries.find((entry) => entry.kind === 'route' && entry.id === target.routeId && entry['session'] === session);
     const def = routes.route(target.skill);
     if (head === undefined || def === undefined || def === null) return skipped(`route ${target.routeId} of ${target.skill} is not in the ledger or the route set`);
-    const chain = buildChain(entries, head).entries;
+    const chain = buildChain(entries, head);
     const heading = firstHeading([...def.steps].reverse().find((step) => step.actor === 'model')?.instruction ?? null);
-    const finalMessage = message !== null && (active === null || (heading !== null && firstLine(message) === heading));
+    // A saved answer is the note itself: its gaps live in the ledger and the summary, and no second message is asked for.
+    const finalMessage = message !== null && !answered && (active === null || (heading !== null && firstLine(message) === heading));
+    if (!finalMessage) return { output: null, entries: entries.length };
     // One block per route: a second Stop lets the message through, or a model that cannot fix it would never finish.
-    if (!finalMessage || chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block')) return { output: null, entries: entries.length };
-    const { problems, generated } = problemsOf(chain, def, message);
-    if (problems.length === 0) return { output: null, entries: entries.length };
-    const reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them:${problems.map((item) => `\n- ${item}`).join('')}${generated === null ? '' : `\n\n${generated}`}`;
-    await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: problems.length });
-    return { output: { decision: 'block', reason }, entries: entries.length };
+    const stated = squash(message);
+    const missing = chain.entries.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block') ? [] : gapsOf(chain.entries, currentIn(def, chain)).filter((gap) => !stated.includes(squash(gap)));
+    if (missing.length > 0) {
+      await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: missing.length });
+      return { output: { decision: 'block', reason: `Your final message leaves ${missing.length} gap(s) unstated. Add each, in these words:${missing.map((gap) => `\n- ${gap}`).join('')}` }, entries: entries.length };
+    }
+    // A route whose answer is already its note keeps one copy.
+    if (!def.steps.some(answersAsNote)) {
+      await saveNote({ runtime, session, context: null, ledger }, { task: target.task, kind: 'result', body: message, from: null, route: target.routeId }).catch((error: unknown) => void process.stderr.write(`ambicode stop: final message not saved, ${error instanceof Error ? error.message : String(error)}\n`));
+      // A route that exited before this Stop had its summary written without the note.
+      if (active === null) await writeSummary(runtime, dir, ledger);
+    }
+    return { output: null, entries: entries.length };
   });
   if (verdict === null) return null;
   if (active !== null && verdict.output === null) await ports.closeFinal(target.task, target.routeId, scratchpad);

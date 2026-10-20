@@ -9,7 +9,7 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 # Implement a change
 
 A route hands you one step at a time: the change with its tests, format, an independent review
-offered, then the report. Name `iteration N` in the request to run only that iteration of the plan; without it every iteration runs from the first not done, each with its review. Do what each step says; the output of the command it ends with brings the next step.
+offered, then the report. Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; without it every iteration runs from the first not done, each with its review. Do what each step says; the output of the command it ends with brings the next step.
 
 ## Git boundary
 

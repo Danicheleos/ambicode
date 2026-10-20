@@ -5,7 +5,7 @@ import { PolicyPack, type PackConstraints } from '#types/modules/policy';
 import { AmbicodeError } from '#util/errors';
 import type { FileSystem } from '#types/platform/ports';
 
-export interface BuiltinPackFile {
+interface BuiltinPackFile {
   id: string;
   filePath: string;
 }

@@ -11,13 +11,13 @@ import { REPO_ROOT } from '../paths.ts';
 import type { Handler, StartInput, RouteArgs } from '#types/harness';
 import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
 import { SESSION_A } from './ids.ts';
-export const FIXTURE_ROUTE = path.join(import.meta.dirname, 'review-requirements.yaml');
+const FIXTURE_ROUTE = path.join(import.meta.dirname, 'review-requirements.yaml');
 
 export const jira = (key: string, fields: object = {}): string =>
   JSON.stringify({ key, fields: { summary: `Summary ${key}`, description: `Body of ${key}`, issuetype: { name: 'Story' }, ...fields } });
 export const mcp = (text: string): { content: { type: string; text: string }[] } => ({ content: [{ type: 'text', text }] });
 
-export interface SessionOptions {
+interface SessionOptions {
   skill?: string;
   /** The route file's text; the review fixture by default. */
   route?: string;

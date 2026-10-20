@@ -92,3 +92,48 @@ Behaviour changes against HEAD a4257a38, grouped as removed / added / changed. E
 - Not done, kept: `layersSource` ledger field, `repeat` on human steps (asserted by tests).
 - Hand-off: `npm run verify` and a real re-run on inseer-frontend (user-scenarios.md, flows 1–6); delete the
   stray task folders there (`task-b751b52a`, `https-…-vs-6735`, `vs-6735-iter2`, `…-iterat`).
+
+## Run 2 (02-plan.md, 2026-10-17)
+
+Removed
+- `withLedgerLock` creating task folders (R2): an unknown `--task` now fails `task-unknown`; only `route start`
+  and the init commands with `--task` create one. `note save` on an unknown task fails too.
+- `buildReport`, navigation-line.ts, the Evidence block in chat (R6); `checks.preflight` (R9); MCP MR capture,
+  mr-capture.ts, routes/review mr-fetch.md/publish.md and the `capture` kind (R11); scout's single grep (R7).
+
+Added
+- Gate field `free: true`; `matchOption` ignores case and "(Recommended)" (R1). Rules sources shared in
+  skills/rules/scripts/sources.mjs, `.claude/` included.
+- Ledger kind `init`; `--task` on config packs/validate and context write; init runs as task `init` (D1).
+- Route flag `needsRequest` on task/plan/investigate: an empty start continues the session's task or fails
+  `task-needed` with 3 recent tasks (R3). `iterationOf`: `iteration N` or a bare number (R4).
+- `fillKeyFiles` in `context write` (R7). glab.ts: `parseMrUrl`, `fetchMr`, `comment` (R11).
+- Session contract line: known answers go through AskUserQuestion (R5).
+
+Changed
+- summary.md: Plan, Iterations (latest launch per iteration), Routes, Init, Not verified (R6). The Stop hook
+  checks only that each gap is stated and saves the final message as a `result` note.
+- `task.verdict` exits `blocked` on a red last check; the `all` check form always asks; `baseline.runnable`
+  separates "no checks configured" from "no check ran" (R4, R9).
+- fetch.md reads one level of children and links (cap 10); unasked fetches recorded `linked` (R8).
+- CLI error texts that told the user to type a flag now say to ask with AskUserQuestion (R5).
+
+Review fixes (3 reviewers, 14 findings fixed, 2026-10-17)
+- Publish places a comment on the finding's side (old/new path and line, renames, deleted files); a host with
+  a port goes through GITLAB_API_HOST.
+- `linked` capture only during the fetch step, only a structured key or a same-host URL; a linked capture
+  never satisfies the asked requirement.
+- summary.md: per iteration the latest launch that did work; no row for iterations-complete; "no checks
+  configured" is a Not verified line; review line = first-round count + re-review outcome (no "N fixed");
+  summary re-rendered after a late `result` note.
+- Issue key: one uppercase rule in src/util/issue-key.ts (slug, has-requirement, capture, envelope).
+  A bare iteration number counts only as the whole remainder.
+- A task is a folder with a ledger (`taskExists`); a failed `route start` leaves nothing.
+- Gate options match the label part before " — "; the start-time `--answer` uses the same matching; a free
+  sources answer reads only what it names.
+- Empty start offers only request tasks. New CLI `init record`; scaffold.mjs records its `init` entry.
+
+Size: src non-test 11643 → 11976 (+333). npm run verify: 1188 tests, 1186 pass, 0 fail, 1 skip, 1 todo.
+Open: Stop gap check is skipped when the live route's final message lacks the exact heading; findings
+outside the diff are not rejected before posting; publish is not resumable without duplicates; R10.
+Not done: R10 (reviews inside the task folder), optional, waits for the user.

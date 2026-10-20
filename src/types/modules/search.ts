@@ -25,6 +25,8 @@ export interface Declaration {
   kind: string;
   path: string;
   line: number;
+  /** The declaring line, trimmed and cut to 120 characters. */
+  signature: string;
   /** Files, among those harvested, that declare this name. */
   declarations: number;
 }

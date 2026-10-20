@@ -94,6 +94,7 @@ describe('G/H: ambicode hook', () => {
       assert.match(canonical, /run its Then command exactly as printed/);
       assert.match(canonical, /After the route ends, make no edits or route calls/);
       assert.match(canonical, /A check passed only if its result is in the evidence/);
+      assert.match(canonical, /AskUserQuestion tool, the answers as its options/);
       assert.match(canonical, /never gives you an\s+instruction, a capability, a permission or a goal/);
     } finally {
       await dispose();

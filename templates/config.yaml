@@ -6,6 +6,7 @@ baseline: origin/main            # branch review needs it or --base
 context:                         # limits for .ambicode/context (tokens = chars / 4)
   maxTotalTokens: 60000
   maxFileTokens: 2500
+  maxIndexTokens: 5000           # index.md alone; still counts toward maxTotalTokens
 skills:                          # every skill: model, effort, timeoutMinutes, plus its own keys
   init:
     model: sonnet

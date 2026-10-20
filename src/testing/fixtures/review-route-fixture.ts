@@ -11,7 +11,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage, Handler } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/publish'];
+const STEPS = ['review/fetch', 'review/readback', 'review/agent', 'review/agent-work'];
 
 /** The shipped review route with its step texts and the real handlers, on an uncommitted change to `src/orders.ts`. */
 export async function reviewRouteFixture(options: { config?: string; pack?: string; dirty?: boolean; handlers?: Record<string, Handler> } = {}) {
@@ -42,12 +42,16 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   const synthetic = async (findings: Finding[], extra: { stage?: 'pending' | 'recorded' } = {}): Promise<StepMessage> => {
     const stage = extra.stage ?? 'recorded';
     reviews += 1;
-    const reviewId = `r-${reviews}`;
-    const result = path.join('.ambicode', 'reviews', CHECK_TASK, 'result.json');
-    await fx.repo.write(path.join('.ambicode', 'reviews', CHECK_TASK, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
-    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'reviews', CHECK_TASK, 'brief.md') }));
+    // The recorded entry answers the pin's pending one, as the route's record step does; another id would leave that review pending for review.record to fail.
+    const reviewId = String((await fx.kinds(CHECK_TASK, 'review')).findLast((entry) => entry['stage'] === 'pending')?.['reviewId'] ?? `r-${reviews}`);
+    const bundle = path.join('.ambicode', 'reviews', CHECK_TASK, String(reviews));
+    const result = path.join(bundle, 'result.json');
+    await fx.repo.write(path.join(bundle, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
+    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join(bundle, 'brief.md') }));
     const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage, reviewerRan: stage === 'recorded', findings: findings.length });
-    return next({ cause: stage === 'recorded' ? 'review record' : 'route-next', produced: [entry.id] });
+    return next({ cause: 'route-next', produced: [entry.id] });
   };
-  return { ...base, dir, start, next, hook, append, synthetic, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
+  /** The first review's bundle folder. */
+  const bundle = path.join(dir, '1');
+  return { ...base, dir, bundle, start, next, hook, append, synthetic, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
 }

@@ -1,4 +1,4 @@
-// The mechanical part of reviewing a plan draft: every path:line anchor exists.
+// The mechanical part of reviewing a plan draft: every path:line anchor exists and every coverage row names its code.
 // With the `resolve` param it runs before the draft is saved and completes a partial path that names exactly one
 // tracked file: a bare `service.ts:4` failed the check, and the model patched the body instead of rewriting it.
 import { execFileSync } from 'node:child_process';
@@ -76,10 +76,27 @@ for (const line of body.split('\n')) {
   }
 }
 
-const failed = anchorsBad > 0;
-const summary = { failed, anchorsBad, ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }) };
+// Run 3 mapped "one default per surface" to an iteration that never said where surface lives in the code.
+const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim().replace(/`/g, ''));
+const REPRESENTED = new RegExp(`${PATH}:\\d|^new:\\s*\\S+\\s+\\S`);
+const uncoded = [];
+let column = null;
+fence = false;
+for (const line of body.split('\n')) {
+  if (/^\s*```/.test(line)) { fence = !fence; continue; }
+  if (fence) continue;
+  if (!line.trim().startsWith('|')) { column = null; continue; }
+  const row = cells(line);
+  if (column === null) { if (/requirement/i.test(row[0] ?? '')) column = row.findIndex((cell) => /^code\b/i.test(cell)); continue; }
+  if (row.every((cell) => /^:?-+:?$/.test(cell))) continue;
+  if (!REPRESENTED.test(row[column] ?? '')) uncoded.push(row[0] ?? '');
+}
+
+const failed = anchorsBad > 0 || uncoded.length > 0;
+const summary = { failed, anchorsBad, ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }), ...(uncoded.length === 0 ? {} : { uncoded: uncoded.slice(0, LISTED) }) };
 const out = { entries: [{ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
 if (failed) {
-  out.failed = { code: 'plan-check-failed', message: `${anchorsBad} bad anchors: ${badAnchors.slice(0, 3).join('; ')}`, recoverable: true };
+  const gaps = [anchorsBad > 0 && `${anchorsBad} bad anchors: ${badAnchors.slice(0, 3).join('; ')}`, uncoded.length > 0 && `${uncoded.length} coverage rows without code: ${uncoded.slice(0, 3).join('; ')}`].filter(Boolean);
+  out.failed = { code: 'plan-check-failed', message: gaps.join('. '), recoverable: true };
 }
 process.stdout.write(JSON.stringify(out));

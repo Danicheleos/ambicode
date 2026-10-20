@@ -19,6 +19,15 @@ export function taskSlugFor(input: {
   return ticket === "" ? null : ticket;
 }
 
+/** The folder of a standalone review route, decided once at start from what it reviews. */
+export function standaloneReviewName(input: { mr: string | null; iid: string | null; branch: string | null; branching: boolean; now: Date }): string {
+  if (input.mr !== null) return `mr-${input.iid}`;
+  if (input.branching) return `branch-${sanitize((input.branch ?? 'detached').toLowerCase(), 40) || 'detached'}`;
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const { now } = input;
+  return `local-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
 /** Also the review id (`view --review <name>`): the minted id makes the name unique without a collision loop. */
 export function reviewName(now: Date, id: string): string {
   const pad = (value: number): string => String(value).padStart(2, '0');

@@ -111,6 +111,20 @@ describe('task route: the iteration loop', () => {
     });
   });
 
+  it('a red last check released by the limit ends the route blocked, and the next start redoes that iteration', async () => {
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: TEXT });
+      await t.edit();
+      await t.check('red', { ran: 1, failed: 1 });
+      await t.append({ kind: 'limit', which: 'check', step: 'change', phase: 'green', count: 5 });
+      let message = await t.next();
+      for (let round = 0; round < 4 && message.position === 'review-agent'; round += 1) message = await t.review([]);
+      assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['blocked']);
+      await t.start({ plan: PLAN, text: TEXT });
+      assert.deepEqual([await iterationOf(t, 0), await iterationOf(t, 1)], [1, 1]);
+    });
+  });
+
   it('a route that ends blocked does not continue to iteration 2', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });

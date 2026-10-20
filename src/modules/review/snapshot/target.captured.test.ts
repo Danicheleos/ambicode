@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { addressableLines } from '#platform/git/diff';
-import { resolveCapturedTarget } from './target.ts';
-import { MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
+import { MR_DIFF_JSON, MR_DIFF_PATCH, resolveCapturedTarget } from './target.ts';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import type { Workspace } from '#types/composition';
 
@@ -40,9 +39,9 @@ test('a captured head sha is pinned as the target head', async (t) => {
   assert.equal(resolved.target.headSha, sha);
 });
 
-test('no capture on disk is mr-diff-missing, naming the MCP call and route next', async (t) => {
+test('no capture on disk is mr-diff-missing, naming glab and the --mr route', async (t) => {
   const { workspace } = await setup(t);
   for (const task of ['absent', null]) {
-    await assert.rejects(resolveCapturedTarget({ workspace, task, url: URL_MR }), (error: { code: string; details?: string[] }) => error.code === 'mr-diff-missing' && /GitLab MCP server.*route next/.test((error.details ?? []).join(' ')));
+    await assert.rejects(resolveCapturedTarget({ workspace, task, url: URL_MR }), (error: { code: string; details?: string[] }) => error.code === 'mr-diff-missing' && /glab mr diff.*--mr/.test((error.details ?? []).join(' ')));
   }
 });

@@ -10,7 +10,7 @@ import type { HookDeps } from '#types/hook';
 
 const LEGACY_SESSION = 'aaaaaaaa-1111-4111-8111-111111111111';
 
-export interface Hooked {
+interface Hooked {
   /** One hook event as the named Claude session sends it; each session has its own scratchpad. */
   event(event: Record<string, unknown>, session: string): Promise<unknown>;
   scratchpad(session: string): string;

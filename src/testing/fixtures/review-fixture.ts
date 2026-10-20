@@ -2,9 +2,9 @@ import { REVIEW_SCHEMA_VERSION, type Finding, type ReviewResult } from '#types/m
 
 /** Hostile text is in every untrusted field on purpose: the renderer's job is to show it, not run it. */
 
-export const HOSTILE = '<img src=x onerror="alert(1)"><script>fetch("//evil")</script>';
+const HOSTILE = '<img src=x onerror="alert(1)"><script>fetch("//evil")</script>';
 
-export const REVIEW_ID = 'r-0001';
+const REVIEW_ID = 'r-0001';
 
 export function finding(overrides: Partial<Finding> & { id: string }): Finding {
   return {
@@ -21,7 +21,7 @@ export function finding(overrides: Partial<Finding> & { id: string }): Finding {
   };
 }
 
-export interface FixtureOptions {
+interface FixtureOptions {
   kind?: ReviewResult['target']['kind'];
   findings?: Finding[];
   status?: ReviewResult['status'];

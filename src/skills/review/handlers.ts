@@ -1,13 +1,20 @@
 import path from 'node:path';
 import { chainKey, loadPayload } from '#harness/engine/execute';
-import { isBoundAnswer } from '#harness/engine/fold';
+import { isBoundAnswer, latestBound } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries, failed } from '../common.ts';
 import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
+import { lineAt } from '#platform/git/diff';
+import { comment, fetchMr, type MrPlace, type MrRefs } from '#platform/gitlab/glab';
+import { capturedFiles, MR_DIFF_JSON, MR_DIFF_PATCH } from '#modules/review/snapshot/target';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
-import { assembleBundle, baselineScope, envelopeRequirements, pinAssembled, recordedChecks } from '#modules/review/bundle/bundle';
+import { assembleBundle, baselineScope, baselineTree, envelopeRequirements, pinAssembled, recordedChecks } from '#modules/review/bundle/bundle';
 import { runReviewChecks } from './checks.ts';
+import { ANSWER_FILE, recordReviewerAnswer, renderRecord } from './record-answer.ts';
+import { pendingReview } from '#modules/review/answer/captured';
+import { MAX_EVIDENCE_BYTES } from '#types/defaults';
+import { briefOf } from '../brief.ts';
 import { GATE as CHECK_GATE } from '#types/modules/checks';
 import { baselineOf } from '#modules/checks/workspace/baseline';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -16,9 +23,11 @@ import type { Finding, TargetSelection } from '#types/modules/review';
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
 const AGAIN_GATE = 'review-again';
 const ESTIMATE_STEP = 'estimate-step';
+/** Beside the pinned result: the plan's section for the iteration under review, read by the brief script. */
+const PLAN_SECTION = 'plan-iteration.md';
 const NARROW_HINT = 'give the --only/--exclude tokens as your answer';
 
-export const selectionOf = (target: ReviewTargetArgs | undefined): TargetSelection =>
+const selectionOf = (target: ReviewTargetArgs | undefined): TargetSelection =>
   target === undefined ? { kind: 'working' } : target.mr !== null ? { kind: 'merge-request', url: target.mr } : { kind: 'branch', baseRef: target.base };
 
 const narrowOf = (entry: LedgerEntry): string | null => ((entry['args'] as { narrow?: string[] } | undefined)?.narrow ?? [])[0] ?? null;
@@ -84,13 +93,73 @@ const estimate: Handler = async (input) => {
   }
 };
 
-/** The recorded findings as the numbered list the user picks from; no findings ends the route, since there is nothing to ask. */
-const publishList: Handler = async (input) => {
+/** The findings of the latest recorded review. */
+async function recordedFindings(input: HandlerInput): Promise<Finding[]> {
   const review = (await chainEntries(input)).findLast((entry) => entry.kind === 'review' && entry['stage'] === 'recorded');
   const text = typeof review?.['result'] === 'string' ? await input.runtime.fs.readText(path.join(input.dir.repositoryRoot, review['result'])).catch(() => null) : null;
-  const findings = text === null ? [] : ((JSON.parse(text) as { findings?: Finding[] }).findings ?? []);
+  return text === null ? [] : ((JSON.parse(text) as { findings?: Finding[] }).findings ?? []);
+}
+
+const placeOf = (finding: Finding): { path: string; line: number } => ({ path: finding.location.newPath ?? finding.location.oldPath ?? '', line: finding.location.line });
+
+/** An unchanged line exists on both sides, so its other number comes from the diff; a line outside it is sent as given and GitLab refuses it. */
+function mrPlace(finding: Finding, patch: string): MrPlace {
+  const { oldPath, newPath, side, line } = finding.location;
+  const file = capturedFiles(patch).find((candidate) => candidate.oldPath === oldPath && candidate.newPath === newPath);
+  const hit = file === undefined ? null : lineAt(file, side, line);
+  return { oldPath, newPath, oldLine: hit?.oldLine ?? (side === 'old' ? line : null), newLine: hit?.newLine ?? (side === 'new' ? line : null) };
+}
+
+/** The recorded findings as the numbered list the user picks from; no findings ends the route, since there is nothing to ask. */
+const publishList: Handler = async (input) => {
+  const findings = await recordedFindings(input);
   if (findings.length === 0) return { state: 'ok', payload: 'no findings to publish', exit: 'done', exitDetail: 'no findings to publish' };
-  return { state: 'ok', payload: findings.map((finding, at) => `${at + 1}. ${finding.location.newPath ?? finding.location.oldPath}:${finding.location.line} — ${finding.suggestedComment} (${finding.risk}/${finding.confidence})`).join('\n') };
+  return { state: 'ok', payload: findings.map((finding, at) => `${at + 1}. ${placeOf(finding).path}:${placeOf(finding).line} — ${finding.suggestedComment} (${finding.risk}/${finding.confidence})`).join('\n') };
+};
+
+/** The step after the reviewer: records what it wrote to its answer file (none is a failed review) and hands the report on as this step's payload. A review already recorded is left alone. */
+const record: Handler = async (input) => {
+  const pending = pendingReview(await chainEntries(input), null);
+  if (pending === undefined) return { state: 'ok', payload: null };
+  const answerFile = path.join(path.dirname(path.join(input.dir.repositoryRoot, String(pending['result']))), ANSWER_FILE);
+  const answer = await input.runtime.fs.readText(answerFile).then((text) => text.slice(0, MAX_EVIDENCE_BYTES), () => null);
+  return { state: 'ok', payload: renderRecord(await recordReviewerAnswer(input.runtime, { pending, answer, append: (fields) => input.ledger.append(fields) })) };
+};
+
+const mrFetch: Handler = async (input) => {
+  try {
+    const mr = await fetchMr(input.runtime.runner, input.dir.repositoryRoot, input.args.target?.mr ?? '');
+    await input.runtime.fs.mkdirp(input.dir.root);
+    await input.runtime.fs.writeText(path.join(input.dir.root, MR_DIFF_PATCH), mr.diff);
+    await input.runtime.fs.writeText(path.join(input.dir.root, MR_DIFF_JSON), `${JSON.stringify({ url: input.args.target?.mr, sha: mr.refs.head_sha, refs: mr.refs, title: mr.title }, null, 2)}\n`);
+    return { state: 'ok', payload: null };
+  } catch (error) {
+    return failed(error);
+  }
+};
+
+/** Posts the findings the user picked at the `publish` gate, `all` or a number list, and nothing else. */
+const publish: Handler = async (input) => {
+  const findings = await recordedFindings(input);
+  const answer = String(latestBound(await chainEntries(input), 'publish')?.['answer'] ?? '');
+  const picked = answer === 'all' ? findings : (answer.match(/\d+/g) ?? []).map((number) => findings[Number(number) - 1]).filter((finding): finding is Finding => finding !== undefined);
+  if (picked.length === 0) return { state: 'failed', code: 'bad-argument', message: `"${answer}" names none of the ${findings.length} listed findings.`, recoverable: false };
+  const url = input.args.target?.mr ?? '';
+  const posted: string[] = [];
+  try {
+    const { refs } = JSON.parse(await input.runtime.fs.readText(path.join(input.dir.root, MR_DIFF_JSON))) as { refs: MrRefs };
+    const patch = await input.runtime.fs.readText(path.join(input.dir.root, MR_DIFF_PATCH));
+    for (const finding of picked) {
+      const { path: file, line } = placeOf(finding);
+      await comment(input.runtime.runner, input.dir.repositoryRoot, url, refs, mrPlace(finding, patch), finding.suggestedComment);
+      posted.push(`${file}:${line}`);
+    }
+  } catch (error) {
+    if (!isAmbicodeError(error)) throw error;
+    return { state: 'failed', code: error.code, message: `${error.message} (posted before it: ${posted.join(', ') || 'none'})`, recoverable: false };
+  }
+  const detail = `posted ${posted.length} comment(s): ${posted.join(', ')}`;
+  return { state: 'ok', payload: detail, exit: 'done', exitDetail: detail };
 };
 
 /** Both routes pin their own review: the model never runs a pin command itself, so no step can be skipped past an absent pin. The review route also runs its checks first, since the pinned result lists them. */
@@ -106,7 +175,7 @@ const pin: Handler = async (input) => {
     const scope = reviewing ? { preexisting: [], omissions: [] as string[], ledger: { route: view.routeId, session: view.session } } : await baselineScope(runtime, baseline, { route: view.routeId, session: view.session });
     const requirements = (await envelopeRequirements(deps, routed)) ?? [];
     const narrowing = reviewing ? narrowingInForce(chain) : null;
-    const assemble = { target: selectionOf(input.args.target), task: view.task, requirements, preexisting: scope.preexisting, ...(narrowing === null ? {} : parseNarrow(narrowing)) };
+    const assemble = { target: selectionOf(input.args.target), task: view.task, requirements, preexisting: scope.preexisting, baseTree: reviewing ? null : baselineTree(chain), ...(narrowing === null ? {} : parseNarrow(narrowing)) };
     const bundle = await assembleBundle({ runtime, ...assemble });
     if (reviewing && assemble.target.kind !== 'merge-request') {
       const checks = await runReviewChecks(input, bundle.files, chain);
@@ -114,14 +183,17 @@ const pin: Handler = async (input) => {
       scope.omissions.push(...checks.notes);
       bundle.result.checks = await recordedChecks(runtime, bundle.taskDirectory);
     }
-    await pinAssembled(runtime, bundle, { omissions: scope.omissions, ledger: scope.ledger, append: (fields) => input.ledger.append(fields) });
+    const pinned = await pinAssembled(runtime, bundle, { omissions: scope.omissions, ledger: scope.ledger, append: (fields) => input.ledger.append(fields) });
+    const started = reviewing ? undefined : chain.find((entry) => entry.kind === 'step' && entry['step'] === 'start');
+    const section = started === undefined ? null : (await briefOf({ ...input, args: { ...input.args, plan: started['planPath'] as string | null, iteration: started['iteration'] as number } }, [])).brief;
+    if (section !== null) await runtime.fs.writeText(path.join(pinned.bundle.reviewDirectory, PLAN_SECTION), `${section}\n`);
     return { state: 'ok', payload: null };
   } catch (error) {
     return failed(error);
   }
 };
 
-export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.pin': pin, 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.publishList': publishList };
+export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.pin': pin, 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.record': record, 'review.publishList': publishList, 'review.mrFetch': mrFetch, 'review.publish': publish };
 
 onGatePrint('estimate', async ({ runtime, dir, chain }) => {
   const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.estimate');

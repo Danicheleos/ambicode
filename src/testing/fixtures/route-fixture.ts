@@ -17,7 +17,6 @@ import type { Runtime } from '#types/composition';
 import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import { HANDLER_NAMES, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry } from '#types/harness';
 
-
 const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 
 /** Everything above `projects:`; the review limits are the ones tests assert against. */
@@ -25,7 +24,7 @@ export const CONFIG_HEAD = [
   'schemaVersion: 5',
   'id: repo',
   'baseline: origin/main',
-  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 }',
   'skills:',
   `  init: { ${RUN}, scout: { ${RUN} } }`,
   `  review: { ${RUN}, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, excludePaths: [] }`,
@@ -53,7 +52,7 @@ export interface RouteFixture {
 }
 
 /** A review run lives under reviews/, every other route under tasks/. */
-export function runDirOf(root: string, task: string): string {
+function runDirOf(root: string, task: string): string {
   const reviews = path.join(root, '.ambicode', 'reviews', task);
   return existsSync(path.join(reviews, 'ledger.jsonl')) ? reviews : path.join(root, '.ambicode', 'tasks', task);
 }
@@ -69,7 +68,7 @@ export async function stopRoute(fx: Pick<RouteFixture, 'runtime'>, task: string,
   });
 }
 
-export interface Assembled { runtime: Runtime; routes: RouteRegistry; build(handlers: Record<string, Handler>): Engine }
+interface Assembled { runtime: Runtime; routes: RouteRegistry; build(handlers: Record<string, Handler>): Engine }
 
 /** The engine over an existing repository: what a second process attached to the same task directory builds. */
 export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date; pluginRoot?: string }): Promise<Assembled> {

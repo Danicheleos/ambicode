@@ -95,7 +95,7 @@ function renderPolicyCheck(output: PolicyCheckOutput): string {
 
 export const policyCheckCommand: CliCommand = {
   name: 'policy check',
-  summary: 'Validate candidate policy pack files; nonzero exit on an error.',
+  summary: 'Validate candidate policy pack files; nonzero exit on error.',
   options: POLICY_CHECK_OPTIONS,
   run: async (runtime, args) => {
     const output = await runPolicyCheck(runtime, args);

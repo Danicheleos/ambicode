@@ -6,14 +6,14 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { answerGates } from '#hook/events/gate-answer';
 import { runHook } from '#hook/events/run-hook';
-import { buildReport } from '#modules/evidence/report/report';
+import { gapsOf } from '#modules/evidence/report/report';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = 'c05ac271e0cfdf68b9f01ca693072bce6740065e8be8596cabf6d74a8283ba17';
+const CONTRACT_SHA256 = 'cab63725701c297202b6c85ab84d68684f105fe1d28b79bc87c1633c7c590af5';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -83,6 +83,8 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     assert.match(write, /rewrite the whole file with Write, never patch or use the shell/);
     assert.doesNotMatch(write, /\bEdit\b(?! nothing)/);
     assert.match(write, /\[ambicode gate decision:<slug>\]/);
+    assert.match(write, /\| requirement \| section \| code \|/);
+    assert.match(write, /new: <file> <field\/type>/);
     assert.match(write, /refs --declarations <name> --task \{task\}/);
   });
 
@@ -161,8 +163,24 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
       assert.equal((await notes(plan, 'plan-draft')).length, 1, '06-P9: the failed draft stays');
       assert.equal((await steps(plan, 'design', 'delivered')).length, 1);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
-      const gap = buildReport(await plan.fx.ledger(PLAN_TASK)).notVerified;
+      const gap = gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n');
       assert.match(gap, /plan-check: 1 bad anchors: src\/orders\/limit\.ts:40 line-out-of-range/);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
+describe('plan-check coverage rows', () => {
+  it('a row naming no code representation fails the check, prints at the gate and is a gap; the route does not loop back', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan);
+      const failed = await planCheck(plan, '# Plan\n\n| requirement | section | code |\n|---|---|---|\n| one default per workspace | Iteration 3 | |\n');
+      assert.equal(failed.position, 'plan-accept');
+      assert.match(failed.text, /Coverage rows without code:\none default per workspace/);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
+      assert.match(gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n'), /plan-check: 1 coverage rows without code: one default per workspace/);
     } finally {
       await plan.dispose();
     }
@@ -231,7 +249,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
       assert.ok(done.text.includes(String(promoted['path'])));
       assert.doesNotMatch(done.text, /plan-draft saved/);
       assert.equal((await notes(plan, 'plan')).length, 1);
-      assert.equal((await readdir(taskDir(plan))).filter((name) => name.startsWith('plan_')).length, 1);
+      assert.equal((await readdir(taskDir(plan))).filter((name) => name === 'plan.md').length, 1);
     } finally {
       await plan.dispose();
     }
@@ -305,7 +323,7 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
       await planCheck(plan, BAD);
       assert.equal((await notes(plan, 'plan')).length, 1);
       assert.equal((await steps(plan, 'design', 'delivered')).length, 1);
-      assert.match(buildReport(await plan.fx.ledger(PLAN_TASK)).notVerified, /plan-check: 1 bad anchors/);
+      assert.match(gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n'), /plan-check: 1 bad anchors/);
     } finally {
       await plan.dispose();
     }

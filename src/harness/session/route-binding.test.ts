@@ -7,7 +7,7 @@ import { liveRouteOf } from './active-route.ts';
 import { appendLedger } from '#platform/ledger/ledger';
 import { hookRunner } from '#testing/fixtures/owner-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
-import { CHECK_TASK } from '#testing/fixtures/check-fixture';
+import { CHECK_TASK, checkFixture } from '#testing/fixtures/check-fixture';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import { parseArgs } from '#util/args';
 import type { Runtime } from '#types/composition';
@@ -16,7 +16,7 @@ type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
 const CLAUDE_1 = '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CLAUDE_2 = '22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const PLAN = `.ambicode/tasks/${CHECK_TASK}/plan_2026-10-16_10-00.md`;
+const PLAN = `.ambicode/tasks/${CHECK_TASK}/plan.md`;
 
 async function withTask(body: (t: Fixture) => Promise<void>): Promise<void> {
   const t = await taskFixture();
@@ -138,6 +138,26 @@ describe('the task argument names a task', () => {
     });
   });
 
+  it('a bare number after the task word is the iteration: one route, the review offered, no restart', async () => {
+    await withTask(async (t) => {
+      await planned(t);
+      assert.deepEqual(await started(t, `${CHECK_TASK} 1`), { dirs: [CHECK_TASK], plan: PLAN, iteration: [1, 2] });
+      await toOffer(t, CHECK_TASK);
+      assert.equal((await t.kinds('route')).length, 1);
+      assert.deepEqual((await t.kinds('gate')).map((entry) => entry['gate']), ['review-offer']);
+    });
+  });
+
+  it('a bare number names the iteration after a Jira key too', async () => {
+    await withTask(async (t) => {
+      await launch(t, '/ambicode:task --task vs-6735 add views', CLAUDE_1);
+      await appendLedger(t.fx.runtime.fs, path.join(t.fx.repo.root, '.ambicode', 'tasks', 'vs-6735'), t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+      await t.fx.repo.write(PLAN, '# Plan\n\n## Iteration 1\nA.\n\n## Iteration 2\nB.\n');
+      await launch(t, '/ambicode:task VS-6735 2', CLAUDE_1);
+      assert.equal((await t.fx.kinds('vs-6735', 'step')).findLast((entry) => entry['step'] === 'start')?.['iteration'], 2);
+    });
+  });
+
   it('a Jira link names a new task by its issue key', async () => {
     await withTask(async (t) => {
       await launch(t, '/ambicode:task https://inseer.atlassian.net/browse/VS-6735', CLAUDE_1);
@@ -145,11 +165,44 @@ describe('the task argument names a task', () => {
     });
   });
 
-  it('a request with no text is named after its skill', async () => {
+  it('an empty start continues the latest task of this session, with its plan', async () => {
     await withTask(async (t) => {
+      await planned(t);
+      await launch(t, `/ambicode:task --task ${CHECK_TASK} iteration 1`, CLAUDE_1);
       await cliStart(t, CLAUDE_1, ['task']);
-      assert.deepEqual(await tasks(t), ['task']);
+      assert.deepEqual(await tasks(t), [CHECK_TASK]);
+      assert.equal((await t.kinds('route')).length, 2);
+      assert.equal((await t.kinds('step')).findLast((entry) => entry['step'] === 'start')?.['planPath'], PLAN);
     });
+  });
+
+  it('an empty start in a session with no task creates nothing and lists the recent tasks to ask about', async () => {
+    await withTask(async (t) => {
+      await planned(t);
+      await launch(t, `/ambicode:task --task ${CHECK_TASK} iteration 1`, CLAUDE_1);
+      for (const [task, entry] of [['init', { kind: 'init', what: 'scaffold', outcome: 'ok' }], ['rules', { kind: 'route', skill: 'rules', args: {}, mode: 'interactive', channel: 'cli', trusted: true, session: CLAUDE_1, epoch: 1 }]] as const) {
+        const dir = path.join(t.fx.repo.root, '.ambicode', 'tasks', task);
+        await mkdir(dir, { recursive: true });
+        await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), 'test-writer', entry);
+      }
+      const error = await cliStart(t, CLAUDE_2, ['task']).then(() => null, (thrown: { code?: string; details?: string[] }) => thrown);
+      assert.equal(error?.code, 'task-needed');
+      const details = (error?.details ?? []).join('\n');
+      assert.doesNotMatch(details, /^- (init|rules) /m, 'only tasks that take a request are offered');
+      assert.match(details, new RegExp(`${CHECK_TASK} · plan: ${PLAN.replaceAll('.', '\\.')} · iterations 0/2 · last exit: none`));
+      assert.match(details, /AskUserQuestion/);
+      assert.deepEqual(await tasks(t), ['init', CHECK_TASK, 'rules']);
+    });
+  });
+
+  it('a route that needs no request is still named after its skill when started empty', async () => {
+    const { fx, start } = await checkFixture();
+    try {
+      await start('cli', false, { task: undefined, text: '' });
+      assert.deepEqual((await readdir(path.join(fx.repo.root, '.ambicode', 'tasks'))).sort(), ['demo']);
+    } finally {
+      await fx.dispose();
+    }
   });
 });
 

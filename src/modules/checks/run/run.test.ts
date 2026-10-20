@@ -15,7 +15,7 @@ const policy = (action: 'run' | 'propose' | 'forbid', reason?: string): Resolved
 });
 
 const run = (runner: FakeProcessRunner, command = 'jest', resolved: ResolvedPolicy = policy('run')) =>
-  runOne({ runner, clock, repositoryRoot: '/repo', project, policy: resolved, commandId: 'unit', key: 'web/unit', command, timeoutSeconds: 60 });
+  runOne({ runner, clock, repositoryRoot: '/repo', project, policy: resolved, commandId: 'unit', key: 'web/unit', command, form: 'file', timeoutSeconds: 60 });
 
 describe('runOne', () => {
   it('hands the whole command string to the shell, in the project root, under the timeout', async () => {

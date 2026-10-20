@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Activity, Authority, CommandAction, RuleCategory } from '../primitives.ts';
 
-export const RuleCheck = z.discriminatedUnion('kind', [
+const RuleCheck = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('reviewer'),
     explanation: z.string().min(1),
@@ -16,11 +16,11 @@ export const RuleCheck = z.discriminatedUnion('kind', [
     explanation: z.string().min(1),
   }),
 ]);
-export type RuleCheck = z.infer<typeof RuleCheck>;
+type RuleCheck = z.infer<typeof RuleCheck>;
 
 /** Where a migrated rule came from: the verbatim text and its file or URL (09-Q1). */
-export const RuleSource = z.strictObject({ quote: z.string(), location: z.string().min(1) });
-export type RuleSource = z.infer<typeof RuleSource>;
+const RuleSource = z.strictObject({ quote: z.string(), location: z.string().min(1) });
+type RuleSource = z.infer<typeof RuleSource>;
 
 const KebabId = z
   .string()
@@ -29,7 +29,7 @@ const KebabId = z
 
 const Globs = z.array(z.string().min(1)).min(1);
 
-export const PolicyRule = z.strictObject({
+const PolicyRule = z.strictObject({
   id: KebabId,
   category: RuleCategory,
   instruction: z.string().min(1),
@@ -38,14 +38,14 @@ export const PolicyRule = z.strictObject({
   /** Narrow the pack's own `activities` for this rule; absent means the pack's. */
   activities: z.array(Activity).min(1).optional(),
 });
-export type PolicyRule = z.infer<typeof PolicyRule>;
+type PolicyRule = z.infer<typeof PolicyRule>;
 
-export const PolicyCommandDecision = z.strictObject({
+const PolicyCommandDecision = z.strictObject({
   command: z.string().min(1),
   action: CommandAction,
   reason: z.string().min(1).optional(),
 });
-export type PolicyCommandDecision = z.infer<typeof PolicyCommandDecision>;
+type PolicyCommandDecision = z.infer<typeof PolicyCommandDecision>;
 
 export const PolicyPack = z.strictObject({
   schemaVersion: z.literal(1),
@@ -96,7 +96,7 @@ export interface ResolvedCommandDecision {
   sources: Array<{ packId: string; packReference: string; action: z.infer<typeof CommandAction>; reason?: string }>;
 }
 
-export type DiagnosticSeverity = 'error' | 'warning' | 'notice';
+type DiagnosticSeverity = 'error' | 'warning' | 'notice';
 
 export interface Diagnostic {
   severity: DiagnosticSeverity;

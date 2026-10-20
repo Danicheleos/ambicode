@@ -14,7 +14,7 @@ export interface NoteDeps {
 
 export const KINDS = ['route', 'step', 'gate', 'acceptance', 'declined', 'default-taken', 'preanswer', 'revise',
   'limit', 'exit', 'requirement', 'envelope', 'map', 'search', 'policy', 'baseline', 'check', 'format', 'review',
-  'worker', 'note', 'capture'] as const;
+  'worker', 'note', 'init'] as const;
 
 export interface ArtifactRef { kind: string; value: string; id: string; path: string; contentHash: string }
 
@@ -56,6 +56,7 @@ export const NOTE_KINDS = {
   'plan-draft': { stem: 'plan-draft', stamped: true },
   plan: { stem: 'plan', stamped: true },
   notes: { stem: 'notes', stamped: false },
+  result: { stem: 'result', stamped: true },
 } as const;
 
 export type NoteKind = keyof typeof NOTE_KINDS;
@@ -63,7 +64,7 @@ export type NoteKind = keyof typeof NOTE_KINDS;
 /** A `plan` note is written only by promotion; legacy ones stay readable. */
 export type SaveKind = Exclude<NoteKind, 'plan'>;
 
-export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes'];
+export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes', 'result'];
 
 export const LEDGER_FILE = 'ledger.jsonl';
 

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import YAML from 'yaml';
 import { parseArgs } from '#util/args';
-import { buildReport } from '#modules/evidence/report/report';
+import { gapsOf } from '#modules/evidence/report/report';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { routeTools } from '#cli/commands/route/route';
 import { runRulesApply, RULES_APPLY_OPTIONS } from '#cli/commands/policy/rules';
@@ -14,6 +14,7 @@ import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { initConfig } from '#testing/fixtures/init-config';
 import { readLedger } from '#platform/ledger/ledger';
+import { recordInit } from '#modules/evidence/init-entry';
 import { REPO_ROOT } from '#testing/paths';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -134,15 +135,48 @@ describe('09-T1: the rules route', () => {
     }
   });
 
-  it('09-T1: a free-text answer at sources revises discover with the named files', async () => {
+  it('a hook answer in another case or with (Recommended) is the declared option, not free text', async () => {
+    for (const spelled of ['Use these sources', 'USE THESE SOURCES (Recommended)']) {
+      const w = await world();
+      try {
+        await w.start();
+        const next = await w.answer('sources', spelled);
+        assert.equal(next.position, 'draft', spelled);
+        assert.equal((await w.kinds('revise')).length, 0, spelled);
+        assert.equal((await w.kinds('acceptance')).at(-1)?.['answer'], 'use these sources');
+        assert.equal((await w.kinds('gate')).filter((entry) => entry['gate'] === 'sources').length, 1, 'the gate is printed once');
+      } finally {
+        await w.dispose();
+      }
+    }
+  });
+
+  it('the route runs on task init beside init\'s own entries', async () => {
+    const w = await world();
+    try {
+      await recordInit(w.runtime, 'init', 'config validate', 'ok');
+      const first = await w.start({ task: 'init' });
+      assert.equal(first.position, 'sources');
+      const print = (await w.ledger('init')).findLast((entry) => entry.kind === 'gate')!;
+      const next = await w.engine.advance({ task: 'init', cause: 'gate-hook', answers: [{ gate: 'sources', option: 'Use these sources', instance: print.id }], scratchpadDir: w.scratchpad });
+      assert.equal(next.position, 'draft');
+      assert.deepEqual((await w.ledger('init')).filter((entry) => entry.kind === 'init').map((entry) => entry['what']), ['config validate']);
+    } finally {
+      await w.dispose();
+    }
+  });
+
+  it('a free-text answer at sources names the files the drafter reads, with no second print', async () => {
     const w = await world({ text: '' });
     try {
-      const first = await w.start();
-      const second = await w.answer('sources', 'CONTRIBUTING.md');
-      assert.equal(second.position, 'sources');
-      assert.match(second.text, /Named in the request: CONTRIBUTING\.md/);
-      assert.deepEqual((await w.kinds('revise')).at(-1)?.['args'], { source: ['CONTRIBUTING.md'] });
-      assert.doesNotMatch(first.text, /Named in the request/);
+      await mkdir(path.join(w.root, '.claude'), { recursive: true });
+      await writeFile(path.join(w.root, '.claude/CLAUDE.md'), '# Rules\n');
+      await w.start();
+      const next = await w.answer('sources', '.claude/CLAUDE.md');
+      assert.equal(next.position, 'draft');
+      assert.match(next.text, /Named in the request: \.claude\/CLAUDE\.md/);
+      assert.equal((await w.kinds('revise')).length, 0);
+      assert.equal((await w.kinds('gate')).filter((entry) => entry['gate'] === 'sources').length, 1);
     } finally {
       await w.dispose();
     }
@@ -162,7 +196,7 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       assert.match(failed.next ?? '', /team-services\/tests-beside: not migrated: pack skipped \(pack-quote-missing\)/, 'the failing check is recorded once and its failures reach the table');
       assert.deepEqual(failed.drafts?.notMigrated.map((entry) => entry.rule), ['team-services/tests-beside']);
       assert.equal(await w.position(), 'rules-table');
-      assert.match(buildReport(await w.ledger()).notVerified, /rules drafts: 1 check errors/);
+      assert.match(gapsOf(await w.ledger()).join('\n'), /rules drafts: 1 check errors/);
       assert.equal((await w.kinds('step')).filter((entry) => entry['step'] === 'draft' && entry['status'] === 'delivered').length, 1, 'no automatic second draft');
 
       assert.equal((await w.answer('rules-table', 'Apply with changes')).position, 'draft');
@@ -292,10 +326,11 @@ describe('09-T4: the object the answer consented to', () => {
     }
   });
 
-  it('09-T4: with no route at all rules apply is unconfirmed, and a route of another skill is no-rules-route', async () => {
+  it('09-T4: on a task that does not exist rules apply is task-unknown, and a route of another skill is no-rules-route', async () => {
     const w = await world();
     try {
-      assert.equal((await codeOf(w.apply())).code, 'rules-apply-unconfirmed');
+      assert.equal((await codeOf(w.apply())).code, 'task-unknown');
+      assert.equal(await w.exists(`.ambicode/tasks/${TASK}`), false);
       await w.start({ skill: 'investigate', text: 'how do invoices work', task: TASK });
       const refused = await codeOf(w.apply());
       assert.equal(refused.code, 'rules-apply-unconfirmed');

@@ -2,11 +2,11 @@ import path from 'node:path';
 import { refOf } from '#modules/evidence/ledger-chain';
 import { renderSummary } from '#modules/evidence/report/summary';
 import { buildChain, foldRoute, matches, windowOf } from './fold.ts';
-import { instantiateGate } from '../gates/gates.ts';
+import { instantiateGate, settleOpenPrints } from '../gates/gates.ts';
 import type { GateDef } from '../definition/routes.ts';
 import type { ArtifactRef, LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
-import type { RouteView, StepDef } from '#types/harness';
+import type { RouteRegistry, RouteView, StepDef } from '#types/harness';
 import type { Chain, Run } from '../types/engine.ts';
 
 export const chainOf = (run: Run): Chain => buildChain(run.entries, run.head);
@@ -14,12 +14,20 @@ export const chainOf = (run: Run): Chain => buildChain(run.entries, run.head);
 /** The run's ledger tracks what it writes: the shared entry list and the run's written ids. */
 export const append = (run: Run, entry: { kind: string; [field: string]: unknown }): Promise<LedgerEntry> => run.ledger.append(entry);
 
+/** The one place summary.md is rendered; every writer of the ledger that changes what it shows calls it last. */
+export async function writeSummary(runtime: Runtime, dir: TaskDir, ledger: LockedLedger): Promise<void> {
+  const read = await ledger.read();
+  if (read.state !== 'ok') return;
+  const summary = await renderSummary(dir.slug, read.entries, (file) => runtime.fs.readText(path.join(dir.repositoryRoot, file)).catch(() => null));
+  await runtime.fs.writeText(path.join(dir.root, 'summary.md'), summary);
+}
+
 /** Every route exit is written here: the exit entry, then the route's scratch files are removed and the task summary is rewritten. */
-export async function closeRoute(runtime: Runtime, dir: TaskDir, ledger: LockedLedger, exit: { route: string; reason: string; detail?: string; [field: string]: unknown }): Promise<void> {
+export async function closeRoute(runtime: Runtime, routes: RouteRegistry, dir: TaskDir, ledger: LockedLedger, exit: { route: string; reason: string; detail?: string; [field: string]: unknown }): Promise<void> {
+  await settleOpenPrints(ledger, routes, exit.route);
   await ledger.append({ kind: 'exit', ...exit });
   await runtime.fs.remove(dir.steps);
-  const read = await ledger.read();
-  if (read.state === 'ok') await runtime.fs.writeText(path.join(dir.root, 'summary.md'), renderSummary(dir.slug, read.entries));
+  await writeSummary(runtime, dir, ledger);
 }
 
 export function routeView(task: string, chain: Chain, position: string): RouteView {

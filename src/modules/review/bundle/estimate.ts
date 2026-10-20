@@ -33,7 +33,7 @@ export function parseNarrow(text: string): { onlyPaths: string[]; excludePaths: 
 /** The review measured without writing anything or appending to a ledger (07-E1 … 07-E3). */
 export async function estimateReview(runtime: Runtime, options: AssembleOptions): Promise<ReviewEstimate> {
   const dry = await assembleBundle({ ...options, runtime, dryRun: true });
-  const target = dry.target.kind === 'branch' ? `branch ${dry.target.baseRef ?? dry.target.baseSha?.slice(0, 12) ?? "base"}..HEAD` : 'working tree';
+  const target = dry.target.kind === 'branch' ? `branch ${dry.target.baseRef ?? dry.target.baseSha?.slice(0, 12) ?? "base"}..HEAD` : dry.target.kind === 'merge-request' ? `merge request ${options.target.kind === 'merge-request' ? options.target.url : ''}` : 'working tree';
   return {
     target,
     files: dry.files.length,

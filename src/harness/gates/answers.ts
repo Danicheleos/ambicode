@@ -1,6 +1,6 @@
 import { AmbicodeError } from '#util/errors';
 import { executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
-import { offersOption, shapePrint, stripRecommended } from './gates.ts';
+import { bareOption, matchOption, shapePrint } from './gates.ts';
 import { append, chainOf, closeRoute, gateFor, latestPrint, objectOf } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
 import { RAISED_BY, type Answer, type Exit, type GateDef, type Revise, type RouteDef, type RouteRegistry } from '#types/harness';
@@ -9,12 +9,12 @@ import type { Run } from '../types/engine.ts';
 type RevisePath = 'gate' | 'code' | 'model';
 
 export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
-  await closeRoute(run.runtime, run.dir, run.ledger, { route: run.head.id, reason, ...(detail === undefined ? {} : { detail }), ...extra });
+  await closeRoute(run.runtime, run.routes, run.dir, run.ledger, { route: run.head.id, reason, ...(detail === undefined ? {} : { detail }), ...extra });
   run.exited = reason;
 }
 
 /** An option named `stop` records an exit: a project question `human`, the rest `blocked` (D12). */
-export const stopReason = (gate: string): string => (gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
+const stopReason = (gate: string): string => (gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
 
 /** The window a gate's answers are read in: its own step's, or for a raised gate the step that raised it. */
 function gateWindow(run: Run, gateId: string): LedgerEntry[] {
@@ -100,14 +100,15 @@ export const unknownGate = (def: RouteDef, routes: RouteRegistry, gate: string):
 
 /** `route next --answer <gate>=<option>`: a model-typed answer. It selects a non-acting option and never authorizes (03-G1). */
 export async function recordFlagAnswer(run: Run, given: Answer): Promise<void> {
-  const answer = { ...given, option: stripRecommended(given.option) };
-  const window = gateWindow(run, answer.gate);
-  const print = latestPrint(window, answer.gate);
-  const gate = gateFor(run, answer.gate, print);
-  if (gate === null) throw unknownGate(run.def, run.routes, answer.gate);
+  const window = gateWindow(run, given.gate);
+  const print = latestPrint(window, given.gate);
+  const gate = gateFor(run, given.gate, print);
+  if (gate === null) throw unknownGate(run.def, run.routes, given.gate);
   const options = (print?.['options'] as string[] | undefined) ?? gate.options;
-  const known = offersOption(options, answer.option);
-  if (!known && gate.onAnswer['*'] === undefined && gate.class !== 'decision') {
+  const offered = matchOption(options, given.option);
+  const answer = { ...given, option: offered ?? matchOption(gate.options, given.option) ?? bareOption(given.option) };
+  const known = offered !== null;
+  if (!known && !gate.free && gate.class !== 'decision') {
     throw new AmbicodeError('gate-option-unknown', `Gate ${gate.id} has no option "${answer.option}".`, { details: [`Options: ${options.join(', ')}.`] });
   }
   const instance = print?.id ?? null;
@@ -124,26 +125,27 @@ export async function recordFlagAnswer(run: Run, given: Answer): Promise<void> {
 
 /** A hook answer binds to the exact printed instance in this chain or it is unbound and changes nothing (03-G4, 03-G6). */
 export async function recordHookAnswer(run: Run, given: Answer & { question?: string }): Promise<void> {
-  const answer = { ...given, option: stripRecommended(given.option) };
   const unbound = (reason: string): Promise<LedgerEntry> =>
-    append(run, { kind: 'declined', gate: answer.gate, instance: null, answer: answer.option, via: 'hook', unbound: true, reason });
+    append(run, { kind: 'declined', gate: given.gate, instance: null, answer: given.option, via: 'hook', unbound: true, reason });
   const chain = chainOf(run).entries;
   let print: LedgerEntry | undefined;
-  if (answer.instance === undefined) {
-    if (!answer.gate.startsWith('decision:')) return void (await unbound('no-instance'));
-    const decision = gateFor(run, answer.gate);
+  if (given.instance === undefined) {
+    if (!given.gate.startsWith('decision:')) return void (await unbound('no-instance'));
+    const decision = gateFor(run, given.gate);
     if (decision === null) return void (await unbound('unknown-gate'));
-    print = await append(run, { kind: 'gate', gate: answer.gate, class: 'decision', question: answer.question ?? answer.gate, print: 1, options: [answer.option] });
-    return recordAnswer(run, decision, { kind: 'acceptance', answer: answer.option, via: 'hook', instance: print.id, object: null, revisePath: 'gate' });
+    print = await append(run, { kind: 'gate', gate: given.gate, class: 'decision', question: given.question ?? given.gate, print: 1, options: [bareOption(given.option)] });
+    return recordAnswer(run, decision, { kind: 'acceptance', answer: bareOption(given.option), via: 'hook', instance: print.id, object: null, revisePath: 'gate' });
   }
-  print = chain.find((entry) => entry.kind === 'gate' && entry.id === answer.instance);
+  print = chain.find((entry) => entry.kind === 'gate' && entry.id === given.instance);
   if (print === undefined) return void (await unbound('unknown-instance'));
-  if (print['gate'] !== answer.gate) return void (await unbound('wrong-gate'));
-  const gate = gateFor(run, answer.gate, print);
+  if (print['gate'] !== given.gate) return void (await unbound('wrong-gate'));
+  const gate = gateFor(run, given.gate, print);
   if (gate === null) return void (await unbound('unknown-gate'));
   const options = (print['options'] as string[] | undefined) ?? gate.options;
-  const declaredOnly = gate.options.includes(answer.option);
-  if (!offersOption(options, answer.option) && gate.class !== 'decision' && (gate.onAnswer['*'] === undefined || declaredOnly)) {
+  const offered = matchOption(options, given.option);
+  const declared = matchOption(gate.options, given.option);
+  const answer = { ...given, option: offered ?? declared ?? bareOption(given.option) };
+  if (offered === null && gate.class !== 'decision' && (!gate.free || declared !== null)) {
     await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: answer.option, via: 'hook', reason: 'option-not-offered' });
     return;
   }
@@ -187,9 +189,10 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   const preanswer = run.deliverOnly ? null : unconsumedPreanswer(chainOf(run).entries, gate.id);
   if (preanswer !== null) {
     const print = await newPrint();
-    const option = stripRecommended(String(preanswer['option']));
-    if (!offersOption((print['options'] as string[] | undefined) ?? gate.options, option)) {
-      await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: option, via: 'prompt', reason: 'option-not-offered', preanswer: preanswer.id });
+    const given = String(preanswer['option']);
+    const option = matchOption((print['options'] as string[] | undefined) ?? gate.options, given) ?? (gate.free && matchOption(gate.options, given) === null ? bareOption(given) : null);
+    if (option === null) {
+      await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: String(preanswer['option']), via: 'prompt', reason: 'option-not-offered', preanswer: preanswer.id });
     } else {
       const trusted = preanswer['trusted'] === true;
       await recordAnswer(run, gate, { kind: 'acceptance', answer: option, via: 'prompt', instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: trusted ? 'gate' : 'model', extra: { preanswer: preanswer.id, trusted } }, raisedBy);

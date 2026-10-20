@@ -18,10 +18,11 @@ interface RunOneOptions {
   key: string;
   /** The shell string from config, with `{file}` already substituted. */
   command: string;
+  form: 'file' | 'all';
   timeoutSeconds: number;
 }
 
-export interface CheckRun {
+interface CheckRun {
   status: CheckStatus;
   exitCode: number | null;
   /** Standard output then standard error; empty unless the command started. */
@@ -39,7 +40,7 @@ export const shellQuote = (value: string): string => (process.platform === 'win3
 
 /** Authorizes again at the spawn, so no caller reaches a process without a decision; the caller's consent arrives as `key`. */
 export async function runOne(options: RunOneOptions): Promise<CheckRun> {
-  const authorization = authorizeCommand({ policy: options.policy, commandId: options.commandId, approvalKey: options.key, approvals: new Set([options.key]) });
+  const authorization = authorizeCommand({ policy: options.policy, commandId: options.commandId, approvalKey: options.key, approvals: new Set([options.key]), form: options.form });
   if (authorization.kind !== 'allowed') return { status: 'skipped', exitCode: null, output: '', ms: 0, detail: authorization.kind === 'refused' ? authorization.reason : 'this run needs authorization' };
   const started = options.clock.elapsed();
   const outcome = await options.runner.run({

@@ -5,6 +5,7 @@ import type { Runtime } from '#types/composition';
 import type { TaskDir, LedgerEntry, LockedLedger, ArtifactRef } from '#types/modules/evidence';
 import { type RouteView, type GateDef, type RouteRegistry } from '#types/harness';
 import { hash12 } from '#util/hash';
+import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 
 const DECISION_PREFIX = 'decision:';
 
@@ -24,13 +25,9 @@ export function parseRegistry(file: string, text: string, kinds: readonly string
   return gates;
 }
 
-export function registryGate(registry: readonly GateDef[], id: string): GateDef | null {
-  return registry.find((gate) => gate.id === id) ?? (id.startsWith(DECISION_PREFIX) ? (registry.find((gate) => gate.class === 'decision') ?? null) : null);
-}
-
-/** A standalone `{name…}` option expands to the values; `{name}` inside text is replaced by them joined. */
+/** A standalone `{name…}` option expands to the values; `{name}` inside text is replaced by them joined, `{name|fallback}` by the fallback when there are none. */
 function fill(text: string, values: Readonly<Record<string, readonly string[]>>): string {
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) => (values[name] === undefined ? whole : values[name]!.join(', ')));
+  return text.replace(/\{(\w+)(?:\|([^}]*))?\}/g, (whole, name: string, fallback?: string) => (values[name] === undefined ? whole : values[name]!.length === 0 && fallback !== undefined ? fallback : values[name]!.join(', ')));
 }
 
 /** Dynamic options (03-R8) and the registry `policy` override (03-G12), applied before a gate is validated or printed. */
@@ -142,10 +139,31 @@ export async function raiseGate(
   });
 }
 
-/** AskUserQuestion labels often carry a trailing " (Recommended)"; the option is what precedes it. */
-export const stripRecommended = (option: string): string => option.replace(/\s*\(Recommended\)\s*$/i, '');
+/** A raised question nobody answered before its route ended gets its default recorded, so no instance stays open for good. */
+export async function settleOpenPrints(ledger: LockedLedger, routes: RouteRegistry, route: string): Promise<void> {
+  const read = await ledger.read();
+  if (read.state !== 'ok') return;
+  const own = read.entries.filter((entry) => entry['route'] === route || entry.id === route);
+  const skill = String(own.find((entry) => entry.kind === 'route')?.['skill'] ?? '');
+  for (const print of own.filter((entry) => entry.kind === 'gate' && entry['class'] !== 'declared')) {
+    if (own.some((entry) => isBoundAnswer(entry) && entry['instance'] === print.id)) continue;
+    const definition = routes.gate(String(print['gate']));
+    if (definition === null) continue;
+    const { default: answer } = instantiateGate(definition, { skill, values: (print['values'] ?? {}) as Record<string, string[]> }, definition.id);
+    await ledger.append({ kind: 'default-taken', route, gate: print['gate'], instance: print.id, answer, via: 'unanswered' });
+  }
+}
 
-export const offersOption = (options: readonly string[], option: string): boolean => options.includes(option) || options.includes(stripRecommended(option));
+/** The option an answer names, in its declared spelling. AskUserQuestion labels arrive re-cased or with a trailing "(Recommended)". */
+export const bareOption = (text: string): string => text.replace(/\s*\(Recommended\)\s*$/i, '').trim();
+
+/** Also the label before " — " (`none` for `none — stop`) when exactly one option carries it. */
+export const matchOption = (options: readonly string[], answer: string): string | null => {
+  const key = (text: string): string => bareOption(text).toLowerCase();
+  const exact = options.find((option) => key(option) === key(answer));
+  const byLabel = options.filter((option) => key(option).split(' — ')[0] === key(answer));
+  return exact ?? (byLabel.length === 1 ? byLabel[0]! : null);
+};
 
 /** Print-time text and offered options a module adds to a gate's question (09-G1). */
 interface PrintShape { line: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }

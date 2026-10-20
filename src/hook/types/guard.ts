@@ -6,6 +6,8 @@ export interface GuardInput {
   cwd?: unknown;
   scratchpad_dir?: unknown;
   tool_name?: string;
+  /** Present for a subagent's tool call: the agent's name, e.g. `ambicode:reviewer`. */
+  agent_type?: unknown;
   /** Every field of the incoming input is kept: `updatedInput` replaces the whole tool input. */
   tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; [field: string]: unknown };
 }

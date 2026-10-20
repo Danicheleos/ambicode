@@ -3,14 +3,15 @@ export interface Clock {
   elapsed(): number;
 }
 
-export interface FileStats {
+interface FileStats {
   readonly size: number;
+  readonly mtimeMs: number;
   isFile(): boolean;
   isDirectory(): boolean;
   isSymbolicLink(): boolean;
 }
 
-export interface DirectoryEntry {
+interface DirectoryEntry {
   readonly name: string;
   isFile(): boolean;
   isDirectory(): boolean;

@@ -3,7 +3,7 @@
 import { basename, type Segment } from '../../shell/command-parser.ts';
 
 // Each is a `cause` of runCommandTail or an engine start/advance in src/cli/commands (a test compares them).
-export const STEP_PRINTING = new Set(['route start', 'route next', 'check', 'note save', 'rules apply', 'requirements normalize', 'review record', 'policy check --drafts']);
+export const STEP_PRINTING = new Set(['route start', 'route next', 'check', 'note save', 'rules apply', 'requirements normalize', 'policy check --drafts']);
 
 // Read-only or output-only, so auto-allowing them beside the rewritten call skips no prompt that mattered.
 const HARMLESS = new Set(['ambicode.mjs', 'cd', 'pushd', 'popd', 'echo', 'cat', 'ls', 'pwd', 'true', 'false', 'grep', 'head', 'tail', 'wc', 'sort', 'jq', 'for', 'done', 'fi']);

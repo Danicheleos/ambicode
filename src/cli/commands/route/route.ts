@@ -3,9 +3,11 @@ import { answersOf, parseAnswerFlag } from '#harness/definition/flags';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { AmbicodeError } from '#util/errors';
 import { startTarget } from '#composition/start';
+import { buildChain, delegatedStepOf } from '#harness/engine/fold';
 import type { Runtime } from '#types/composition';
 import { EXITS } from '#types/harness';
-import type { Exit, StepMessage } from '#types/harness';
+import type { Exit, RouteView, StepMessage } from '#types/harness';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { ParsedArgs, RouteTools, CliCommand } from '../../types/cli.ts';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 
@@ -23,6 +25,13 @@ export function taskOf(command: string, args: ParsedArgs): string {
   if (task === null) throw new AmbicodeError('bad-argument', `"${command}" needs --task <slug>.`, { field: 'task' });
   return task;
 }
+
+/** Whether a delegated step's subagent is in flight, so its own commands record without advancing: the main session's `route next` does. */
+export const delegatedAt = (tools: RouteTools, view: RouteView | null, entries: LedgerEntry[]): boolean => {
+  const def = view === null ? null : tools.routes.route(view.skill);
+  const head = entries.find((entry) => entry.kind === 'route' && entry.id === view?.routeId);
+  return def !== null && head !== undefined && delegatedStepOf(def, buildChain(entries, head)) !== null;
+};
 
 interface RouteOutput extends StepMessage { command: string }
 
@@ -87,7 +96,7 @@ export const routeNextCommand: CliCommand = {
   },
 };
 
-export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
+const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
 const STOP_REASONS: readonly Exit[] = ['blocked', 'human', 'inconclusive'];
 
 export const routeStopCommand: CliCommand = {

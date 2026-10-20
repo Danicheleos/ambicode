@@ -1,5 +1,6 @@
 skill: task
 version: 3
+needsRequest: true
 steps:
   - id: fetch
     actor: model
@@ -10,7 +11,7 @@ steps:
     run: task.start                               # may exit iterations-complete
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.preflight, checks.runnable, checks.baseline, "search.map(context)", "policy.stage(before-work)", context.list]
+    run: [requirements.normalize, checks.runnable, checks.baseline, "search.map(context)", "policy.stage(before-work)", context.list]
     produces: [baseline, map, policy]
   - id: change
     actor: model
@@ -20,7 +21,7 @@ steps:
     produces: ["check{green}"]
   - id: format
     actor: code
-    run: checks.format                            # runs once the green check ends change, before the offer, so a skipped review is still formatted
+    run: [checks.format, checks.approved]         # runs once the green check ends change, before the offer, so a skipped review is still formatted; approved checks run after it
   - id: review-offer
     actor: human
     when: iteration.named                         # no iteration in the request: every iteration runs and its review runs unasked
@@ -38,7 +39,12 @@ steps:
     actor: model
     when: gate.review-offer.is(run) or iteration.unnamed
     instruction: file:routes/review/agent.md
+    work: file:routes/review/agent-work.md
     payload: ["script:brief"]
+  - id: review-record
+    actor: code
+    when: gate.review-offer.is(run) or iteration.unnamed
+    run: review.record                            # reads the reviewer's answer file; none is a failed review
     produces: ["review{recorded}"]
   - id: review-run
     actor: code
@@ -55,7 +61,7 @@ steps:
     repeat: 2
   - id: report-step
     actor: code
-    run: [review.evaluate, task.report]
+    run: [review.evaluate, checks.approved, task.verdict, evidence.report]
     onFail: revise fix                            # a fix-round review with findings; bounded by fix's repeat
   - id: next
     actor: code

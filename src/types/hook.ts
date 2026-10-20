@@ -22,8 +22,6 @@ export const HookInput = z.looseObject({
       file_path: z.string().min(1).optional(),
       skill: z.string().min(1).optional(),
       args: z.string().optional(),
-      /** Agent: the subagent the main model launched, e.g. `ambicode:reviewer`. */
-      subagent_type: z.string().optional(),
       /** AskUserQuestion: the questions the model put, each with its option labels. */
       questions: z.array(z.looseObject({ question: z.string(), options: z.array(z.looseObject({ label: z.string() })).optional() })).optional(),
     })
@@ -38,8 +36,8 @@ export type HookInput = z.infer<typeof HookInput>;
  * Narrower than the subscribable events: Claude Code rejects `additionalContext` on any
  * other event with a user-visible validation failure (e.g. `PostCompact`). Checked on 2.1.278.
  */
-export const ADDITIONAL_CONTEXT_EVENTS = ['PostToolUse', 'SessionStart', 'UserPromptSubmit'] as const;
-export type AdditionalContextEvent = (typeof ADDITIONAL_CONTEXT_EVENTS)[number];
+const ADDITIONAL_CONTEXT_EVENTS = ['PostToolUse', 'SessionStart', 'UserPromptSubmit'] as const;
+type AdditionalContextEvent = (typeof ADDITIONAL_CONTEXT_EVENTS)[number];
 
 export interface AdditionalContextHookOutput<Event extends AdditionalContextEvent = AdditionalContextEvent> {
   hookSpecificOutput: {
@@ -58,13 +56,6 @@ export interface StopHookOutput {
 
 /** AskUserQuestion's `tool_response` as observed: `answers` maps each question text to the chosen label or free text; `questions` and `annotations` are ignored. */
 export const AskUserQuestionResponse = z.looseObject({ answers: z.record(z.string(), z.string()).optional() });
-
-/** Agent's `tool_response` as observed on 2.1.296: a foreground call is `completed` with the subagent's final text in `content`; a background launch is `async_launched` with none. */
-export const AgentToolResponse = z.looseObject({ status: z.string().optional(), content: z.array(z.looseObject({ type: z.string().optional(), text: z.string().optional() })).optional() });
-
-/** The events `hooks/hooks.json` registers (seven events, fifteen handler entries); a test computes both from the manifest. */
-export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd'] as const;
-export const REGISTERED_HOOK_ENTRIES = 15;
 
 export interface RouteHookDeps { engine: Engine; routes: RouteRegistry }
 

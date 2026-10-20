@@ -20,7 +20,7 @@ async function check(root: string, body: string, params: string[] = []) {
     stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
+  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[]; uncoded?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
 }
 
 describe('skills/plan/scripts/plan-check.mjs', () => {
@@ -35,6 +35,25 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
       assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
       assert.equal(bad.failed?.revise, undefined);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  // The run that failed: "one default per surface" was covered by an iteration that never said where surface lives.
+  it('fails a coverage row that names a requirement but no code representation, and passes anchors and new: entries', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const head = '| requirement | section | code |\n|---|---|---|\n';
+      const good = await check(root, `# Plan\n\n${head}| one default per workspace | Iteration 3 | new: src/views.ts View.workspaceId |\n| totals shown | Iteration 1 | \`src/invoices/service.ts:3-6\` |\n\n## Not covered\n\n| export | later |\n`);
+      assert.equal(good.failed, undefined);
+      const bad = await check(root, `# Plan\n\n${head}| one default per workspace | Iteration 3 | |\n| totals shown | Iteration 1 | the service |\n| ok | Iteration 2 | new: src/a.ts A.b |\n`);
+      assert.equal(bad.failed?.code, 'plan-check-failed');
+      assert.deepEqual(bad.entries[0]!.summary.uncoded, ['one default per workspace', 'totals shown']);
+      assert.equal(bad.entries[0]!.summary.anchorsBad, 0);
+      assert.match(bad.failed!.message, /2 coverage rows without code: one default per workspace; totals shown/);
+      const old = await check(root, '# Plan\n\n| requirement | section |\n|---|---|\n| totals | Iteration 1 |\n');
+      assert.deepEqual(old.entries[0]!.summary.uncoded, ['totals']);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

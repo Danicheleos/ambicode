@@ -51,7 +51,7 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
   worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
   note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', promotedFrom: 'a1b2c3d4-3' }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
-  capture: { valid: { what: 'mr-diff', path: '.ambicode/tasks/t/reviews/mr-diff.patch', rawHash: 'sha256:x', bytes: 10, tool: 'mcp__gitlab__get_merge_request_diffs' }, invalid: { what: 'other', path: 'x', rawHash: 'sha256:x', bytes: 10, tool: 't' } },
+  init: { valid: { what: 'config validate', outcome: 'ok' }, invalid: { what: 'config validate' } },
 };
 const common = { id: 'a1b2c3d4-9', at: '2026-10-05T10:00:00.000Z' };
 

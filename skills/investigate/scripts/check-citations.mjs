@@ -13,6 +13,13 @@ const LISTED = 10;
 
 const PATH = '[\\w@./\\\\-]+\\.[A-Za-z0-9]+';
 const CITATION = new RegExp(`(?<![\\w./-])(${PATH}):(\\d+(?:\\s*[-–]\\s*\\d+)?)`, 'g');
+// A model cites from the session directory, which can be the parent of the repository: `repo/src/x.ts`.
+const sessionDir = typeof input.cwd === 'string' ? path.resolve(input.cwd) : null;
+const fromSession = (file) => {
+  if (sessionDir === null) return null;
+  const relative = path.relative(root, path.resolve(sessionDir, file.replaceAll('\\', '/')));
+  return relative === '' || relative.startsWith('..') || path.isAbsolute(relative) ? null : relative;
+};
 const files = new Map();
 const lineCount = (abs) => {
   if (!files.has(abs)) {
@@ -30,7 +37,12 @@ for (const line of body.split('\n')) {
   for (const [, file, spec] of line.matchAll(CITATION)) {
     const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
     const abs = path.resolve(root, file);
-    const count = (path.isAbsolute(file) || file.split(/[\\/]/).includes('..') || !(abs + path.sep).startsWith(root + path.sep)) ? undefined : lineCount(abs);
+    const outside = path.isAbsolute(file) || file.split(/[\\/]/).includes('..') || !(abs + path.sep).startsWith(root + path.sep);
+    let count = outside ? undefined : lineCount(abs);
+    if (count === null) {
+      const relative = fromSession(file);
+      if (relative !== null) count = lineCount(path.resolve(root, relative));
+    }
     const reason = count === undefined ? 'outside-repository' : count === null ? 'missing-file' : from >= 1 && from <= to && to <= count ? null : `line-out-of-range (file has ${count} lines)`;
     if (reason === null) continue;
     badCount += 1;

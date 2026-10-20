@@ -44,6 +44,8 @@ describe('evals context size', () => {
     mkdirSync(path.join(sandbox, 'out'), { recursive: true });
     mkdirSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'tasks', 't'), { recursive: true });
     writeFileSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), '{}\n');
+    mkdirSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'context'), { recursive: true });
+    writeFileSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'context', 'index.md'), 'x');
     chmodSync(path.join(sandbox, 'sealed'), 0o000);
     writeFileSync(path.join(sandbox, 'out', 'trace.jsonl'), TRACE);
     const result = { cases: [{ name: 'task-fix', arms: { with: [{ tracePath: path.join(sandbox, 'out', 'trace.jsonl') }, { tracePath: path.join(tmp, 'e-Gone2', 'out', 'trace.jsonl') }] } }] };
@@ -54,40 +56,7 @@ describe('evals context size', () => {
     assert.equal(gone.context, undefined);
     assert.equal(readFileSync(path.join(traces, 'task-fix-1.jsonl'), 'utf8'), TRACE);
     assert.equal(readFileSync(path.join(traces, 'task-fix-1.ambicode', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), 'utf8'), '{}\n', 'the route record is kept beside the trace');
+    assert.equal(existsSync(path.join(traces, 'task-fix-1.ambicode', 'repo', '.ambicode', 'context')), false, 'the bench context copy is not kept');
     assert.equal(existsSync(sandbox), false);
-  });
-});
-
-describe('evals chain', async () => {
-  const { chainOf, longestRun } = await import('./chain.mjs');
-  const at = (seconds) => new Date(Date.UTC(2026, 9, 12, 0, 0, seconds)).toISOString();
-  const event = (type, seconds, content, extra = {}) => JSON.stringify({ type, timestamp: at(seconds), parent_tool_use_id: null, message: { id: extra.id, usage: { input_tokens: 1, cache_read_input_tokens: 9999 }, content }, ...extra });
-  const TRACE = [
-    JSON.stringify({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: 'step red' }),
-    event('assistant', 0, [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'node ambicode.mjs check --phase red' } }], { id: 'm1' }),
-    event('user', 2, [{ type: 'tool_result', tool_use_id: 't1', content: 'exit 1', is_error: true }]),
-    event('assistant', 40, [{ type: 'thinking', thinking: '' }], { id: 'm2' }), // the call's first event prints nothing
-    event('assistant', 40, [{ type: 'text', text: 'Fixed.' }], { id: 'm2' }),
-    JSON.stringify({ type: 'result', subtype: 'success', stop_reason: 'end_turn', num_turns: 2, duration_ms: 41000, permission_denials: [{}] }),
-  ].join('\n');
-
-  it('numbers main-session calls, shows context, tool time, errors, hooks, the end, and flags a slow gap', () => {
-    const { turns, lines } = chainOf(TRACE);
-    assert.equal(turns, 2);
-    assert.match(lines[0], /hook UserPromptSubmit: step red/);
-    assert.match(lines[1], /^ #1 {3}\+0s ctx 10\.0k Bash: node ambicode\.mjs check --phase red$/);
-    assert.match(lines[2], /→ ERROR 2\.0s exit 1/);
-    assert.match(lines[3], /#2 {2}\+40s ⏱ 38s gap ctx 10\.0k says: Fixed\./);
-    assert.match(lines[4], /end: success, stop end_turn, 2 turns, 41s, 1 permission denial/);
-  });
-
-  it('the longest run is the one with most model calls, not harness turns, then the longest session, among runs with a kept trace', () => {
-    const result = { cases: [
-      { name: 'a', arms: { with: [{ turns: 30, context: { calls: 9, session: 10 }, trace: 'a' }, { turns: 12, context: { calls: 20, session: 5 } }] } },
-      { name: 'b', arms: { with: [{ turns: 9, context: { calls: 9, session: 30 }, trace: 'b' }] } },
-      { name: 'c', arms: { with: [{ turns: 99, trace: 'c' }] } },
-    ] };
-    assert.equal(longestRun(result).name, 'b');
-    assert.equal(longestRun({ cases: [] }), null);
   });
 });

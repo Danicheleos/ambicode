@@ -35,6 +35,6 @@ export interface ChangedPath {
   changeKind: DiffFile['changeKind'];
 }
 
-export type ProofVerdict =
+type ProofVerdict =
   | { proven: true }
   | { proven: false; cause: 'no-failure' | 'nonzero-exit' };

@@ -15,7 +15,8 @@ function onDisk(tree) {
   const walk = (relative) => {
     for (const name of readdirSync(path.join(EVALS, relative))) {
       const child = `${relative}/${name}`;
-      if (name === 'results' || name.startsWith('.')) continue;
+      // navigator/ is rendered from NDA assets by navigator-cases.mjs, gitignored, and absent on most machines.
+      if (name === 'results' || name === 'navigator' || name.startsWith('.')) continue;
       if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
       else out.push(child);
     }

@@ -1,6 +1,6 @@
 import type { StandardInput } from '#types/platform/ports';
 
-export async function readBoundedStream(
+async function readBoundedStream(
   stream: NodeJS.ReadableStream,
   maxBytes: number,
 ): Promise<string | null> {

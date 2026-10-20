@@ -48,6 +48,7 @@ describe('format (07-F)', () => {
   it('07-F2 a nonzero exit records failed', async () => {
     const env = await formatFixture();
     try {
+      await env.folder();
       await env.fx.repo.write('src/b.ts', 'x\n');
       env.runner.out = { exitCode: 2 };
       assert.deepEqual((await format(env)).map((entry) => [entry.outcome, entry.exit]), [['failed', 2]]);

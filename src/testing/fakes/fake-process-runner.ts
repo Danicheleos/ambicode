@@ -1,6 +1,6 @@
 import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
-export interface StubbedCall {
+interface StubbedCall {
   /** Matched against the argument vector joined by a space. */
   match: (argv: readonly string[]) => boolean;
   outcome: Partial<ProcessOutcome>;

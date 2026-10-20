@@ -38,7 +38,7 @@ describe('S1 untrusted model flag cannot accept', () => {
       assert.equal(declined.at(-1)!['reason'], 'acting-needs-human');
       assert.equal(declined.at(-1)!['via'], 'flag');
       assert.equal(gate.position, 'plan-accept');
-      assert.equal((await planFiles(plan, 'plan_')).length, 0);
+      assert.equal((await planFiles(plan, 'plan.md')).length, 0);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
     } finally {
       await plan.dispose();
@@ -62,7 +62,7 @@ describe('S3 re-accept after a new draft', () => {
       assert.equal(plan.state.checks, checks);
       assert.equal(plan.state.steps, writes);
       assert.equal((await plan.hook('plan-accept', 'Accept', printB.id)).position, 'complete');
-      assert.equal((await planFiles(plan, 'plan_')).length, 1);
+      assert.equal((await planFiles(plan, 'plan.md')).length, 1);
       await assert.rejects(plan.promote(), { code: 'plan-not-accepted' });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {

@@ -14,12 +14,12 @@ const CONFIG = CHECK_CONFIG.replace('unit: { all: "jest", file: "jest {file}" }'
   .replace('      e2e: { all: null, file: "pw {file}" }\n', '      e2e: { all: null, file: "pw {file}" }\n      "typecheck-spec": { all: "tsc -p spec", file: null }\n');
 
 describe('a configured check runs unless a pack narrows it', () => {
-  it('shipped common-checks: test runs, typecheck and format run without being named in the pack', async () => {
+  it('shipped common-checks: test and lint run on a file and format runs without being named in the pack', async () => {
     const env = await checkFixture({ pack: await SHIPPED, config: CONFIG });
     try {
       await env.start();
       assert.equal((await env.check({ name: 'test' })).outcome, 'ran');
-      assert.equal((await env.check({ name: 'typecheck', files: [] })).outcome, 'ran');
+      assert.equal((await env.check({ name: 'lint' })).outcome, 'ran');
       assert.deepEqual((await env.fx.kinds('ord-7', 'limit')).filter((entry) => entry['which'] === 'check-forbidden'), []);
       await env.fx.repo.write('src/b.ts', 'x\n');
       env.runner.out = { exitCode: 0 };
@@ -30,12 +30,12 @@ describe('a configured check runs unless a pack narrows it', () => {
     }
   });
 
-  it('checks.runnable lists exactly what runs: configured checks, propose marked, forbid and format left out', async () => {
+  it('checks.runnable lists exactly what runs: configured checks, forbid and format left out', async () => {
     const env = await checkFixture({ pack: await SHIPPED, config: CONFIG });
     try {
       const workspace = await openWorkspace(env.runtime);
       const listed = await runnableChecks(workspace, workspace.config.projects[0]!);
-      assert.deepEqual(listed.map((entry) => [entry.key, entry.approval]), [['e2e', true], ['lint', false], ['test', false], ['typecheck', false], ['typecheck-spec', false]]);
+      assert.deepEqual(listed.map((entry) => entry.key), ['e2e', 'lint', 'test', 'typecheck', 'typecheck-spec']);
     } finally {
       await env.fx.dispose();
     }
@@ -49,6 +49,45 @@ describe('a configured check runs unless a pack narrows it', () => {
       const workspace = await openWorkspace(env.runtime);
       assert.ok(!(await runnableChecks(workspace, workspace.config.projects[0]!)).some((entry) => entry.key === 'test'));
       await assert.rejects(runCheckOnly(env.deps(), { task: 'ord-7', name: 'test', project: null, files: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [] }), { code: 'check-only-unauthorized' });
+    } finally {
+      await env.fx.dispose();
+    }
+  });
+});
+
+describe('the all form of a check asks, the per-file form runs freely', () => {
+  it('a check with both forms: --file runs without approval, the all form waits for the user', async () => {
+    const env = await checkFixture({ pack: await SHIPPED, config: CONFIG });
+    try {
+      await env.start();
+      assert.equal((await env.check({ name: 'test', files: ['src/a.spec.ts'] })).outcome, 'ran');
+      assert.equal((await env.check({ name: 'test', files: [] })).outcome, 'waiting');
+      assert.equal(env.runner.calls.filter((call) => call[0] === 'jest').length, 0);
+    } finally {
+      await env.fx.dispose();
+    }
+  });
+
+  it('a check with only the all form waits for the user', async () => {
+    const env = await checkFixture({ pack: await SHIPPED, config: CONFIG });
+    try {
+      await env.start();
+      assert.equal((await env.check({ name: 'typecheck', files: [] })).outcome, 'waiting');
+      assert.equal((await env.check({ name: 'typecheck', files: [], approve: ['app/typecheck'] })).outcome, 'waiting');
+    } finally {
+      await env.fx.dispose();
+    }
+  });
+
+  it('the listing names the forms that run freely and the ones that need approval', async () => {
+    const env = await checkFixture({ pack: await SHIPPED, config: CONFIG });
+    try {
+      const workspace = await openWorkspace(env.runtime);
+      const listed = await runnableChecks(workspace, workspace.config.projects[0]!);
+      assert.deepEqual(listed.map((entry) => [entry.key, entry.approval]), [
+        ['e2e', { file: true, all: false }], ['lint', { file: false, all: true }], ['test', { file: false, all: true }],
+        ['typecheck', { file: false, all: true }], ['typecheck-spec', { file: false, all: true }],
+      ]);
     } finally {
       await env.fx.dispose();
     }

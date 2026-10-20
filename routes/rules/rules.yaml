@@ -10,7 +10,7 @@ steps:
       question: "Which written rules should become policy packs? Name the files in your own words, or use the sources listed."
       options: ["use these sources", "none — stop"]
       default: "none — stop"
-      onAnswer: { "*": "revise discover --source $answer" }
+      free: true
   - id: chosen
     actor: code
     run: ["script(chosen)"]
@@ -18,7 +18,7 @@ steps:
   - id: draft
     actor: model
     instruction: "file:routes/rules/draft.md"
-    payload: ["script:discover", policy.enabled]
+    payload: ["script:chosen", policy.enabled]
     produces: ["policy{drafts}"]
   - id: rules-table
     actor: human

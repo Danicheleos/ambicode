@@ -30,6 +30,7 @@ const RawStep = z.strictObject({
 const RawRoute = z.strictObject({
   skill: z.string().min(1),
   version: z.literal(3),
+  needsRequest: z.literal(true).optional(),
   steps: z.array(RawStep).min(1),
 });
 
@@ -57,6 +58,7 @@ export async function loadRoute(file: string, text: string, context: LoaderConte
   const route: RouteDef = {
     skill: raw.skill,
     version: 3,
+    ...(raw.needsRequest === true ? { needsRequest: true as const } : {}),
     steps,
   };
   validateRoute(file, route);

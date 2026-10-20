@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -14,6 +14,7 @@ const NOW = () => new Date('2026-10-05T10:00:00.000Z');
 async function inDirectory(run: (directory: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'ledger-lock-'));
   try {
+    await mkdir(path.join(root, 'ORD-17'));
     await run(path.join(root, 'ORD-17'));
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -51,6 +52,26 @@ async function idsByWriter(directory: string): Promise<Map<string, number[]>> {
 const contiguous = (numbers: number[] | undefined, length: number): void => {
   assert.deepEqual([...(numbers ?? [])].sort((a, b) => a - b), Array.from({ length }, (_, index) => index + 1));
 };
+
+describe('a lock on a task folder that is not there', () => {
+  it('is task-unknown, names the existing tasks and creates nothing', async () => {
+    await inDirectory(async (directory) => {
+      const missing = path.join(path.dirname(directory), 'ORD-18');
+      await appendLedger(nodeFileSystem, directory, NOW(), 'a1b2c3d4', { kind: 'note' });
+      await assert.rejects(withLedgerLock(nodeFileSystem, missing, NOW, 'a1b2c3d4', async () => undefined), { code: 'task-unknown', details: ['Existing tasks, newest first: ORD-17.'] });
+      assert.equal(await nodeFileSystem.exists(missing), false);
+    });
+  });
+});
+
+describe('a lock on a folder that has no ledger', () => {
+  it('is task-unknown unless the caller starts the task', async () => {
+    await inDirectory(async (directory) => {
+      await assert.rejects(withLedgerLock(nodeFileSystem, directory, NOW, 'a1b2c3d4', async () => undefined), { code: 'task-unknown' });
+      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'a1b2c3d4', async () => 'ran', { creates: true }), 'ran');
+    });
+  });
+});
 
 describe('02-L1: one lock per task ledger', () => {
   it('two processes with different writers append whole lines with contiguous ids', async () => {
@@ -90,7 +111,7 @@ describe('02-L2/02-L3: a held lock, a stale lock and an unreadable lock', () => 
     await inDirectory(async (directory) => {
       await seed(directory, JSON.stringify({ pid: process.pid, acquiredAt: 'now' }));
       await assert.rejects(
-        withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 1, { timeoutMs: 120 }),
+        withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 1, { timeoutMs: 120, creates: true }),
         (error: { code?: string; details?: string[] }) => error.code === 'ledger-busy' && /delete .*ledger\.lock/.test(error.details?.join(' ') ?? ''),
       );
       assert.equal(await nodeFileSystem.exists(lockOf(directory)), true);
@@ -100,7 +121,7 @@ describe('02-L2/02-L3: a held lock, a stale lock and an unreadable lock', () => 
   it('02-L3: a lock whose pid is not a live process is removed and acquisition retried', async () => {
     await inDirectory(async (directory) => {
       await seed(directory, JSON.stringify({ pid: 99_999_999, acquiredAt: 'then' }));
-      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 'ran', { alive: () => false }), 'ran');
+      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 'ran', { alive: () => false, creates: true }), 'ran');
       assert.equal(await nodeFileSystem.exists(lockOf(directory)), false);
     });
   });
@@ -118,7 +139,7 @@ describe('02-L2/02-L3: a held lock, a stale lock and an unreadable lock', () => 
   it('02-L3: a lock that stays unparsable is taken for a crashed writer\'s', async () => {
     await inDirectory(async (directory) => {
       await seed(directory, '{"pid":');
-      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 'ran', { unparsableMs: 60 }), 'ran');
+      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 'ran', { unparsableMs: 60, creates: true }), 'ran');
     });
   });
 });
@@ -126,19 +147,19 @@ describe('02-L2/02-L3: a held lock, a stale lock and an unreadable lock', () => 
 describe('02-L4/02-L5: release and nesting', () => {
   it('02-L4: the lock is released when the body throws', async () => {
     await inDirectory(async (directory) => {
-      await assert.rejects(withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => Promise.reject(new Error('boom'))), /boom/);
+      await assert.rejects(withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => Promise.reject(new Error('boom')), { creates: true }), /boom/);
       assert.equal(await nodeFileSystem.exists(path.join(directory, 'ledger.lock')), false);
-      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 'again'), 'again');
+      assert.equal(await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 'again', { creates: true }), 'again');
     });
   });
 
   it('02-L5: a nested lock on the same ledger throws at once; the locked ledger appends and reads', async () => {
     await inDirectory(async (directory) => {
       await withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async (ledger) => {
-        await assert.rejects(withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 1), { code: 'internal' });
+        await assert.rejects(withLedgerLock(nodeFileSystem, directory, NOW, 'aaaaaaaa', async () => 1, { creates: true }), { code: 'internal' });
         assert.equal((await ledger.append({ kind: 'exit', route: 'aaaaaaaa-0', reason: 'done' })).id, 'aaaaaaaa-1');
         assert.equal((await ledger.read()).state, 'ok');
-      });
+      }, { creates: true });
       assert.equal(await nodeFileSystem.exists(path.join(directory, 'ledger.lock')), false);
     });
   });

@@ -7,6 +7,7 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isNavigatorCase, writeNavigator } from './navigator-cases.mjs';
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
@@ -31,6 +32,11 @@ const llm = (name, rubric, { file = null, weight = 2 } = {}) => ({
 const shared = (grader, bare = grader) => ({ ...grader, shared: true, bare: { ...bare, name: grader.name } });
 
 const noEdits = [shared(never('no-edit', 'Edit', '.')), shared(never('no-write-source', 'Write', '"file_path":"[^"]*/(src|tests)/'))];
+// The plan route edits its own steps/plan-body.md while it revises it (plan-reuse-2, 2026-10-17); only .ambicode/ paths are exempt.
+const planNoEdits = [shared(never('no-edit', 'Edit', '"file_path":"(?![^"]*/\\.ambicode/)'), never('no-edit', 'Edit', '.')), noEdits[1]];
+// Every route exit deletes steps/, so the draft is read from the Write that created it: `file_path` is the first key of a Write input.
+const planBody = (slug, tail = '') => `"file_path":"[^"]*/tasks/${slug}/steps/plan-body\\.md"${tail === '' ? '' : `.*${tail}`}`;
+const FIVE_FIELDS = 'Goal.*Changes.*Accept.*Checks.*Leaves out';
 const noGit = shared(never('no-git-mutation', 'Bash', 'git (commit|push|stash|reset|checkout|clean|merge|rebase)'));
 
 const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
@@ -58,13 +64,20 @@ const LIMITS = {
 const PAGE_FIXED = `
 PASS if page() now returns every item of the requested page including the last one: the slice ends at (index + 1) * size, index * size + size, or an equivalent, and no "- 1" remains on the end bound.
 FAIL otherwise.`;
+// The bare arm's plan is its final message. The plugin's accepted plan sits at the stable path .ambicode/tasks/<task>/plan.md, so the plugin arm is judged on that file; the final message there is a paraphrase that dropped the file paths (plan-accept 2026-10-17 07:54, FAIL 3/3 on plans that met the rubric) and a 36 KB trace was too much evidence for the default haiku judge.
+const SUMMARY = 'The final message states the plan or summarises it; judge what it states, and treat a point it leaves out as unknown unless it contradicts that point.';
+const PLAN_FILE = 'The file is the accepted plan; judge what it states, and treat a point it leaves out as unknown unless it contradicts that point.';
 const PLAN_QUALITY = (where) => `
 ${where} PASS only if all hold:
 - The work is split into iterations that can each be reviewed alone.
-- Changes extend the existing Invoice interface (src/invoices/model.ts), src/invoices/service.ts and invoicesRoute in src/routes/invoices.ts rather than new parallel modules, and name no file under src/users/, src/legacy/ or src/reports/.
+- Changes extend the existing Invoice interface (src/invoices/model.ts), src/invoices/service.ts and invoicesRoute in src/routes/invoices.ts rather than new parallel modules, and name no file under src/users/, src/legacy/ or src/reports/ as something to change.
 FAIL otherwise.`;
 
-const REUSE_QUALITY = (where) => `
+const FINDING_CORRECT = (where) => `
+PASS only if ${where} reports that the changed money.round (half to even instead of half up) alters the result of a caller that is not in the diff, and names that caller with its location: any affected caller outside src/shared/money.js and its test, for example taxFor or the invoice total in src/invoices/service.js (a 1005-cent subtotal at 1000 basis points now gives a tax of 100, not 101), src/invoices/summary.js, averageInvoiceCents in src/reports/service.js, or anything else that uses money.round or money.total.
+FAIL if it only restates the rounding change, says the change is safe or correct, or names no caller outside src/shared/money.js and its test.`;
+
+const REUSE_QUALITY =(where) => `
 ${where} PASS only if all hold:
 - The dueDate check reuses validateDate and validateRange from src/shared/validation (for example validateRange(dueDate, { min: issuedAt }, 'dueDate')) and ValidationError through them; it does not add a new date comparison, a new validator module or a bare Error.
 - The report extends the existing src/reports/ module (service.js, routes.js, repository.js, aging.js) and reuses what it has: invoices.outstanding or the unpaidInvoices query, and, if the plan computes days overdue, daysBetween from src/reports/aging.js, and, if it computes a grand total, money.sum or reports.total; the overdue filter itself may compare dates (dueDate before the as-of date). It does not add a parallel reporting module or recompute totals by hand.
@@ -214,39 +227,36 @@ FAIL otherwise, including when the answer says the payment service sends the not
   // ---------------------------------------------------------------- plan
   {
     name: 'plan-accept',
-    version: 5,
+    version: 8,
     description: 'A plan that the user accepts headlessly: draft written, anchors checked, promoted, no code touched.',
     tags: ['plan', 'gate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init --context',
     prompt: `/ambicode:plan --task plan-due --headless --answer plan-accept=Accept Add a dueDate field to invoices: the model carries it, total() is unchanged, the invoices route returns it, and creating an invoice with a dueDate in the past is rejected. ${REPO}`,
     bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone; do not implement it. Add a dueDate field to invoices: the model carries it, total() is unchanged, the invoices route returns it, and creating an invoice with a dueDate in the past is rejected. ${REPO}`,
     graders: [
-      exists('plan-body-written', 'repo/.ambicode/tasks/plan-due/steps/plan-body.md'),
-      regex('five-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Accept[\\s\\S]*Checks[\\s\\S]*Leaves out', { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
-      regex('anchors-present', 'src/invoices/model\\.ts:\\d+', { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
+      tool('plan-body-written', 'Write', planBody('plan-due')),
+      tool('five-fields', 'Write', planBody('plan-due', FIVE_FIELDS)),
+      tool('anchors-present', 'Write', planBody('plan-due', 'src/invoices/model\\.ts:\\d+')),
       ledger('anchors-valid', '"worker":"plan-check"[^\\n]*"anchorsBad":0', T('plan-due')),
       ledger('plan-promoted', '"kind":"note","note":"plan"', T('plan-due')),
       DONE(T('plan-due')),
-      ...noEdits,
+      ...planNoEdits,
       shared(never('no-checks-run', 'Bash', '(^|"command":"|[;&|]|\\n)\\s*(npx\\s+|node\\s+)?\\S*(jest|eslint)\\b|(^|"command":"|[;&|]|\\n)\\s*npm\\s+(test|run)\\b')),
-      shared(
-        llm('plan-quality', PLAN_QUALITY('This is the plan body.'), { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
-        llm('plan-quality', PLAN_QUALITY('The final message is the plan.')),
-      ),
+      shared(llm('plan-quality', PLAN_QUALITY(PLAN_FILE), { file: 'repo/.ambicode/tasks/plan-due/plan.md' }), llm('plan-quality', PLAN_QUALITY(SUMMARY))),
     ],
   },
   {
     name: 'plan-draft',
     description: 'No gate answer: the plan stays a draft and the message must not call it accepted.',
     tags: ['plan', 'gate'],
-    fixture: 'ts-feature-boundary', version: 2, flags: '--ambicode-init --context',
+    fixture: 'ts-feature-boundary', version: 3, flags: '--ambicode-init --context',
     prompt: `/ambicode:plan --task plan-draft Add a dueDate field to invoices and return it from the invoices route. ${REPO}`,
     bare: null,
     graders: [
       exists('plan-body-written', 'repo/.ambicode/tasks/plan-draft/steps/plan-body.md'),
       ledger('accept-gate-printed', '"kind":"gate","gate":"plan-accept"', T('plan-draft')),
       ledger('not-promoted', '"note":"plan"', T('plan-draft'), { match: 'not_contains' }),
-      ...noEdits,
+      ...planNoEdits,
       llm('draft-stated', `
 PASS if the final message says the plan is a draft awaiting the user's answer (Accept, Revise or Reject) and does not say it is accepted or that implementation can start.
 FAIL if it calls the plan accepted, final or approved, or starts implementing.`),
@@ -254,33 +264,30 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
   },
   {
     name: 'plan-reuse',
-    version: 3,
+    version: 6,
     description: 'A plan for a feature the existing shared validators, money helpers and reports module already carry: it must reuse them, not rebuild them, and leave the legacy copy alone.',
     tags: ['plan', 'gate'],
     fixture: 'ts-app-medium', flags: '--ambicode-init --context',
     prompt: `/ambicode:plan --task plan-overdue --headless --answer plan-accept=Accept Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each. ${REPO}`,
     bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone; do not implement it. Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each. ${REPO}`,
     graders: [
-      exists('plan-body-written', 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md'),
-      regex('five-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Accept[\\s\\S]*Checks[\\s\\S]*Leaves out', { file: 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md' }),
-      regex('anchors-present', 'src/invoices/service\\.js:\\d+', { file: 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md' }),
+      tool('plan-body-written', 'Write', planBody('plan-overdue')),
+      tool('five-fields', 'Write', planBody('plan-overdue', FIVE_FIELDS)),
+      tool('anchors-present', 'Write', planBody('plan-overdue', 'src/invoices/service\\.js:\\d+')),
       ledger('anchors-valid', '"worker":"plan-check"[^\\n]*"anchorsBad":0', T('plan-overdue')),
       ledger('plan-promoted', '"kind":"note","note":"plan"', T('plan-overdue')),
       DONE(T('plan-overdue')),
-      ...noEdits,
+      ...planNoEdits,
       shared(never('no-checks-run', 'Bash', '(^|"command":"|[;&|]|\\n)\\s*(npx\\s+|node\\s+)?\\S*(jest|eslint)\\b|(^|"command":"|[;&|]|\\n)\\s*npm\\s+(test|run)\\b')),
-      shared(
-        llm('plan-quality', REUSE_QUALITY('This is the plan body.'), { file: 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md' }),
-        llm('plan-quality', REUSE_QUALITY('The final message is the plan.')),
-      ),
+      shared(llm('plan-quality', REUSE_QUALITY(PLAN_FILE), { file: 'repo/.ambicode/tasks/plan-overdue/plan.md' }), llm('plan-quality', REUSE_QUALITY(SUMMARY))),
     ],
   },
   // ---------------------------------------------------------------- task
   {
     name: 'task-fix',
-    description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, report; the review offer is left to its default.',
+    description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, report; no iteration is named, so the review runs unasked.',
     tags: ['task'],
-    version: 3,
+    version: 4,
     fixture: 'eval-page-bug', flags: '--ambicode-init --install',
     prompt: `/ambicode:task --task fix-page --headless Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     bare: `Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
@@ -288,7 +295,7 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
       ledger('format-recorded', '"kind":"format"', T('fix-page')),
       DONE(T('fix-page')),
       noGit,
-      regex('report-sections', 'Evidence[\\s\\S]*Not verified'),
+      regex('report-sections', 'Task report[\\s\\S]*\\*\\*Done\\*\\*[\\s\\S]*Checks[\\s\\S]*Review'),
       shared(regex('existing-tests-kept', 'out of range', { file: 'repo/tests/page.test.js' })),
       shared(llm('fix-correct', PAGE_FIXED, { file: 'repo/src/page.js' })),
       shared(llm('test-added', `
@@ -300,7 +307,7 @@ FAIL if no such test exists.`, { file: 'repo/tests/page.test.js' })),
     name: 'task-multi',
     description: 'A refund defect whose fix spans the payments service and repository, in a project with an error hierarchy and a test factory it must use.',
     tags: ['task'],
-    version: 4,
+    version: 5,
     fixture: 'ts-app-medium-refund-bug', flags: '--ambicode-init --context --install',
     prompt: `/ambicode:task --task fix-refund --headless Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
     bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
@@ -308,7 +315,7 @@ FAIL if no such test exists.`, { file: 'repo/tests/page.test.js' })),
       ledger('format-recorded', '"kind":"format"', T('fix-refund')),
       DONE(T('fix-refund')),
       noGit,
-      regex('report-sections', 'Evidence[\\s\\S]*Not verified'),
+      regex('report-sections', 'Task report[\\s\\S]*\\*\\*Done\\*\\*[\\s\\S]*Checks[\\s\\S]*Review'),
       shared(regex('existing-tests-kept', 'rejects a refund above what was paid[\\s\\S]*a refund is stored beside the payment', { file: 'repo/tests/payments/payments.test.js' })),
       shared(regex('no-bare-error', 'throw new Error\\(', { match: 'not_contains', file: 'repo/src/payments/service.js' })),
       shared(llm('repository-fixed', `
@@ -330,21 +337,22 @@ FAIL if an added test seeds them from inline object literals, calls the reposito
   },
   {
     name: 'task-review-skipped',
-    description: 'The same defect with no gate answer: the review offer defaults to skip and the report must say verification is incomplete.',
+    description: 'The same defect with iteration 1 named and no gate answer: the review offer defaults to skip and the report must say verification is incomplete.',
     tags: ['task', 'gate'],
-    version: 2,
+    // Without a named iteration the review runs unasked (routes/task/task.yaml, review-offer when: iteration.named); a task with no plan is iteration 1 of 1.
+    version: 3,
     fixture: 'eval-page-bug', flags: '--ambicode-init --install',
-    prompt: `/ambicode:task --task fix-page-noreview --headless Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
+    prompt: `/ambicode:task --task fix-page-noreview --headless Do iteration 1 of this task: fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     bare: null,
     graders: [
       ledger('offer-defaulted', '"kind":"default-taken","gate":"review-offer"', T('fix-page-noreview')),
       never('no-reviewer', 'Agent', 'ambicode:reviewer'),
       DONE(T('fix-page-noreview')),
       noGit,
-      regex('report-sections', 'Evidence[\\s\\S]*Not verified'),
+      regex('report-sections', 'Task report[\\s\\S]*\\*\\*Done\\*\\*[\\s\\S]*Checks[\\s\\S]*Review[\\s\\S]*Not verified'),
       llm('fix-correct', PAGE_FIXED, { file: 'repo/src/page.js' }),
       llm('gap-reported', `
-PASS if the final message's Not verified section (or the Remaining part) states that the independent review did not run, and nowhere claims the change was reviewed.
+PASS if the final message's Review or Not verified section states that the independent review was skipped or did not run, and nowhere claims the change was reviewed.
 FAIL if it says the change was reviewed, or omits that the review was skipped.`),
     ],
   },
@@ -411,7 +419,7 @@ FAIL if the change is called clean, the finding is missing, or a check is report
     name: 'review-subtle',
     description: 'An uncommitted change to a shared helper whose breakage is in callers outside the diff, plus a convention violation inside it.',
     tags: ['review'],
-    version: 2,
+    version: 3,
     fixture: 'ts-app-medium-money-change', flags: '--ambicode-init --context',
     prompt: `/ambicode:review --task rev-money --headless --answer estimate=run ${CITE} ${REPO}`,
     bare: `Review the uncommitted change in the repository at \`repo/\`. ${CITE}`,
@@ -423,9 +431,8 @@ FAIL if the change is called clean, the finding is missing, or a check is report
       ...noEdits,
       regex('part4-fenced', '```'),
       shared(regex('cites-caller', 'src/(invoices|reports)/[\\w./-]+\\.js:\\d+')),
-      shared(llm('finding-correct', `
-PASS only if the final message reports that the changed money.round (half to even instead of half up) alters the result of a caller that is not in the diff, and names that caller with its location: any affected caller outside src/shared/money.js and its test, for example taxFor or the invoice total in src/invoices/service.js (a 1005-cent subtotal at 1000 basis points now gives a tax of 100, not 101), src/invoices/summary.js, averageInvoiceCents in src/reports/service.js, or anything else that uses money.round or money.total.
-FAIL if it only restates the rounding change, says the change is safe or correct, or names no caller outside src/shared/money.js and its test.`)),
+      // The plugin arm is judged on the printed report: the final message paraphrases it and dropped the caller location in 3/3 runs of 2026-10-17 11:44 although the reviewer's answer had it.
+      shared(llm('finding-correct', FINDING_CORRECT('the report'), { file: 'repo/.ambicode/reviews/rev-money/1/report.txt' }), llm('finding-correct', FINDING_CORRECT('the final message'))),
       shared(llm('convention-finding', `
 PASS if the final message flags the new \`throw new Error('round: not a number')\` in src/shared/money.js as breaking the project convention that errors are AppError subclasses (for example ValidationError from src/shared/errors), as stated in CONTRIBUTING.md.
 FAIL if the bare Error is not mentioned, or is accepted as fine.`)),
@@ -482,7 +489,7 @@ FAIL otherwise.`),
     name: 'init-auto',
     description: '/ambicode:init --auto on an uninitialised TypeScript repository with jest and eslint installed: config, context and validation.',
     tags: ['init'],
-    version: 3,
+    version: 4,
     fixture: 'ts-feature-boundary', flags: '--install', intoCwd: true,
     prompt: '/ambicode:init --auto',
     bare: null,
@@ -568,19 +575,13 @@ export function render(cases = CASES) {
 }
 
 export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
-export const versionOf = (name) => caseOf(name)?.version ?? 1;
-
-/** The graders of a case's bare arm, with their weights: what a lift is computed over. */
-export const sharedGraders = (name) =>
-  CASES.find((c) => c.name === name)?.graders.filter((g) => g.shared).map((g) => ({ name: g.name, weight: Number(/^weight: (\d+)$/m.exec(g.text)?.[1] ?? 1) })) ?? [];
-
 export const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function write() {
   for (const tree of ['cases', 'bare']) {
     const dir = path.join(EVALS, tree);
     mkdirSync(dir, { recursive: true });
-    for (const name of readdirSync(dir)) if (name !== 'results') rmSync(path.join(dir, name), { recursive: true, force: true });
+    for (const name of readdirSync(dir)) if (name !== 'results' && name !== 'navigator') rmSync(path.join(dir, name), { recursive: true, force: true });
   }
   const files = render();
   for (const [relative, text] of files) {
@@ -589,6 +590,7 @@ function write() {
     writeFileSync(file, text, relative.endsWith('.sh') ? { mode: 0o755 } : undefined);
   }
   console.log(`${CASES.length} cases, ${CASES.filter((c) => c.bare !== null).length} with a bare arm, ${files.size} files`);
+  writeNavigator(EVALS);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) write();

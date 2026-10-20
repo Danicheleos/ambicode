@@ -1,5 +1,6 @@
 skill: investigate
 version: 3
+needsRequest: true
 steps:
   - id: fetch
     actor: model

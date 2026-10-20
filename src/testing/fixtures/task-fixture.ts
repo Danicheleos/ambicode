@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'review/agent'];
+const STEPS = ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'review/agent', 'review/agent-work'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
@@ -51,13 +51,15 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   /** What the route's review pin leaves: the result file and the `review` entry, then the tail. */
   const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {
     reviews += 1;
-    const reviewId = `r-${reviews}`;
-    const result = path.join('.ambicode', 'reviews', CHECK_TASK, 'result.json');
-    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'reviews', CHECK_TASK, 'brief.md') }));
-    await fx.repo.write(path.join('.ambicode', 'reviews', CHECK_TASK, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
+    // The recorded entry answers the pin's pending one, as the route's record step does; another id would leave that review pending for review.record to fail.
+    const reviewId = String((await fx.kinds(CHECK_TASK, 'review')).findLast((entry) => entry['stage'] === 'pending')?.['reviewId'] ?? `r-${reviews}`);
+    const bundle = path.join('.ambicode', 'tasks', CHECK_TASK, 'reviews', String(reviews));
+    const result = path.join(bundle, 'result.json');
+    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join(bundle, 'brief.md') }));
+    await fx.repo.write(path.join(bundle, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     const ran = extra.reviewerRan ?? true;
     const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length });
-    return next({ cause: ran ? 'review record' : 'route-next', produced: [entry.id] });
+    return next({ cause: 'route-next', produced: [entry.id] });
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */
   const edit = (): Promise<void> => fx.repo.write('src/orders.ts', ORDERS.replace('a + b)', 'a + b, 0)'));

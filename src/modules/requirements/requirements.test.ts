@@ -101,6 +101,59 @@ describe('envelope', () => {
     }
   });
 
+  it('a child issue fetched after the asked one is captured too, and the envelope holds both', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
+    try {
+      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] });
+      await s.capture(GET, mcp(jira('ORD-18', { description: 'API contract: POST /orders' })), { input: { issueIdOrKey: 'ORD-18' }, asked: [TICKET] });
+      const result = await s.normalize();
+      assert.ok(result.state === 'ok' && result.builtFrom === 'captures');
+      assert.deepEqual(result.sources.map((source) => source.key).sort(), ['ORD-18', TICKET]);
+      assert.deepEqual([result.asked, result.missingAsked], [[TICKET], []]);
+      assert.match(result.sources.find((source) => source.key === 'ORD-18')!.content, /POST \/orders/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a fetch or token during a later step records nothing, even when it names a tracker key or an unrelated page', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
+    try {
+      await s.capture('WebFetch', { result: 'Ticket body' }, { input: { url: TICKET }, asked: [TICKET] });
+      await s.fx.engine.advance({ task: s.task, cause: 'route-next', scratchpadDir: s.fx.scratchpad });
+      assert.notEqual((await s.under(async ({ view }) => view)).position, 'fetch');
+      assert.equal(await s.capture('WebFetch', { result: 'MDN' }, { input: { url: 'https://developer.example.org/en/utf-8', prompt: 'UTF-8 notes' }, asked: [TICKET] }), null);
+      assert.equal(await s.capture(GET, mcp(jira('ORD-18')), { input: { issueIdOrKey: 'ORD-18' }, asked: [TICKET] }), null);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('during the fetch step a bare token in free text or a foreign host is not linked; a same-host URL is', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
+    try {
+      assert.equal(await s.capture('WebFetch', { result: 'MDN' }, { input: { url: 'https://developer.example.org/en/docs', prompt: 'explain UTF-8 and SHA-256' }, asked: [TICKET] }), null);
+      assert.equal(await s.capture('mcp__atlassian__search', mcp('hits'), { input: { query: 'UTF-8 ORD-99 bug' }, asked: [TICKET] }), null);
+      assert.equal((await s.capture('WebFetch', { result: 'child body' }, { input: { url: 'https://x.atlassian.net/browse/ORD-30' }, asked: [TICKET] }))?.['relation'], 'linked');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a failed asked fetch plus an unrelated page read leaves the requirement not captured', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
+    try {
+      await s.capture('WebFetch', { result: 'MDN' }, { input: { url: 'https://developer.example.org/en/docs' }, asked: [TICKET] });
+      const result = await s.normalize();
+      assert.ok(result.state === 'failed' && result.code === 'requirements-not-captured');
+      await s.capture(GET, mcp(jira('ORD-18')), { input: { issueIdOrKey: 'ORD-18' }, asked: [TICKET] });
+      const linkedOnly = await s.normalize();
+      assert.ok(linkedOnly.state === 'failed' && linkedOnly.code === 'requirements-not-captured', 'a linked capture alone never satisfies the asked requirement');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
   it('a review with an asked source missing is refused requirements-missing, recoverably', async () => {
     const s = await session({ requirements: [TICKET, PAGE] });
     try {

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#util/args';
@@ -72,6 +73,8 @@ describe('refs', () => {
     const fx = await repo({ 'src/big/markers.ts': `${lines}\n`, ...Object.fromEntries(Array.from({ length: 80 }, (_, index) => [`src/w${index}.ts`, 'export const common = UniversalService;\n'])) });
     try {
       const run = (argv: string[]) => runRefs(fx.runtime, parseArgs('refs', argv, REFS_OPTIONS));
+      await fx.runtime.fs.mkdirp(path.join(fx.repo.root, '.ambicode/tasks/T1'));
+      await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T1/ledger.jsonl'), '');
       const bounded = await run(['applyMarker', '--task', 'T1']);
       assert.ok(bounded.bytes <= REFS_LIMIT_BYTES, `${bounded.bytes}`);
       assert.match(bounded.text, /\d+ more lines; name fewer words/);
@@ -89,6 +92,8 @@ describe('map command', () => {
   it('appends a map entry with the slim fields, prints the layer list first, and refuses --layers whatever its value', async () => {
     const fx = await repo();
     try {
+      await fx.runtime.fs.mkdirp(path.join(fx.repo.root, '.ambicode/tasks/T2'));
+      await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T2/ledger.jsonl'), '');
       const output = await runMap(fx.runtime, parseArgs('map', ['--task', 'T2', '--term', 'cart'], MAP_OPTIONS));
       assert.match(output.text, /^layers: shortlist → harvest → shortlist \(default\)/);
       const entry = (await fx.kinds('T2', 'map'))[0]!;

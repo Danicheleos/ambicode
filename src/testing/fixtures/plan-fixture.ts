@@ -49,9 +49,9 @@ steps:
     produces: ["note{plan}"]
 `;
 
-export interface PlanState { checkOk: boolean; checks: number; steps: number }
+interface PlanState { checkOk: boolean; checks: number; steps: number }
 
-export function planHandlers(state: PlanState): Record<string, Handler> {
+function planHandlers(state: PlanState): Record<string, Handler> {
   return {
     ...EVIDENCE_HANDLERS,
     't.step': async ({ ledger }) => {
