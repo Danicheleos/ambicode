@@ -30,6 +30,8 @@ export interface GateDef {
   default: string;
   acting: readonly string[];
   onAnswer: Readonly<Record<string, Revise>>;
+  /** Free text is an answer: recorded as given, no option needed. */
+  free: boolean;
   /** Human revises through this gate before it declines the next one (the one counter: a step's `repeat`). */
   repeat: number;
   object: Qualified | null;
@@ -47,6 +49,8 @@ export interface RouteArgs {
   requirements: readonly string[];
   project: string | null;
   plan: string | null;
+  /** Read once at start from `iteration N` or a number after the task word; null runs every iteration not done. */
+  iteration: number | null;
   answers: readonly string[];
   headless: boolean;
   hasRequirement: boolean;
@@ -64,17 +68,21 @@ export const HANDLER_NAMES = [
   'context.list',
   'evidence.notes.save',
   'evidence.notes.promote',
+  'evidence.report',
   'task.start',
-  'task.report',
   'task.continue',
+  'task.verdict',
   'checks.baseline',
-  'checks.preflight',
   'checks.format',
+  'checks.approved',
   'checks.runnable',
   'review.evaluate',
   'review.estimate',
   'review.publishList',
+  'review.mrFetch',
+  'review.publish',
   'review.pin',
+  'review.record',
 ] as const;
 
 export interface StepDef {
@@ -100,6 +108,8 @@ export interface StepDef {
 export interface RouteDef {
   skill: string;
   version: 3;
+  /** An empty start has no task to name; it continues the session's task or asks, instead of minting one after the skill. */
+  needsRequest?: true;
   steps: readonly StepDef[];
 }
 
@@ -114,9 +124,9 @@ export type StartChannel = 'hook' | 'cli';
 
 export type CommandName =
   | 'requirements normalize' | 'check' | 'policy check --drafts' | 'rules apply'
-  | 'note save' | 'review record';
+  | 'note save';
 
-export type Cause = 'route-next' | 'gate-hook' | 'review-hook' | CommandName;
+type Cause = 'route-next' | 'gate-hook' | CommandName;
 
 export type AcceptanceEntry = Extract<TypedEntry, { kind: 'acceptance' }>;
 

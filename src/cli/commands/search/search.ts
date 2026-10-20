@@ -63,4 +63,4 @@ const searchCommand = (runSearch: typeof runMap): CliCommand['run'] => async (ru
 
 export const mapCommand: CliCommand = { name: 'map', summary: 'Files, symbols and spans a request touches, at most 6 KiB.', options: MAP_OPTIONS, run: searchCommand(runMap) };
 
-export const refsCommand: CliCommand = { name: 'refs', summary: 'Lines using each whole word, at most 4 KiB; --declarations lists declarations.', options: REFS_OPTIONS, run: searchCommand(runRefs) };
+export const refsCommand: CliCommand = { name: 'refs', summary: 'Lines using each whole word, at most 4 KiB; --declarations lists them.', options: REFS_OPTIONS, run: searchCommand(runRefs) };

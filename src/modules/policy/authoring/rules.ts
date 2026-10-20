@@ -45,7 +45,7 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
   const workspace = await openWorkspace(runtime);
   const projects = workspace.config.projects;
   const project: ProjectConfig | undefined = input.project === null ? (projects.length === 1 ? projects[0] : undefined) : projects.find((candidate) => candidate.id === input.project);
-  if (project === undefined) throw new AmbicodeError('bad-argument', input.project === null ? `This repository configures ${projects.length} projects; pass --project <id>.` : `No project "${input.project}" is configured.`, { field: '--project' });
+  if (project === undefined) throw new AmbicodeError('bad-argument', input.project === null ? `This repository configures ${projects.length} projects; ask the user which with AskUserQuestion, then use --project <id>.` : `No project "${input.project}" is configured.`, { field: '--project' });
   const dir = await resolveTaskDir(runtime, input.task);
   const verify = async (): Promise<DraftsCheck> => {
     const check = await checkDrafts(runtime, workspace, { project: project.id });

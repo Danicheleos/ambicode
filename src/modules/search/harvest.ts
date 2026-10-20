@@ -6,6 +6,7 @@ import type { FileSystem } from '#types/platform/ports';
 import { COMMON_NAMES, type Declaration } from '#types/modules/search';
 
 const MIN_NAME = 3;
+const MAX_SIGNATURE = 120;
 const EXPORT_LINE = /^\s*export\b/;
 const HAS_EXPORT = /^\s*export\b/m;
 const KINDS = ['function', 'class', 'interface', 'type', 'enum', 'namespace', 'const', 'let', 'var', 'def', 'fn', 'func'];
@@ -42,7 +43,7 @@ export async function harvest(fs: FileSystem, root: string, files: readonly stri
           const name = match[1];
           if (name === undefined || name.length < MIN_NAME || COMMON_NAMES.has(name) || seen.has(`${name}:${index}`)) continue;
           seen.add(`${name}:${index}`);
-          found.push({ name, kind: kindOf(line), path: file, line: index + 1 });
+          found.push({ name, kind: kindOf(line), path: file, line: index + 1, signature: line.trim().slice(0, MAX_SIGNATURE) });
         }
       }
     });

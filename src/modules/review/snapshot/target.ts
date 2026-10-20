@@ -4,22 +4,44 @@ import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
 import type { Workspace } from '#types/composition';
-import type { RawChange } from '#types/platform/git';
+import type { DiffFile, RawChange } from '#types/platform/git';
 import type { FileSystem } from '#types/platform/ports';
 import type { TargetResolution } from '../types/snapshot.ts';
+
+export const MR_DIFF_PATCH = 'mr-diff.patch';
+export const MR_DIFF_JSON = 'mr-diff.json';
 
 interface WorkingTargetOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
+  /** A tree from `snapshotTree`: the change is measured from it instead of from HEAD. */
+  baseTree?: string | null;
 }
 
 /**
- * `git diff HEAD` nets staged and unstaged edits; untracked files arrive as intent-to-add
- * entries in a throwaway index copy, leaving `.git/index` untouched.
+ * The working state as a tree object, built in a throwaway index copy so `.git/index` stays untouched.
+ * Untracked files git does not ignore are in it.
  */
+export async function snapshotTree(fs: FileSystem, git: Git): Promise<string> {
+  const scratch = await fs.temporaryDirectory('ambicode-index-');
+  try {
+    const shadowIndex = path.join(scratch, 'index');
+    try {
+      await fs.copyFile(path.join(await git.gitDir(), 'index'), shadowIndex);
+    } catch {
+      // A repository with no index yet is fine: git creates the shadow copy.
+    }
+    const shadow = git.withIndexFile(shadowIndex);
+    await shadow.addAll();
+    return await shadow.writeTree();
+  } finally {
+    await fs.remove(scratch);
+  }
+}
+
+/** The working tree against HEAD, or against the task iteration's baseline tree when one is given. */
 export async function resolveWorkingTarget(options: WorkingTargetOptions): Promise<TargetResolution> {
   const { fs, git, repositoryRoot } = options;
   await requireHead(git);
@@ -36,40 +58,23 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
   const headSha = await git.revParse('HEAD');
   if (headSha === null) throw new AmbicodeError('no-head', 'HEAD does not resolve to a commit.');
 
-  const scratch = await fs.temporaryDirectory('ambicode-index-');
-  const notes: string[] = [];
-  try {
-    const shadowIndex = path.join(scratch, 'index');
-    const realIndex = path.join(await git.gitDir(), 'index');
-    try {
-      await fs.copyFile(realIndex, shadowIndex);
-    } catch {
-      // A repository with no index yet is fine: git creates the shadow copy.
-    }
-    const shadow = git.withIndexFile(shadowIndex);
-    await shadow.markIntentToAdd();
-
-    const changes = await shadow.rawDiff(['HEAD']);
-    const patch = await shadow.patchDiff(['HEAD'], 3);
-    const files = combineDiff(changes, patch);
-    notes.push('Untracked files that git does not ignore are included as additions.');
-
-    return {
-      target: {
-        kind: 'working',
-        snapshotId: `working-${contentHash(`${headSha}\n${patch}`).slice(7, 23)}`,
-        repositoryRoot,
-        headSha,
-        baseSha: headSha,
-        baseRef: 'HEAD',
-        notes,
-      },
-      files,
-      patch,
-    };
-  } finally {
-    await fs.remove(scratch);
-  }
+  const base = options.baseTree ?? 'HEAD';
+  const now = await snapshotTree(fs, git);
+  const patch = await git.patchDiff([base, now], 3);
+  const files = combineDiff(await git.rawDiff([base, now]), patch);
+  return {
+    target: {
+      kind: 'working',
+      snapshotId: `working-${contentHash(`${headSha}\n${patch}`).slice(7, 23)}`,
+      repositoryRoot,
+      headSha,
+      baseSha: headSha,
+      baseRef: options.baseTree == null ? 'HEAD' : 'the iteration baseline',
+      notes: ['Untracked files that git does not ignore are included as additions.'],
+    },
+    files,
+    patch,
+  };
 }
 
 interface BranchTargetOptions {
@@ -90,7 +95,7 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
       {
         field: 'baseline',
         details: [
-          'Pass --base <ref>, or set `baseline` in .ambicode/config.yaml.',
+          'Ask the user which ref with AskUserQuestion, then use --base <ref>; or set `baseline` in .ambicode/config.yaml.',
           'AMBICODE does not assume a default branch name.',
         ],
       },
@@ -156,6 +161,8 @@ function changeOf(section: string): RawChange {
   return { oldPath, newPath, changeKind, oldMode: '100644', newMode: '100644' };
 }
 
+export const capturedFiles = (patch: string): DiffFile[] => combineDiff(splitPatchSections(patch).map(changeOf), patch);
+
 /**
  * Merge-request target from the diff the hook captured off the model's GitLab MCP call. The review is diff-only:
  * the merge request's files are not in the checkout.
@@ -164,18 +171,17 @@ export async function resolveCapturedTarget(options: CapturedTargetOptions): Pro
   const { workspace, task, url } = options;
   const { runtime, git, repositoryRoot } = workspace;
   const missing = (): AmbicodeError => new AmbicodeError('mr-diff-missing', `No merge-request diff is captured for ${url}.`, {
-    details: ['Call the diff tool of your GitLab MCP server for this merge request, then run `route next`; the capture hook records its response.'],
+    details: ['The review route fetches it with `glab mr diff`; start the route with --mr so its mr-fetch step runs.'],
   });
   if (task === null) throw missing();
   const dir = taskDirFor(repositoryRoot, task, '.', 'review').root;
   const patch = await runtime.fs.readText(path.join(dir, MR_DIFF_PATCH)).catch(() => null);
   if (patch === null) throw missing();
   const meta = JSON.parse(await runtime.fs.readText(path.join(dir, MR_DIFF_JSON)).catch(() => '{}')) as { sha?: string };
-  const sections = splitPatchSections(patch);
-  const files = combineDiff(sections.map(changeOf), patch);
+  const files = capturedFiles(patch);
 
   const headSha = meta.sha === undefined ? null : await git.revParse(meta.sha);
-  const notes = ['Diff captured from the GitLab MCP server; nothing was fetched or checked out.', 'Diff only: the reviewer has no file content for this merge request.'];
+  const notes = ['Diff fetched with glab; nothing was checked out.', 'Diff only: the reviewer has no file content for this merge request.'];
   return {
     target: { kind: 'merge-request', repositoryRoot, snapshotId: `mr-${contentHash(`${url}\n${patch}`).slice(7, 23)}`, headSha, baseSha: null, baseRef: null, notes },
     files,

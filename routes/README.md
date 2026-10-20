@@ -20,6 +20,7 @@ Routes are checked by `npm run build`, `npm run verify` and the package build. A
 ```yaml
 skill: investigate        # required, equals the file name
 version: 3                # required, always 3
+needsRequest: true        # optional; see the table
 steps: [ ... ]            # required, at least one
 ```
 
@@ -27,6 +28,7 @@ steps: [ ... ]            # required, at least one
 |---|---|---|
 | `skill` | string | The skill the route belongs to; `/ambicode:<skill>` starts it. |
 | `version` | `3` | Schema version of the route language. |
+| `needsRequest` | `true` | A start with no text and no `--task` continues the session's latest task of such a route, or fails `task-needed` listing recent tasks to ask about. Without it the route is named after its skill (`review`, `rules`). |
 
 ## A step
 
@@ -46,7 +48,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `actor` | `code`, `model`, `human` | `code`: runs handlers, no model turn. `model`: the model gets instruction text and must do the work. `human`: asks the user through a gate. |
 | `run` | handler call or list | **Code steps only** (required there). Handlers run in order, as `name` or `name(param, param)`. Allowed names are listed below. |
 | `instruction` | inline text or `file:<path>` | **Model steps only** (required there). Put long text in `routes/<skill>/<step>.md` and reference it. The placeholders `{cli}` (command prefix) and `{task}` (task slug) are filled in. |
-| `work` | inline text or `file:<path>` | **Model steps.** Delegates the step to the `ambicode:implementer` subagent: this text, the revise args, the request under `## request` and every `payload` section are written whole to `.ambicode/tasks/<task>/steps/work-<step>.md`, and `instruction` only launches the subagent on `{work}`. While the step is open a `check` is recorded without advancing the route and prints no route text, so the model runs `route next` when the subagent returns. |
+| `work` | inline text or `file:<path>` | **Model steps.** Delegates the step to a subagent (`ambicode:implementer`; the review step's `ambicode:reviewer`): this text, the revise args, the request under `## request` and every `payload` section are written whole to `.ambicode/tasks/<task>/steps/work-<step>.md`, and `instruction` only launches the subagent on `{work}`. While the step is open a `check` is recorded without advancing the route and prints no route text, so the model runs `route next` when the subagent returns. A step whose `produces` is still missing then reads `Not done yet`, three times at most, and is released as a gap. |
 | `payload` | list of keys | **Model steps.** Outputs of earlier handlers appended to the instruction under `## <key>`. Empty outputs are left out and leave no file; the others are saved as `.ambicode/tasks/<task>/steps/<route id>-<key>.md` (`:` in a key becomes `-`). Keys below. |
 | `produces` | list of `kind` or `kind{value}` | Records the step must leave in the ledger. A code step that does not write them fails with `route-produces-missing`. A model step stays open ("Not done yet") until they exist. |
 | `when` | condition | Run the step only if true; otherwise it is recorded as skipped. Conditions below. |
@@ -60,7 +62,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | Handler | Produces payload key | What it does |
 |---|---|---|
 | `requirements.normalize` | `envelope` | Builds the requirement envelope from captures (or from the request text) and records it. |
-| `search.map(prompt)` | `map` | Builds the search map for the request. The parameter picks the layer set (`prompt` or `context`). |
+| `search.map(prompt)` | `map` | Builds the search map for the request. The parameter picks the layer set (`prompt` or `context`). `context` seeds from the task's iteration brief (a task) or the investigation (a plan); an investigation the request names by path, or the task's latest saved one, is added as an `Investigation: <path>` line. |
 | `policy.stage(before-work[, <activity>])` | `policy:before-work`, or `policy:before-work:<activity>` when an activity is given | The resolved pack rules for the route's activity and the files it knows (touched files, else the map's top candidates) as `pack/rule: instruction` grouped under `Rules (team|observed|inherited):` headers under a byte cap; a second param names the activity when it differs from the route's (the task route's reviewer brief passes `review`, which also lifts the cap). The activity is part of the payload key, so the reviewer brief's rules never replace the task rules that `change` and `fix` read. |
 | `policy.enabled` | `policy.enabled` | Every rule in force for the project (id and the first 80 characters), so a rules draft does not restate one word for word. |
 | `context.list` | `context.list` | The files under `.ambicode/context/` (path, first H1, size) or "no context: run /ambicode:init"; the step reads the notes of the modules the change touches and of shared ones. |
@@ -68,22 +70,23 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |
 | `review.evaluate` | `review.evaluate` | Judges the latest review: no findings proceeds; any finding goes back to `fix`, which files the ones outside the brief under Remaining. Fails the step (`onFail`) when there are findings to fix. |
 | `review.publishList` | `review.publishList` | `--mr` review: the recorded findings as a numbered list; none ends the route. |
+| `task.verdict` | none | Ends the route `blocked` when its last check is red, so the iteration is not done and the next start redoes it. |
 | `task.start` | `brief` | The task's brief: iteration and plan path, then the plan's current iteration or the request. Exits `iterations-complete` when every iteration is done. |
-| `task.report` | `report` | The evidence report cut to a byte cap. |
-| `checks.preflight` | none | Exits `blocked` (`no-check`) when no check has a configured command. |
-| `checks.runnable` | `checks.runnable` | Per project, the checks `check` will run: those with a command and the forms they take (all or `--file`), minus any a pack forbids, `needs approval` on a `propose`. |
+| `evidence.report` | `report` | The Checks, Review and Not verified facts of the route, for its final message to copy. |
+| `checks.runnable` | `checks.runnable` | Per project, the checks `check` will run: those with a command and the forms they take (all or `--file`), minus any a pack forbids; per form, `runs freely` or `needs approval` (the all form always, the `--file` form on a `propose`). |
 | `checks.baseline` | `baseline` | Records HEAD and the files already changed, once per task. |
+| `checks.approved` | none | Runs each check the user approved that has no check entry after the approval, so an answer given after the model moved on still gets its run. |
 | `checks.format` | none | Runs the configured format check on the touched files; one that needs approval raises the check gate and the answer re-runs the step. |
 | `review.estimate` | `review.estimate` | Sizes the review (files, lines, refusal) for the estimate gate, with any `--narrow` in force. |
 | `review.pin` | none | Pins the change as a pending `review` entry. The review route first runs each configured check that has a file form on the changed files, as `check` entries; a check that needs approval raises the check gate and the answer revises the step. |
 
 `produces` takes any ledger kind, with an optional qualifier: `note{investigation}`, `policy{before-work}`, `check{green}`, `review{recorded}`, `envelope`, `map`, ... The qualifier is matched against the record, not checked at load.
 
-Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON, read from the PostToolUse hook's tool response or else on stdin), `note save`, `requirements normalize`.
+Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `review` (writes `review{pending}`), `note save`, `requirements normalize`. `check` run by a delegated step's subagent records without advancing; the main model runs `route next` when the subagent returns, background or not. The `review.record` handler then reads the reviewer's `answer.json` and writes `review{recorded}`; no file records a failed review.
 
 ### Scripts (`script(<name>)`)
 
-Every route exit (done, blocked, interrupted by a new start, stopped) removes the task's `steps/` and rewrites `.ambicode/tasks/<task>/summary.md` from the ledger (request, plan, routes, iterations, checks, review, Not verified). Nothing in `steps/` outlives its route; `plan-body.md` is promoted to the plan note before the route exits.
+Every route exit (done, blocked, interrupted by a new start, stopped) removes the task's `steps/` and rewrites `.ambicode/tasks/<task>/summary.md` from the ledger (request, plan with the decisions taken, one row per iteration with its final status, saved final message, files, checks and review, then Not verified; the Stop hook saves a route's final message as a `result` note once it states every gap). Nothing in `steps/` outlives its route; `plan-body.md` is promoted to the plan note before the route exits.
 
 A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, no imports from `src/`, no npm packages) run with `node`. It reads one JSON object on stdin: `{task, skill, repositoryRoot, taskDir, steps, args, params, revise, raisedBy, headless}` (`params` are the arguments after the name; `steps` is the task's steps directory). It prints one JSON object on stdout, every key optional: `payload` (text for the model, saved as `script:<name>`), `record` (fields merged into the step's completion entry), `entries` (ledger entries, each with a `kind`, appended before any `failed`), `failed: {code, message, recoverable?, revise?: {args}}`, `raise: {gate, values}`, `exit` and `exitDetail`. A non-zero exit, a timeout (60 s) or output that is not JSON fails the step with `script-failed` or `script-output-invalid`. A script never writes the ledger itself.
 
@@ -92,7 +95,7 @@ A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, n
 | Condition | True when |
 |---|---|
 | `args.hasRequirement` | The request names a requirement (URL, `--requirement`, or a bare key with an MCP server configured). |
-| `args.hasMergeRequest` | The review route was started with `--mr <url>`. |
+| `args.hasMergeRequest` | The review route was started with `--mr <url>`, or with a merge-request URL as its text. |
 | `map.empty` | The search map found nothing. |
 | `iteration.named` / `iteration.unnamed` | The request text names `iteration N` / does not (task route). |
 | `iterations.continue` | The request names no iteration, the `start` step's iteration is below the plan's iteration count, and the route's last check exited 0. |
@@ -114,11 +117,12 @@ gate:
 
 | Field | Values | Meaning and when to use |
 |---|---|---|
-| `question` | string | Shown to the user. `{name}` is filled from the values the raising code passes (registry gates). |
-| `options` | list, at least one | The choices. `{list…}` expands a list of values, `{key}` fills a value. Free text the user types is allowed only if `onAnswer` has `*`. |
+| `question` | string | Shown to the user. `{name}` is filled from the values the raising code passes (registry gates); `{name|text}` prints `text` when the list is empty. |
+| `options` | list, at least one | The choices. `{list…}` expands a list of values, `{key}` fills a value. Free text the user types is allowed only if `free: true` or `onAnswer` has `*`; options match case-insensitively and ignore a trailing "(Recommended)". |
 | `default` | one of `options` | Taken when nobody answers (headless, timeout). Never an acting option. |
 | `acting` | list of options | Options that change something that matters. They count only from the user's own answer in the dialog (bound by the hook) or a trusted `--answer` at start, never from a model-typed answer. Use for approve, accept, overwrite. |
 | `onAnswer` | `{ <option or *>: "revise <step> [--name value]" }` | `revise`: send the route back to a step after that answer. `*` handles free text. `$answer` is the user's text, `$raisedBy` the step that raised the gate. |
+| `free` | boolean, default false | The user's own words are an answer, recorded as typed and read by a later step. `onAnswer: { "*": … }` implies it. |
 | `repeat` | integer >= 1, default 3 | One counter: how many times the user can send the route back through this gate, and how many times the gate step may run. |
 | `object` | `kind` or `kind{value}` | The record the question is about; its path and hash are printed. An earlier step must `produce` it. |
 | `policy` | `{ <skill>: stop }` | For that skill the gate gets a `stop` option and `stop` becomes the default. Used when one route must never continue past it (review). |

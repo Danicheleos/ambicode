@@ -9,11 +9,11 @@ import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
-export const REQUIREMENTS_NORMALIZE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+const REQUIREMENTS_NORMALIZE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
 interface RequirementsOutput { command: string; task: string; text: string; data: unknown; next?: string }
 
-export async function runRequirementsNormalize(runtime: Runtime, args: ParsedArgs): Promise<RequirementsOutput> {
+async function runRequirementsNormalize(runtime: Runtime, args: ParsedArgs): Promise<RequirementsOutput> {
   const task = requireTask('requirements normalize', args);
   const tools = await routeTools(runtime);
   const { view } = await tools.engine.command(COMMAND_SPECS.requirementsNormalize, { task }, async (scope) => scope);

@@ -4,22 +4,9 @@ import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from '#util/args';
 import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
-import { configValidateCommand } from './commands/config/validate.ts';
-import { configPacksCommand } from './commands/config/packs.ts';
-import { contextListCommand, contextTreeCommand, contextWriteCommand } from './commands/context/context.ts';
-import { rulesApplyCommand } from './commands/policy/rules.ts';
-import { checkCommand } from './commands/checks/check.ts';
-import { policyCheckCommand } from './commands/policy/policy-check.ts';
-import { noteSaveCommand } from './commands/route/note.ts';
-import { reportCommand } from './commands/route/report.ts';
-import { mapCommand, refsCommand } from './commands/search/search.ts';
-import { requirementsNormalizeCommand } from './commands/requirements/requirements.ts';
-import { routeNextCommand, routeStartCommand, routeStopCommand } from './commands/route/route.ts';
-import { reviewCommand } from './commands/review/review.ts';
-import { reviewRecordCommand } from './commands/review/record.ts';
-import type { Runtime } from '#types/composition';
 import { MAX_HOOK_INPUT_BYTES } from '#types/hook';
-import type { CliCommand, OptionSpec, ParsedArgs, Rendered } from './types/cli.ts';
+import { COMMANDS, USAGE } from './commands/registry.ts';
+import type { CliCommand, ParsedArgs, Rendered } from './types/cli.ts';
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -65,32 +52,6 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 }
 
-const VERSION_OPTIONS = { flags: ['json'] } as const;
-
-const versionCommand: CliCommand = {
-  name: 'version',
-  summary: 'Print the helper and git versions.',
-  options: VERSION_OPTIONS,
-  run: async (runtime) => {
-    const output = await versionOutput(runtime);
-    return { text: `${output.plugin}\n${output.git}\n${output.node}`, data: output };
-  },
-};
-
-const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
-  configValidateCommand, configPacksCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand,
-  checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
-  requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand,
-].map((entry) => [entry.name, entry]));
-
-/** Generated from `COMMANDS`, so a command cannot be registered and missing from the usage text, or the reverse. */
-export const USAGE = `ambicode <command> [options]
-Every command takes --json: structured output instead of text.
-
-${[...COMMANDS.values()].map((entry) => `  ${entry.name.padEnd(23)}${entry.summary}`).join('\n')}
-`;
-
-export const SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COMMANDS].map(([name, entry]) => [name, entry.options]));
 
 async function dispatch(command: CliCommand, args: ParsedArgs): Promise<Rendered> {
   const shell = await createRuntime();
@@ -100,22 +61,6 @@ async function dispatch(command: CliCommand, args: ParsedArgs): Promise<Rendered
   const rendered = await command.run(runtime, args);
   const notices = runtime.notices ?? [];
   return notices.length === 0 ? rendered : { ...rendered, warnings: [...notices, ...(rendered.warnings ?? [])] };
-}
-
-async function versionOutput(runtime: Runtime): Promise<{ plugin: string; git: string; node: string }> {
-  const { Git } = await import('#platform/git/git');
-  const git = new Git({ runner: runtime.runner, repositoryRoot: runtime.cwd });
-  let gitVersion: string;
-  try {
-    gitVersion = await git.version();
-  } catch {
-    gitVersion = 'git: not available';
-  }
-  return {
-    plugin: `ambicode plugin root: ${runtime.pluginRoot}`,
-    git: gitVersion,
-    node: `node ${process.versions.node}`,
-  };
 }
 
 /**

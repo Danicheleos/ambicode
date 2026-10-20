@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { REVIEWS_DIR } from '#types/defaults';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
-import { resolveTaskDir, taskDirFor } from '#modules/evidence/task/task-dir';
+import { nextReviewDirectory, resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { reviewName, taskSlugFor } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
@@ -73,7 +73,7 @@ async function resolveTarget(workspace: Workspace, options: AssembleOptions): Pr
   const { target } = options;
   if (target.kind === 'merge-request') return resolveCapturedTarget({ workspace, task: options.task, url: target.url });
   if (target.kind === 'branch') return resolveBranchTarget({ git: workspace.git, repositoryRoot: workspace.repositoryRoot, baseRef: target.baseRef ?? workspace.config.baseline ?? '' });
-  return resolveWorkingTarget({ fs: workspace.runtime.fs, git: workspace.git, repositoryRoot: workspace.repositoryRoot });
+  return resolveWorkingTarget({ fs: workspace.runtime.fs, git: workspace.git, repositoryRoot: workspace.repositoryRoot, baseTree: options.baseTree ?? null });
 }
 
 /** The task's `check` entries, newest last: what the model chose to run and recorded with `check --task`. */
@@ -97,7 +97,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
 
   const resolution = await resolveTarget(workspace, options);
   const preexisting = new Set(options.preexisting ?? []);
-  if (preexisting.size > 0) resolution.files = resolution.files.filter((file) => !preexisting.has(file.newPath ?? '') && !preexisting.has(file.oldPath ?? ''));
 
   // Vendored, build-output and credential-shaped files leave the review here: not in the patch, not listed, not counted.
   const excludePaths = [...limits.excludePaths, ...(options.excludePaths ?? [])];
@@ -126,9 +125,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
 
   const taskSlug = taskSlugFor({ requirementIds: resolution.target.kind === 'merge-request' ? [] : requirements.map((source) => source.id), task: options.task });
   const reviewId = reviewName(runtime.clock.now(), runtime.ids.reviewId());
-  const reviewDirectory = taskSlug === null ? path.join(workspace.repositoryRoot, REVIEWS_DIR, reviewId) : taskDirFor(workspace.repositoryRoot, taskSlug, '.', 'review').root;
-  await runtime.fs.mkdirp(reviewDirectory);
-  const taskDirectory = taskSlug === null ? null : (await resolveTaskDir(runtime, taskSlug)).root;
+  const run = taskSlug === null ? null : await resolveTaskDir(runtime, taskSlug);
+  const reviewDirectory = run === null ? path.join(workspace.repositoryRoot, REVIEWS_DIR, reviewId) : await nextReviewDirectory(runtime.fs, run);
+  const taskDirectory = run === null ? null : run.root;
 
   const sourceFree = requirements.length === 0;
   const narrowed = (what: string, globs: readonly string[], rest: string): string[] => (globs.length === 0 ? [] : [`This review was narrowed on request: ${what} matching ${quoteAll(globs)} ${rest}`]);
@@ -183,6 +182,8 @@ const lockedAppend = (runtime: Runtime, taskDirectory: string): AppendEntry => a
 export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}, append?: AppendEntry): Promise<LedgerEntry | null> {
   const { result } = bundle;
   result.brief = path.relative(bundle.workspace.repositoryRoot, path.join(bundle.reviewDirectory, 'brief.md'));
+  // Created at write time: a pin that stops at a check gate must not leave an empty folder that takes number 1.
+  await runtime.fs.mkdirp(bundle.reviewDirectory);
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(result, null, 2)}\n`);
   await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'changed.diff'), bundle.patch);
   await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'files.txt'), `${bundle.files.map((file) => file.newPath ?? file.oldPath ?? '').join('\n')}\n`);
@@ -214,6 +215,12 @@ export async function envelopeRequirements(deps: CheckDeps, routed: Routed): Pro
   const found = await routeEvidence({ runtime: deps.runtime, dir: routed.dir }, envelope);
   return found === null ? null : requirementSources(deps.runtime, { urls: found.urls, evidence: { kind: 'inline', evidence: found.evidence } });
 }
+
+/** The tree the iteration's baseline entry recorded: what a task review is measured from. */
+export const baselineTree = (chain: readonly LedgerEntry[]): string | null => {
+  const tree = chain.findLast((entry) => entry.kind === 'baseline')?.['tree'];
+  return typeof tree === 'string' ? tree : null;
+};
 
 /** Separates this task's changes from the ones that were there before it: baseline → touched set → ledger fields. */
 export async function baselineScope(runtime: Runtime, baseline: Awaited<ReturnType<typeof baselineOf>>, ledger: Record<string, unknown>): Promise<BaselineScope> {

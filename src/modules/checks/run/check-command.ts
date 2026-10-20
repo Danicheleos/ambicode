@@ -45,7 +45,7 @@ export const projectRelative = (project: ProjectConfig, file: string): string =>
   toProjectRelative(normalizeRelative(project.root), file) ?? normalizeRelative(file);
 
 /** The check keys of a project, sorted; `command` is false for a key whose `all` and `file` are both null (it exists but cannot run). */
-export const checkKeys = (project: ProjectConfig): { key: string; all: boolean; file: boolean; command: boolean }[] =>
+const checkKeys = (project: ProjectConfig): { key: string; all: boolean; file: boolean; command: boolean }[] =>
   Object.keys(project.checks).sort().map((key) => ({ key, all: project.checks[key]!.all !== null, file: project.checks[key]!.file !== null, command: project.checks[key]!.all !== null || project.checks[key]!.file !== null }));
 
 /** The key whose command changes files: formatting is not verification, so it never counts as a runnable check. */
@@ -54,13 +54,13 @@ export const FORMAT_CHECK = 'format';
 /** The checks a model may run: those with a command (or, with `form`, with that file/all form), formatting left out. */
 export const runnableKeys = (project: ProjectConfig, form: 'command' | 'file' = 'command'): ReturnType<typeof checkKeys> => checkKeys(project).filter((entry) => entry[form] && entry.key !== FORMAT_CHECK);
 
-/** What `check` will do with each runnable check: the same decision, so the listing cannot promise a run that is refused. `approval` marks a `propose`. */
-export async function runnableChecks(workspace: Workspace, project: ProjectConfig, form: 'command' | 'file' = 'command'): Promise<(ReturnType<typeof checkKeys>[number] & { approval: boolean })[]> {
+/** What `check` will do with each runnable check: the same decision, so the listing cannot promise a run that is refused. `approval` says per form whether a run needs the user. */
+export async function runnableChecks(workspace: Workspace, project: ProjectConfig): Promise<(ReturnType<typeof checkKeys>[number] & { approval: { file: boolean; all: boolean } })[]> {
   const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: [] });
-  const listed: (ReturnType<typeof checkKeys>[number] & { approval: boolean })[] = [];
-  for (const entry of runnableKeys(project, form)) {
-    const { kind } = authorizeCommand({ policy, commandId: entry.key, approvalKey: checkApprovalKey(project.id, entry.key), approvals: new Set() });
-    if (kind !== 'refused') listed.push({ ...entry, approval: kind === 'needs-approval' });
+  const listed: (ReturnType<typeof checkKeys>[number] & { approval: { file: boolean; all: boolean } })[] = [];
+  for (const entry of runnableKeys(project)) {
+    const kindOf = (form: 'file' | 'all') => authorizeCommand({ policy, commandId: entry.key, approvalKey: checkApprovalKey(project.id, entry.key), approvals: new Set(), form }).kind;
+    if (kindOf('file') !== 'refused') listed.push({ ...entry, approval: { file: entry.file && kindOf('file') === 'needs-approval', all: entry.all && kindOf('all') === 'needs-approval' } });
   }
   return listed;
 }
@@ -76,7 +76,7 @@ const keyOf = (entry: LedgerEntry): readonly unknown[] => {
  * One consent check and one `declined` writer for a `propose` key (07-K2 … 07-K4): honoured runs; a bound or typed
  * decline declines; otherwise a typed `--approve` records `acting-needs-human` and the gate is raised again.
  */
-export async function consentForKey(
+async function consentForKey(
   deps: CheckDeps,
   routed: Routed,
   input: { key: string; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raisedBy?: string; raise?: boolean },
@@ -114,9 +114,9 @@ export async function consentForKey(
 export async function authorizeKey(
   deps: CheckDeps,
   routed: Routed | null,
-  input: { policy: ResolvedPolicy; commandId: string; key: string; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raise?: boolean },
+  input: { policy: ResolvedPolicy; commandId: string; key: string; form: 'file' | 'all'; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raise?: boolean },
 ): Promise<'allowed' | 'declined' | 'waiting'> {
-  const authorization = authorizeCommand({ policy: input.policy, commandId: input.commandId, approvalKey: input.key, approvals: new Set() });
+  const authorization = authorizeCommand({ policy: input.policy, commandId: input.commandId, approvalKey: input.key, approvals: new Set(), form: input.form });
   if (authorization.kind === 'allowed') return 'allowed';
   if (authorization.kind === 'refused') {
     if (routed !== null) {
@@ -178,14 +178,15 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   // The pack's commandPolicy names the check by its config name (`unit`, `e2e`), so the check name is the command id.
   const key = checkApprovalKey(project.id, input.name);
   const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: files });
-  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, files, approve: input.approve, decline: input.decline, ...(input.raise === undefined ? {} : { raise: input.raise }) });
+  const form = files.length > 0 ? 'file' : 'all';
+  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, form, files, approve: input.approve, decline: input.decline, ...(input.raise === undefined ? {} : { raise: input.raise }) });
   if (decision === 'waiting') return { outcome: 'waiting', gate: GATE, key };
   if (decision === 'declined') return { outcome: 'declined', key };
 
   const dir = routed?.dir ?? (await resolveTaskDir(deps.runtime, input.task));
   const result = await runOne({
     runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project, policy, commandId: input.name, key,
-    command: commandFor(template, files.map((file) => projectRelative(project, file))), timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
+    command: commandFor(template, files.map((file) => projectRelative(project, file))), form, timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
   });
   const step = routed === null ? null : stepOf(routed.view);
   const route = routed === null ? {} : { route: routed.view.routeId };

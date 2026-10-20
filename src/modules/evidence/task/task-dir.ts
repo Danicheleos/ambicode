@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { openRepository } from '#platform/git/open';
+import { taskExists } from '#platform/ledger/task-unknown';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { REVIEWS_DIR, TASKS_DIR, type DirKind } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
@@ -30,13 +31,24 @@ export function taskDirFor(repositoryRoot: string, slug: string, where = '.', ki
   };
 }
 
+/** One folder per review, nothing overwritten: `<task>/reviews/<n>`, or `<review run>/<n>` when the run is itself a review. */
+export async function nextReviewDirectory(fs: FileSystem, dir: TaskDir): Promise<string> {
+  const parent = path.dirname(dir.root) === path.join(dir.repositoryRoot, REVIEWS_DIR) ? dir.root : path.join(dir.root, 'reviews');
+  const taken = (await fs.readdir(parent).catch(() => [])).flatMap((entry) => (entry.isDirectory() && /^\d+$/.test(entry.name) ? [Number(entry.name)] : []));
+  return path.join(parent, String(Math.max(0, ...taken) + 1));
+}
+
+export async function resolveRepository(runtime: Runtime): Promise<{ repositoryRoot: string; where: string }> {
+  const found = await findSessionRepository(runtime, runtime.cwd);
+  return typeof found === 'string' ? { ...(await openRepository(runtime)), where: '.' } : found;
+}
+
 /**
  * The hook prepares for the configured repository below the session directory; a task directory must land there too.
  * Without a `kind` the slug names whichever run directory holds its ledger (a review run, else a task).
  */
 export async function resolveTaskDir(runtime: Runtime, slug: string, kind?: DirKind): Promise<TaskDir> {
-  const found = await findSessionRepository(runtime, runtime.cwd);
-  const { repositoryRoot, where } = typeof found === 'string' ? { ...(await openRepository(runtime)), where: '.' } : found;
+  const { repositoryRoot, where } = await resolveRepository(runtime);
   if (kind !== undefined) return taskDirFor(repositoryRoot, slug, where, kind);
   const task = taskDirFor(repositoryRoot, slug, where);
   if (await runtime.fs.exists(task.ledger)) return task;
@@ -46,15 +58,15 @@ export async function resolveTaskDir(runtime: Runtime, slug: string, kind?: DirK
 
 /**
  * The task a request names: its first word as a `.ambicode/tasks/<slug>` path, or as the slug or issue key of an
- * existing task; otherwise a new one, named by the text's issue key or slug, or by the skill when there is no text.
+ * existing task; otherwise a new one, named by the text's issue key or slug; null when there is no text.
  */
-export async function taskNameFor(runtime: Runtime, kind: DirKind, text: string, skill: string): Promise<string> {
+export async function taskNameFor(runtime: Runtime, kind: DirKind, text: string): Promise<string | null> {
   const first = text.trim().split(/\s+/)[0] ?? '';
   const word = first.toLowerCase();
   const named = TASK_PATH.exec(first)?.[1];
   if (named !== undefined) return named;
-  const existing = /^[a-z0-9][a-z0-9-]*$/.test(word) && (await runtime.fs.exists((await resolveTaskDir(runtime, word, kind)).root));
-  return existing ? word : (mintTaskSlug(text) ?? skill);
+  const existing = /^[a-z0-9][a-z0-9-]*$/.test(word) && (await taskExists(runtime.fs, (await resolveTaskDir(runtime, word, kind)).root));
+  return existing ? word : mintTaskSlug(text);
 }
 
 /**

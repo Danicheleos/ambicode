@@ -109,10 +109,10 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
 
       const write = await t.skip();
       assert.equal(write.position, 'write');
-      assert.match(write.text, /^Evidence$/m);
-      assert.match(write.text, /^Not verified$/m);
-      assert.match(write.text, /independent review skipped — verification incomplete/);
-      assert.match(write.text, /not formatted: app\/format \(unconfigured\)/);
+      assert.match(write.text, /^Checks\n- app\/unit: passed\n- no formatter configured$/m);
+      assert.match(write.text, /^Review\n- skipped by you$/m);
+      assert.match(write.text, /^Not verified\n- independent review skipped — verification incomplete$/m);
+      assert.doesNotMatch(write.text, /Evidence|not formatted|green exit/);
 
       const ledger = await t.ledger();
       const checks = ledger.filter((entry) => entry.kind === 'check');

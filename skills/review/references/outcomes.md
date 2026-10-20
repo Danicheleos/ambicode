@@ -20,7 +20,7 @@ the change. Raising the limit is a deliberate decision, not the default advice.
 reviewer ran. Say which; do not widen the patterns without asking.
 
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
-default branch name. Pass `--base <ref>`.
+default branch name. AskUserQuestion which ref, then pass `--base <ref>`.
 
 **`check-only-unauthorized`.** `check --file` met a command policy of
 `forbid`, or `propose` with no route on the task. Release:
@@ -28,7 +28,7 @@ configure the check's policy, or run it inside `/ambicode:task`. Inside a task r
 a `propose` check asks the user instead; only the user's own answer approves it.
 
 **`ambiguous-project`.** More than one configured project matches the paths and
-none was named. Refuse to guess: ask which project, then pass `--project <id>` or
+none was named. Refuse to guess: AskUserQuestion with the project ids as options, then pass `--project <id>` or
 narrower paths.
 
 **`check-limit`.** A sixth `check` of one phase in the current step. Release: state
@@ -57,22 +57,11 @@ answer the `rules-table` question in `/ambicode:rules`; headless runs never appl
 `source.location` (an error: fix the quote or drop the rule; after three tries
 it is listed as not migrated).
 
-**`path-missing` / `path-escape`.** A path the configuration or a pack declares
-does not exist, or resolves outside the repository. The message names which.
-Fix the declaration; AMBICODE will not follow it anywhere else.
-
 **`unknown-project`.** The `--project` id is not configured, or no path places
-the request inside a configured project root. Ask which project.
-
-**`review-not-found`.** `review record` found no review waiting for its reviewer (or none with the
-`--review` id). The `PostToolUse` hook on the reviewer subagent may already have recorded it: read the report it
-returned. Otherwise run `route next --task <slug>`; the route's pin step prepares the diff and brief the reviewer reads.
-
-**`review-answer-missing`.** `review record` found no answer from the hook and nothing on
-stdin. Nothing was recorded. Paste the subagent's JSON block on stdin; if it returned nothing, paste `none`.
+the request inside a configured project root. AskUserQuestion with the project ids as options.
 
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
-`--base` belongs to `--branch`. Ask which target the user meant.
+`--base` belongs to `--branch`. AskUserQuestion with the targets as options.
 
 **`unmerged-index`.** There is a conflict in progress, so there is no single
 working state to review. Resolve it first.
@@ -95,7 +84,7 @@ route; no live route, another skill's route, or an unreadable ledger is denied.
 **Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
 keep the payload in a file and record its path and hash. `ledger-unreadable`:
 the task's ledger is damaged or cannot be read as a whole, so nothing was
-written; continue under a new task with `--task <slug>-2`. `ledger-busy`:
+written; repair or delete that ledger.jsonl, then run again with the same `--task`. `ledger-busy`:
 another AMBICODE process is writing the ledger; retry. If it keeps failing,
 make sure no ambicode process is running, then delete `ledger.lock` in the task
 directory. `session-unbound`: `check` found no live route on the task; start one with
@@ -107,7 +96,8 @@ plan route to that step.
 message names the file, the step or gate and the field (build and load): fix that
 file. `route-unknown`: no route ships for that skill; the message lists the shipped
 ones. `route-not-open`: the task has no live route; start one with
-`route start <skill> --task <slug>`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
+`route start <skill> --task <slug>`. `task-unknown`: `--task` names no task; the
+message lists the existing ones (newest first): use one of them, or ask the user which. `task-needed`: the skill was started with no request and this session has no task to continue; nothing was created. Ask the user with AskUserQuestion (the listed tasks as options, a free answer for a new task), then `route start <skill> "<answer>"`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
 the route does not have; the message lists the valid ones.
 `search-layers-not-for-model`: `map --layers` is not a model option;
 the layers are the route's defaults. `search-layer-unknown`: a layer name that does not exist; the message lists the known names.
@@ -133,9 +123,6 @@ draft that fails the pack schema, or a declared file that does not exist. The di
 **`pack-replaces-missing`.** A policy file says `replaces: builtin/<id>` for a built-in this release no longer has.
 Remove it from `policyFiles` or re-copy the packs that replaced it; `docs/rule-migration.md` maps old ids to new ones.
 
-**`artifact-collision`.** Nine files of the same name were already written this minute, so
-none was written. Wait for the next minute and run it again.
-
 **A command was refused.** A check in `config.yaml` runs unless a pack's
 `commandPolicy` says `propose` or `forbid` for it. The
 message names the pack and the reason. Changing it is a deliberate edit to that
@@ -144,7 +131,7 @@ pack's `commandPolicy`, not something to work around.
 The `Stop` hook blocks a finishing message at most once per route, naming what to fix;
 a second failing stop is allowed.
 
-**`invalid-output`.** Printed by `review record` when the reviewer's answer could not be verified
+**`invalid-output`.** Printed in the review report when the reviewer's answer could not be verified
 (no JSON block, or a location outside the diff). It is not a clean review. Report the printed
 rejections as they are; do not retry.
 
@@ -164,8 +151,10 @@ lines. `script-output-invalid`: it printed no JSON object, or an entry without a
 `script-name-invalid`: the name is not letters, digits, `_` or `-`. Report the message and
 stop; the scripts ship with the plugin, so retrying will not change it.
 
-**`mr-diff-missing`.** `review --mr` has no captured merge-request diff. Make the diff call
-the route step names on the GitLab MCP server, then `route next`.
+**`mr-fetch-failed` / `mr-publish-failed`.** `glab` failed to read or post the merge request;
+the message carries glab's own stderr (not installed, not logged in to that host, no access).
+Report it and stop; the route has ended. `mr-diff-missing`: `review --mr` found no fetched
+diff; start the route with `--mr` so its `mr-fetch` step runs.
 
 **`review-findings`.** The task route's review step found findings to fix. They come back
 in the step's `Findings` section; fix them, do not discard them.

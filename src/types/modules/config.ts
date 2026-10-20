@@ -14,15 +14,15 @@ const Name = z.string().min(1);
 const PositiveInt = z.number().int().positive();
 const Limit = PositiveInt.nullable();
 
-export const Effort = z.enum(['low', 'medium', 'high']);
+const Effort = z.enum(['low', 'medium', 'high']);
 const Run = { model: Name, effort: Effort, timeoutMinutes: PositiveInt };
 
 /** `file` runs one file: it must say where the file goes. `null` is an intentionally missing form. */
-export const CheckSpec = z.strictObject({
+const CheckSpec = z.strictObject({
   all: z.string().min(1).nullable(),
   file: z.string().min(1).refine((v) => v.includes('{file}'), { error: 'must contain {file}' }).nullable(),
 });
-export type CheckSpec = z.infer<typeof CheckSpec>;
+type CheckSpec = z.infer<typeof CheckSpec>;
 
 export const ProjectConfig = z.strictObject({
   id: z.string().min(1).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be kebab-case' }),
@@ -49,7 +49,7 @@ export const AmbicodeConfig = z.strictObject({
   id: Name,
   /** Absent means "no baseline recorded"; branch review then needs --base. */
   baseline: z.string().min(1).optional(),
-  context: z.strictObject({ maxTotalTokens: PositiveInt, maxFileTokens: PositiveInt }),
+  context: z.strictObject({ maxTotalTokens: PositiveInt, maxFileTokens: PositiveInt, maxIndexTokens: PositiveInt }),
   skills: z.strictObject({
     init: z.strictObject({
       ...Run,

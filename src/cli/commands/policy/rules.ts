@@ -20,7 +20,7 @@ export async function runRulesApply(runtime: Runtime, args: ParsedArgs): Promise
   return { command: 'rules apply', task, ...applied, ...(next === null ? {} : { next: next.text }), text: `${applied.text}${next === null ? '' : `\n${next.text}`}` };
 }
 
-export const renderRules = (output: RulesOutput): string => output.text;
+const renderRules = (output: RulesOutput): string => output.text;
 
 export const rulesApplyCommand: CliCommand = {
   name: 'rules apply',

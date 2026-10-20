@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { commandContext } from '#harness/engine/context';
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { CONFIG_HEAD, routeFixture } from './route-fixture.ts';
@@ -7,7 +8,7 @@ import type { StartChannel } from '#types/harness';
 import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 import { SESSION_A } from './ids.ts';
 export const CHECK_TASK = 'ord-7';
-export const DEMO = `skill: demo
+const DEMO = `skill: demo
 version: 3
 steps:
   - id: red
@@ -82,6 +83,12 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
     fx.engine.start({ skill: 'demo', text: 'fix the total', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel, headless, scratchpadDir: fx.scratchpad, ...extra });
   const check = (input: Partial<CheckOnlyInput> = {}, session: string | null = SESSION_A) =>
     runCheckOnly(deps(session), { task: CHECK_TASK, name: 'unit', project: null, files: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
-  return { fx, runner, runtime, deps, start, check };
+  /** The task a creator makes (folder and an empty ledger): standalone checks run on it before any route started it. */
+  const folder = async (): Promise<void> => {
+    const dir = path.join(fx.repo.root, '.ambicode', 'tasks', CHECK_TASK);
+    await fx.runtime.fs.mkdirp(dir);
+    await fx.runtime.fs.writeText(path.join(dir, 'ledger.jsonl'), '');
+  };
+  return { fx, runner, runtime, deps, start, check, folder };
 }
 

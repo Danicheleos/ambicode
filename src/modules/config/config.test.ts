@@ -142,3 +142,12 @@ test('03-C6: no ecosystem or language name in routes, step texts or the route en
     assert.equal(match, null, `${path.relative(root, file)} names "${match?.[0]}"`);
   }
 });
+
+test('context.maxIndexTokens is required and positive; the shipped template carries it', async () => {
+  const template = (await readFile(path.join(REPO_ROOT, 'templates/config.yaml'), 'utf8')).replace('__PROJECT_ID__', 'p');
+  const body = `projects:\n${ONE}\n`;
+  assert.doesNotThrow(() => parseConfig(`${template.split('projects:')[0]}${body}`));
+  for (const broken of [template.replace(/ {2}maxIndexTokens: 5000.*\n/, ''), template.replace('maxIndexTokens: 5000', 'maxIndexTokens: 0')]) {
+    assert.throws(() => parseConfig(`${broken.split('projects:')[0]}${body}`), (error: Error & { code?: string }) => error.code === 'config-invalid');
+  }
+});

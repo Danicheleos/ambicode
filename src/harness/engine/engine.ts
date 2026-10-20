@@ -3,21 +3,26 @@ import { loadConfig } from '#modules/config/load';
 import { hasRequirement, requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { saveNote } from '#modules/evidence/notes';
-import { NAMED_ITERATION, TASK_PATH } from '#modules/evidence/task/slug';
+import { TASK_PATH, iterationOf } from '#modules/evidence/task/slug';
 import { resolveTaskDir, taskDirFor, taskNameFor } from '#modules/evidence/task/task-dir';
 import { dirKindFor } from '#types/defaults';
+import { openRepository } from '#platform/git/open';
+import { mrUrlIn, parseMrUrl } from '#platform/gitlab/glab';
+import { standaloneReviewName } from '#modules/review/bundle/review-name';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { markHeadless, markStepDelivered, sessionRoutes } from '../session/active-route.ts';
+import { matchOption } from '../gates/gates.ts';
 import { exitRoute, recordFlagAnswer, recordHookAnswer, unknownGate } from '../gates/answers.ts';
 import { commandContext, entriesOf, readEntries, routeNotOpen } from './context.ts';
 import { canonicalArgs, parseAnswerFlag } from '../definition/flags.ts';
-import { buildChain, exitOf, foldRoute, liveHeads, windowOf } from './fold.ts';
+import { buildChain, exitOf, foldRoute, liveHeads, producesOf, windowOf } from './fold.ts';
+import { taskForEmptyStart } from './empty-start.ts';
 import { stopHook } from './stop.ts';
 import { EXPLICIT, createExecutor, isClosing } from './execute.ts';
 import { append, chainOf, closeRoute, latestPrint } from './run-context.ts';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
-import type { AdvanceInput, Answer, CommandName, RouteArgs, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, StartInput, StepMessage } from '#types/harness';
+import type { ReviewTargetArgs, AdvanceInput, Answer, CommandName, RouteArgs, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, StartInput, StepMessage } from '#types/harness';
 import type { DeliveryChannel, Part, Run } from '../types/engine.ts';
 
 export type { Answer } from '#types/harness';
@@ -27,6 +32,12 @@ interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: Handle
 const inside = new AsyncLocalStorage<true>();
 /** Handlers run inside the engine; a command tail started from one would advance twice (03-T3). */
 export const insideEngine = (): boolean => inside.getStore() === true;
+
+async function reviewRunName(rt: Runtime, target: ReviewTargetArgs | undefined, now: Date): Promise<string> {
+  const branching = target?.branch === true;
+  const branch = branching ? await openRepository(rt).then(({ git }) => git.currentBranch(), () => null) : null;
+  return standaloneReviewName({ mr: target?.mr ?? null, iid: target?.mr == null ? null : parseMrUrl(target.mr).iid, branch, branching, now });
+}
 
 export function createEngine(deps: EngineDeps): Engine {
   const { runtime, routes, handlers } = deps;
@@ -82,16 +93,16 @@ export function createEngine(deps: EngineDeps): Engine {
 
   /** One live route per task: whatever stands is ended before another begins, whichever session started it. */
   async function interrupt(dir: TaskDir, ledger: LockedLedger, entries: readonly LedgerEntry[]): Promise<void> {
-    for (const head of liveHeads(entries)) await closeRoute(runtime, dir, ledger, { route: head.id, reason: 'interrupted', detail: 'a new route started' });
+    for (const head of liveHeads(entries)) await closeRoute(runtime, routes, dir, ledger, { route: head.id, reason: 'interrupted', detail: 'a new route started' });
   }
 
-  /** The same launch again on the same task, minus `iteration N`: the new route picks the next iteration itself. */
+  /** The same launch again on the same task: it names no iteration, so the new route picks the next one itself. */
   function restartOf(run: Run): StartInput {
     const args = run.head['args'] as RouteArgs;
     return {
       skill: run.def.skill,
       task: run.task,
-      text: args.text.replace(NAMED_ITERATION, ' ').replace(/\s+/g, ' ').trim(),
+      text: args.text,
       requirements: args.requirements,
       headless: args.headless,
       answers: args.answers.map(parseAnswerFlag),
@@ -114,7 +125,7 @@ export function createEngine(deps: EngineDeps): Engine {
       if (gate === null || gate === undefined) {
         throw unknownGate(def, routes, answer.gate);
       }
-      if (gate.class !== 'decision' && !gate.options.includes(answer.option) && !gate.options.some((option) => /\{.*\}/.test(option))) {
+      if (gate.class !== 'decision' && !gate.free && matchOption(gate.options, answer.option) === null && !gate.options.some((option) => /\{.*\}/.test(option))) {
         throw new AmbicodeError('gate-option-unknown', `Gate ${gate.id} has no option "${answer.option}".`, { details: [`Options: ${gate.options.join(', ')}.`] });
       }
     }
@@ -135,18 +146,29 @@ export function createEngine(deps: EngineDeps): Engine {
     const trusted = input.channel !== 'cli';
     const headless = input.headless === true;
 
-    const slug = input.task ?? (input.plan === undefined ? undefined : TASK_PATH.exec(input.plan)?.[1]) ?? (await taskNameFor(rt, dirKindFor(input.skill), input.requirements[0] ?? input.text, input.skill));
+    // A merge-request URL as the text is the target, not a requirement to fetch.
+    const textMr = def.skill === 'review' && input.target === undefined ? mrUrlIn(input.text) : null;
+    const target = textMr === null ? input.target : { branch: false, base: null, mr: textMr };
+    const request = input.requirements[0] ?? (input.text.trim() === '' ? input.plan ?? '' : input.text);
+    let slug = input.task ?? (input.plan === undefined ? undefined : TASK_PATH.exec(input.plan)?.[1]) ?? (def.skill === 'review' ? await reviewRunName(rt, target, now()) : await taskNameFor(rt, 'task', request));
+    let text = textMr === null ? input.text : '';
+    if (slug === null && def.needsRequest === true) {
+      slug = await taskForEmptyStart(rt, routes, input.skill, input.session);
+      text = slug;
+    }
+    slug ??= input.skill;
     const dir = await resolveTaskDir(rt, slug, dirKindFor(input.skill));
     const config = (await loadConfig(rt.fs, dir.repositoryRoot)).config;
     const inputArgs = canonicalArgs({
-      text: input.text,
+      text,
+      iteration: iterationOf(text, slug),
       requirements: input.requirements,
       project: input.project ?? null,
       plan: input.plan ?? null,
       answers,
       headless,
-      ...(input.target === undefined ? {} : { target: input.target }),
-      hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: requirementsServer(config.requirements.mcps) }),
+      ...(target === undefined ? {} : { target }),
+      hasRequirement: hasRequirement({ text, requirements: input.requirements, headless }, { mcpServer: requirementsServer(config.requirements.mcps) }),
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
 
@@ -179,7 +201,7 @@ export function createEngine(deps: EngineDeps): Engine {
       }
       const part = await execute(active);
       return { message: messageOf(active, part), run: active, part };
-    });
+    }, { creates: true });
     await settle(result.run, result.part);
     for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug)) {
       const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
@@ -203,8 +225,10 @@ export function createEngine(deps: EngineDeps): Engine {
       const chain = buildChain(entries, head);
       const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: String(head['session']), cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
       if (input.produced !== undefined) run.produced = input.produced;
-      const position = foldRoute(def, chain).position;
-      if (position?.actor === 'model' && position.produces.length === 0 && EXPLICIT.has(input.cause)) {
+      const fold = foldRoute(def, chain);
+      const position = fold.position;
+      // A held record moves the fold past a delegated step before `route next`: the step after it was never delivered, so it is not finished.
+      if (position?.actor === 'model' && producesOf(position, chain.entries).length === 0 && EXPLICIT.has(input.cause) && windowOf(fold, position).some((entry) => entry.kind === 'step' && entry['step'] === position.id && entry['status'] === 'delivered')) {
         await append(run, { kind: 'step', step: position.id, actor: 'model', status: 'completed', cause: input.cause });
       }
 
@@ -240,7 +264,7 @@ export function createEngine(deps: EngineDeps): Engine {
     const head = await withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
       const route = liveHeads(entriesOf(task, await ledger.read())).at(-1);
       if (route === undefined) throw routeNotOpen(task);
-      await closeRoute(runtime, dir, ledger, { route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
+      await closeRoute(runtime, routes, dir, ledger, { route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
       return route;
     });
     await markHeadless(runtime.fs, { session: String(head['session']), scratchpad: scratchpadDir, on: false });
@@ -290,7 +314,7 @@ export function createEngine(deps: EngineDeps): Engine {
 }
 
 /** Resolves whom a guarded command speaks for and hands its body the route context; the body does the module's work. */
-export async function runCommand<T>(
+async function runCommand<T>(
   deps: { runtime: Runtime; routes: RouteRegistry },
   spec: GuardedCommand,
   request: { task: string },
@@ -317,7 +341,7 @@ export async function runCommandTail(
   try {
     return await deps.engine.advance({ task: input.task, cause: input.cause, ...(input.produced === undefined ? {} : { produced: input.produced }), ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
   } catch (error) {
-    if (isAmbicodeError(error) && error.code === 'route-not-open') return null;
+    if (isAmbicodeError(error) && (error.code === 'route-not-open' || error.code === 'task-unknown')) return null;
     throw error;
   }
 }

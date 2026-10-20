@@ -75,6 +75,8 @@ async function review(runtime: Runtime, argv: string[]) {
 
 /** A review pinned under a task, as the route's pin step does: the task ledger and its recorded checks are in play. */
 async function pinnedIn(runtime: Runtime, task: string) {
+  // A task folder exists only once a route started it; the lock no longer creates one.
+  await nodeFileSystem.mkdirp(path.join(runtime.cwd, '.ambicode', 'tasks', task));
   const { bundle } = await pinReview(runtime, { assemble: { target: { kind: 'working' }, task, requirements: [], excludePaths: [], onlyPaths: [], withTests: false }, omissions: [], ledger: {} });
   return bundle;
 }
@@ -121,15 +123,16 @@ describe('U16 requirement modes end to end', () => {
         ],
         conflicts: [],
       });
-
-            const output = await review(
+      // The review route's start creates the task folder; this calls the command directly.
+      await nodeFileSystem.mkdirp(path.join(context.repo.root, '.ambicode', 'tasks', 'ORD-17'));
+      const output = await review(
         context.runtime,
         ['--requirement', JIRA, '--requirement', CONFLUENCE, '--evidence', evidence],
       );
 
       assert.equal(output.result.requirementMode, 'requirement-based');
       assert.ok(
-        output.reviewDirectory.includes(path.join('.ambicode', 'reviews', 'ORD-17')),
+        output.reviewDirectory.includes(path.join('.ambicode', 'tasks', 'ORD-17', 'reviews', '1')),
         output.reviewDirectory,
       );
       
@@ -410,7 +413,7 @@ describe('a review with no reviewer yet', () => {
     }
   });
 
-  it('refuses a merge-request target with mr-diff-missing until the MCP diff is captured', async () => {
+  it('refuses a merge-request target with mr-diff-missing until the diff is fetched', async () => {
     const context = await fixture();
     try {
       const refused = await failure(() => review(context.runtime, ['--mr', 'https://gitlab.example.com/g/p/-/merge_requests/1']));

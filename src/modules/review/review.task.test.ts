@@ -5,6 +5,8 @@ import path from 'node:path';
 import { parseArgs } from '#util/args';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { COMMAND_PACK } from '#testing/fixtures/check-fixture';
+import { pinReview } from '#modules/review/bundle/bundle';
+import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
@@ -78,6 +80,22 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
       await t.fx.repo.write('src/orders.ts', 'export const changed = 1;\n');
       const out = await runReview(t.runtime, parseArgs('review', [], REVIEW_OPTIONS));
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
+    });
+  });
+});
+
+describe('review bundles live inside the task', () => {
+  it('two reviews of one task keep two bundles, 1/ and 2/, and the ledger names each', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      const pin = (): Promise<unknown> => pinReview(t.runtime, { assemble: { target: { kind: 'working' }, task: CHECK_TASK, requirements: [] }, omissions: [], ledger: {} });
+      await pin();
+      await pin();
+      const base = path.join(t.fx.repo.root, '.ambicode', 'tasks', CHECK_TASK, 'reviews');
+      for (const n of ['1', '2']) assert.ok((await readFile(path.join(base, n, 'result.json'), 'utf8')).length > 0, `${n}/result.json`);
+      assert.deepEqual((await t.kinds('review')).map((entry) => entry['result']), ['1', '2'].map((n) => path.join('.ambicode', 'tasks', CHECK_TASK, 'reviews', n, 'result.json')));
+      await assert.rejects(readFile(path.join(t.fx.repo.root, '.ambicode', 'reviews', CHECK_TASK, 'result.json')));
     });
   });
 });

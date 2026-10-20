@@ -6,7 +6,7 @@ import { AmbicodeError, messageOf } from '#util/errors';
 import { CONFIG_FILE } from '#types/defaults';
 import type { FileSystem } from '#types/platform/ports';
 
-export interface LoadedConfig {
+interface LoadedConfig {
   config: AmbicodeConfig;
   filePath: string;
   raw: string;

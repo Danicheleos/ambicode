@@ -10,7 +10,6 @@ import { fixtureByName } from '../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../fixtures/materialize.mjs';
 import { parseArgs } from '#util/args';
-import { runReviewRecord, REVIEW_RECORD_OPTIONS } from '#cli/commands/review/record';
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';
 import { ReviewResult } from '#types/modules/review';
@@ -43,8 +42,8 @@ async function regression() {
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, dir);
   return {
     root, runtime, runner, ledger,
+    answerNext: () => tools.engine.advance({ task: TASK, cause: 'route-next' }),
     start: (...argv: string[]) => runRouteStart(runtime, parseArgs('route start', ['review', '--task', TASK, ...argv, 'review my change'], ROUTE_START_OPTIONS)),
-    record: (stdin: string) => runReviewRecord({ ...runtime, stdin: { read: async () => stdin } }, parseArgs('review record', ['--task', TASK], REVIEW_RECORD_OPTIONS)),
     /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
     answer: async (gate: string, option: string) => {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
@@ -68,18 +67,19 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.equal(done.position, 'review-agent');
       assert.equal(t.runner.calls.length, 0, 'the fixture configures no check with a file form, so the route runs none');
       assert.doesNotMatch(done.text, /review --task/);
-      const brief = done.text.match(/brief: (.*brief\.md)/)![1]!;
+      const brief = (await readFile(path.join(t.root, '.ambicode', 'reviews', TASK, 'steps', 'work-review-agent.md'), 'utf8')).match(/brief: (.*brief\.md)/)![1]!;
       assert.match(await readFile(brief, 'utf8'), /No check recorded for this task/);
 
-      const recorded = await t.record('```json\n{"findings":[],"coverageNotes":["read src/index.ts"]}\n```');
-      assert.match(recorded.next ?? '', /step readback/);
-      assert.equal(recorded.result.reviewer?.status, 'ok');
-      assert.equal(recorded.result.status, 'partial', 'no check was recorded, so the review is partial');
+      await writeFile(path.join(path.dirname(brief), 'answer.json'), '```json\n{"findings":[],"coverageNotes":["read src/index.ts"]}\n```');
+      const readback = await t.answerNext();
+      assert.match(readback.text, /step readback/);
+      assert.match(readback.text, /## review\.record\n1\. WHAT WAS REVIEWED[\s\S]*read src\/index\.ts/);
       const entries = (await t.ledger()).filter((entry) => entry.kind === 'review');
       assert.deepEqual(entries.map((entry) => entry['stage']), ['pending', 'recorded']);
 
       const result = ReviewResult.parse(JSON.parse(await readFile(path.join(t.root, String(entries.at(-1)!['result'])), 'utf8')));
       assert.match(await readFile(path.join(path.dirname(path.join(t.root, String(entries.at(-1)!['result']))), 'report.txt'), 'utf8'), /4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
+      assert.deepEqual([result.reviewer?.status, result.status], ['ok', 'partial']);
       assert.equal(result.checks.length, 0);
     } finally {
       await t.dispose();

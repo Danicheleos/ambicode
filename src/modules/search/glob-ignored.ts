@@ -8,7 +8,7 @@ export interface GlobResponse {
   [key: string]: unknown;
 }
 
-export interface IgnoredProject {
+interface IgnoredProject {
   root: string;
   ignored: readonly string[];
 }

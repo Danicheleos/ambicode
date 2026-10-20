@@ -1,5 +1,5 @@
 # Review read-back
-The report is already printed; nothing is published here (a merge request's publication is the gate after this step). The final message is only:
+The report is printed below under `## review.record`; nothing is published here (a merge request's publication is the gate after this step). The final message is only:
 - One line: what was reviewed (target, files and lines, reviewer status).
 - Findings, one line each: `path:line`, risk, one sentence; or the printed none-line. Keep every `path:line` the finding names exactly as printed, full repository-relative path.
 - Part 3 (verification) in one or two lines, as printed.

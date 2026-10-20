@@ -1,0 +1,11 @@
+{
+  "masterContext": [],
+  "activePlan": null,
+  "evalTrusted": true,
+  "features": {
+    "git": true,
+    "autoCommit": true,
+    "masterLoop": true,
+    "userSettings": true
+  }
+}

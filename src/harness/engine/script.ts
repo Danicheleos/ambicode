@@ -28,7 +28,7 @@ export const scriptHandler: Handler = async (input): Promise<HandlerResult> => {
   if (!NAME.test(name)) return { state: 'failed', code: 'script-name-invalid', message: `script(${name}): a script name is letters, digits, "_" or "-".`, recoverable: false };
   const file = path.join(input.runtime.pluginRoot, 'skills', input.view.skill, 'scripts', `${name}.mjs`);
   const stdin = JSON.stringify({
-    task: input.view.task, skill: input.view.skill, repositoryRoot: input.dir.repositoryRoot, taskDir: input.dir.root, steps: input.dir.steps,
+    task: input.view.task, skill: input.view.skill, repositoryRoot: input.dir.repositoryRoot, cwd: input.runtime.cwd, taskDir: input.dir.root, steps: input.dir.steps,
     args: input.args, params: input.params.slice(1), revise: input.revise, raisedBy: input.raisedBy, headless: input.view.mode === 'headless',
   });
   const outcome = await input.runtime.runner.run({ argv: [process.execPath, file], cwd: input.dir.repositoryRoot, timeoutMs: TIMEOUT_MS, maxOutputBytes: MAX_OUTPUT_BYTES, env: { kind: 'inherited' }, stdin });

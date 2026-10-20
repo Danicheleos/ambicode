@@ -61,7 +61,7 @@ In the target repository, start or restart Claude Code and run:
 2. The `ambicode:scout` agent maps the repository in the background and writes
    the learning context (overview, navigation, conventions, one file per
    module) through `ambicode context write`, within `context.maxTotalTokens`
-   and `context.maxFileTokens`.
+   `context.maxFileTokens` and, for `index.md`, `context.maxIndexTokens`.
 3. Meanwhile the skill reads the manifests to fill in each project's
    ecosystem, commands and checks.
 4. It writes `.ambicode/config.yaml` once, naming each project's built-in packs

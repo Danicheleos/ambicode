@@ -37,7 +37,7 @@ src/platform 1149  src/types 1276  src/ total 13155   tests 15660
 | P1-b summary.md | done, verified 2026-10-16 (src/modules/evidence/report/summary.ts, written by closeRoute) |
 | P2 context: overview.md inside module folders | done, verified 2026-10-16 (context/cli-surface/skill-content 90 pass; context.ts +8/−5). `context write` still accepts the old `modules/<dir>.md` for a parent (per-file rule cannot know). Gap: a leaf dir named `overview` collides with its parent's note. |
 | P3 dead code from the audits | done, verified 2026-10-16 (test:unit 1127 pass/0 fail/1 skip/1 todo; src non-test 11643; skipped: layersSource, gate repeat — see P3 result) |
-| P4 scenario gaps: 8 fixes from scenario-coverage.md "Fix plan" | todo, awaiting the user's go |
+| P4 scenario gaps: 8 fixes from scenario-coverage.md "Fix plan" | superseded by 02-plan.md (run 2 feedback, 2026-10-17): items folded into R9, #4 replaced by R3 |
 | Hand-off: verify, real re-run on inseer-frontend | todo |
 
 ---

@@ -2,7 +2,7 @@ import { openRepository } from '#platform/git/open';
 import { projectForRequest } from '#modules/config/workspace';
 import { buildMap, resolveLayers } from '#modules/search/map';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
-import { seedTextOf } from './brief.ts';
+import { briefOf, investigationOf } from './brief.ts';
 import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
@@ -29,12 +29,11 @@ onGatePrint('project-ambiguous', async ({ task, chain }) => {
   return { line: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
 });
 
-
 const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;
 const LISTED_CHARS = 80;
 
-export async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
+async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
   return (await loadConfig(input.runtime.fs, input.dir.repositoryRoot)).config;
 }
 
@@ -67,7 +66,7 @@ async function sessionProject(input: HandlerInput, config: AmbicodeConfig): Prom
 }
 
 /** The project the route works in: the one its args name, the only one, or the user's answer to `project-ambiguous`. */
-export async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<ProjectConfig | HandlerResult> {
+async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<ProjectConfig | HandlerResult> {
   const answered = latestBound(await chainEntries(input), 'project-ambiguous');
   const chosen = answered !== null && answered['answer'] !== 'stop' ? String(answered['answer']) : null;
   const requested = input.args.project ?? chosen ?? (await sessionProject(input, config));
@@ -88,7 +87,7 @@ async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: re
   return (touched.length > 0 ? touched : mapped).filter((file) => toProjectRelative(root, file) !== null);
 }
 
-export const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
+const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
 
 function renderSources(sources: readonly EnvelopeSource[]): string {
   let left = MAX_TOTAL_CHARS;
@@ -124,18 +123,23 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const { git } = await openRepository(input.runtime);
     const envelope = chain.findLast((entry) => entry.kind === 'envelope');
     const envelopeSourcesOf = envelope === undefined ? [] : await envelopeSources(input, envelope);
-    const seedText = mode === 'context' ? await seedTextOf(input, chain) : null;
-    const seedable = seedText;
-    const files = seedable === null ? [] : await git.listFiles(null);
+    // The whole ledger, not the route's chain: the plan and the investigation were written by earlier routes of the task.
+    const read = await input.ledger.read();
+    const all = read.state === 'ok' ? read.entries : [];
+    const investigation = mode === 'context' ? await investigationOf(input, all) : null;
+    const brief = mode === 'context' && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/i, '') : undefined;
+    const seedText = brief ?? investigation?.text ?? null;
+    const files = seedText === null ? [] : await git.listFiles(null);
     const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];
     const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
     const { layers, source } = resolveLayers(mode);
     try {
-      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedable === null ? [] : pathsCitedIn(seedable, files), symbols: seedable === null ? [] : symbolsCitedIn(seedable) });
+      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText) });
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
       // An empty map with nothing to caveat is still recorded, not sent.
       const silent = map.entry['candidates'] === 0 && map.collisions.length === 0 && map.limitations.length === 0;
-      return { state: 'ok', payload: silent ? null : map.text };
+      const pointer = investigation === null ? null : `Investigation: ${investigation.path}. Read it first.`;
+      return { state: 'ok', payload: [silent ? null : map.text, pointer].filter((part) => part !== null).join('\n') || null };
     } catch (error) {
       return failed(error);
     }

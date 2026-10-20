@@ -12,6 +12,8 @@ interface AuthorizeOptions {
   commandId: string;
   approvalKey: string;
   approvals: ReadonlySet<string>;
+  /** The all form runs a whole suite, so it asks whatever the pack says; a pack can still forbid it. */
+  form: 'file' | 'all';
 }
 
 export function authorizeCommand(options: AuthorizeOptions): CommandAuthorization {
@@ -21,12 +23,12 @@ export function authorizeCommand(options: AuthorizeOptions): CommandAuthorizatio
     return { kind: 'refused', reason: explainRefusal(options.policy, options.commandId) };
   }
 
-  if (action === 'propose') {
+  if (action === 'propose' || options.form === 'all') {
     return options.approvals.has(options.approvalKey)
       ? { kind: 'allowed' }
       : {
           kind: 'needs-approval',
-          reason: `policy declares "${options.commandId}" as propose, so each run is authorized separately`,
+          reason: action === 'propose' ? `policy declares "${options.commandId}" as propose, so each run is authorized separately` : `the all form of "${options.commandId}" runs the whole suite, so each run is authorized separately`,
         };
   }
 

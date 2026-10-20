@@ -1,0 +1,14 @@
+{
+  "id": "3d498793-ddc5-4b2a-8605-24690f8051e0",
+  "title": "Draft the phases for the active plan \"navigator eval\" and set them with plan_set…",
+  "startedAt": "2026-10-19T21:16:01.641Z",
+  "endedAt": "2026-10-20T18:42:09.242Z",
+  "turns": 327,
+  "costUsd": 71.13937249999998,
+  "models": [
+    "claude-opus-5-5",
+    "claude-sonnet-5-5"
+  ],
+  "claudeVersion": "2.1.301",
+  "commit": "1adcb9e27875a41c7ca69ac7f67132e0bab7da99"
+}

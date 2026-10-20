@@ -1,7 +1,7 @@
 ---
-type: regex
-pattern: 'Goal[\s\S]*Changes[\s\S]*Accept[\s\S]*Checks[\s\S]*Leaves out'
-match: contains
-target: { source: file, path: repo/.ambicode/tasks/plan-due/steps/plan-body.md }
+type: tool_used
+tool: Write
+input_match: '"file_path":"[^"]*/tasks/plan-due/steps/plan-body\.md".*Goal.*Changes.*Accept.*Checks.*Leaves out'
+min: 1
 weight: 1
 ---

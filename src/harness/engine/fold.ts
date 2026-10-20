@@ -2,10 +2,9 @@ import type { GateDef, Qualified, When } from '../definition/routes.ts';
 import type { RouteDef, StepDef } from '#types/harness';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Chain } from '#types/modules/evidence';
-import { NAMED_ITERATION } from '#modules/evidence/task/slug';
 import { buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
-export { buildChain, cycleEntries, exitOf, isBoundAnswer, latestBound, liveHeads };
+export { buildChain, exitOf, isBoundAnswer, latestBound, liveHeads };
 
 /** The latest `route` entry written by this session. */
 export function latestRouteOf(all: readonly LedgerEntry[], session: string): LedgerEntry | null {
@@ -39,7 +38,7 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
   return index + 1;
 }
 
-interface FoldContext { args: { text?: string; hasRequirement?: boolean; target?: { mr?: string | null } } }
+interface FoldContext { args: { iteration?: number | null; hasRequirement?: boolean; target?: { mr?: string | null } } }
 
 function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext, gateWindow: (gate: string) => readonly LedgerEntry[], opener: LedgerEntry | undefined, step: StepDef): boolean {
   switch (when.predicate) {
@@ -49,14 +48,12 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    case 'iteration.named': return NAMED_ITERATION.test(context.args.text ?? '');
-    case 'iteration.unnamed': return !NAMED_ITERATION.test(context.args.text ?? '');
+    case 'iteration.named': return typeof context.args.iteration === 'number';
+    case 'iteration.unnamed': return typeof context.args.iteration !== 'number';
     // The start step recorded which iteration this route is at and how many the plan has.
-    // A change released red by a limit still reaches here; the next iteration must not build on it.
     case 'iterations.continue': {
       const start = all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start');
-      const check = all.findLast((entry) => entry.kind === 'check');
-      return !NAMED_ITERATION.test(context.args.text ?? '') && Number(start?.['iteration']) < Number(start?.['iterations']) && check?.['exit'] === 0;
+      return typeof context.args.iteration !== 'number' && Number(start?.['iteration']) < Number(start?.['iterations']);
     }
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
     case 'any': return when.of.some((part) => evaluate(part, all, context, gateWindow, opener, step));
@@ -75,12 +72,16 @@ const limited = (window: readonly LedgerEntry[], step: StepDef): boolean =>
   window.some((entry) => entry.kind === 'limit' && entry['step'] === step.id && (entry['which'] === 'missing-produces'
     || (entry['which'] === 'check' && step.produces.some((produced) => produced.kind === 'check' && produced.value === entry['phase']))));
 
+/** What a step must leave on record: a repository with no runnable check cannot produce a check. */
+export const producesOf = (step: StepDef, entries: readonly LedgerEntry[]): StepDef['produces'] =>
+  entries.some((entry) => entry.kind === 'baseline' && entry['runnable'] === 0) ? step.produces.filter((qualified) => qualified.kind !== 'check') : step.produces;
+
 /** Done-ness per actor (03-F3). */
-function isDone(step: StepDef, window: readonly LedgerEntry[]): boolean {
-  const produced = (): boolean => step.produces.every((qualified) => window.some((entry) => matches(entry, qualified)));
+function isDone(step: StepDef, window: readonly LedgerEntry[], all: readonly LedgerEntry[]): boolean {
+  const produced = (): boolean => producesOf(step, all).every((qualified) => window.some((entry) => matches(entry, qualified)));
   switch (step.actor) {
     case 'code': return ownCompletion(window, step) && produced();
-    case 'model': return (step.produces.length > 0 ? produced() : ownCompletion(window, step)) || limited(window, step);
+    case 'model': return (producesOf(step, all).length > 0 ? produced() : ownCompletion(window, step)) || limited(window, step);
     case 'human': return latestBound(window, step.gate!.id) !== null || limited(window, step);
   }
 }
@@ -116,7 +117,7 @@ export function foldRoute(def: RouteDef, chain: Chain): Fold {
     const whenFalse = step.when !== null && !evaluate(step.when, chain.entries, context, gateWindow, chain.entries[start - 1], step);
     if (position !== null) state = 'pending';
     else if (whenFalse) state = 'skipped';
-    else if (isDone(step, window)) state = 'done';
+    else if (isDone(step, window, chain.entries)) state = 'done';
     else {
       state = 'pending';
       position = step;
@@ -165,7 +166,7 @@ export function currentIn(def: RouteDef, chain: Chain): (entry: LedgerEntry) => 
 }
 
 /** The gate's latest print, or the answered instance, that no human answer has bound yet. */
-export function openPrint(entries: readonly LedgerEntry[], gate: string, instance: string | undefined): boolean {
+function openPrint(entries: readonly LedgerEntry[], gate: string, instance: string | undefined): boolean {
   const print = entries.findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate && (instance === undefined || entry.id === instance));
   if (print === undefined) return false;
   return !entries.slice(entries.indexOf(print) + 1).some((entry) => (entry.kind === 'acceptance' || entry.kind === 'declined') && entry['gate'] === gate);

@@ -1,12 +1,11 @@
 import { stopRoute } from '#testing/fixtures/route-fixture';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChain } from '#harness/engine/fold';
+import { renderSummary } from '#modules/evidence/report/summary';
 import { taskFixture } from '#testing/fixtures/task-fixture';
-import { buildReport } from '#modules/evidence/report/report';
 
 describe('07-R1 guard: a denied headless guard ask in the task route', () => {
-  it('07-R1 guard: route stop blocked with permission-denied detail exits blocked, leads the report, and records no check', async () => {
+  it('07-R1 guard: route stop blocked with permission-denied detail exits blocked, the summary says why, and records no check', async () => {
     const t = await taskFixture();
     try {
       const first = await t.start({ headless: true });
@@ -16,10 +15,9 @@ describe('07-R1 guard: a denied headless guard ask in the task route', () => {
       assert.equal(exit?.['reason'], 'blocked');
       assert.equal(exit?.['detail'], 'permission-denied: npx jest src/a.spec.ts');
       assert.equal((await t.kinds('check')).length, 0, 'no check entry is fabricated');
-      const ledger = await t.ledger();
-      const report = buildReport(buildChain(ledger, ledger.find((entry) => entry.kind === 'route')!).entries);
-      assert.equal(report.status, 'ended: blocked (permission-denied: npx jest src/a.spec.ts)');
-      assert.match(report.text, /none recorded: .*Checks/);
+      const summary = await renderSummary('ord-7', await t.ledger(), async () => null);
+      assert.match(summary, /blocked \(permission-denied: npx jest src\/a\.spec\.ts\)/);
+      assert.doesNotMatch(summary, /passed|Checks:/);
     } finally {
       await t.fx.dispose();
     }

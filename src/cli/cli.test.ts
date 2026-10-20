@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '#util/args';
-import { SPECS as COMMAND_SPECS } from './main.ts';
+import { COMMANDS } from './commands/registry.ts';
 import { MAP_OPTIONS, REFS_OPTIONS } from './commands/search/search.ts';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { isAmbicodeError } from '#util/errors';
@@ -13,6 +13,8 @@ import type { OptionSpec } from './types/cli.ts';
 import { POLICY_CHECK_OPTIONS } from './commands/policy/policy-check.ts';
 import { CHECK_OPTIONS } from './commands/checks/check.ts';
 import { REVIEW_OPTIONS } from './commands/review/review.ts';
+
+const COMMAND_SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COMMANDS].map(([name, entry]) => [name, entry.options]));
 
 const SPECS: Record<string, OptionSpec> = {
   map: MAP_OPTIONS,

@@ -16,7 +16,9 @@ const note = (id: string, extra: object = {}): string => JSON.stringify({ id, at
 async function inDirectory(run: (directory: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'ledger-'));
   try {
-    await run(path.join(root, 'task', 'ORD-17'));
+    const directory = path.join(root, 'task', 'ORD-17');
+    await nodeFileSystem.mkdirp(directory);
+    await run(directory);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -28,7 +30,7 @@ const write = async (directory: string, lines: string[]): Promise<void> => {
 };
 
 describe('the task ledger is append-only evidence', () => {
-  it('02-A1/02-A2: numbers entries per writer, one JSON line each, and creates the directory', async () => {
+  it('02-A1/02-A2: numbers entries per writer, one JSON line each', async () => {
     await inDirectory(async (directory) => {
       const first = await appendLedger(nodeFileSystem, directory, NOW, A, { kind: 'note', path: 'a.md' });
       const second = await appendLedger(nodeFileSystem, directory, NOW, A, { kind: 'review', status: 'complete' });

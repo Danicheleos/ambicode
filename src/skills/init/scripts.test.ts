@@ -54,4 +54,18 @@ describe('init scaffold', () => {
     assert.match(JSON.parse(result.stdout).error, /git root/);
     assert.equal(run(path.dirname(root)).status, 2);
   });
+
+  it('with --task it has the CLI log its outcome as an init entry, and reports when that failed', async (t) => {
+    const root = await repo(t, 'app');
+    const cli = path.join(path.dirname(root), 'cli.mjs');
+    await writeFile(cli, "import { appendFileSync } from 'node:fs'; appendFileSync(process.env.CLI_LOG, process.argv.slice(2).join('|') + '\\n');\n");
+    const log = path.join(path.dirname(root), 'cli.log');
+    const withTask = (extra: string[]) => spawnSync(process.execPath, [SCAFFOLD, '--root', root, '--task', 'init', ...extra], { encoding: 'utf8', env: { ...process.env, CLI_LOG: log } });
+    const ok = JSON.parse(withTask(['--cli', cli]).stdout);
+    assert.equal(ok.recorded, true);
+    assert.equal(await readFile(log, 'utf8'), 'init|record|--task|init|--what|scaffold|--outcome|4 created, config written, gitignore created\n');
+    const missing = JSON.parse(withTask(['--cli', path.join(path.dirname(root), 'absent.mjs')]).stdout);
+    assert.notEqual(missing.recorded, true);
+    assert.equal(JSON.parse(run(root).stdout).recorded, undefined, 'no --task, nothing recorded');
+  });
 });

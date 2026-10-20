@@ -6,8 +6,11 @@ import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '#util/args';
 import { contextTreeCommand } from './commands/context/context.ts';
-import { SPECS, USAGE } from './main.ts';
+import { COMMANDS, USAGE } from './commands/registry.ts';
+import type { OptionSpec } from './types/cli.ts';
 import { STEP_PRINTING } from '../hook/guard/rules/output.ts';
+
+const SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COMMANDS].map(([name, entry]) => [name, entry.options]));
 
 const TABLE: Record<string, readonly string[]> = {
   'route start': ['task', 'headless', 'project', 'answer'],
@@ -20,20 +23,20 @@ const TABLE: Record<string, readonly string[]> = {
   'rules apply': ['project'],
   check: ['task', 'phase', 'name', 'project', 'file', 'approve', 'decline'],
   review: ['estimate'],
-  'review record': ['task', 'review'],
   'note save': ['task', 'kind'],
   report: ['task'],
-  'config validate': [],
-  'config packs': ['list'],
+  'config validate': ['task'],
+  'init record': ['task', 'what', 'outcome'],
+  'config packs': ['list', 'task'],
   'context list': [],
-  'context write': [],
-  'context tree': ['root'],
+  'context write': ['task'],
+  'context tree': ['root', 'level', 'index'],
   version: [],
 };
 
 const GAPS: Record<string, string> = {};
 
-const SUBCOMMANDS = ['route', 'requirements', 'rules', 'note', 'policy', 'context', 'config'];
+const SUBCOMMANDS = ['init', 'route', 'requirements', 'rules', 'note', 'policy', 'context', 'config'];
 
 const declared = (command: string): string[] => {
   const spec = SPECS[command];
@@ -110,7 +113,7 @@ describe('the guard knows which commands print a route step', () => {
 
   it('lists every command that runs a command tail, plus route start and next', () => {
     const causes = [...text.matchAll(/cause: '([^']+)'/g)].map((match) => match[1]!).filter((cause) => cause !== 'route-next');
-    assert.ok(causes.length >= 6, `found ${causes.length} command tails`);
+    assert.ok(causes.length >= 5, `found ${causes.length} command tails`);
     assert.deepEqual([...STEP_PRINTING].sort(), [...new Set([...causes, 'route start', 'route next'])].sort());
   });
   it('names only registered commands', () => {
@@ -137,8 +140,31 @@ describe('context tree', () => {
       assert.doesNotMatch(out.text, /onlyInTest|docs\/guide/);
       assert.deepEqual((out.data as { modules: { parent: string | null }[] }).modules.map((module) => module.parent), [null, 'src/app/features']);
       assert.match((await run('--root', 'docs')).text, /^source files 0, modules 0 /);
+      const level2 = await run('--root', 'src', '--level', '2');
+      assert.equal(level2.text, 'level 2: 1 folders, 3 base names\n  - [src/app/features/dashboard/widgets](modules/src/app/features/dashboard/widgets.md)\n    - d: Widgetd\n    - e: Widgete\n    - f: Widgetf');
+      assert.match((await run('--root', 'src', '--level', '1')).text, /^level 1: 1 folders, 3 base names\n- \[src\/app\/features\]\(modules\/src\/app\/features\/overview\.md\)\n {2}- a: makea/);
+      await assert.rejects(() => run('--level', '0'), /positive integer/);
     } finally {
       await repo.dispose();
     }
+  });
+});
+
+describe('error texts do not hand the user a flag to type', () => {
+  const root = new URL('../', import.meta.url);
+  const sources = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.startsWith('testing'));
+  // --task is the model's own slug, never a choice put to the user.
+  const MODEL_HELD = new Set(['task']);
+
+  it('a text that says to pass a flag asks the user with AskUserQuestion, unless the flag is model-held', () => {
+    const offenders: string[] = [];
+    for (const name of sources) {
+      readFileSync(new URL(name, root), 'utf8').split('\n').forEach((text, index) => {
+        for (const match of text.matchAll(/\b[Pp]ass `?--([a-z-]+)/g)) {
+          if (!MODEL_HELD.has(match[1]!) && !/AskUserQuestion/.test(text)) offenders.push(`${name}:${index + 1} ${text.trim()}`);
+        }
+      });
+    }
+    assert.deepEqual(offenders, []);
   });
 });

@@ -26,6 +26,8 @@ async function inRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
   try {
     await repo.write('package.json', '{}\n');
     await repo.commitAll('initial');
+    await mkdir(taskDir(repo), { recursive: true });
+    await writeFile(path.join(taskDir(repo), LEDGER_FILE), '');
     await run(repo);
   } finally {
     await repo.dispose();
@@ -120,7 +122,7 @@ describe('02-N4: a plan-draft is saved for the task\'s live plan route', () => {
   const live = [route(`${A}-1`, A)];
   const takenOver = [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'interrupted' }, route(`${B}-1`, B)];
   const cases: { label: string; ledger: (object | string)[] | null; session: string | null; allowed?: { id: RegExp; route: string | null }; code?: string }[] = [
-    { label: 'no ledger: routeless', ledger: null, session: null, allowed: { id: /^feedbeef-1$/, route: null } },
+    { label: 'empty ledger: routeless', ledger: null, session: null, allowed: { id: /^feedbeef-1$/, route: null } },
     { label: 'no live plan route: routeless', ledger: [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'done' }], session: A, allowed: { id: new RegExp(`^${A}-3$`), route: null } },
     { label: 'the live route', ledger: live, session: A, allowed: { id: new RegExp(`^${A}-2$`), route: `${A}-1` } },
     { label: 'the route that interrupted the first', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
@@ -237,14 +239,33 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       const draft = await scenario.draft('# Plan A');
       await scenario.answer(await scenario.gate(draft), 'Accept');
       const done = await scenario.promote();
-      assert.deepEqual(done, { outcome: 'promoted', path: draft.path.replace('plan-draft_', 'plan_'), promotedFrom: draft.entry.id });
-      assert.deepEqual(await scenario.files(), ['plan_2026-10-02T14-35.md']);
+      assert.deepEqual(done, { outcome: 'promoted', path: draft.path.replace(/plan-draft_.*$/, 'plan.md'), promotedFrom: draft.entry.id });
+      assert.deepEqual(await scenario.files(), ['plan.md']);
       const plan = (await entriesOf(repo)).find((entry) => entry.kind === 'note' && entry.note === 'plan');
       assert.deepEqual([plan?.promotedFrom, plan?.contentHash, plan?.route], [draft.entry.id, draft.entry.contentHash, `${A}-1`]);
       assert.equal(await readFile(path.join(repo.root, String(plan?.path)), 'utf8'), await readFile(path.join(repo.root, done.path), 'utf8'));
       const before = await snapshot(repo);
       assert.equal((await scenario.promote()).outcome, 'plan-already-promoted');
       assert.equal(await snapshot(repo), before);
+    });
+  });
+
+  it('a second accepted plan for the same task replaces plan.md and the latest plan note carries its hash', async () => {
+    await inRepo(async (repo) => {
+      const scenario = await Scenario.start(repo);
+      const a = await scenario.draft('# Plan A');
+      await scenario.answer(await scenario.gate(a), 'Accept');
+      await scenario.promote();
+      const b = await scenario.draft('# Plan B');
+      await scenario.answer(await scenario.gate(b), 'Accept');
+      const bodyB = await readFile(path.join(repo.root, b.path), 'utf8');
+      assert.equal((await scenario.promote()).outcome, 'promoted');
+      assert.equal(await readFile(path.join(repo.root, b.path.replace(/plan-draft_.*$/, 'plan.md')), 'utf8'), bodyB);
+      const plans = (await entriesOf(repo)).filter((entry) => entry.kind === 'note' && entry.note === 'plan');
+      assert.equal(plans.length, 2);
+      assert.deepEqual([plans.at(-1)?.path, plans.at(-1)?.contentHash], [b.path.replace(/plan-draft_.*$/, 'plan.md'), b.entry.contentHash]);
+      assert.notEqual(a.entry.contentHash, b.entry.contentHash);
+      assert.deepEqual(await scenario.files(), ['plan.md']);
     });
   });
 
@@ -265,7 +286,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       assert.equal((await scenario.promote()).promotedFrom, b.entry.id);
       assert.equal(await scenario.count('note', 'plan-draft'), drafts);
       assert.equal(await scenario.count('note', 'plan'), 1);
-      assert.deepEqual(await scenario.files(), ['plan-draft_2026-10-02T14-35.md', 'plan_2026-10-02T14-35-2.md']);
+      assert.deepEqual(await scenario.files(), ['plan-draft_2026-10-02T14-35.md', 'plan.md']);
     });
   });
 
@@ -361,7 +382,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       const draft = await scenario.draft('# Plan');
       await scenario.answer(await scenario.gate(draft), 'Accept');
       await assert.rejects(scenario.promote(), /crash/);
-      assert.deepEqual(await scenario.files(), ['plan_2026-10-02T14-35.md']);
+      assert.deepEqual(await scenario.files(), ['plan.md']);
       assert.equal(await scenario.count('note', 'plan'), 0);
 
       scenario.runtime = await runtimeFor(repo);
@@ -376,7 +397,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       await scenario.answer(await scenario.gate(draft), 'Accept');
       await rm(path.join(repo.root, draft.path));
       await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
-      await writeFile(path.join(repo.root, draft.path.replace('plan-draft_', 'plan_')), 'other bytes');
+      await writeFile(path.join(repo.root, draft.path.replace(/plan-draft_.*$/, 'plan.md')), 'other bytes');
       await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
     });
   });

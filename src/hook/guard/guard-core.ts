@@ -8,6 +8,7 @@ import { cutsOutput, withoutCuts } from './rules/output.ts';
 import { noteSaveReason, RUN_DIR } from './rules/notes.ts';
 import { PLAN_BODY, planBodyReason, planBodyRefusal } from './rules/plan-body.ts';
 import { repositoryAsk, USER_DECIDES } from './rules/repository.ts';
+import { REVIEWER_AGENT, reviewerRefusal } from './rules/reviewer.ts';
 
 type Decision = Record<string, unknown>;
 
@@ -108,6 +109,10 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (typeof file !== 'string' || file === '') return {};
   const target = normalize(file, nonEmpty(input.cwd) ?? undefined);
+  if (typeof input.agent_type === 'string' && REVIEWER_AGENT.test(input.agent_type)) {
+    const refusal = reviewerRefusal(input.tool_name, target);
+    return refusal === null ? {} : decide('deny', refusal);
+  }
   if (RUN_DIR.test(target)) {
     const body = PLAN_BODY.exec(target);
     if (body !== null && !RUN_DIR.test(body[1] ?? '')) {

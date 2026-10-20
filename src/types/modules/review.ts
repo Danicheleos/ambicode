@@ -59,28 +59,28 @@ export const ReviewerOutput = z.strictObject({
 });
 export type ReviewerOutput = z.infer<typeof ReviewerOutput>;
 
-export const ReviewInputs = z.strictObject({
+const ReviewInputs = z.strictObject({
   changedFiles: count,
   changedLines: count,
   patchBytes: count,
   requirementBytes: count.default(0),
   contextBytes: count,
 });
-export type ReviewInputs = z.infer<typeof ReviewInputs>;
+type ReviewInputs = z.infer<typeof ReviewInputs>;
 export type MeasuredInput = ReviewInputs;
 
 /** `review record` stored the subagent's answer: `ok`, or `failed` with the refused text kept at `rejectedOutputRef`. */
-export const ReviewerRun = z.strictObject({
+const ReviewerRun = z.strictObject({
   status: z.enum(['ok', 'failed']),
   rejections: z.array(z.string()).default([]),
   detail: z.string().nullable().default(null),
   rejectedOutputRef: z.string().nullable().default(null),
   at: z.string().nullable().default(null),
 });
-export type ReviewerRun = z.infer<typeof ReviewerRun>;
+type ReviewerRun = z.infer<typeof ReviewerRun>;
 
 /** `quality-review` is the persisted spelling of `source-free`, mapped in the bundle. */
-export const ReviewRequirementMode = z.enum(['quality-review', 'requirement-based']);
+const ReviewRequirementMode = z.enum(['quality-review', 'requirement-based']);
 
 export const ReviewResult = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
@@ -153,8 +153,10 @@ export interface AssembleOptions {
   excludePaths?: readonly string[];
   onlyPaths?: readonly string[];
   withTests?: boolean;
-  /** Dirty before the task began and untouched since: left out of the review. */
+  /** Dirty before the task began and untouched since: named in an omission; the diff from `baseTree` already leaves them out. */
   preexisting?: readonly string[];
+  /** The iteration's baseline tree: the working target is measured from it instead of HEAD. */
+  baseTree?: string | null;
   /** Stop after measuring the input: nothing is written. */
   dryRun?: boolean;
 }

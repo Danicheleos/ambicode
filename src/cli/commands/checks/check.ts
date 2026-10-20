@@ -1,22 +1,13 @@
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { COMMAND_SPECS } from '#skills/task/commands';
 import { runCommandTail } from '#harness/engine/engine';
-import { buildChain, delegatedStepOf } from '#harness/engine/fold';
 import { AmbicodeError } from '#util/errors';
-import { routeTools, taskOf } from '../route/route.ts';
+import { delegatedAt, routeTools, taskOf } from '../route/route.ts';
 import type { CheckOnlyOutcome } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
-import type { RouteView } from '#types/harness';
-import type { LedgerEntry } from '#types/modules/evidence';
-import type { ParsedArgs, CliCommand, RouteTools } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
 export const CHECK_OPTIONS = { values: ['task', 'phase', 'name', 'project'], repeated: ['file', 'approve', 'decline'], flags: ['json'] } as const;
-
-const delegatedAt = (tools: RouteTools, view: RouteView | null, entries: LedgerEntry[]): boolean => {
-  const def = view === null ? null : tools.routes.route(view.skill);
-  const head = entries.find((entry) => entry.kind === 'route' && entry.id === view?.routeId);
-  return def !== null && head !== undefined && delegatedStepOf(def, buildChain(entries, head)) !== null;
-};
 
 interface CheckOutput { command: 'check'; task: string; name: string; result: CheckOnlyOutcome; next?: string; held?: true }
 
@@ -56,7 +47,7 @@ export function renderCheck(output: CheckOutput): string {
 
 export const checkCommand: CliCommand = {
   name: 'check',
-  summary: 'Run a configured check and record it (--name, --phase, optional --file, --project). At a delegated step it records without advancing the route.',
+  summary: 'Run a configured check and record it (--name, --phase, --file, --project). At a delegated step it does not advance the route.',
   options: CHECK_OPTIONS,
   run: async (runtime, args) => {
     const output = await runCheckCommand(runtime, args);

@@ -1,12 +1,23 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { offersOption, stripRecommended } from './gates.ts';
+import { matchOption } from './gates.ts';
 
-describe('a trailing "(Recommended)" on an answer label', () => {
-  it('is removed, and the option it names is offered', () => {
-    assert.equal(stripRecommended('app (Recommended)'), 'app');
-    assert.equal(stripRecommended('Accept'), 'Accept');
-    assert.equal(offersOption(['app', 'stop'], 'app (Recommended)'), true);
-    assert.equal(offersOption(['app', 'stop'], 'other (Recommended)'), false);
+describe('an answer label is matched to the declared option', () => {
+  it('drops a trailing "(Recommended)" and finds the option', () => {
+    assert.equal(matchOption(['app', 'stop'], 'app (Recommended)'), 'app');
+    assert.equal(matchOption(['app', 'stop'], 'other (Recommended)'), null);
+  });
+
+  it('ignores case and surrounding space and returns the declared spelling', () => {
+    assert.equal(matchOption(['use these sources', 'none — stop'], '  Use These Sources '), 'use these sources');
+    assert.equal(matchOption(['use these sources'], 'USE THESE SOURCES (Recommended)'), 'use these sources');
+    assert.equal(matchOption(['Accept'], 'Accept'), 'Accept');
+  });
+
+  it('matches the label before " — " of an option, unless two options share it', () => {
+    assert.equal(matchOption(['use these sources', 'none — stop'], 'none'), 'none — stop');
+    assert.equal(matchOption(['use these sources', 'none — stop'], 'None (Recommended)'), 'none — stop');
+    assert.equal(matchOption(['use these sources', 'none — stop'], 'stop'), null);
+    assert.equal(matchOption(['a — x', 'a — y'], 'a'), null);
   });
 });

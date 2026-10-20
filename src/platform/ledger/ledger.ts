@@ -57,6 +57,7 @@ export async function ledgerSizeWarning(fs: FileSystem, taskDirectory: string): 
   return `The task ledger is ${size} bytes. The plan-body guard refuses a ledger over 1 MiB; continue under a separate task: --task ${path.basename(taskDirectory)}-2.`;
 }
 
+/** A one-shot append starts the task when it has no ledger yet. */
 export async function appendLedger(
   fs: FileSystem,
   taskDirectory: string,
@@ -71,7 +72,7 @@ export async function appendLedger(
       ledgerBytes: (await fs.stat(path.join(taskDirectory, LEDGER_FILE))).size,
       warning: await ledgerSizeWarning(fs, taskDirectory),
     };
-  });
+  }, { creates: true });
 }
 
 /** Lenient: a torn line, a foreign shape, an unknown kind or a known kind that breaks its schema is skipped; the first of a repeated id wins. */

@@ -1,0 +1,97 @@
+## Current version
+
+0.6.1 (bumped in 33c2a5b4 after p12 cleanup; `npm run verify` green 2026-10-20, 1236 tests 0 fail). Branch `navigator-agent`; commit after every phase/iteration (user, 2026-10-19).
+Bench context = `inseer-frontend/.ambicode/context`, backup `.local-docs/context` (never touch; `cmp` index.md after every run).
+`node --test evals/scripts/*.test.mjs` 73 pass, search tests 22 pass, typecheck clean (2026-10-20). `npm run verify` not run since the navigator work.
+
+## Navigator: where we are (2026-10-20)
+
+User decisions: the navigator stays on **haiku** (frequent scope subagent for all skills; a senior model refines; ±0.1 F1 vs sonnet is fine),
+packaged as one tool, **no Bash** (too risky). Context exists only to make the navigator faster/cheaper; dropping it is a later decision.
+Main problem now: **haiku cuts its own findings**.
+
+Active plan: "navigator eval" (3146e432), next phase p12 (cleanup). Child "haiku navigator + map tool" (540d2397) completed 2026-10-20.
+
+### Bench: 6141 / 3571 / 6404, F1 (haiku unless noted; x2-x3 runs, haiku variance about ±0.15)
+
+```
+variant                              6141   3571   6404   mean   R mean
+bare (sonnet, no context)            .339   .521   .815   .558
+sonnet V2.1 (4c6c84ad)               .33    .58    .86    .59
+haiku 634cccd3 (cap 3 notes)         .144   .616   .744   .501   .443
+haiku + map --folders/--near c46d76ae .050  .374   .738          .427
+haiku 634 + map union 3d15eb34       .077   .355   .745          .356
+haiku no context 4fef362f            .140   .465   .835   .480   .428
+haiku cap 12 notes d5349924          .112   .536   .817   .488   .392
+haiku evidence rule, cap 6 4fc7b3f   .140   .537   .815   .497   .447
+haiku deepest notes 932b65e4         .185   .625   .815   .542   .503   <- current file
+```
+
+10 cases: bare R .530 P .543 F1 .505 $0.144; sonnet V2 F1 .518; sonnet V2.1 F1 .542 $0.128; context-only sonnet (pre-V2) F1 .396.
+**haiku 932b65e4, 10x3 (2026-10-20, stamps 17-55-29..18-12-57): R .593 P .610 F1 .572 $0.054/run** ($1.61 total, 0 zero-score).
+
+```
+case   438  6141 5948 6292 5967 5164 6404 3571 6406 6086
+haiku .470 .194 .517 .473 .766 .857 .852 .555 .610 .431
+bare  .738 .339 .502 .159 .503 .589 .815 .521 .480 .400
+V2.1  .500 .331 .499 .309 .514 .803 .833 .520 .500 .615
+```
+Weak: 6141 (R .185), 438 (R .833 but P .329, per-run .55/.62/.25), 6086 (vs V2.1 -.18). Haiku peak context ~25k, 7.6 tool calls/run.
+
+### Findings
+
+- Bash variants failed because granting Bash removed Grep/Glob from the subagent (`No such tool available: Grep`); reverted
+  (`e12562fe`), `map --folders/--near` removed (`5ffc1b3f`). Offline data-file (i18n key) hop: no gain.
+- Haiku obeys numeric caps and step order (6/6), not floors ("use all N": 3/6) or print steps (0/21). It emits no text/thinking.
+- Stage A: haiku selects modules as well as sonnet (related-module R .73-.88 vs .58).
+- Funnel: truth folders listed in a read note, named: haiku .40-.64, sonnet .77. Named without a source hit: haiku .08-.09,
+  sonnet .94. Haiku names only what Grep/Glob returned ("not globbed, so they are left out") → the "confirmed" answer rule.
+- ~80% of haiku's lost truth folders never appear in a read note; sonnet reaches them by iterating source Greps (~10 on 6141).
+- Context: no measurable gain on haiku (no-context .480 vs .501), doubles peak context (8-19k vs 22-37k). No-ctx ablation for
+  sonnet not run.
+- Bench cost: ~$0.55 per variant (3 cases x3); the sonnet relay main session dominates.
+
+- Evidence-rule variant (129c0ce + cap 6 in 4fc7b3f; current file): "a note line or a Grep hit is evidence", Glob only
+  self-composed paths, keep users/used-by, same-kind siblings rule, drop only clearly unrelated, recall framing.
+  Funnel moved toward sonnet: named/listed .72 (was .47-.60, sonnet .77); named without source hit .36 (was .09, sonnet .94);
+  non-truth kept .21; Glob 0 in 12 runs. F1 flat (mean .497 vs .501): what haiku keeps is now mostly fine, but on 6141 it
+  reads the wrong notes (exact module P .06 R .04). Sibling rule followed in 1 of 2 runs that read the sibling note.
+  Bench cost ~$0.80 (includes one cap-3 set on 6141: F1 .187).
+
+## Next step
+
+1. Done: deepest-note variant (932b65e4; Stage A/B open the deepest matching index line, parents only when no child matches,
+   matching `## Submodules` child first). 6141 truth-bearing opens 14/18 (was 2/18), 14-16 truth folders listed per run;
+   naming is the remaining gap there (26/46 listed named). Bench R .503 meets the child plan target.
+2. Done: 10x3 confirmation (child plan p4 complete): F1 .572 > V2.1 .542 > bare .505 at 1/3 of the cost.
+3. Backlog (user, 2026-10-20): 6141 naming / source-search usage hop; 438 precision; 6086 vs V2.1.
+4. Then: source-search iteration like sonnet (next Grep from the previous hits); decide on the context (user, later).
+3. p12: dead code (learn/seed/`navigator` CLI), `npm run verify`, version bump.
+
+## Eval setup (navigator)
+
+- Cases `fe-vs-<id>-navigator`, generated by `evals/scripts/navigator-cases.mjs` (gitignored); never run `evals:generate`
+  without `NAV_CASES`/`NAV_BENCH` (it wiped the cases once; regenerated, grader names match for all 10).
+- Run: `npm run evals -- --tag navigator --case fe-vs-<id>-navigator --runs N --max-cost-usd X`, one case per command, build first.
+- Plugin arm: sonnet relay main session (`allowed_tools: [Agent]`) calls `ambicode:navigator` once. `run.mjs` strips
+  `CLAUDE_CODE_SUBAGENT_MODEL*` from the child env (the user's shell forces sonnet otherwise). Scaffold copies context + config.yaml.
+- Scoring: truth/answer collapsed to folders, ancestorShare 0.3; metrics in `results/<stamp>/aggregate-result.json`.
+- Eval dir must stay under 20,000 entries (18,433 at last count; ~16-30 per case run).
+- Bench leakage: inseer-frontend HEAD is after every truth commit (favours source search for all arms).
+
+## Open
+
+- Path-prefix tolerance in the scorer (bare answers without `main/` score 0) — not decided.
+- Done 2026-10-20 (71449eda, 72c446bd): test-only exports removed, 153 unused exports unexported, guard in
+  `src/architecture.test.ts` ("exports only what another file imports", empty allowlist). Still open: todo test
+  review-route.test.ts:343 (`--answer narrow` repeat-limit bug, task-lifecycle P3); unused exports in evals/scripts/*.mjs (low).
+
+## Task-lifecycle (older)
+
+Done 2026-10-17 on `new_tuning` (run-3 audit fixes, verify green). Still open:
+- plan-quality fails ~1 of 3 per plan case (judge reads the rubric literally); proposed rubric fix awaits the user.
+- review-subtle unstable; rules-migrate rules-faithful 1 of 3; plan-reuse anchors-valid failed once.
+- `agent_type` reaching the guard is not observed; if absent, the reviewer rule fails open.
+- Linked requirements not passed to the review (~+28 KB): awaiting the user.
+- plan-check is structural only; scout notes are thin (Depends on 0, Gotchas 0).
+- VS Code started inside a Claude session inherits `CLAUDE_CODE_CHILD_SESSION`; start VS Code fresh.

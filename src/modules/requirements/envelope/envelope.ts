@@ -1,6 +1,7 @@
 import { RequirementEvidence, type EnvelopeInput, type EnvelopeSource } from '#types/modules/requirements';
 import { latestBound } from '#modules/evidence/ledger-chain';
 import { contentHash } from '#util/hash';
+import { isIssueKey } from '#util/issue-key';
 import { readCapture } from '../capture/capture.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs } from '#types/harness';
@@ -18,7 +19,7 @@ export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>): strin
   const first = args.text.trim().split(/\s+/)[0] ?? '';
   const named = [...args.requirements, ...(args.text.match(URL_IN_TEXT) ?? [])];
   // A first-word key that a listed URL already names is the same requirement, not a second one to capture.
-  const sources = /^[A-Z][A-Z0-9]+-\d+$/.test(first) && !named.some((source) => source.includes(first)) ? [...named, first] : named;
+  const sources = isIssueKey(first) && !named.some((source) => source.includes(first)) ? [...named, first] : named;
   return [...new Set(sources.map((source) => source.trim()))];
 }
 
@@ -64,12 +65,20 @@ async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom
  */
 export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeResult> {
   const read = await input.ledger.read();
-  const entries = read.state === 'ok' ? read.entries.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
+  const all = read.state === 'ok' ? read.entries : [];
+  const entries = all.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? '')));
   const asked = askedKeys(input.args);
-  const complete = await captured(input, entries);
+  // One envelope per task: a route reuses what an earlier route of the task captured instead of starting empty.
+  const complete = await captured(input, all);
   const missingAsked = asked.filter((key) => !complete.has(key));
 
-  if (complete.size > 0) {
+  if (asked.length === 0 && complete.size > 0) {
+    const named = all.filter((entry) => entry.kind === 'requirement' && entry['relation'] === 'asked' && complete.has(String(entry['key']))).map((entry) => String(entry['key']));
+    return record(input, [...complete.values()], 'captures', named.length === 0 ? [...complete.keys()] : [...new Set(named)], []);
+  }
+
+  // A linked capture rides along with an asked one but never stands in for it.
+  if (missingAsked.length < asked.length) {
     if (missingAsked.length > 0) {
       if (input.view.skill === 'review') return { state: 'failed', code: 'requirements-missing', message: `The review asked for ${missingAsked.join(', ')}, which is not captured.`, recoverable: true };
     }

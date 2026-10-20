@@ -53,4 +53,10 @@ describe('evals retrieval metrics', () => {
     assert.equal(finalTextOf(trace), '## Files\nsrc/a.ts');
     assert.equal(metricsOf(SPEC, trace).recall, 0.333);
   });
+
+  it('the files block is the first ```files fence; paths named in prose around it do not count, and no block is a broken contract', () => {
+    const text = 'src/x.ts is a decoy.\n```files\nsrc/a.ts\n./src/b.ts\n```\nWhy:\nsrc/d.ts - nope';
+    assert.deepEqual(foundPaths(text, 'files-block'), ['src/a.ts', 'src/b.ts']);
+    assert.equal(foundPaths('src/a.ts only in prose', 'files-block'), null);
+  });
 });

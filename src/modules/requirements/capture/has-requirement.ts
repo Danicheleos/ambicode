@@ -1,5 +1,6 @@
+import { isIssueKey } from '#util/issue-key';
+
 const URL_PATTERN = /https?:\/\/\S+/i;
-const BARE_KEY = /^[A-Z][A-Z0-9]+-\d+$/;
 
 const REQUIREMENT_SERVER = /jira|confluence|atlassian/i;
 
@@ -18,5 +19,5 @@ export function hasRequirement(
   if (args.headless) return false;
   if (URL_PATTERN.test(args.text)) return true;
   const first = args.text.trim().split(/\s+/)[0] ?? '';
-  return config.mcpServer !== null && BARE_KEY.test(first);
+  return config.mcpServer !== null && isIssueKey(first);
 }

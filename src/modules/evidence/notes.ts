@@ -24,7 +24,7 @@ const shown = (dir: TaskDir, relative: string): string => (dir.where === '.' ? r
 
 const unreadable = (task: string, reason: string): AmbicodeError =>
   new AmbicodeError('ledger-unreadable', `The ledger of task ${task} cannot be read: ${reason}. Nothing was written.`, {
-    details: [`Continue under a new task: --task ${task}-2.`],
+    details: [`Repair or delete that ledger.jsonl, then run again with --task ${task}.`],
   });
 const notAccepted = (reason: string, why: string): AmbicodeError =>
   new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
@@ -34,7 +34,7 @@ const draftMissing = (task: string): AmbicodeError =>
   });
 
 /** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */
-export async function owningRoute(ledger: LockedLedger, task: string): Promise<string | null> {
+async function owningRoute(ledger: LockedLedger, task: string): Promise<string | null> {
   const read = await ledger.read();
   if (read.state === 'unreadable') throw unreadable(task, read.reason);
   const live = liveHeads(read.state === 'ok' ? read.entries : []).at(-1);
@@ -73,7 +73,6 @@ export async function saveNote(
 
   const work = async (ledger: LockedLedger): Promise<SavedNote> => {
     const route = kind === 'plan-draft' ? await owningRoute(ledger, task) : (input.route ?? null);
-    await runtime.fs.mkdirp(dir.root);
     const relative = relativeTo(dir, await writeNote(runtime, dir, kind, text));
     const entry = await ledger.append({
       kind: 'note',
@@ -126,9 +125,9 @@ export async function promotePlan(
     if (promoted !== undefined) return { outcome: 'plan-already-promoted' as const, path: shown(dir, promoted.path), promotedFrom: draft.id };
 
     const draftName = path.basename(draft.path);
-    const planName = draftName.replace(/^plan-draft_/, 'plan_');
-    if (planName === draftName) throw new AmbicodeError('internal', `${draft.path} is not named plan-draft_<timestamp>.md.`);
-    const [draftFile, planFile] = [path.join(dir.root, draftName), path.join(dir.root, planName)];
+    if (!draftName.startsWith('plan-draft_')) throw new AmbicodeError('internal', `${draft.path} is not named plan-draft_<timestamp>.md.`);
+    // Stable name: people and the eval grader need one path to the current accepted plan; consumers read the latest plan note.
+    const [draftFile, planFile] = [path.join(dir.root, draftName), path.join(dir.root, 'plan.md')];
     const bytesMatch = async (file: string): Promise<boolean> => contentHash(await runtime.fs.readBytes(file)) === draft.contentHash;
     if (!(await runtime.fs.exists(draftFile))) throw draftMissing(task);
     if (!(await bytesMatch(draftFile))) throw notAccepted('object-changed', `${draft.path} no longer has the bytes that were accepted.`);

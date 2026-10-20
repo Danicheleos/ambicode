@@ -136,6 +136,10 @@ makes measurement cheap in that project.
   24 runs the `.ts` sources directly; there is no compile step for tests.
 - `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
   `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
+- `test:unit` takes about 110s alone and longer beside other agents, past the
+  default 120s Bash timeout. Run it, and `verify`, in the foreground with
+  `timeout: 600000`. Never poll a backgrounded run with Monitor or sleep
+  timers: each timer that fires after your hand-back re-opens your run.
 - `npm run build` validates the route files, then esbuild bundles
   `src/cli/main.ts` into `scripts/ambicode.mjs` (with code-split `chunks/`) and
   `src/hook/guard/guard.ts` into `scripts/guard.mjs`. `scripts/` and
@@ -146,8 +150,8 @@ makes measurement cheap in that project.
 - `npm run evals` (plugin arm) and `npm run evals:bare` (no plugin, the
   baseline) cost money and run the bundle, not `src/`. Build first. Defaults:
   Sonnet 5.5, effort low, 1 run. Cases are generated from
-  `evals/scripts/cases.mjs` (`npm run evals:generate`); every run appends to
-  `evals/history.jsonl`. `evals/README.md` explains the arms and the lift.
+  `evals/scripts/cases.mjs` (`npm run evals:generate`); results are written to
+  `evals/cases/results/`. `evals/README.md` explains the arms.
 
 CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
 native Windows `cmd`, plus an LF line-endings check. Paths, separators and

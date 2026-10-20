@@ -27,7 +27,7 @@ describe('review scripts (C7)', () => {
       await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger()}\n`);
       await writeFile(path.join(taskDir, 'steps', 'x-policy-before-work-review.md'), 'RULE no-eval: never eval.');
       const out = run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
-      assert.equal(out['payload'], `brief: ${path.join(reviewDir, 'brief.md')}`);
+      assert.equal(out['payload'], `brief: ${path.join(reviewDir, 'brief.md')}\nanswer: ${path.join(reviewDir, 'answer.json')}`);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       assert.match(brief, /### a\.ts \[modified\]\nnew-side lines: 3-6\nold-side lines: 3-5/);
       assert.match(brief, /RULE no-eval: never eval\./);
@@ -39,8 +39,8 @@ describe('review scripts (C7)', () => {
       await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'red', exit: 1, files: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'] })}\n`);
       run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
       const withChecks = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
-      assert.match(withChecks, /- app\/unit red: exit 1; on: a\.spec\.ts/);
-      assert.match(withChecks, /- app\/unit green: exit 0; on: a\.spec\.ts/);
+      assert.match(withChecks, /- app\/unit: passed; on: a\.spec\.ts/);
+      assert.doesNotMatch(withChecks, /exit 1/, 'the red run the green run replaced is stale');
       assert.doesNotMatch(withChecks, /No check recorded/);
 
       await mkdir(path.join(root, '.ambicode', 'context'), { recursive: true });
@@ -71,6 +71,39 @@ describe('review scripts (C7)', () => {
     try {
       assert.deepEqual(run('brief', input), { failed: { code: 'review-missing', message: 'no review on record for this task; nothing to brief' } });
       await assert.rejects(readFile(path.join(reviewDir, 'brief.md')));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('brief numbers every diff line with its file line: the new side for added and context lines, the old side for removed ones', async () => {
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
+    try {
+      await writeFile(path.join(reviewDir, 'changed.diff'), 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -3,3 +3,4 @@\n keep\n-old\n+new\n+more\n keep2\n@@ -40 +41 @@\n-x\n+y\n');
+      run('brief', input);
+      const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      assert.ok(brief.includes('\n 3  keep\n 4 -old\n 4 +new\n 5 +more\n 6  keep2\n@@ -40 +41 @@\n40 -x\n41 +y\n'), brief);
+      assert.equal(await readFile(path.join(reviewDir, 'changed.diff'), 'utf8').then((text) => text.startsWith('diff --git a/a.ts')), true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('brief lists only the checks of the reviewed route, the latest run per key, named by outcome', async () => {
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
+    try {
+      const check = (route: string, key: string, exit: number) => ({ kind: 'check', route, key, phase: 'green', exit, files: [] });
+      const lines = [
+        check('r-old', 'app/stale', 1),
+        check('r-now', 'app/unit', 1), check('r-now', 'app/lint', 1), check('r-now', 'app/unit', 0),
+        { kind: 'review', route: 'r-now', result: path.relative(root, path.join(reviewDir, 'result.json')) },
+      ];
+      await writeFile(path.join(input.taskDir, 'ledger.jsonl'), `${lines.map((entry) => JSON.stringify(entry)).join('\n')}\n`);
+      run('brief', input);
+      const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      assert.match(brief, /- app\/unit: passed/);
+      assert.match(brief, /- app\/lint: FAILED \(exit 1\)/);
+      assert.doesNotMatch(brief, /app\/stale|app\/unit[^\n]*exit 1|green: exit/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

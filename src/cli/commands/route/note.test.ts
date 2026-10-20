@@ -9,13 +9,20 @@ import { contentHash } from '#util/hash';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '#util/args';
+import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { runNoteSave, NOTE_SAVE_OPTIONS } from './note.ts';
 
 const MAIN = path.join(import.meta.dirname, '..', '..', 'main.ts');
 
 const NOW = new Date(2026, 9, 2, 14, 35);
 
-async function save(repo: TempRepo, argv: string[], body: string | null) {
+/** A task folder exists before anything saves into it; `seed: false` keeps a test about refusals from creating one. */
+async function save(repo: TempRepo, argv: string[], body: string | null, seed = true) {
+  const task = taskSlugFor({ requirementIds: [], task: argv[argv.indexOf('--task') + 1] ?? null });
+  if (seed && task !== null) {
+    await mkdir(path.join(repo.root, '.ambicode/tasks', task), { recursive: true });
+    await writeFile(path.join(repo.root, '.ambicode/tasks', task, 'ledger.jsonl'), '', { flag: 'a' });
+  }
   const runtime = await createRuntime({
     cwd: repo.root,
     clock: { now: () => NOW, elapsed: () => 0 },
@@ -74,7 +81,8 @@ describe('note save owns the name and the time of a task note', () => {
       );
     const withConfiguredChild = async (parent: string) => {
       execFileSync('git', ['init', '-q', path.join(parent, 'repo')]);
-      await mkdir(path.join(parent, 'repo', '.ambicode'), { recursive: true });
+      await mkdir(path.join(parent, 'repo', '.ambicode', 'tasks', 'x'), { recursive: true });
+      await writeFile(path.join(parent, 'repo', '.ambicode', 'tasks', 'x', 'ledger.jsonl'), '');
       await writeFile(path.join(parent, 'repo', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
     };
     // The eval sandbox's home is an unconfigured git tree holding repo/.
@@ -116,12 +124,14 @@ describe('note save owns the name and the time of a task note', () => {
 
   it('refuses a missing kind, a missing task and an empty body, writing nothing', async () => {
     await inRepo(async (repo) => {
-      await assert.rejects(save(repo, ['--task', 'x'], 'body'), /--kind/);
-      await assert.rejects(save(repo, ['--kind', 'notes'], 'body'), /--task/);
+      await assert.rejects(save(repo, ['--task', 'x'], 'body', false), /--kind/);
+      await assert.rejects(save(repo, ['--kind', 'notes'], 'body', false), /--task/);
       await assert.rejects(save(repo, ['--task', 'x', '--kind', 'notes'], '  \n'), /standard input/);
       await assert.rejects(save(repo, ['--task', 'x', '--kind', 'notes'], null), /standard input/);
       await assert.rejects(readFile(path.join(repo.root, '.ambicode/tasks/x/plan.md')));
-      await assert.rejects(readdir(path.join(repo.root, '.ambicode/tasks')));
+      assert.deepEqual(await readdir(path.join(repo.root, '.ambicode/tasks')), ['x'], 'a refusal creates no task');
+      assert.deepEqual(await readdir(path.join(repo.root, '.ambicode/tasks/x')), ['ledger.jsonl'], 'only the empty ledger the test seeded');
+      assert.equal(await readFile(path.join(repo.root, '.ambicode/tasks/x/ledger.jsonl'), 'utf8'), '');
     });
   });
 });
@@ -146,12 +156,12 @@ describe('the note and report commands', () => {
     });
   });
 
-  it('06-N1: --kind plan is a bad argument naming the three save kinds, and writes nothing', async () => {
+  it('06-N1: --kind plan is a bad argument naming every save kind, and writes nothing', async () => {
     await inRepo(async (repo) => {
       const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan', '--json'], '# Plan');
       assert.equal(out.status, 2);
       assert.match(out.stderr, /bad-argument/);
-      assert.match(out.stderr, /investigation, plan-draft or notes/);
+      assert.match(out.stderr, /investigation, plan-draft, notes, result/);
       await assert.rejects(readdir(path.join(repo.root, '.ambicode/tasks/ORD-17')));
     });
   });
@@ -160,7 +170,7 @@ describe('the note and report commands', () => {
     await inRepo(async (repo) => {
       cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation'], '# Findings');
       const report = JSON.parse(cli(repo, ['report', '--task', 'ORD-17', '--json']).stdout);
-      assert.deepEqual(Object.keys(report), ['evidence', 'notVerified']);
+      assert.deepEqual(Object.keys(report), ['summary']);
       assert.doesNotMatch(cli(repo, ['report', '--task', 'ORD-17']).stdout, /ambicode report/);
     });
   });

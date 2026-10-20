@@ -62,7 +62,7 @@ content, citations, status, failureReason, retrievedVia) and `conflicts`; `inves
 to two commands — `review`, or `review` again after fixing a finding — pipes it again, so there is nothing to keep alive across
 consumers and nothing to remember to delete. Nothing is lost either way:
 every retrieved source's content, citations, and provenance are carried into
-the saved review result (`.ambicode/reviews/<slug>/result.json`).
+the saved review result (`result.json` in the review's numbered folder, see "Where a review is saved").
 
 Every `--requirement` URL must have an entry in that envelope, and the
 envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
@@ -98,13 +98,12 @@ the binding names is refused.
 /ambicode:review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
 ```
 
-Give it the full URL. AMBICODE has no GitLab client and calls no GitLab API.
-The merge request comes through the GitLab MCP server connected to your Claude
-session: the route tells Claude to call `get_merge_request` and the diff tool
-of that server, every page. A hook records the diff from that response as
-`reviews/mr-diff.patch` beside `mr-diff.json` (url, head sha, tool, hash) in
-the task directory. Without a captured diff, `review` refuses with
-`mr-diff-missing`.
+Give it the full URL, on any GitLab host. The route's first step runs
+`glab mr diff --raw` and `glab api` for the merge request, so `glab` must be
+installed and logged in to that host. The diff is written as
+`reviews/mr-diff.patch` beside `mr-diff.json` (url, head sha, diff refs, title)
+in the task directory. If glab fails, the route ends with `mr-fetch-failed` and
+glab's own message.
 
 ### What it does not do
 
@@ -118,9 +117,8 @@ the task directory. Without a captured diff, `review` refuses with
 
 ### What can be missing, and how you find out
 
-The review sees only the diff the MCP server returned. A server that omits a
-file, collapses it, or truncates a page produces a review of less than the
-merge request, and nothing in the diff says so. Ask for every page.
+The review sees only the diff `glab mr diff` printed. GitLab collapses or
+omits very large files in a diff, and nothing in the diff says so.
 
 ### Test code is not reviewed
 
@@ -141,27 +139,29 @@ there the tests are usually the work you just did.
 After the read-back the route lists the findings as `n. path:line — comment`
 and asks "Post which findings as merge-request comments?" with `all`, `none`,
 or a number list as free text. `none` is the default and ends the route.
-Posting is Claude's action after your answer: one discussion per selected
-finding through the GitLab MCP server, body the suggested comment, position the
-new path and line. AMBICODE records the answer. It does not post and does not
-verify that Claude did.
+After your answer the route posts one discussion per selected finding with
+`glab api -X POST`, body the suggested comment, position the new path and line
+on the fetched head. The route's exit records what was posted. A failed post
+ends the route with `mr-publish-failed`, glab's message and the comments
+already posted.
 
 ## What the reviewer can do
 
 The reviewer is the plugin subagent `ambicode:reviewer`
-(`agents/reviewer.md`). It has `Read`, `Grep` and `Glob`, and nothing else: no
-command-running tool, no MCP, no way to post. Its prompt names only `brief.md`, which holds the whole diff; the code is in the checkout. A
+(`agents/reviewer.md`). It has `Read`, `Grep`, `Glob` and `Write`, and `Write` is
+for its `answer.json` in the review folder alone: the guard refuses any other file call it makes. No
+MCP, no way to post. Its prompt names a work file that points at `brief.md`, which holds the whole diff; the code is in the checkout. A
 merge request is diff-only: the reviewer has no file content for it.
 
 Code, requirements and check output reach it below a heading marked
 `UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or a
 goal. It is data, whatever it claims about itself.
 
-The route does not trust the answer. The `PostToolUse` hook on the reviewer
-subagent reads its final message from the tool response, validates every finding
-against the pinned change and writes the result. Claude does not re-type the
-answer; if the hook recorded nothing, it runs `review record --task <slug>` and
-pastes the block on stdin.
+The route does not trust the answer. The reviewer writes the JSON block to
+`answer.json` in the review folder; `route next` reads it, validates every
+finding against the pinned change and writes the result. The subagent may run
+in the background: Claude runs `route next` when it returns. A reviewer that
+wrote no answer is recorded as a failed review, not a clean one.
 
 ## What comes back
 
@@ -179,7 +179,7 @@ Four parts, in this order.
    rejected for naming a file or line that is not in the change.
 
 `review` writes `result.json`, `changed.diff`, `files.txt`, `report.txt` and
-`brief.md` to `.ambicode/reviews/<slug>/` (gitignored); `review record` adds
+`brief.md` to a numbered review folder (gitignored); recording the answer adds
 `findings.json` and rewrites `result.json` and `report.txt` with the findings.
 
 ### Reading the outcome honestly
@@ -188,7 +188,7 @@ Four parts, in this order.
 reviewer identified nothing material within the scope and material it was given.
 
 **A failed reviewer produced no finding list at all.** If the subagent returns
-no parsable JSON block, `review record` records a failed review and keeps the
+no parsable JSON block (or no answer file), the route records a failed review and keeps the
 raw answer in `rejected-output.txt`. It is not a review that found nothing.
 
 **A missing or failing check does not block the review.** It narrows what was
@@ -214,16 +214,18 @@ writes nothing.
 
 ## Where a review is saved
 
-A task's notes live in `.ambicode/tasks/<slug>/`; a review run has its own directory under `.ambicode/reviews/<slug>/`:
+A task's notes live in `.ambicode/tasks/<slug>/`, and each review of the task in its own numbered folder
+beside them; nothing is overwritten. A standalone `/ambicode:review` is named after its target
+(`mr-<iid>`, `branch-<branch>`, `local-<date>-<time>` for the working tree) and numbers its reviews the same way:
 
 ```
 .ambicode/tasks/ORD-17/
-  plan_2026-09-22T23-42.md
-  investigation_2026-09-22T21-10.md
+  plan.md
   notes.md
-.ambicode/reviews/ORD-17/
-  result.json
-  report.txt
+  reviews/1/result.json, report.txt, ...
+  reviews/2/
+.ambicode/reviews/mr-2764/
+  1/result.json, report.txt, ...
 ```
 
 The task is named by the first `--requirement` you pass — a ticket is what

@@ -58,12 +58,12 @@ describe('03-H4: a CLI advance after a hook launch', () => {
       await inv.hooked.event({ hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:investigate how does addToCart work --task cart' }, CLAUDE_1);
       await inv.fx.engine.advance({ task: 'cart', cause: 'route-next' });
       const context = commandContext({ runtime: inv.fx.runtime, routes: inv.fx.routes });
-      await saveNote({ runtime: inv.fx.runtime, session: CLAUDE_1, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- appends (src/cart.ts:2)\n', from: null, route: (await inv.fx.kinds('cart', 'route'))[0]!.id });
+      await saveNote({ runtime: inv.fx.runtime, session: CLAUDE_1, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- appends (src/cart.ts:2)\n- gone (src/missing.ts:3)\n', from: null, route: (await inv.fx.kinds('cart', 'route'))[0]!.id });
       await inv.fx.engine.advance({ task: 'cart', cause: 'note save' });
       assert.equal((await inv.fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
-      const stopped = (await inv.hooked.event({ hook_event_name: 'Stop', last_assistant_message: 'Evidence\nnothing was run' }, CLAUDE_1)) as { decision?: string; reason?: string };
+      const stopped = (await inv.hooked.event({ hook_event_name: 'Stop', last_assistant_message: 'nothing was run' }, CLAUDE_1)) as { decision?: string; reason?: string };
       assert.equal(stopped.decision, 'block');
-      assert.match(stopped.reason ?? '', /Not verified section is missing[\s\S]*\nEvidence\n/);
+      assert.match(stopped.reason ?? '', /1 gap\(s\) unstated[\s\S]*- check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/);
     } finally {
       await inv.dispose();
     }

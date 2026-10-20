@@ -48,7 +48,7 @@ describe('fixtures materialize', () => {
         for (const file of await readdir(root, { recursive: true })) {
           if (file.endsWith('.md')) files.set(file.split(path.sep).join('/'), await readFile(path.join(root, file), 'utf8'));
         }
-        assert.deepEqual(checkContext(files, { maxTotalTokens: 24000, maxFileTokens: 2500 }), []);
+        assert.deepEqual(checkContext(files, { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 }), []);
         const git = (...args) => execFileSync('git', args, { cwd: destination, encoding: 'utf8' });
         assert.equal(git('status', '--porcelain', '--untracked-files=all'), '');
         assert.doesNotMatch(git('ls-files'), /\.ambicode\/context/);

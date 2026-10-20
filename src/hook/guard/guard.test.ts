@@ -285,7 +285,7 @@ describe('the task-directory message names a command that runs as written', () =
   });
   it('02-G1: names the kinds note save accepts', () => {
     const out = bash('echo x > .ambicode/tasks/T/n.md');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan-draft\|notes`/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan-draft\|notes\|result`/);
   });
 });
 const roots: string[] = [];
@@ -506,7 +506,6 @@ describe('head fed by a literal ambicode call', () => {
   });
   it('removes the head pipe of a step-printing call and keeps every other input field', () => {
     for (const [command, rewritten] of [
-      [`node "${S}" review record --task fix-refund 2>&1 | head -30`, `node "${S}" review record --task fix-refund 2>&1`],
       [`node ${S} route next --task t | head -20`, `node ${S} route next --task t`],
       [`node ${S} policy check --drafts --task t | head -3`, `node ${S} policy check --drafts --task t`],
       [`cd repo; node ${S} route next --task t 2>&1 | head -5; cat a`, `cd repo; node ${S} route next --task t 2>&1; cat a`],
@@ -613,5 +612,45 @@ describe('an active route shapes the decision', () => {
   it('never rewrites a command that needs no change: no updatedInput is answered', () => {
     assert.deepEqual(run('node /p/scripts/ambicode.mjs route next', false), {});
     assert.deepEqual(run('grep -rn x --include=*.ts .', false), {});
+  });
+});
+
+describe('the reviewer subagent may write only its answer file', () => {
+  const ANSWER = '/repo/.ambicode/reviews/r-1/1/answer.json';
+  const TASK_ANSWER = '/repo/.ambicode/tasks/fix-refund/reviews/2/answer.json';
+  const file = (tool_name: string, file_path: string, agent_type: string | null = 'ambicode:reviewer', cwd?: string) =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name, tool_input: { file_path }, ...(agent_type === null ? {} : { agent_type }), ...(cwd === undefined ? {} : { cwd }) }) as Output;
+
+  it('lets the reviewer Write answer.json in a review folder, plugin-named or not, as an absolute or a cwd-relative path', () => {
+    assert.deepEqual(file('Write', ANSWER), {});
+    assert.deepEqual(file('Write', TASK_ANSWER, 'reviewer'), {});
+    assert.deepEqual(file('Write', '1/answer.json', 'ambicode:reviewer', '/repo/.ambicode/reviews/r-1'), {});
+    assert.deepEqual(file('Write', '\\repo\\.ambicode\\reviews\\r-1\\1\\answer.json'), {});
+  });
+
+  it('refuses every other write of the reviewer: another file, another tool, a path that only looks like the answer', () => {
+    for (const [tool, target] of [
+      ['Write', '/repo/src/a.ts'], ['Write', '/repo/.ambicode/reviews/r-1/1/result.json'], ['Write', '/repo/.ambicode/tasks/fix-refund/ledger.jsonl'],
+      ['Write', '/repo/answer.json'], ['Write', '/repo/.ambicode/context/answer.json'], ['Write', '/repo/.ambicode/reviews/r-1/1/answer.json.bak'],
+      ['Write', '/repo/.ambicode/reviews/r-1/1/../../../../src/answer.json'], ['Edit', ANSWER], ['MultiEdit', ANSWER], ['NotebookEdit', ANSWER],
+    ] as const) {
+      const out = file(tool, target);
+      assert.equal(decisionOf(out), 'deny', `${tool} ${target}`);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /reviewer writes only .*answer\.json/, `${tool} ${target}`);
+    }
+  });
+
+  it('leaves everyone else under the old rule: answer.json under .ambicode is still the note-save refusal', () => {
+    for (const agent of [null, 'ambicode:implementer', 'reviewer-extra']) {
+      const out = file('Write', ANSWER, agent);
+      assert.equal(decisionOf(out), 'deny', String(agent));
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save/);
+    }
+    assert.deepEqual(file('Write', '/repo/src/a.ts', 'ambicode:implementer'), {});
+  });
+
+  it('no longer reads the reviewer Bash calls: it has no Bash tool, so they are the main session rule', () => {
+    assert.deepEqual(bash('ls', { agent_type: 'ambicode:reviewer' }), {});
+    assert.equal(decisionOf(bash('git commit -m x', { agent_type: 'ambicode:implementer' })), 'ask');
   });
 });

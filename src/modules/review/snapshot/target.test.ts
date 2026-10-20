@@ -4,7 +4,7 @@ import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { resolveBranchTarget, resolveWorkingTarget } from './target.ts';
+import { resolveBranchTarget, resolveWorkingTarget, snapshotTree } from './target.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 
 async function digestOf(file: string): Promise<string | null> {
@@ -44,6 +44,28 @@ test('U09 working target is the net of staged and unstaged edits plus untracked 
   assert.deepEqual(paths, ['.gitignore', 'src/brand-new.ts', 'src/unstaged.ts']);
   assert.equal(resolution.target.kind, 'working');
 
+  assert.equal(await digestOf(indexPath), indexBefore);
+});
+
+test('a working target from a baseline tree is everything changed since it, a later edit included, and leaves the index alone', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+  await repo.write('src/a.ts', 'one\ntwo\n');
+  await repo.commitAll('init');
+  await repo.write('src/a.ts', 'one\ntwo\nearlier\n');
+  await repo.write('src/early.ts', 'early\n');
+  const baseTree = await snapshotTree(nodeFileSystem, repo.git);
+
+  await repo.write('src/a.ts', 'ONE\ntwo\nearlier\nlater\n');
+  await repo.write('src/new.ts', 'new\n');
+  const indexPath = path.join(repo.root, '.git', 'index');
+  const indexBefore = await digestOf(indexPath);
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root, baseTree });
+
+  assert.deepEqual(resolution.files.map((file) => file.newPath).sort(), ['src/a.ts', 'src/new.ts']);
+  assert.match(resolution.patch, /\+later/);
+  assert.match(resolution.patch, /\+ONE/);
+  assert.doesNotMatch(resolution.patch, /^\+earlier/m);
   assert.equal(await digestOf(indexPath), indexBefore);
 });
 

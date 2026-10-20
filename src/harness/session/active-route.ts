@@ -6,7 +6,7 @@ import { LEDGER_FILE } from '#types/modules/evidence';
 import { buildChain, exitOf, latestRouteOf } from '../engine/fold.ts';
 import type { FileSystem } from '#types/platform/ports';
 
-export interface SessionRoute { task: string; skill: string; routeId: string; live: boolean; endedAt: string }
+interface SessionRoute { task: string; skill: string; routeId: string; live: boolean; endedAt: string }
 
 /**
  * The latest route of a Claude session in each run directory, live ones first, then the most recently ended. Only a

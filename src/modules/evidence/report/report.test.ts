@@ -1,91 +1,49 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { navigationLine } from './navigation-line.ts';
-import { buildReport } from './report.ts';
+import { checkFacts, factsOf, gapsOf, reviewFact } from './report.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 
 let counter = 0;
 const entry = (kind: string, fields: object = {}): LedgerEntry => ({ id: `a1b2c3d4-${(counter += 1)}`, at: '2026-10-05T10:00:00.000Z', kind, ...fields });
 const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', files: [], exit: 0, phase: 'green', ms: 10, ...fields });
 const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
+const review = (reviewId: string, findings: number, fields: object = {}): LedgerEntry => entry('review', { reviewId, stage: 'recorded', status: 'complete', reviewerRan: true, findings, omissions: 0, ...fields });
+const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
 
-describe('02-R1: the report skeleton', () => {
-  it('collapses every empty Evidence line into one "none recorded" line that names Map and Navigation too, and carries no hash comment', () => {
-    const report = buildReport([]);
-    assert.equal(report.evidence, 'Evidence\n  none recorded: Requirements, Map, Navigation, Baseline, Checks, Review, Decisions, Revisions');
-    assert.equal(report.notVerified, 'Not verified\n  none recorded');
-    assert.equal(report.text, `${report.evidence}\n${report.notVerified}`);
-  });
-
-  it('a map that ran and found nothing prints as 0 candidates, not as "none recorded"', () => {
-    const empty = buildReport([entry('map', { layers: [{ name: 'grep' }, { name: 'harvest' }], candidates: 0, collisions: [] })]);
-    assert.match(empty.evidence, /^ {2}Map: layers grep→harvest, 0 candidates$/m);
-    assert.doesNotMatch(empty.evidence, /none recorded: .*Map/);
-    assert.match(buildReport([]).evidence, /none recorded: Requirements, Map,/);
-  });
-
-  it('shows what is recorded on each line', () => {
-    const report = buildReport([
-      entry('requirement', { key: 'ORD-17', via: 'mcp', rawHash: 'h', bytes: 1, relation: 'asked', capture: 'c' }),
-      entry('envelope', { sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], server: 'atlassian', hash: 'h' }),
-      entry('map', { layers: [{ name: 'shortlist' }, { name: 'harvest' }], collisions: ['validate'], index: 'none' }),
-      entry('baseline', { head: 'a1b2c3d4e5f6', dirty: ['README.md'] }),
-      check({ phase: 'red', exit: 1, files: ['a.spec.ts'] }),
-      check({ files: ['a.spec.ts'] }),
-      entry('review', { reviewId: 'local_1', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }),
-      entry('acceptance', { route: 'r', gate: 'plan-accept', instance: 'i', answer: 'Accept', via: 'hook' }),
-      entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 1, reason: '2 bad anchors' }),
-      entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 2, reason: 'none left' }),
-    ]);
-    assert.match(report.evidence, /Requirements: 1 source\(s\) from captures \(ORD-17\) via atlassian; ORD-17 \(asked\)/);
-    assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names/);
-    assert.match(buildReport([entry('map', { layers: [{ name: 'grep' }], candidates: 4 })]).evidence, /Map: layers grep, 0 colliding names/);
-    assert.match(report.evidence, /Baseline: a1b2c3d4e5f6, dirty: README\.md/);
-    assert.match(report.evidence, /Checks: web\/unit --file a\.spec\.ts: red exit 1 → green exit 0/);
-    assert.match(report.evidence, /Review: local_1 complete, 2 findings/);
-    assert.match(report.evidence, /Decisions: plan-accept "Accept" \(via hook\)/);
-    assert.match(report.evidence, /Revisions: plan-write ×2 \(last: none left\)/);
-    assert.equal(report.notVerified, 'Not verified\n  none recorded');
-  });
-});
-
-describe('02-R2: checks never claim more than the ledger says', () => {
+describe('gapsOf: checks never claim more than the ledger says', () => {
   it('a nonzero last exit and a declined key are not verified', () => {
-    const report = buildReport([
+    const gaps = gapsOf([
       check({ key: 'web/e2e', phase: 'red', exit: 2 }),
       entry('declined', { route: 'r', gate: 'check:web/slow', instance: null, answer: 'no', via: 'flag', reason: 'acting-needs-human' }),
     ]);
-    assert.match(report.notVerified, /web\/e2e: last run exited 2/);
-    assert.match(report.notVerified, /check:web\/slow: declined "no" \(acting-needs-human\)/);
-    assert.doesNotMatch(report.evidence, /passed/);
+    assert.deepEqual(gaps, ['web/e2e: last run exited 2', 'check:web/slow: declined "no" (acting-needs-human)']);
   });
 
   it('a recorded step failure and drafts that failed their check are not verified; a failed step with no record is not', () => {
-    const report = buildReport([
+    const gaps = gapsOf([
       entry('step', { route: 'r', step: 'plan-check', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'plan-check-failed', message: '1 bad anchors: a.ts:9 missing-file' }),
       entry('step', { route: 'r', step: 'scan', actor: 'code', status: 'failed', cause: 'route-next', code: 'script-failed', message: 'crashed' }),
       entry('policy', { route: 'r', stage: 'drafts', path: 'd', contentHash: 'h', drafts: [], errors: 2 }),
     ]);
-    assert.match(report.notVerified, /plan-check: 1 bad anchors: a\.ts:9 missing-file/);
-    assert.match(report.notVerified, /rules drafts: 2 check errors/);
-    assert.doesNotMatch(report.notVerified, /scan|crashed/);
+    assert.deepEqual(gaps, ['plan-check: 1 bad anchors: a.ts:9 missing-file', 'rules drafts: 2 check errors']);
   });
 
-  it('a delivery, a completion or an exit code alone is not a test result', () => {
-    const report = buildReport([entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }), entry('exit', { route: 'r', reason: 'done' })]);
-    assert.match(report.evidence, /none recorded: .*Checks/);
-    assert.doesNotMatch(report.text, /\bpassed\b|green/);
+  it('a delivery, a completion or an exit code alone is no gap and no test result', () => {
+    const entries = [entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }), entry('exit', { route: 'r', reason: 'done' })];
+    assert.deepEqual(gapsOf(entries), []);
+    assert.deepEqual(checkFacts(entries), []);
+    assert.doesNotMatch(factsOf(entries), /passed/);
   });
 
   it('only the last run of a key decides whether it is verified', () => {
-    const report = buildReport([check({ phase: 'red', exit: 1 }), check({})]);
-    assert.equal(report.notVerified, 'Not verified\n  none recorded');
+    assert.deepEqual(gapsOf([check({ phase: 'red', exit: 1 }), check({})]), []);
+    assert.deepEqual(gapsOf([check({}), check({ exit: 1 })]), ['web/unit: last run exited 1']);
   });
 });
 
-describe('02-R3: what was skipped, declined or limited is visible', () => {
+describe('gapsOf: what was skipped, declined or limited is visible', () => {
   it('lists declines, defaults with their via, limits, missing sources, a reviewer that did not run and a model-set headless', () => {
-    const report = buildReport([
+    const gaps = gapsOf([
       route({ mode: 'headless', channel: 'cli', trusted: false }),
       entry('declined', { route: 'r', gate: 'review-offer', instance: null, answer: 'run', via: 'flag', reason: 'acting-needs-human' }),
       entry('default-taken', { route: 'r', gate: 'scope', instance: null, answer: 'out of scope', via: 'never-asked' }),
@@ -93,199 +51,141 @@ describe('02-R3: what was skipped, declined or limited is visible', () => {
       entry('limit', { route: 'r', which: 'repeat', count: 2, step: 'ground' }),
       entry('envelope', { sources: [], builtFrom: 'args', asked: ['A-1', 'A-2'], missingAsked: ['A-2'], hash: 'h' }),
       entry('review', { reviewId: 'local_2', status: 'partial', reviewerRan: false, findings: 0, omissions: 3 }),
-    ]);
+    ]).join('\n');
     for (const expected of [
       /review-offer: declined "run" \(acting-needs-human\)/,
       /scope: default taken, "out of scope" \(never-asked\)/,
       /plan-accept: default taken, "Reject" \(headless\)/,
-      /repeat limit \(2\) at ground/,
+      /A step was repeated 2 times and stopped there/,
       /Requirement not captured: A-2/,
-      /Review local_2: the reviewer did not run, status partial, 3 omissions/,
+      /The independent review did not run/,
       /headless set by an untrusted start/,
-    ]) assert.match(report.notVerified, expected);
+    ]) assert.match(gaps, expected);
   });
 
   it('a trusted headless start and a complete review are not listed', () => {
-    const report = buildReport([route({ mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]);
-    assert.equal(report.notVerified, 'Not verified\n  none recorded');
+    assert.deepEqual(gapsOf([route({ mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]), []);
   });
-});
 
-describe('02-R4: historical evidence is labelled', () => {
-  it('suffixes an entry that is not current, in both blocks, and every entry is current without the option', () => {
+  it('a bound acceptance or a default-taken review-offer starting with skip is listed; run is not', () => {
+    const skipped = 'independent review skipped — verification incomplete';
+    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), [skipped]);
+    assert.deepEqual(gapsOf([offer('default-taken', 'skip — verification incomplete')]), ['review-offer: default taken, "skip — verification incomplete" (headless)', skipped]);
+    assert.deepEqual(gapsOf([offer('acceptance', 'run', { instance: 'i', via: 'hook' })]), []);
+  });
+
+  it('an unbound skip answer is not counted as a bound one', () => {
+    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', unbound: true })]), []);
+  });
+
+  it('a skipped re-review is a gap', () => {
+    assert.deepEqual(gapsOf([entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), ['fix not re-reviewed']);
+  });
+
+  it('a format that failed lists the key and outcome; formatted does not; an unconfigured formatter is no gap but is stated once as a fact', () => {
+    const format = (outcome: string): LedgerEntry => entry('format', { key: 'app/format', files: [], exit: null, outcome });
+    for (const outcome of ['failed', 'refused']) assert.deepEqual(gapsOf([format(outcome)]), [`not formatted: app/format (${outcome})`]);
+    assert.deepEqual(gapsOf([format('formatted'), format('unconfigured')]), []);
+    assert.deepEqual(checkFacts([format('unconfigured'), format('unconfigured')]), ['no formatter configured']);
+    assert.deepEqual(checkFacts([format('formatted')]), []);
+  });
+
+  it('missing-produces at any step reads as a generic limit; the Stop hook own block is not a gap', () => {
+    assert.deepEqual(gapsOf([entry('limit', { which: 'missing-produces', step: 'change', count: 3 })]), ['The required result was not produced during the change after 3 tries']);
+    assert.deepEqual(gapsOf([entry('limit', { route: 'r', which: 'stop-block', count: 1 })]), []);
+  });
+
+  it('identical gaps are listed once', () => {
+    const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change' });
+    assert.deepEqual(gapsOf([route(), limit(), limit()]), ['A passing check was not proven during the change']);
+  });
+
+  it('entries that are not current are left out', () => {
     const old = check({ phase: 'red', exit: 1 });
     const stale = entry('declined', { route: 'r', gate: 'g', instance: null, answer: 'no', via: 'flag' });
-    const entries = [old, stale, check({ key: 'web/other' })];
-    const report = buildReport(entries, { current: (candidate) => candidate.id !== old.id && candidate.id !== stale.id });
-    assert.match(report.evidence, /red exit 1 \(historical\)/);
-    assert.match(report.evidence, /g declined "no" \(via flag\) \(historical\)/);
-    assert.match(report.evidence, /web\/other: green exit 0\n/);
-    assert.doesNotMatch(buildReport(entries).text, /historical/);
-  });
-});
-
-describe('02-R5: the same entries give the same bytes, in a small space', () => {
-  const twenty = (): LedgerEntry[] => [
-    route(),
-    entry('requirement', { key: 'ORD-17', via: 'mcp', rawHash: 'h', bytes: 1, relation: 'asked', capture: 'c' }),
-    entry('envelope', { sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], server: 'atlassian', hash: 'h' }),
-    entry('map', { layers: [{ name: 'shortlist' }], collisions: [], index: 'none' }),
-    entry('search', { command: 'refs', names: ['a', 'b', 'c'] }),
-    entry('search', { command: 'find' }),
-    entry('baseline', { head: 'a1b2c3d4', dirty: ['README.md'] }),
-    check({ phase: 'red', exit: 1 }),
-    check({}),
-    check({ key: 'web/e2e' }),
-    entry('review', { reviewId: 'local_2026-10-03T11-02', status: 'complete', reviewerRan: true, findings: 2, omissions: 1 }),
-    entry('gate', { route: 'r', gate: 'plan-accept', class: 'declared', question: 'q', print: 1 }),
-    entry('acceptance', { route: 'r', gate: 'plan-accept', instance: 'i', answer: 'Accept', via: 'hook' }),
-    entry('preanswer', { route: 'r', gate: 'review-offer', option: 'run', via: 'prompt', trusted: true }),
-    entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 1, reason: 'plan check: 2 bad anchors' }),
-    entry('revise', { route: 'r', from: 'design', via: 'model', cycle: 1, reason: 'scope moved' }),
-    entry('default-taken', { route: 'r', gate: 'scope', instance: null, answer: 'out of scope', via: 'never-asked' }),
-    entry('limit', { route: 'r', which: 'repeat', count: 2, step: 'ground' }),
-    entry('declined', { route: 'r', gate: 'web/e2e', instance: null, answer: 'no', via: 'flag' }),
-    entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }),
-  ];
-
-  it('is byte-identical for the same entries and at most 3,072 bytes for 20 typical ones', () => {
-    assert.equal(twenty().length, 20);
-    const first = buildReport(twenty());
-    assert.equal(buildReport(twenty()).text, first.text);
-    assert.ok(Buffer.byteLength(first.text) <= 3072, `${Buffer.byteLength(first.text)} bytes`);
-  });
-});
-
-describe('02-R6: the navigation line reads search entries only', () => {
-  it('counts calls per command and names, and says model reads are not recorded', () => {
-    const line = navigationLine([entry('search', { command: 'refs', names: ['a', 'b', 'c'] }), entry('search', { command: 'find' }), entry('search', { command: 'find' }), entry('map', {})]);
-    assert.equal(line, 'Navigation (CLI calls): refs x1 (3 names), find x2 — model reads not recorded');
-    assert.equal(navigationLine([entry('map', {})]), 'Navigation (CLI calls): none recorded — model reads not recorded');
-    assert.match(buildReport([entry('search', { command: 'find' })]).evidence, /\n {2}Navigation \(CLI calls\): find x1 — model reads not recorded\n/);
-  });
-});
-
-describe('03-E12: the report leads with how the route ended', () => {
-  const at = '2026-10-05T10:00:00.000Z';
-  const route = { id: 'a-1', at, kind: 'route', skill: 'plan', mode: 'interactive', channel: 'hook' };
-
-  it('no route entry means no leading line; a route without exit is in progress', () => {
-    assert.ok(buildReport([]).text.startsWith('Evidence'));
-    assert.equal(buildReport([route]).status, 'in progress');
-  });
-
-  it('a complete exit leads with complete and counts what is not verified; historical items do not count', () => {
-    const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'done', complete: true };
-    assert.equal(buildReport([route, exit]).status, 'complete');
-    const limit = { id: 'a-3', at, kind: 'limit', which: 'repeat', step: 'plan-write', count: 2 };
-    const report = buildReport([route, limit, exit], { complete: true });
-    assert.equal(report.status, 'complete, 1 items not verified');
-    assert.ok(report.text.startsWith('complete, 1 items not verified\nEvidence'));
-    assert.equal(buildReport([route, limit, exit], { complete: true, current: () => false }).status, 'complete');
-  });
-
-  it('an exit leads with its reason; permission-denied keeps its detail', () => {
-    const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'blocked', detail: 'permission-denied: git push' };
-    assert.equal(buildReport([route, exit]).status, 'ended: blocked (permission-denied: git push)');
-    assert.equal(buildReport([route, { ...exit, detail: undefined }]).status, 'ended: blocked');
-  });
-
-  it('the leading status line is not part of the evidence or Not verified blocks', () => {
-    const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'blocked' };
-    assert.equal(buildReport([route]).evidence, buildReport([route, exit]).evidence);
-  });
-});
-
-describe('04-R1: the Requirements line names where the envelope came from', () => {
-  const envelope = (fields: object): LedgerEntry => entry('envelope', { sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'h', ...fields });
-
-  it('04-R1: captures name the count, the keys and the server; args say they were not captured; missing keys follow', () => {
-    const captured = buildReport([envelope({ builtFrom: 'captures', sources: [{ key: 'ORD-17' }, { key: 'ORD-30' }], server: 'atlassian', missingAsked: ['ORD-18'] })]);
-    assert.match(captured.evidence, /Requirements: 2 source\(s\) from captures \(ORD-17, ORD-30\) via atlassian; missing: ORD-18/);
-    assert.match(captured.notVerified, /Requirement not captured: ORD-18/);
-    const args = buildReport([envelope({ sources: [{ key: 'ARGS' }] })]);
-    assert.match(args.evidence, /Requirements: built from the args text \(not captured\)\n/);
-    assert.doesNotMatch(args.evidence, /missing:/);
-    assert.match(buildReport([envelope({ missingAsked: ['ORD-9'] })]).evidence, /Requirements: built from the args text \(not captured\); missing: ORD-9/);
-  });
-});
-
-describe('07-R9: Not verified for the task route', () => {
-  const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
-
-  it('07-R9: a bound acceptance or a default-taken review-offer starting with skip is listed; run is not', () => {
-    const skipped = 'independent review skipped — verification incomplete';
-    assert.match(buildReport([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]).notVerified, new RegExp(skipped));
-    assert.match(buildReport([offer('default-taken', 'skip — verification incomplete')]).notVerified, new RegExp(skipped));
-    assert.doesNotMatch(buildReport([offer('acceptance', 'run', { instance: 'i', via: 'hook' })]).notVerified, /skipped/);
-  });
-
-  it('07-R9: an unbound skip answer is not counted as a bound one', () => {
-    const report = buildReport([offer('acceptance', 'skip — verification incomplete', { instance: 'i', unbound: true })]);
-    assert.doesNotMatch(report.notVerified, /independent review skipped/);
-  });
-
-  it('07-R9: a format entry that is not formatted lists the key and outcome; formatted does not', () => {
-    const format = (outcome: string): LedgerEntry => entry('format', { key: 'app/format', files: [], exit: null, outcome });
-    for (const outcome of ['unconfigured', 'failed', 'refused']) assert.match(buildReport([format(outcome)]).notVerified, new RegExp(`  not formatted: app/format \\(${outcome}\\)`));
-    assert.equal(buildReport([format('formatted')]).notVerified, 'Not verified\n  none recorded');
-  });
-
-  it('07-R9: missing-produces at any step reads as a generic limit', () => {
-    const other = buildReport([entry('limit', { which: 'missing-produces', step: 'change', count: 3 })]);
-    assert.match(other.notVerified, /missing-produces limit \(3\) at change/);
-  });
-
-  it('07-R9: a failed check and an absent check or format stay in Not verified, never in a clean report', () => {
-    const failed = buildReport([check({ exit: 1 })]);
-    assert.match(failed.notVerified, /web\/unit: last run exited 1/);
-    const absent = buildReport([]);
-    assert.match(absent.evidence, /none recorded: .*Checks/);
-    assert.equal(absent.notVerified, 'Not verified\n  none recorded');
-    assert.doesNotMatch(absent.text, /not formatted|green/);
-  });
-});
-
-describe('report compaction', () => {
-  it('identical Not verified items print once and count once', () => {
-    const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change' });
-    const report = buildReport([route(), limit(), limit()], { complete: true });
-    assert.equal(report.notVerified, 'Not verified\n  green-unproven limit (1) at change');
-    assert.equal(report.status, 'complete, 1 items not verified');
+    const entries = [old, stale, check({ key: 'web/other', exit: 3 })];
+    assert.deepEqual(gapsOf(entries, (candidate) => candidate.id !== old.id && candidate.id !== stale.id), ['web/other: last run exited 3']);
+    assert.equal(gapsOf(entries).length, 3);
   });
 
   it('a green-unproven limit is dropped once a later green check passed in the same step, kept when none did or the pass came in another step', () => {
     const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change', cause: 'nonzero-exit', key: 'web/unit', files: ['service', 'test'] });
-    const fixed = buildReport([route(), check({ exit: 1 }), limit(), check({ exit: 0, files: ['service', 'repository', 'test'] })], { complete: true });
-    assert.equal(fixed.notVerified, 'Not verified\n  none recorded');
-    assert.equal(fixed.status, 'complete');
-    assert.match(buildReport([route(), check({ exit: 1 }), limit()], { complete: true }).notVerified, /green-unproven limit/);
-    const later = buildReport([route(), check({ exit: 1 }), limit(), entry('step', { step: 'fix', status: 'delivered' }), check({ exit: 0 })], { complete: true });
-    assert.match(later.notVerified, /green-unproven limit \(1\) at change/);
+    assert.deepEqual(gapsOf([route(), check({ exit: 1 }), limit(), check({ exit: 0, files: ['service', 'repository', 'test'] })]), []);
+    assert.match(gapsOf([route(), check({ exit: 1 }), limit()]).join(), /web\/unit failed during the change and no later run passed/);
+    assert.match(gapsOf([route(), check({ exit: 1 }), limit(), entry('step', { step: 'fix', status: 'delivered' }), check({ exit: 0 })]).join(), /web\/unit failed during the change and no later run passed/);
   });
 
   it('a green-unproven limit survives a pass on a disjoint file or another check key', () => {
     const limit = entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change', cause: 'nonzero-exit', key: 'web/unit', files: ['service', 'test'] });
     const failed = check({ exit: 1, files: ['service', 'test'] });
-    assert.match(buildReport([route(), failed, limit, check({ exit: 0, files: ['other'] })], { complete: true }).notVerified, /green-unproven limit/);
-    assert.match(buildReport([route(), failed, limit, check({ exit: 0, key: 'web/lint', files: ['service', 'test'] })], { complete: true }).notVerified, /green-unproven limit/);
-    assert.match(buildReport([route(), failed, limit, check({ exit: 0, files: ['service'] })], { complete: true }).notVerified, /green-unproven limit/);
+    assert.match(gapsOf([route(), failed, limit, check({ exit: 0, files: ['other'] })]).join(), /web\/unit failed during the change and no later run passed/);
+    assert.match(gapsOf([route(), failed, limit, check({ exit: 0, key: 'web/lint', files: ['service', 'test'] })]).join(), /web\/unit failed during the change and no later run passed/);
+    assert.match(gapsOf([route(), failed, limit, check({ exit: 0, files: ['service'] })]).join(), /web\/unit failed during the change and no later run passed/);
   });
 
-  it('a recorded review replaces the pending entry of the same id, so Not verified no longer says the reviewer did not run', () => {
-    const report = buildReport([
+  it('a recorded review replaces the pending entry of the same id, so the gaps no longer say the reviewer did not run', () => {
+    assert.deepEqual(gapsOf([
       entry('review', { reviewId: 'local_1', status: 'partial', reviewerRan: false, omissions: 1 }),
       entry('review', { reviewId: 'local_1', status: 'complete', reviewerRan: true, findings: 1, omissions: 0 }),
       entry('review', { reviewId: 'local_2', status: 'partial', reviewerRan: false, omissions: 1 }),
-    ]);
-    assert.equal(report.evidence.match(/Review: (.*)/)?.[1], 'local_1 complete, 1 findings; local_2 partial');
-    assert.equal(report.notVerified, 'Not verified\n  Review local_2: the reviewer did not run, status partial, 1 omissions');
+    ]), ['The independent review did not run']);
+  });
+});
+
+describe('the facts the final message copies', () => {
+  it('names each check by outcome, never by phase', () => {
+    assert.deepEqual(checkFacts([check({ phase: 'red', exit: 1 }), check({ key: 'web/lint', exit: 1 }), check({})]), ['web/unit: passed', 'web/lint: failed exit 1']);
   });
 
-  it('an acceptance that consumed a preanswer lists the decision once; an unconsumed preanswer stays', () => {
-    const pre = entry('preanswer', { gate: 'review-offer', option: 'run', via: 'prompt', trusted: true });
-    const lone = entry('preanswer', { gate: 'other', option: 'x', via: 'prompt', trusted: true });
-    const report = buildReport([pre, lone, entry('acceptance', { route: 'r', gate: 'review-offer', instance: 'i', answer: 'run', via: 'prompt', preanswer: pre.id })]);
-    assert.equal(report.evidence.match(/Decisions: (.*)/)?.[1], 'other "x" (preanswer); review-offer "run" (via prompt)');
+  it('counts findings, what the fix rounds took, and how the re-review ended', () => {
+    assert.equal(reviewFact([review('a', 0)]), 'no findings');
+    assert.equal(reviewFact([review('a', 1), review('b', 0)]), '1 finding, re-review clean');
+    assert.equal(reviewFact([review('a', 3), review('b', 2)]), '3 findings, re-review 2 open');
+    assert.equal(reviewFact([review('a', 3)]), '3 findings, re-review not run');
+    assert.equal(reviewFact([review('a', 1), entry('default-taken', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'headless' })]), '1 finding, re-review skipped by default (headless)');
+    assert.equal(reviewFact([offer('default-taken', 'skip — verification incomplete')]), 'skipped by default (headless)');
+    assert.equal(reviewFact([review('a', 1), entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), '1 finding, re-review skipped by you');
+    assert.equal(reviewFact([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), 'skipped by you');
+    assert.equal(reviewFact([]), null);
+  });
+
+  it('prints Checks, Review and Not verified, leaves out a section with nothing to say, and says when no check is configured', () => {
+    assert.equal(factsOf([check({}), review('a', 0)]), 'Checks\n- web/unit: passed\nReview\n- no findings');
+    assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 0 } as LedgerEntry]), 'Not verified\n- nothing was verified by running checks (none configured)');
+    assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 2 } as LedgerEntry]), 'Checks\n- no check ran');
+    assert.equal(factsOf([], undefined, { checks: false }), '');
+    assert.equal(factsOf([check({ exit: 1 })]), 'Checks\n- web/unit: failed exit 1\nNot verified\n- web/unit: last run exited 1');
+  });
+  it('a re-review that errored or came back partial never reads as clean', () => {
+    assert.equal(reviewFact([review('a', 1), review('b', 0, { status: 'error', omissions: 2 })]), '1 finding, re-review failed');
+    assert.equal(reviewFact([review('a', 1), review('b', 0, { status: 'partial', omissions: 2 })]), '1 finding, re-review partial: no findings, 2 omissions');
+    assert.equal(reviewFact([review('a', 1), review('b', 2, { status: 'partial', omissions: 1 })]), '1 finding, re-review partial: 2 open, 1 omission');
+    assert.equal(reviewFact([review('a', 0, { status: 'error' })]), 'review failed');
+    assert.equal(reviewFact([review('a', 0, { status: 'partial', omissions: 3 })]), 'no findings, review partial: 3 omissions');
+    assert.equal(reviewFact([review('a', 0, { status: 'error' }), entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), 'review failed, re-review skipped by you');
+  });
+
+  it('an errored re-review is also listed under Not verified, in plain words and with no review id', () => {
+    const facts = factsOf([check({}), review('review-2026-aaa', 1), review('review-2026-bbb', 0, { status: 'error', statusReason: 'invalid-output: x' })]);
+    assert.match(facts, /Review\n- 1 finding, re-review failed/);
+    const gaps = gapsOf([review('review-2026-bbb', 0, { status: 'error', omissions: 2 }), review('review-2026-ccc', 0, { status: 'partial', omissions: 3 })]);
+    assert.deepEqual(gaps, ['The independent review failed: the reviewer\'s answer could not be verified, so its result is not counted', 'The independent review was partial: 3 omissions']);
+  });
+
+  it('limits read as what happened, not as an internal step name', () => {
+    const limit = (fields: object): LedgerEntry => entry('limit', { route: 'r', count: 1, ...fields });
+    const gaps = gapsOf([
+      limit({ which: 'check', count: 5, step: 'format' }),
+      limit({ which: 'green-unproven', step: 'change', key: 'web/unit', cause: 'nonzero-exit', files: ['a'] }),
+      limit({ which: 'green-unproven', step: 'fix', key: 'web/lint', cause: 'not-run', files: ['a'] }),
+      limit({ which: 'repeat', count: 2, step: 'ground' }),
+    ]);
+    assert.deepEqual(gaps, [
+      'Checks kept failing during formatting: stopped after 5 attempts',
+      'web/unit failed during the change and no later run passed on the same files',
+      'web/lint could not run during the fix',
+      'A step was repeated 2 times and stopped there',
+    ]);
+    for (const line of gaps) assert.doesNotMatch(line, /\blimit\b|\bat (format|change|fix|ground)\b/);
   });
 });

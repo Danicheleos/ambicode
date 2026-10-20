@@ -318,11 +318,11 @@ describe('P2.3 task skill', () => {
     assert.match(requiredString(frontmatter(await task(), 'task/SKILL.md'), 'description', 'task/SKILL.md'), /never commits, pushes, or publishes/i);
   });
 
-  it('07-M1 the write step asks for Done and Remaining in prose and the generated sections as printed; the SKILL.md leaves it to the step', async () => {
+  it('07-M1 the write step asks for Done in prose and the generated Checks, Review and Not verified facts as printed, with no Evidence block; the SKILL.md leaves it to the step', async () => {
     const write = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'write.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(write, /\*\*Done\*\*/);
-    assert.match(write, /\*\*Remaining\*\*/);
-    assert.match(write, /generated Evidence and Not verified sections below, pasted exactly as printed/);
+    assert.match(write, /the facts below copied as printed \(Checks, Review, Not verified;/);
+    assert.doesNotMatch(write, /Evidence|\*\*Remaining\*\*/);
     assert.doesNotMatch(await task(), /\*\*Done\*\*|\*\*Remaining\*\*/);
   });
 
@@ -339,7 +339,6 @@ describe('P2.3 task skill', () => {
  */
 async function emittedErrorCodes(): Promise<Set<string>> {
   const DYNAMIC: Record<string, string[]> = {
-    'modules/review/snapshot/remote-target.ts': ['provider-unsupported', 'provider-resolve-failed', 'provider-fetch-failed'],
     // A handler's failure code passes through; the codes themselves are raised, and documented, where the handler raises them.
     'harness/engine/engine.ts': [],
     'harness/engine/execute.ts': [],
@@ -368,8 +367,10 @@ describe('F3 documented outcomes', () => {
     const codes = await emittedErrorCodes();
     assert.ok(codes.size > 40, `expected the whole set of codes, found ${codes.size}`);
     let documentation = '';
-    for (const file of await readdir(SKILLS_DIR, { recursive: true })) {
-      if (file.endsWith('.md')) documentation += await readFile(path.join(SKILLS_DIR, file), 'utf8');
+    for (const root of [SKILLS_DIR, path.join(repositoryRoot, 'agents')]) {
+      for (const file of await readdir(root, { recursive: true })) {
+        if (file.endsWith('.md')) documentation += await readFile(path.join(root, file), 'utf8');
+      }
     }
     const missing = [...codes].filter((code) => !documentation.includes(`\`${code}\``)).sort();
     assert.deepEqual(missing, [], 'an agent that meets an undocumented code has nothing to act on but the message');

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { AmbicodeError } from '#util/errors';
 import { appendLocked, readLedgerStrict } from './ledger.ts';
+import { taskExists, taskUnknown } from './task-unknown.ts';
 import type { LockedLedger } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
@@ -11,6 +12,8 @@ interface LockOptions {
   timeoutMs?: number;
   /** How long a lock file that does not parse is waited on before it is taken as a crashed writer's. */
   unparsableMs?: number;
+  /** The caller starts the task: its folder and ledger are made here, once validation has passed. */
+  creates?: boolean;
 }
 
 const LOCK_FILE = 'ledger.lock';
@@ -39,8 +42,10 @@ export async function withLedgerLock<T>(
   body: (ledger: LockedLedger) => Promise<T>,
   options: LockOptions = {},
 ): Promise<T> {
+  // Only a creator makes a task; a lock on a folder without a ledger is an unknown task, not a new one.
+  if (options.creates === true) await fs.mkdirp(taskDirectory);
+  else if (!(await taskExists(fs, taskDirectory))) throw await taskUnknown(fs, taskDirectory);
   // Keyed by the real path: two spellings of one directory are one lock, not two that wait on each other.
-  await fs.mkdirp(taskDirectory);
   const lockFile = path.join(await fs.realpath(taskDirectory), LOCK_FILE);
   const outer = heldHere.getStore() ?? new Set<string>();
   if (outer.has(lockFile)) {

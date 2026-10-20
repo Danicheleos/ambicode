@@ -7,7 +7,7 @@ import { commandContext } from '#harness/engine/context';
 import { loadPayload } from '#harness/engine/execute';
 import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
-import { buildReport } from '#modules/evidence/report/report';
+import { gapsOf } from '#modules/evidence/report/report';
 import { assembleEngine, CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
@@ -50,7 +50,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.equal(ledger.filter((entry) => entry.kind === 'step' && entry['step'] === 'read' && entry['status'] === 'delivered').length, 1);
       const exit = (await fx.kinds('cart', 'exit')).at(-1)!;
       assert.deepEqual([exit['reason'], exit['complete'], exit['unverified']], ['done', true, 1]);
-      assert.match(buildReport(ledger).notVerified, /check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/);
+      assert.match(gapsOf(ledger).join('\n'), /check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/);
     } finally {
       await fx.dispose();
     }
@@ -95,7 +95,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.deepEqual((await shape(t)).checks, ['check-citations:true']);
       assert.equal((await shape(t)).exit, 'done');
       assert.deepEqual((await shape(t)).notes, ['investigation']);
-      assert.match(buildReport(await t.fx.ledger('cart')).notVerified, /check-citations: 1 bad citations/);
+      assert.match(gapsOf(await t.fx.ledger('cart')).join('\n'), /check-citations: 1 bad citations/);
     } finally {
       await t.fx.dispose();
     }

@@ -28,7 +28,7 @@ process.stdin.on('data', (chunk) => { text += chunk; });
 process.stdin.on('end', () => {
   const input = JSON.parse(text);
   process.stdout.write(JSON.stringify({
-    payload: 'hello ' + input.task + ' from ' + input.skill,
+    payload: 'hello ' + input.task + ' from ' + input.skill + ' in ' + input.cwd,
     record: { collected: 2 },
     entries: [{ kind: 'search', command: 'refs', names: ['x'], hits: 1, bytes: 3 }],
   }));
@@ -50,7 +50,7 @@ describe('run: script(<name>) (C7)', () => {
     try {
       const first = await fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
       assert.equal(first.position, 'read');
-      assert.match(first.text, /hello script-task from inv/);
+      assert.ok(first.text.includes(`hello script-task from inv in ${fx.repo.root}`), 'the script is told the session directory');
       const search = await fx.kinds(TASK, 'search');
       assert.equal(search.length, 1);
       assert.equal(search[0]?.['command'], 'refs');

@@ -1,38 +1,25 @@
+import path from 'node:path';
 import { taskOf } from './route.ts';
-import { buildChain, currentIn, exitOf } from '#harness/engine/fold';
-import { loadRouteRegistry } from '#harness/definition/routes';
 import { readLedger } from '#platform/ledger/ledger';
-import { buildReport } from '#modules/evidence/report/report';
+import { renderSummary } from '#modules/evidence/report/summary';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
-export const REPORT_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+const REPORT_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
-type ReportOutput = ReturnType<typeof buildReport>;
-
-/** Entries a later revise superseded are marked historical, per the latest route's windows (D10). */
-export async function runReport(runtime: Runtime, args: ParsedArgs): Promise<ReportOutput> {
-  const task = taskOf('report', args);
-  const dir = await resolveTaskDir(runtime, task);
-  const entries = await readLedger(runtime.fs, dir.root);
-  const head = entries.findLast((entry) => entry.kind === 'route');
-  const def = head === undefined ? null : (await loadRouteRegistry(runtime.pluginRoot, runtime.fs)).route(String(head['skill']));
-  if (head === undefined || def === null) return buildReport(entries);
-  const chain = buildChain(entries, head);
-  return buildReport(chain.entries, { current: currentIn(def, chain), complete: exitOf(chain)?.['complete'] === true });
-}
-
-export function renderReport(output: ReportOutput): string {
-  return output.text;
+/** The same text closeRoute writes to summary.md, rendered from the ledger as it is now. */
+async function runReport(runtime: Runtime, args: ParsedArgs): Promise<string> {
+  const dir = await resolveTaskDir(runtime, taskOf('report', args));
+  return renderSummary(dir.slug, await readLedger(runtime.fs, dir.root), (file) => runtime.fs.readText(path.join(dir.repositoryRoot, file)).catch(() => null));
 }
 
 export const reportCommand: CliCommand = {
   name: 'report',
-  summary: 'The evidence of a task and what was not verified, from its ledger.',
+  summary: 'The task summary: plan, iterations and what was not verified, from its ledger.',
   options: REPORT_OPTIONS,
   run: async (runtime, args) => {
-    const output = await runReport(runtime, args);
-    return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified } };
+    const summary = await runReport(runtime, args);
+    return { text: summary, data: { summary } };
   },
 };

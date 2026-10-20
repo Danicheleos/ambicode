@@ -102,10 +102,13 @@ describe('check --name (07-C)', () => {
     }
   });
 
-  it('without --file the `all` command runs', async () => {
+  it('without --file the `all` command runs once the user approved it', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
+      assert.equal((await check({ files: [] })).outcome, 'waiting');
+      const [print] = await kinds(fx, 'gate');
+      await fx.engine.advance({ task: CHECK_TASK, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       await check({ files: [] });
       assert.deepEqual(runner.calls, [['jest']]);
       assert.deepEqual((await kinds(fx, 'check'))[0]?.['files'], []);
@@ -160,8 +163,9 @@ describe('check --name (07-C)', () => {
   });
 
   it('07-C5 the sixth run of a phase in one step refuses check-limit, records the limit once, and standalone has no limit', async () => {
-    const { fx, start, check, runner } = await checkFixture();
+    const { fx, start, check, runner, folder } = await checkFixture();
     try {
+      await folder();
       for (let index = 0; index < 5; index += 1) await check();
       assert.equal((await kinds(fx, 'check')).length, 5, 'standalone runs are not limited');
       await start(); // a fresh route: its window holds none of the standalone entries
@@ -197,7 +201,7 @@ describe('check --name (07-C)', () => {
       const [gate] = await kinds(fx, 'gate');
       assert.deepEqual(gate?.['values'], { key: ['app/e2e'], files: ['src/a.spec.ts'] });
       assert.equal(gate?.['raisedBy'], 'red');
-      assert.match(String(gate?.['question']), /Run app\/e2e on src\/a\.spec\.ts\? \(policy: propose\)/);
+      assert.match(String(gate?.['question']), /Run app\/e2e on src\/a\.spec\.ts\?$/);
       assert.deepEqual(runner.calls, []);
     } finally {
       await fx.dispose();
@@ -284,8 +288,9 @@ describe('check --name (07-C)', () => {
   });
 
   it('07-K5 standalone propose refuses and writes nothing; session null with an open route refuses session-unbound', async () => {
-    const { fx, start, check } = await checkFixture();
+    const { fx, start, check, folder } = await checkFixture();
     try {
+      await folder();
       await assert.rejects(check({ name: 'e2e' }), code('check-only-unauthorized'));
       assert.deepEqual(await fx.ledger(CHECK_TASK), []);
       await start();

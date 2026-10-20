@@ -3,7 +3,6 @@ import { createRuntime } from '#composition/root';
 import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
-import { captureMrDiff } from '#modules/review/snapshot/mr-capture';
 import { liveRouteOf } from '#harness/session/active-route';
 import { openRouteView } from '#harness/engine/context';
 import { createApp } from '#composition/app';
@@ -12,7 +11,6 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
-import { recordReviewerCall } from './review-record.ts';
 import { loadConfig } from '#modules/config/load';
 import { dropIgnoredGlobResults, type GlobResponse } from '#modules/search/glob-ignored';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
@@ -20,7 +18,7 @@ import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } fr
 import type { Runtime, SessionRepository } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 
-export function defaultHookDeps(runtime: Runtime): HookDeps {
+function defaultHookDeps(runtime: Runtime): HookDeps {
   let loaded: Promise<RouteHookDeps> | undefined;
   return {
     // The hook process cwd is wherever the session started, often above the repository; the engine reads config from `cwd`.
@@ -142,8 +140,6 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), input.session_id, async (ledger) => {
     const read = await ledger.read();
     const head = read.state === 'ok' ? read.entries.find((entry) => entry.id === view.routeId) : undefined;
-    const mrUrl = view.skill === 'review' ? ((head?.['args'] as { target?: { mr?: string | null } } | undefined)?.target?.mr ?? null) : null;
-    await captureMrDiff(input, { runtime: routeRuntime, dir, ledger, routeId: view.routeId, mrUrl });
     await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>) });
   });
 }
@@ -152,10 +148,6 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
   if (input.tool_name === 'AskUserQuestion') {
     const found = await repositoryOf(runtime, input);
     const context = await answerGates(runtime, input, await loadFor(deps, found), found);
-    return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
-  }
-  if (input.tool_name === 'Agent') {
-    const context = await recordReviewerCall(runtime, input, deps, await repositoryOf(runtime, input));
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'Glob') return await filterGlob(runtime, input);

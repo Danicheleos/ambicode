@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const arg = process.argv.indexOf('--root');
-const root = path.resolve(arg > 0 ? process.argv[arg + 1] : process.cwd());
+const flag = (name) => { const at = process.argv.indexOf(name); return at > 0 ? process.argv[at + 1] : undefined; };
+const root = path.resolve(flag('--root') ?? process.cwd());
+const here = path.dirname(fileURLToPath(import.meta.url));
 const fail = (error) => { console.log(JSON.stringify({ error })); process.exit(2); };
 
 let top = '';
@@ -26,7 +27,7 @@ const configPath = path.join(root, '.ambicode', 'config.yaml');
 const configExisted = existsSync(configPath);
 if (!configExisted) {
   const id = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
-  const template = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'templates', 'config.yaml'), 'utf8');
+  const template = readFileSync(path.join(here, '..', '..', '..', 'templates', 'config.yaml'), 'utf8');
   writeFileSync(configPath, template.replaceAll('__PROJECT_ID__', id));
   created.push('.ambicode/config.yaml');
 }
@@ -41,4 +42,13 @@ else {
     gitignore = 'added';
   }
 }
-console.log(JSON.stringify({ created, existing, gitignore, configExisted }));
+// The ledger entry is written by the CLI, the only writer of .ambicode/tasks; `recorded` says whether it landed.
+const task = flag('--task');
+let recorded = null;
+if (task !== undefined) {
+  const cli = flag('--cli') ?? path.join(here, '..', '..', '..', 'scripts', 'ambicode.mjs');
+  const outcome = `${created.length} created, config ${configExisted ? 'kept' : 'written'}, gitignore ${gitignore}`;
+  const run = spawnSync(process.execPath, [cli, 'init', 'record', '--task', task, '--what', 'scaffold', '--outcome', outcome], { cwd: root, encoding: 'utf8' });
+  recorded = run.status === 0 ? true : (run.stderr || run.error?.message || `exit ${run.status}`).trim();
+}
+console.log(JSON.stringify({ created, existing, gitignore, configExisted, ...(recorded === null ? {} : { recorded }) }));

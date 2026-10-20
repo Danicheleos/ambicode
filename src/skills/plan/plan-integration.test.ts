@@ -87,6 +87,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const failing = await check(body('src/invoices/service.ts:30'));
       assert.equal(failing.position, 'plan-accept');
       assert.match(failing.text, /Plan check FAILED: 1 bad anchors\.\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
+      assert.doesNotMatch(failing.text, /Coverage rows without code/);
       const failedPrint = (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
       await hook(`Accept this plan? [ambicode gate plan-accept ${failedPrint.id}]`, 'Revise', ['Accept', 'Revise', 'Reject']);
       assert.equal((await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'revise')?.['via'], 'gate');
@@ -103,7 +104,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       console.log(entries.map((entry) => `${entry.kind}${entry.kind === 'step' ? ` ${entry['step']}:${entry['status']}` : ''}${typeof entry['gate'] === 'string' ? ` ${entry['gate']}` : ''}${typeof entry['via'] === 'string' ? ` via:${entry['via']}` : ''}`).join('\n'));
       const plan = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan');
       assert.ok(plan !== undefined && typeof plan['promotedFrom'] === 'string');
-      assert.equal((await readdir(path.join(root, '.ambicode', 'tasks', TASK))).filter((name) => /^plan_.*\.md$/.test(name)).length, 1);
+      assert.equal((await readdir(path.join(root, '.ambicode', 'tasks', TASK))).filter((name) => name === 'plan.md').length, 1);
       const decision = entries.find((entry) => entry.kind === 'acceptance' && entry['gate'] === 'decision:discount-order');
       assert.equal(decision?.['via'], 'hook');
 

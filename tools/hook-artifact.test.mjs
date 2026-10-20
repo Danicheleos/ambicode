@@ -45,7 +45,7 @@ const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 const CONFIG = [
   `schemaVersion: ${SUPPORTED_SCHEMA_VERSION}`,
   'id: app',
-  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 }',
   'skills:',
   `  init: { ${RUN}, scout: { ${RUN} } }`,
   `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,

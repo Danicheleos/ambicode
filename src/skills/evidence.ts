@@ -1,5 +1,7 @@
 import { promotePlan, saveNote } from '#modules/evidence/notes';
-import { failed } from './common.ts';
+import { buildChain, currentIn } from '#harness/engine/fold';
+import { factsOf } from '#modules/evidence/report/report';
+import { chainEntries, failed } from './common.ts';
 import type { Handler } from '#types/harness';
 import type { SaveKind } from '#types/modules/evidence';
 
@@ -24,5 +26,13 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
     } catch (error) {
       return failed(error);
     }
+  },
+  /** The Checks, Review and Not verified facts the final message copies, so the model states them and does not work them out. */
+  'evidence.report': async (input) => {
+    const chain = await chainEntries(input);
+    const head = chain.find((entry) => entry.kind === 'route' && entry.id === input.view.routeId);
+    const current = input.def === undefined || head === undefined ? undefined : currentIn(input.def, buildChain(chain, head));
+    const checks = input.def?.steps.some((step) => step.produces.some((produced) => produced.kind === 'check')) ?? false;
+    return { state: 'ok', payload: factsOf(chain, current, { checks }) || null };
   },
 };

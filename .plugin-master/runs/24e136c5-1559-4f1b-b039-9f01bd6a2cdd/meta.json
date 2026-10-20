@@ -1,0 +1,14 @@
+{
+  "id": "24e136c5-1559-4f1b-b039-9f01bd6a2cdd",
+  "title": "какой статус",
+  "startedAt": "2026-10-17T13:12:09.694Z",
+  "endedAt": "2026-10-17T22:26:32.882Z",
+  "turns": 314,
+  "costUsd": 131.65222489999994,
+  "models": [
+    "claude-sonnet-5-5",
+    "claude-opus-5-5"
+  ],
+  "claudeVersion": "2.1.301",
+  "commit": "11e7e79e151a7218ce87ad810cafcf37d81b76a4"
+}

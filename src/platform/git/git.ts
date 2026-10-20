@@ -17,7 +17,7 @@ const SAFE_CONFIG = [
 const GIT_TIMEOUT_MS = 60_000;
 const GIT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-export interface GitOptions {
+interface GitOptions {
   runner: ProcessRunner;
   repositoryRoot: string;
   extraEnv?: Record<string, string>;
@@ -91,8 +91,14 @@ export class Git {
     return new Git({ ...this.options, extraEnv: { ...this.options.extraEnv, GIT_INDEX_FILE: indexFile } });
   }
 
-  async markIntentToAdd(): Promise<void> {
-    await this.exec(['add', '--intent-to-add', '--', '.'], true);
+  /** Stages every non-ignored file, untracked ones included. */
+  async addAll(): Promise<void> {
+    await this.exec(['add', '-A', '--', ...scoped(null)], true);
+  }
+
+  /** The tree object of the current index. */
+  async writeTree(): Promise<string> {
+    return (await this.exec(['write-tree'])).trim();
   }
 
   /** This worktree's git directory: its `index` and `HEAD`. */
@@ -115,6 +121,12 @@ export class Git {
 
   async topLevel(): Promise<string> {
     return (await this.exec(['rev-parse', '--show-toplevel'])).trim();
+  }
+
+  /** `null` on a detached HEAD. */
+  async currentBranch(): Promise<string | null> {
+    const name = (await this.exec(['symbolic-ref', '--short', '--quiet', 'HEAD'], true)).trim();
+    return name === '' ? null : name;
   }
 
   async hasHead(): Promise<boolean> {

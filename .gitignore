@@ -42,3 +42,7 @@ eval-replay/evals/**/*.*
 gym/planing/abstract
 gym/planing/new-architecture/implementation-reports
 gym/planing/new-architecture/cutting-down
+
+/evals/cases/navigator/
+/evals/bare/navigator/
+.plugin-master/exports/

@@ -39,7 +39,10 @@ function keepAmbicode(cwd, target) {
   for (const entry of existsSync(cwd) ? readdirSync(cwd, { withFileTypes: true }) : []) {
     if (entry.isDirectory() && !entry.name.startsWith('.') && existsSync(path.join(cwd, entry.name, '.ambicode'))) found.push(path.join(entry.name, '.ambicode'));
   }
-  for (const relative of found) cpSync(path.join(cwd, relative), path.join(target, relative), { recursive: true });
+  // .ambicode/context/ is the bench's input copied into every sandbox (~196 files per run, 17,642 entries in the eval dir against
+  // the harness limit of 20,000); the viewer and breakdown.mjs read only the ledgers.
+  const notContext = (source) => path.basename(source) !== 'context' || path.basename(path.dirname(source)) !== '.ambicode';
+  for (const relative of found) cpSync(path.join(cwd, relative), path.join(target, relative), { recursive: true, filter: notContext });
   return found.length === 0 ? null : target;
 }
 

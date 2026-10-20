@@ -1,4 +1,3 @@
-import { AmbicodeError } from './errors.ts';
 import type { FileSystem } from '#types/platform/ports';
 
 /** Same-minute artifacts of one stem get `-2`…`-9` suffixes before the writer gives up. */
@@ -22,6 +21,3 @@ export async function writeUniqueFile(fs: Pick<FileSystem, 'createExclusive'>, b
   }
   return null;
 }
-
-export const uniqueFileExhausted = (what: string): AmbicodeError =>
-  new AmbicodeError('artifact-collision', `${UNIQUE_FILE_LIMIT} ${what} artifacts already exist for this minute; wait and run again.`);
