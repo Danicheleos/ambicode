@@ -1,5 +1,7 @@
 {
-  "masterContext": [],
+  "masterContext": [
+    ".plugin-master/STATE.md"
+  ],
   "activePlan": null,
   "evalTrusted": true,
   "features": {

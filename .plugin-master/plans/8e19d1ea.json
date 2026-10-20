@@ -155,6 +155,14 @@
     {
       "at": "2026-10-17T13:06:39.292Z",
       "message": "Paid check of the stable plan.md + haiku judge on the file (2026-10-17 13:04, via npm run evals, cases one by one, $0.93 total): plan-accept 0.82/1.0/1.0 (plan-quality FAIL in 1 run, votes F P F), plan-reuse 1.0/0.82/1.0 (plan-quality FAIL 3/3 in 1 run). Before: plan-quality 0/3 on both. plan.md present in 6/6 runs. Failing plans mention forbidden paths as untouched/contrast (src/legacy/invoice-export.ts, src/reports/monthly.ts; src/payments/installments.js nextDue): subagent's reading, not confirmed from the judge. Judge cost with haiku on the file: $0.001-0.003 per run."
+    },
+    {
+      "at": "2026-10-20T18:47:08.335Z",
+      "message": "Made the active plan"
+    },
+    {
+      "at": "2026-10-20T18:47:17.446Z",
+      "message": "Made the active plan"
     }
   ]
 }
