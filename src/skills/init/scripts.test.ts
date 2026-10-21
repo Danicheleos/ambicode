@@ -63,9 +63,22 @@ describe('init scaffold', () => {
     const withTask = (extra: string[]) => spawnSync(process.execPath, [SCAFFOLD, '--root', root, '--task', 'init', ...extra], { encoding: 'utf8', env: { ...process.env, CLI_LOG: log } });
     const ok = JSON.parse(withTask(['--cli', cli]).stdout);
     assert.equal(ok.recorded, true);
-    assert.equal(await readFile(log, 'utf8'), 'init|record|--task|init|--what|scaffold|--outcome|4 created, config written, gitignore created\n');
+    assert.equal(await readFile(log, 'utf8'), 'init|record|--task|init|--what|scaffold|--outcome|4 created, config written, gitignore created\nconfig|validate|--json\n');
     const missing = JSON.parse(withTask(['--cli', path.join(path.dirname(root), 'absent.mjs')]).stdout);
     assert.notEqual(missing.recorded, true);
     assert.equal(JSON.parse(run(root).stdout).recorded, undefined, 'no --task, nothing recorded');
+  });
+
+  it('reports the scout model and effort from the validated config, the default and an override, and none for an invalid config', async (t) => {
+    const root = await repo(t, 'app');
+    const cli = path.join(REPO_ROOT, 'src', 'cli', 'main.ts');
+    const scout = () => JSON.parse(spawnSync(process.execPath, [SCAFFOLD, '--root', root, '--cli', cli], { encoding: 'utf8' }).stdout).scout;
+    assert.deepEqual(scout(), { model: 'haiku', effort: 'medium' });
+    const configPath = path.join(root, '.ambicode/config.yaml');
+    const text = await readFile(configPath, 'utf8');
+    await writeFile(configPath, text.replace('scout: { model: haiku, effort: medium,', 'scout: { model: sonnet, effort: low,'));
+    assert.deepEqual(scout(), { model: 'sonnet', effort: 'low' });
+    await writeFile(configPath, 'mine\n');
+    assert.equal(scout(), undefined);
   });
 });

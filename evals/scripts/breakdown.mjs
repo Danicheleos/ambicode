@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { archiveOf } from './context.mjs';
 import { contextTokens, events, mean } from './trace.mjs';
 
 // $/Mtok of claude-sonnet-5-5, fitted to total_cost_usd of 113 bare and 152 plugin traces without a subagent: max error 7e-16.
@@ -173,9 +174,9 @@ function* walk(dir) {
   }
 }
 
-/** The kept ledgers of a trace (`<trace>.ambicode/**\/ledger.jsonl`: tasks/ and reviews/), concatenated; null when none was kept. */
-export function ledgerTextOf(tracePath) {
-  const dir = tracePath.replace(/\.jsonl$/, '.ambicode');
+/** The kept ledgers of a trace (`<archive>/<trace>.ambicode/**\/ledger.jsonl`, see archiveOf: tasks/ and reviews/), concatenated; null when none was kept. */
+export function ledgerTextOf(tracePath, env = process.env) {
+  const dir = path.join(archiveOf(path.dirname(tracePath), env), path.basename(tracePath).replace(/\.jsonl$/, '.ambicode'));
   if (!existsSync(dir)) return null;
   const files = [...walk(dir)].filter((file) => path.basename(file) === 'ledger.jsonl');
   return files.length === 0 ? null : files.map((file) => readFileSync(file, 'utf8')).join('\n');

@@ -1,7 +1,7 @@
 // Navigator cases: ordinary eval cases rendered from NDA assets (a bench repository, ticket text and truth paths) that are
 // not in git. `node evals/scripts/navigator-cases.mjs` writes evals/cases/navigator/ (plugin arm) and evals/bare/navigator/
 // (bare arm), both gitignored. Assets: NAV_BENCH (repository; the plugin arm copies its .ambicode/context), NAV_CASES
-// (<id>/prompt.md with a <ticket> block + truth.json).
+// (<id>/prompt.md with a <ticket> block + truth.json), NAV_CONTEXT (context directory the plugin arm copies; default: the bench's .ambicode/context).
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -174,12 +174,12 @@ function graders(nav, plugin, ancestors) {
   return out;
 }
 
-function scaffold({ bench }, plugin) {
+function scaffold({ bench, context }, plugin) {
   const link = plugin
     ? `# Plugin arm only: the tar copy above drops .ambicode/, and the navigator reads context/index.md from it, and config.yaml.
 mkdir -p .ambicode
 [ ! -f ${sq(path.join(bench, '.ambicode', 'config.yaml'))} ] || cp ${sq(path.join(bench, '.ambicode', 'config.yaml'))} .ambicode/config.yaml
-[ ! -d ${sq(path.join(bench, '.ambicode', 'context'))} ] || cp -R ${sq(path.join(bench, '.ambicode', 'context'))} .ambicode/context
+[ ! -d ${sq(context)} ] || cp -R ${sq(context)} .ambicode/context
 `
     : '';
   return `#!/bin/sh
@@ -243,17 +243,17 @@ export function navigatorSources(env = process.env) {
   const casesDir = path.resolve(env.NAV_CASES ?? path.join(REPO, 'archive', 'evals', 'common', 'core', 'cases'));
   const complete = existsSync(path.join(bench, '.git')) && NAVIGATOR_ORDER.every((id) => existsSync(path.join(casesDir, `fe-vs-${id}-investigate`, 'truth.json')));
   if (!complete) return null;
-  return { bench, casesDir };
+  return { bench, casesDir, context: path.resolve(env.NAV_CONTEXT ?? path.join(bench, '.ambicode', 'context')) };
 }
 
-/** Rewrites both navigator trees; leaves them absent (and says so in one line) without the assets. */
+/** Rewrites both navigator trees; without the assets it says so in one line and leaves whatever exists untouched. */
 export function writeNavigator(evalsDir = EVALS, env = process.env) {
-  for (const tree of ['cases', 'bare']) rmSync(path.join(evalsDir, tree, 'navigator'), { recursive: true, force: true });
   const sources = navigatorSources(env);
   if (sources === null) {
-    console.log('navigator cases skipped: NAV_BENCH or NAV_CASES not found (NDA assets are not on this machine)');
+    console.log('navigator cases skipped: NAV_BENCH or NAV_CASES not found (NDA assets are not on this machine); existing cases are kept');
     return 0;
   }
+  for (const tree of ['cases', 'bare']) rmSync(path.join(evalsDir, tree, 'navigator'), { recursive: true, force: true });
   const files = renderNavigator(sources);
   for (const [relative, text] of files) {
     const file = path.join(evalsDir, relative);

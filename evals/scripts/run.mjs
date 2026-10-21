@@ -4,7 +4,7 @@
 // --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { harvest } from './context.mjs';
+import { archiveOf, harvest } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
 import { metricsOf } from './metrics.mjs';
 import { NAVIGATOR_TAG, isNavigatorCase, navigatorMetrics, navigatorTruth } from './navigator-cases.mjs';
@@ -116,7 +116,8 @@ export function runCase(run, deps = REAL) {
   const result = JSON.parse(readFileSync(run.result, 'utf8'));
   const stamp = String(result.startedAt ?? Date.now()).replace(/[:.]/g, '-');
   // Per suite run: clearing one shared folder lost the traces of every earlier run (2026-10-12).
-  deps.harvest(result, path.join(deps.tracesRoot, run.arm, stamp));
+  const tracesDir = path.join(deps.tracesRoot, run.arm, stamp);
+  deps.harvest(result, tracesDir, { archiveDir: archiveOf(tracesDir) });
   for (const evalCase of result.cases ?? []) {
     const navigator = isNavigatorCase(evalCase.name);
     const spec = navigator ? undefined : caseOf(evalCase.name)?.metrics;

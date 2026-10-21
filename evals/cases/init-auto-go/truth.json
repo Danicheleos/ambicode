@@ -1,0 +1,111 @@
+{
+  "stack": "Go module with cmd/ and many small internal/ packages (one nested five levels deep), go test, go vet and golangci-lint",
+  "projects": [
+    {
+      "id": "parcelhub",
+      "root": ".",
+      "paths": [
+        "cmd/",
+        "internal/"
+      ],
+      "languages": [
+        "go"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks"
+      ],
+      "checks": {
+        "test": {
+          "all": "go test ./...",
+          "file": null
+        },
+        "vet": {
+          "all": "go vet ./...",
+          "file": null
+        },
+        "lint": {
+          "all": "golangci-lint run",
+          "file": "golangci-lint run {file}"
+        }
+      }
+    }
+  ],
+  "plausiblePacks": [
+    "builtin/common-design",
+    "builtin/common-code",
+    "builtin/common-errors",
+    "builtin/common-security",
+    "builtin/common-verification",
+    "builtin/common-checks"
+  ],
+  "packsThatDoNotFit": [
+    "angular-",
+    "express-",
+    "python-quality"
+  ],
+  "conventions": [
+    {
+      "id": "wrap-with-operation",
+      "basis": "written",
+      "quote": "fmt.Errorf(\"tracking.Lookup: %w\", err)",
+      "location": "CONTRIBUTING.md:5"
+    },
+    {
+      "id": "injected-clock",
+      "basis": "written",
+      "quote": "Never call `time.Now` outside `internal/clock`",
+      "location": "CONTRIBUTING.md:9"
+    },
+    {
+      "id": "core-interfaces",
+      "basis": "inferred",
+      "quote": "func New(store core.Store, clock core.Clock) *Service {",
+      "location": "internal/tracking/service.go:16"
+    },
+    {
+      "id": "interface-assertions",
+      "basis": "inferred",
+      "quote": "var _ core.Store = (*Store)(nil)",
+      "location": "internal/memstore/store.go:10"
+    }
+  ],
+  "contributorDocument": "CONTRIBUTING.md",
+  "modules": [
+    "modules/cmd/overview.md",
+    "modules/cmd/parcelctl.md",
+    "modules/cmd/parceld.md",
+    "modules/internal/overview.md",
+    "modules/internal/audit.md",
+    "modules/internal/carrier/overview.md",
+    "modules/internal/carrier/regional/overview.md",
+    "modules/internal/carrier/regional/sortline/overview.md",
+    "modules/internal/carrier/regional/sortline/belt/overview.md",
+    "modules/internal/carrier/regional/sortline/belt/sensor.md",
+    "modules/internal/clock.md",
+    "modules/internal/core.md",
+    "modules/internal/customs.md",
+    "modules/internal/depot.md",
+    "modules/internal/geo.md",
+    "modules/internal/httpapi/overview.md",
+    "modules/internal/httpapi/middleware.md",
+    "modules/internal/httpapi/render.md",
+    "modules/internal/labels.md",
+    "modules/internal/manifest.md",
+    "modules/internal/memstore.md",
+    "modules/internal/notify.md",
+    "modules/internal/pricing.md",
+    "modules/internal/rates.md",
+    "modules/internal/retention.md",
+    "modules/internal/returns.md",
+    "modules/internal/routing.md",
+    "modules/internal/scanner.md",
+    "modules/internal/slots.md",
+    "modules/internal/tagging.md",
+    "modules/internal/tracking.md"
+  ]
+}

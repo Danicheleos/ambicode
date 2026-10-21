@@ -1,0 +1,122 @@
+{
+  "stack": "Kotlin on Gradle, hexagonal across seven subprojects (domain, application, four adapters, bootstrap), JUnit 5 and ktlint",
+  "projects": [
+    {
+      "id": "seedvault",
+      "root": ".",
+      "paths": [
+        "domain/src/main/",
+        "application/src/main/",
+        "adapters/persistence/src/main/",
+        "adapters/rest/src/main/",
+        "adapters/messaging/src/main/",
+        "adapters/cli/src/main/",
+        "bootstrap/src/main/"
+      ],
+      "languages": [
+        "kotlin"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks"
+      ],
+      "checks": {
+        "test": {
+          "all": "./gradlew test",
+          "file": "./gradlew test --tests {file}"
+        },
+        "lint": {
+          "all": "./gradlew ktlintCheck",
+          "file": null
+        }
+      }
+    }
+  ],
+  "plausiblePacks": [
+    "builtin/common-design",
+    "builtin/common-code",
+    "builtin/common-errors",
+    "builtin/common-security",
+    "builtin/common-verification",
+    "builtin/common-checks"
+  ],
+  "packsThatDoNotFit": [
+    "angular-",
+    "express-",
+    "python-quality"
+  ],
+  "conventions": [
+    {
+      "id": "value-class-ids",
+      "basis": "written",
+      "quote": "Identifiers are value classes (`LotId`, `SpeciesId`)",
+      "location": "team/wiki/week-12.md:5"
+    },
+    {
+      "id": "outcome-not-exceptions",
+      "basis": "written",
+      "quote": "is returned as `Outcome.Rejected`",
+      "location": "team/wiki/week-12.md:9"
+    },
+    {
+      "id": "structured-log-keys",
+      "basis": "inferred",
+      "quote": "log.atInfo().addKeyValue(\"lotId\", command.lotId.value)",
+      "location": "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt:32"
+    },
+    {
+      "id": "use-case-invoke",
+      "basis": "inferred",
+      "quote": "override fun invoke(command: SowLotCommand): Outcome<Sowing> {",
+      "location": "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt:25"
+    }
+  ],
+  "contributorDocument": "team/wiki/week-12.md",
+  "modules": [
+    "modules/adapters/overview.md",
+    "modules/adapters/cli/overview.md",
+    "modules/adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/overview.md",
+    "modules/adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands.md",
+    "modules/adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/render.md",
+    "modules/adapters/messaging/overview.md",
+    "modules/adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/overview.md",
+    "modules/adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus.md",
+    "modules/adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail.md",
+    "modules/adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/outbox.md",
+    "modules/adapters/persistence/overview.md",
+    "modules/adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/overview.md",
+    "modules/adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/cache.md",
+    "modules/adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/file.md",
+    "modules/adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/memory.md",
+    "modules/adapters/rest/overview.md",
+    "modules/adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/overview.md",
+    "modules/adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto.md",
+    "modules/adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes.md",
+    "modules/adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/server.md",
+    "modules/application/overview.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/overview.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/port/overview.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/port/input.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/port/output.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/usecase/overview.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/usecase/donor.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/usecase/germination.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/usecase/lot.md",
+    "modules/application/src/main/kotlin/org/seedvault/application/usecase/report.md",
+    "modules/bootstrap/overview.md",
+    "modules/bootstrap/src/main/kotlin/org/seedvault/bootstrap.md",
+    "modules/domain/overview.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/overview.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/donor.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/events.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/germination.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/lot.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/shared.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/species.md",
+    "modules/domain/src/main/kotlin/org/seedvault/domain/storage.md"
+  ]
+}

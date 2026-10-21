@@ -17,11 +17,11 @@ const Limit = PositiveInt.nullable();
 const Effort = z.enum(['low', 'medium', 'high']);
 const Run = { model: Name, effort: Effort, timeoutMinutes: PositiveInt };
 
-/** `file` runs one file: it must say where the file goes. `null` is an intentionally missing form. */
-const CheckSpec = z.strictObject({
+/** `file` runs one file: it must say where the file goes. `null` is an intentionally missing form; a bare `null` check is both forms unknown (7 of 10 init runs wrote it), so consumers only ever see the object. */
+const CheckSpec = z.preprocess((v) => (v === null ? { all: null, file: null } : v), z.strictObject({
   all: z.string().min(1).nullable(),
   file: z.string().min(1).refine((v) => v.includes('{file}'), { error: 'must contain {file}' }).nullable(),
-});
+}));
 type CheckSpec = z.infer<typeof CheckSpec>;
 
 export const ProjectConfig = z.strictObject({

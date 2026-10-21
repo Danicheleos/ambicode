@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { contextOf, harvest, sandboxOf } from './context.mjs';
+import { archiveOf, contextOf, harvest, sandboxOf } from './context.mjs';
 
 const call = (id, input, created, read, parent = null, content = undefined) =>
   JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { id, content, usage: { input_tokens: input, cache_creation_input_tokens: created, cache_read_input_tokens: read, output_tokens: 9 } } });
@@ -46,17 +46,27 @@ describe('evals context size', () => {
     writeFileSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), '{}\n');
     mkdirSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'context'), { recursive: true });
     writeFileSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'context', 'index.md'), 'x');
+    mkdirSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'context', 'modules', 'm'), { recursive: true });
+    writeFileSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'context', 'modules', 'm', 'a.md'), 'y');
     chmodSync(path.join(sandbox, 'sealed'), 0o000);
     writeFileSync(path.join(sandbox, 'out', 'trace.jsonl'), TRACE);
     const result = { cases: [{ name: 'task-fix', arms: { with: [{ tracePath: path.join(sandbox, 'out', 'trace.jsonl') }, { tracePath: path.join(tmp, 'e-Gone2', 'out', 'trace.jsonl') }] } }] };
     const traces = path.join(tmp, 'traces');
-    harvest(result, traces);
+    const archive = path.join(tmp, 'archive');
+    harvest(result, traces, { archiveDir: archive });
     const [kept, gone] = result.cases[0].arms.with;
     assert.equal(kept.context.peak, 21502);
     assert.equal(gone.context, undefined);
     assert.equal(readFileSync(path.join(traces, 'task-fix-1.jsonl'), 'utf8'), TRACE);
-    assert.equal(readFileSync(path.join(traces, 'task-fix-1.ambicode', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), 'utf8'), '{}\n', 'the route record is kept beside the trace');
-    assert.equal(existsSync(path.join(traces, 'task-fix-1.ambicode', 'repo', '.ambicode', 'context')), false, 'the bench context copy is not kept');
+    assert.equal(readFileSync(path.join(archive, 'task-fix-1.ambicode', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), 'utf8'), '{}\n', 'the route record is kept beside the trace');
+    assert.equal(readFileSync(path.join(archive, 'task-fix-1.ambicode', 'repo', '.ambicode', 'context', 'index.md'), 'utf8'), 'x', 'the workspace context is kept');
+    assert.equal(readFileSync(path.join(archive, 'task-fix-1.ambicode', 'repo', '.ambicode', 'context', 'modules', 'm', 'a.md'), 'utf8'), 'y', 'including modules/**');
+    assert.equal(existsSync(path.join(traces, 'task-fix-1.ambicode')), false, 'no workspace copy beside the trace');
     assert.equal(existsSync(sandbox), false);
+  });
+
+  it('archiveOf mirrors the path relative to the repo under the archive root, overridable by AMBICODE_EVAL_ARCHIVE', () => {
+    assert.equal(archiveOf('/r/repo/evals/x', {}, '/r/repo'), path.resolve('/r/eval-archive/evals/x'));
+    assert.equal(archiveOf('/r/repo/evals/x', { AMBICODE_EVAL_ARCHIVE: '/a' }, '/r/repo'), path.resolve('/a/evals/x'));
   });
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
 import { readLedger } from '#platform/ledger/ledger';
-import { initConfig } from '#testing/fixtures/init-config';
+import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '#util/args';
 import { initRecordCommand } from '../init/record.ts';
@@ -14,9 +14,10 @@ async function inRepo(run: (repo: TempRepo, runtime: Awaited<ReturnType<typeof c
   const repo = await TempRepo.create();
   try {
     await repo.write('package.json', '{}\n');
+    await repo.write('src/index.ts', 'export {};\n');
     await repo.commitAll('initial');
     const runtime = await createRuntime({ cwd: repo.root });
-    await initConfig(runtime);
+    await initConfig(runtime, FIXTURE_CONFIG.replace('unit: { all: null', 'unit: { all: "npm test"'));
     await run(repo, runtime);
   } finally {
     await repo.dispose();

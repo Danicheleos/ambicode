@@ -16,7 +16,7 @@ function onDisk(tree) {
     for (const name of readdirSync(path.join(EVALS, relative))) {
       const child = `${relative}/${name}`;
       // navigator/ is rendered from NDA assets by navigator-cases.mjs, gitignored, and absent on most machines.
-      if (name === 'results' || name === 'navigator' || name.startsWith('.')) continue;
+      if (name === 'results' || name === 'navigator' || name === 'init-large' || name.startsWith('.')) continue;
       if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
       else out.push(child);
     }
@@ -47,7 +47,8 @@ describe('skill coverage suite', () => {
       for (const grader of c.graders) {
         const file = /path: (\S+)/.exec(grader.text)?.[1];
         if (file === undefined) continue;
-        assert.doesNotMatch(file, /[*?{]/, `${grader.name}: the harness resolves no globs`);
+        // file_exists takes a glob over the created files (claude 2.1.303 documents `path: <glob>`); a `{ source: file, path }` target is one literal file.
+        if (!grader.text.includes('type: file_exists')) assert.doesNotMatch(file, /[*?{]/, `${grader.name}: the harness resolves no globs`);
         if (file.includes('/tasks/') || file.includes('/reviews/')) assert.ok(file.includes(`/${slug}/`), `${grader.name}: ledger path uses the prompt's slug`);
       }
       assert.ok(FIXTURES.some((entry) => entry.name === c.fixture), `${c.fixture} is a fixture`);

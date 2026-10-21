@@ -36,6 +36,18 @@ describe('check --name (07-C)', () => {
     }
   });
 
+  it('a check configured as bare null is listed as having no command', async () => {
+    const bare = CHECK_CONFIG.replace('unit: { all: "jest", file: "jest {file}" }', 'unit: null');
+    assert.notEqual(bare, CHECK_CONFIG);
+    const { fx, check } = await checkFixture({ config: bare });
+    try {
+      await assert.rejects(check({ name: 'pytest' }), (error: unknown) => error instanceof AmbicodeError && /unit \(no command\)/.test(error.message));
+      await assert.rejects(check({ name: 'unit' }), (error: unknown) => error instanceof AmbicodeError && /no `(all|file)` command/.test(error.message));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('a check with no `file` form refuses --file, and one with no `all` form refuses a whole run, naming what runs', async () => {
     const { fx, check } = await checkFixture();
     try {

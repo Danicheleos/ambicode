@@ -4,6 +4,138 @@
   ],
   "activePlan": "d4d08796",
   "evalTrusted": true,
+  "evalBaselines": {
+    "init-auto-ts": "2026-10-20T21-55-10-444Z",
+    "init-auto-python": "2026-10-20T21-56-42-600Z",
+    "init-auto-go": "2026-10-20T21-58-02-999Z",
+    "init-auto-jvm": "2026-10-20T21-59-33-726Z",
+    "init-auto-monorepo": "2026-10-20T22-01-24-533Z",
+    "fe-vs-438-navigator": "bare/2026-10-19T20-17-57-680Z",
+    "fe-vs-3571-navigator": "bare/2026-10-19T20-39-14-340Z",
+    "fe-vs-5164-navigator": "bare/2026-10-19T20-33-14-390Z",
+    "fe-vs-5948-navigator": "bare/2026-10-19T20-24-37-640Z",
+    "fe-vs-5967-navigator": "bare/2026-10-19T20-30-31-772Z",
+    "fe-vs-6086-navigator": "bare/2026-10-19T20-45-41-158Z",
+    "fe-vs-6141-navigator": "bare/2026-10-19T20-20-42-186Z",
+    "fe-vs-6292-navigator": "bare/2026-10-19T20-27-48-139Z",
+    "fe-vs-6404-navigator": "bare/2026-10-19T20-36-16-863Z",
+    "fe-vs-6406-navigator": "bare/2026-10-19T20-43-11-047Z",
+    "init-scout-large": "2026-10-21T01-13-58-617Z"
+  },
+  "evalRefs": {
+    "fe-vs-438-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-28-35-774Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T17-55-29-403Z"
+      }
+    ],
+    "fe-vs-3571-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-30-02-292Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-09-01-541Z"
+      },
+      {
+        "label": "haiku-prev",
+        "runId": "2026-10-20T17-46-05-818Z"
+      }
+    ],
+    "fe-vs-5164-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-31-35-615Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-05-24-752Z"
+      }
+    ],
+    "fe-vs-5948-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-33-00-362Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T17-59-38-008Z"
+      }
+    ],
+    "fe-vs-5967-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-34-43-281Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-03-35-103Z"
+      }
+    ],
+    "fe-vs-6086-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-36-16-682Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-12-57-997Z"
+      }
+    ],
+    "fe-vs-6141-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-37-44-927Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T17-57-26-893Z"
+      },
+      {
+        "label": "haiku-prev",
+        "runId": "2026-10-20T17-43-59-966Z"
+      }
+    ],
+    "fe-vs-6292-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T11-39-48-657Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-01-43-432Z"
+      }
+    ],
+    "fe-vs-6404-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T12-05-10-096Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-07-15-947Z"
+      },
+      {
+        "label": "haiku-prev",
+        "runId": "2026-10-20T17-48-12-140Z"
+      }
+    ],
+    "fe-vs-6406-navigator": [
+      {
+        "label": "sonnet-v2.1",
+        "runId": "2026-10-20T12-06-41-631Z"
+      },
+      {
+        "label": "haiku",
+        "runId": "2026-10-20T18-10-59-755Z"
+      }
+    ]
+  },
   "features": {
     "git": true,
     "autoCommit": true,

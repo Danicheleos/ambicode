@@ -19,3 +19,6 @@
 12. **Navigator on haiku, one agent file, tools Read/Grep/Glob, no Bash.** Why: user decision (frequent scope subagent, a senior model refines); granting Bash removed Grep/Glob from the subagent, and the user judged Bash too risky. Rejected: `map --folders/--near` CLI (bench R .427/.356 vs .443), sonnet navigator.
 13. **Fix haiku's self-cutting by wording, not by a separate route.** Evidence rule ("a note line or a Grep hit is evidence") instead of "confirmed", keep same-kind siblings, Glob only self-composed paths, cap 6 notes, open the deepest matching index line first (parents only when no child matches). Result 932b65e4, 10x3: F1 .572 R .593 $0.054/run vs bare .505/$0.144 and sonnet V2.1 .542/$0.128. Rejected: cap 3 (6141 opened parent overviews), cap 12 (bench F1 .488), no context (.480), route for the agent (too much, user).
 14. **Context kept for now.** No measurable F1 gain on haiku (no-context .480 vs .501) and it doubles peak context; dropping it is a later user decision.
+
+## 2026-10-21 Scout default
+15. **The init scout defaults to haiku (`skills.init.scout.model` in `templates/config.yaml`); `agents/scout.md` carries no model.** Why: on 5 init cases haiku scored .835 against sonnet .841 at about 1/15 of the scout cost; the init skill passes the configured model when it launches the agent. Rejected: keeping sonnet as the default.

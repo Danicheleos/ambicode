@@ -7,15 +7,16 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { initCases } from './init-cases.mjs';
 import { isNavigatorCase, writeNavigator } from './navigator-cases.mjs';
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
 // ---------------------------------------------------------------- grader builders
 // `file` is a literal path below the session directory: the harness resolves no globs in it.
-const regex = (name, pattern, { match = 'contains', file = null, weight = 1 } = {}) => ({
+const regex = (name, pattern, { match = 'contains', file = null, weight = 1, trace = false } = {}) => ({
   name,
-  text: `---\ntype: regex\npattern: ${y(pattern)}\nmatch: ${match}\ntarget: ${file === null ? 'last_message' : `{ source: file, path: ${file} }`}\nweight: ${weight}\n---\n`,
+  text: `---\ntype: regex\npattern: ${y(pattern)}\nmatch: ${match}\ntarget: ${trace ? 'trace' : file === null ? 'last_message' : `{ source: file, path: ${file} }`}\nweight: ${weight}\n---\n`,
 });
 const ledger = (name, pattern, file, options = {}) => regex(name, pattern, { file, ...options });
 const tool = (name, toolName, inputMatch, { min = 1, max = null, weight = 1 } = {}) => ({
@@ -57,7 +58,8 @@ const LIMITS = {
   task: { max_turns: 40, timeout_seconds: 1200, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'Skill'] },
   review: { max_turns: 20, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
   rules: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
-  init: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
+  // Agent: the scout-invoked grader needs it, and the harness withholds an ungranted tool from the model (cannot-pass check in claude plugin eval 2.1.303).
+  init: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill', 'Agent'] },
 };
 
 // ---------------------------------------------------------------- rubrics shared by a case's two arms
@@ -93,6 +95,9 @@ FAIL otherwise.`;
  * version: raise it whenever a prompt or grader changes; a lift is computed only between rows of the current version.
  * metrics: recall and precision of the files the answer names (metrics.mjs): `relevant` must be named, `allowed` may be.
  */
+/** The grader builders, for generated cases that live outside this file (init-large-case.mjs). */
+export const BUILDERS = { regex, tool, never, exists, llm };
+
 export const CASES = [
   // ---------------------------------------------------------------- investigate
   {
@@ -485,36 +490,8 @@ FAIL otherwise.`),
     ],
   },
   // ---------------------------------------------------------------- init
-  {
-    name: 'init-auto',
-    description: '/ambicode:init --auto on an uninitialised TypeScript repository with jest and eslint installed: config, context and validation.',
-    tags: ['init'],
-    version: 4,
-    fixture: 'ts-feature-boundary', flags: '--install', intoCwd: true,
-    prompt: '/ambicode:init --auto',
-    bare: null,
-    graders: [
-      tool('scaffold-ran', 'Bash', 'scaffold\\.mjs'),
-      tool('scout-invoked', 'Agent', 'ambicode:scout'),
-      tool('config-validated', 'Bash', 'config validate'),
-      never('no-questions', 'AskUserQuestion', '.'),
-      exists('config-written', '.ambicode/config.yaml'),
-      exists('context-overview', '.ambicode/context/overview.md'),
-      exists('context-navigation', '.ambicode/context/navigation.md'),
-      exists('context-conventions', '.ambicode/context/conventions.md'),
-      regex('ecosystem-typescript', 'typescript', { file: '.ambicode/config.yaml' }),
-      regex('check-wired', 'jest', { file: '.ambicode/config.yaml', weight: 2 }),
-      regex('paths-set', 'paths:\\s*\\[\\s*src', { file: '.ambicode/config.yaml' }),
-      // Rules are packs since config v5: init copies the built-ins it selects and writes no config rules.
-      tool('config-packs-ran', 'Bash', 'config packs'),
-      exists('common-design-copied', '.ambicode/policies/common/common-design.yaml'),
-      regex('policy-file-listed', 'policies/common/common-design\\.yaml', { file: '.ambicode/config.yaml' }),
-      regex('no-config-rules', 'source:\\s*(scout|manual|web)', { file: '.ambicode/config.yaml', match: 'not_contains' }),
-      llm('summary-complete', `
-PASS if the final message summarises the projects found, the checks found and missing, and the context files written, and reports that config validate passed (or lists its errors).
-FAIL if it reports success without naming the checks, or claims validation passed while also showing validation errors.`),
-    ],
-  },
+  // One case per stack (init-cases.mjs): same prompt, the fixture and its expected result differ.
+  ...initCases({ regex, tool, never, exists, llm }),
 ];
 
 // ---------------------------------------------------------------- rendering
@@ -569,6 +546,7 @@ export function render(cases = CASES) {
       files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, c.intoCwd === true));
       files.set(`${dir}/prompt.md`, promptFile(c, body));
       for (const grader of graders) files.set(`${dir}/graders/${grader.name}.md`, grader.text);
+      if (tree === 'cases') for (const [name, text] of Object.entries(c.files ?? {})) files.set(`${dir}/${name}`, text);
     }
   }
   return files;
@@ -577,20 +555,29 @@ export function render(cases = CASES) {
 export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
 export const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-function write() {
+/** `--case <glob>` rewrites only the matching cases and leaves every other directory, the navigator cases included, alone. */
+function write(argv = []) {
+  const at = argv.indexOf('--case');
+  const glob = at >= 0 ? argv[at + 1] : null;
+  const pattern = glob === null ? null : new RegExp(`^${glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
+  const selected = pattern === null ? CASES : CASES.filter((c) => pattern.test(c.name));
+  if (pattern !== null && selected.length === 0) throw new Error(`no case matches ${glob}`);
   for (const tree of ['cases', 'bare']) {
     const dir = path.join(EVALS, tree);
     mkdirSync(dir, { recursive: true });
-    for (const name of readdirSync(dir)) if (name !== 'results' && name !== 'navigator') rmSync(path.join(dir, name), { recursive: true, force: true });
+    for (const name of readdirSync(dir)) {
+      if (name === 'results' || name === 'navigator' || name === 'init-large') continue;
+      if (pattern === null || pattern.test(name)) rmSync(path.join(dir, name), { recursive: true, force: true });
+    }
   }
-  const files = render();
+  const files = render(selected);
   for (const [relative, text] of files) {
     const file = path.join(EVALS, relative);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, text, relative.endsWith('.sh') ? { mode: 0o755 } : undefined);
   }
-  console.log(`${CASES.length} cases, ${CASES.filter((c) => c.bare !== null).length} with a bare arm, ${files.size} files`);
-  writeNavigator(EVALS);
+  console.log(`${selected.length} cases, ${selected.filter((c) => c.bare !== null).length} with a bare arm, ${files.size} files`);
+  if (pattern === null) writeNavigator(EVALS);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) write();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) write(process.argv.slice(2));

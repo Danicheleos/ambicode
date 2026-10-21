@@ -29,6 +29,22 @@ describe('navigator cases', () => {
     assert.equal(existsSync(path.join(empty, 'cases', 'navigator')), false);
   });
 
+  it('without the assets, cases that already exist are left in place', () => {
+    const evalsDir = mkdtempSync(path.join(tmpdir(), 'nav-keep-'));
+    const kept = ['cases', 'bare'].map((tree) => path.join(evalsDir, tree, 'navigator', '01-fe-vs-1-navigator', 'case.yaml'));
+    for (const file of kept) { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, 'name: kept\n'); }
+    assert.equal(writeNavigator(evalsDir, { NAV_BENCH: path.join(evalsDir, 'x'), NAV_CASES: path.join(evalsDir, 'y') }), 0);
+    for (const file of kept) assert.equal(existsSync(file), true, file);
+  });
+
+  it('NAV_CONTEXT replaces the context the plugin arm copies; unset it is the bench context', () => {
+    const { env } = assets();
+    const first = (e) => renderNavigator(navigatorSources(e)).get('cases/navigator/01-fe-vs-438-navigator/scaffold.sh');
+    assert.ok(first(env).includes(`cp -R '${path.join(env.NAV_BENCH, '.ambicode', 'context')}' .ambicode/context`));
+    const other = path.join(path.dirname(env.NAV_CASES), 'other-context');
+    assert.ok(first({ ...env, NAV_CONTEXT: other }).includes(`cp -R '${other}' .ambicode/context`));
+  });
+
   it('renders both arms in date order; the arms differ only in the context copy, the tools, the relay and the step grader', () => {
     const { env } = assets();
     const files = renderNavigator(navigatorSources(env));

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import YAML from 'yaml';
 import { REPO_ROOT } from '#testing/paths';
+import { PolicyPack } from '#types/modules/policy';
 
 const repositoryRoot = REPO_ROOT;
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
@@ -418,12 +419,14 @@ describe('F7 rules confirmation gate', () => {
   });
 });
 
+// Raised from 1536 by the user on 2026-10-21: the step-3 wording on where a stack documents its checks did not fit.
+const INIT_BODY_MAX_BYTES = 2000;
 describe('09-R3/09-W1: the init skill and the init route steps', () => {
-  it('09-R3: the init body stays within 1,536 bytes, runs the scaffold, config packs and config validate, and may write only the config and rule drafts', async () => {
+  it('09-R3: the init body stays within 2,000 bytes, runs the scaffold, config packs and config validate, and may write only the config and rule drafts', async () => {
     const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
     const fm = frontmatter(content, 'init/SKILL.md');
     const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-    assert.ok(Buffer.byteLength(body) <= 1536, `${Buffer.byteLength(body)} bytes`);
+    assert.ok(Buffer.byteLength(body) <= INIT_BODY_MAX_BYTES, `${Buffer.byteLength(body)} bytes`);
     assert.match(body, /skills\/init\/scripts\/scaffold\.mjs/);
     assert.match(body, /config validate/);
     assert.match(body, /config packs/);
@@ -436,10 +439,67 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     assert.doesNotMatch(tools.replace(/Write\(\.ambicode\/(config\.yaml|policies\/drafts\/\*\*)\)/g, ''), /Edit|Write/);
   });
 
+  it('init gives the scout a prompt that asks it to write the context', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
+    const launch = content.split('\n').find((line) => line.includes('Launch `ambicode:scout`'));
+    assert.ok(launch !== undefined, 'init launches the scout');
+    // init-auto-go-1 (2026-10-21T06-46-23): a free-form prompt asked only for a report, so the scout wrote no context
+    // and 4 context graders failed.
+    assert.match(launch, /write the context/);
+  });
+
+  it('init tells the model to write pack ids as listed and never to alias a command', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
+    // go-2 (06-46-23) copied bare ids without `builtin/`; mono-2 (06-48-53) and ts-2 (06-07-47) aliased the CLI to $A and the guard blocked it.
+    assert.match(content, /ids exactly as it prints them/);
+    assert.match(content, /never alias a command to a shell variable/);
+  });
+
+  it('init says a chain repeats the full script path, so the alias has an exit', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
+    // 4 of 15 runs (2026-10-21T07-55..08-04) chained `config packs; config validate` behind `A=<path>; node "$A"`, which no allowed-tools rule matches.
+    assert.match(content, /never alias a command to a shell variable \(a chain repeats the full path\)/);
+  });
+
+  it('init batches the post-scout steps: references and --list read while the scout runs, config and drafts in one turn, the checks in one call', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
+    const steps = content.split('\n').filter((line) => /^\d+\. /.test(line));
+    const step = (n: number) => steps.find((line) => line.startsWith(`${n}. `)) ?? '';
+    // Trace analysis of 15 runs: ~6.1 serial main turns after the scout; each read or check in its own turn.
+    assert.match(step(3), /Launch `ambicode:scout`[\s\S]*Same turn, in parallel[\s\S]*references\/rules\.md[\s\S]*pack-format\.md[\s\S]*config packs --list/);
+    assert.match(step(5), /parallel Writes in one turn: `\.ambicode\/config\.yaml`[\s\S]*and step 6's drafts/);
+    assert.match(step(7), /One Bash call[\s\S]*config packs --task init[\s\S]*config validate --task init[\s\S]*policy check --drafts/);
+    const fm = frontmatter(content, 'init/SKILL.md');
+    assert.match(requiredString(fm, 'allowed-tools', 'init/SKILL.md'), /Bash\(node \*ambicode\.mjs policy check\*\)/);
+  });
+
+  it('the pack reference names the key a command check needs, and the schema rejects a pack without it', async () => {
+    const reference = await readFile(path.join(SKILLS_DIR, 'rules', 'references', 'pack-format.md'), 'utf8');
+    // ts-3, python-3 and jvm-2 (2026-10-21T07-55..08-02) drafted `kind: command` with no `command:` and got
+    // `pack-invalid: ...check.command: expected string`; the reference named only "command id".
+    assert.match(reference, /`command` also needs `command: <id>`/);
+    const pack = { schemaVersion: 1, id: 'p', authority: 'team', appliesTo: ['**'], activities: ['review'], source: { location: 'README.md' }, rules: [{ id: 'r', category: 'workflow', instruction: 'x', check: { kind: 'command', explanation: 'e' } }] };
+    assert.equal(PolicyPack.safeParse(pack).success, false);
+    pack.rules[0]!.check = { kind: 'command', command: 'test', explanation: 'e' } as never;
+    assert.equal(PolicyPack.safeParse(pack).success, true);
+  });
+
+  it('init drafts the scout conventions also with --auto and skips only the search, the question and the rules route', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
+    const step = content.split('\n').find((line) => line.startsWith('6. '));
+    assert.ok(step !== undefined, 'init has a step 6');
+    // 13 of 20 init --auto runs (2026-10-21) read "skip manual and web rules" as "skip drafting" and wrote no draft.
+    assert.match(step, /Always draft the scout's conventions .*, also with `--auto`/);
+    assert.match(content, /skip WebSearch and the rules route \(drafts are still written\)/);
+  });
+
   it('the scout agent is internal to init and may not write files', async () => {
     const fm = frontmatter(await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8'), 'agents/scout.md');
     assert.equal(fm['name'], 'scout');
+    assert.equal(fm['model'], undefined, 'the model comes from config skills.init.scout.model, passed by the init skill');
     assert.doesNotMatch(requiredString(fm, 'tools', 'agents/scout.md'), /Write|Edit/);
+    const body = (await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(body, /each project directory is one root, never a folder inside it/);
   });
 
   it('the implementer agent is internal to the task route, runs checks only through the check command and ends on the report format the write step reads', async () => {
