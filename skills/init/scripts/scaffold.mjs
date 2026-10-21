@@ -43,12 +43,15 @@ else {
   }
 }
 // The ledger entry is written by the CLI, the only writer of .ambicode/tasks; `recorded` says whether it landed.
+const cliPath = flag('--cli') ?? path.join(here, '..', '..', '..', 'scripts', 'ambicode.mjs');
 const task = flag('--task');
 let recorded = null;
 if (task !== undefined) {
-  const cli = flag('--cli') ?? path.join(here, '..', '..', '..', 'scripts', 'ambicode.mjs');
   const outcome = `${created.length} created, config ${configExisted ? 'kept' : 'written'}, gitignore ${gitignore}`;
-  const run = spawnSync(process.execPath, [cli, 'init', 'record', '--task', task, '--what', 'scaffold', '--outcome', outcome], { cwd: root, encoding: 'utf8' });
+  const run = spawnSync(process.execPath, [cliPath, 'init', 'record', '--task', task, '--what', 'scaffold', '--outcome', outcome], { cwd: root, encoding: 'utf8' });
   recorded = run.status === 0 ? true : (run.stderr || run.error?.message || `exit ${run.status}`).trim();
 }
-console.log(JSON.stringify({ created, existing, gitignore, configExisted, ...(recorded === null ? {} : { recorded }) }));
+// The scout's model and effort come from the validated config, so the skill passes exact values; absent when the config is invalid or the CLI is missing.
+let scout;
+try { scout = JSON.parse(spawnSync(process.execPath, [cliPath, 'config', 'validate', '--json'], { cwd: root, encoding: 'utf8' }).stdout).scout; } catch { /* reported by its absence */ }
+console.log(JSON.stringify({ created, existing, gitignore, configExisted, ...(scout ? { scout } : {}), ...(recorded === null ? {} : { recorded }) }));

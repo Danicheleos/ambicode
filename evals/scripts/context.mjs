@@ -3,7 +3,18 @@
 // the trace carries only some of them (the task-fix probe of 2026-10-10 shows 1 of the reviewer's several calls).
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { contextTokens, events } from './trace.mjs';
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * Where the per-run workspace copies (`<case>-<n>.ambicode/`) live: outside the repo, at the same path relative to it.
+ * Kept inside, they were 13,596 of 15,744 entries under evals/ and `claude plugin eval` refuses a directory over 20,000.
+ */
+export function archiveOf(dir, env = process.env, repo = REPO) {
+  return path.join(path.resolve(env.AMBICODE_EVAL_ARCHIVE ?? path.join(repo, '..', 'eval-archive')), path.relative(repo, dir));
+}
 
 /**
  * `{peak, final, calls, tools, session, api, costUsd}`: sizes in tokens, `tools` the distinct main-session tool_use blocks, `session`/`api` the seconds
@@ -39,10 +50,9 @@ function keepAmbicode(cwd, target) {
   for (const entry of existsSync(cwd) ? readdirSync(cwd, { withFileTypes: true }) : []) {
     if (entry.isDirectory() && !entry.name.startsWith('.') && existsSync(path.join(cwd, entry.name, '.ambicode'))) found.push(path.join(entry.name, '.ambicode'));
   }
-  // .ambicode/context/ is the bench's input copied into every sandbox (~196 files per run, 17,642 entries in the eval dir against
-  // the harness limit of 20,000); the viewer and breakdown.mjs read only the ledgers.
-  const notContext = (source) => path.basename(source) !== 'context' || path.basename(path.dirname(source)) !== '.ambicode';
-  for (const relative of found) cpSync(path.join(cwd, relative), path.join(target, relative), { recursive: true, filter: notContext });
+  // context/ is kept: the scout's output per run is the reference for later scout comparisons. The bench-input copy it once
+  // excluded (~196 files per run, 17,642 entries against the harness eval-dir limit of 20,000) is checked by the count before each paid run.
+  for (const relative of found) cpSync(path.join(cwd, relative), path.join(target, relative), { recursive: true });
   return found.length === 0 ? null : target;
 }
 
@@ -57,10 +67,10 @@ function unseal(dir) {
 
 /**
  * Adds `context` to every run of a result kept with --keep-temp, copies each trace to `<tracesDir>/<case>-<n>.jsonl`
- * (one directory per run of the suite: an earlier run's traces are never touched),
+ * (one directory per run of the suite: an earlier run's traces are never touched; the `.ambicode` copies go to `archiveDir`),
  * and deletes the sandbox (it holds a whole fixture, node_modules included). A run whose trace is gone keeps no context.
  */
-export function harvest(result, tracesDir, { remove = true } = {}) {
+export function harvest(result, tracesDir, { remove = true, archiveDir = tracesDir } = {}) {
   mkdirSync(tracesDir, { recursive: true });
   for (const evalCase of result.cases ?? []) {
     for (const runs of Object.values(evalCase.arms ?? {})) {
@@ -74,7 +84,7 @@ export function harvest(result, tracesDir, { remove = true } = {}) {
         // The harness seals what the plugin wrote (mode 000) in a read-only directory.
         unseal(sandbox);
         // The route's own record (ledger, delivered steps and payloads): the trace does not hold what a hook injected.
-        const kept = keepAmbicode(path.join(sandbox, 'sealed', 'home', 'cwd'), run.trace.replace(/\.jsonl$/, '.ambicode'));
+        const kept = keepAmbicode(path.join(sandbox, 'sealed', 'home', 'cwd'), path.join(archiveDir, path.basename(run.trace).replace(/\.jsonl$/, '.ambicode')));
         if (kept !== null) run.ambicode = kept;
         if (remove) rmSync(sandbox, { recursive: true, force: true });
       });

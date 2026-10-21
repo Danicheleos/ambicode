@@ -1,0 +1,107 @@
+{
+  "stack": "TypeScript service by bounded context with a shared kernel, jest and eslint declared in package.json",
+  "projects": [
+    {
+      "id": "lendbox",
+      "root": ".",
+      "paths": [
+        "src/"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks"
+      ],
+      "checks": {
+        "test": {
+          "all": "npm test",
+          "file": "npx jest --findRelatedTests {file}"
+        },
+        "lint": {
+          "all": "npm run lint",
+          "file": "npx eslint {file}"
+        }
+      }
+    }
+  ],
+  "plausiblePacks": [
+    "builtin/common-design",
+    "builtin/common-code",
+    "builtin/common-errors",
+    "builtin/common-security",
+    "builtin/common-verification",
+    "builtin/common-checks"
+  ],
+  "packsThatDoNotFit": [
+    "angular-",
+    "express-",
+    "python-quality"
+  ],
+  "conventions": [
+    {
+      "id": "context-index-imports",
+      "basis": "written",
+      "quote": "Import another context only through its `index.ts`",
+      "location": "scratch/page-7.md:5"
+    },
+    {
+      "id": "event-names",
+      "basis": "written",
+      "quote": "Event names are `<context>.<past-tense-verb>`",
+      "location": "scratch/page-7.md:9"
+    },
+    {
+      "id": "use-case-factories",
+      "basis": "inferred",
+      "quote": "export const addItem = (deps: CatalogDeps) => async (input: AddItemInput)",
+      "location": "src/contexts/catalog/application/add-item.ts:14"
+    },
+    {
+      "id": "create-returns-result",
+      "basis": "inferred",
+      "quote": "export function createLoan(input: NewLoan): Result<Loan, DomainError> {",
+      "location": "src/contexts/lending/domain/loan.ts:24"
+    }
+  ],
+  "contributorDocument": "scratch/page-7.md",
+  "modules": [
+    "modules/src/overview.md",
+    "modules/src/contexts/overview.md",
+    "modules/src/contexts/billing/overview.md",
+    "modules/src/contexts/billing/application.md",
+    "modules/src/contexts/billing/domain.md",
+    "modules/src/contexts/catalog/overview.md",
+    "modules/src/contexts/catalog/application.md",
+    "modules/src/contexts/catalog/domain.md",
+    "modules/src/contexts/catalog/http.md",
+    "modules/src/contexts/lending/overview.md",
+    "modules/src/contexts/lending/application.md",
+    "modules/src/contexts/lending/domain/overview.md",
+    "modules/src/contexts/lending/domain/fees.md",
+    "modules/src/contexts/lending/http.md",
+    "modules/src/contexts/members/overview.md",
+    "modules/src/contexts/members/application.md",
+    "modules/src/contexts/members/domain.md",
+    "modules/src/contexts/members/http.md",
+    "modules/src/contexts/notifications/overview.md",
+    "modules/src/contexts/notifications/application.md",
+    "modules/src/contexts/notifications/channels.md",
+    "modules/src/platform/overview.md",
+    "modules/src/platform/config.md",
+    "modules/src/platform/db.md",
+    "modules/src/platform/http.md",
+    "modules/src/platform/logging.md",
+    "modules/src/shared-kernel/overview.md",
+    "modules/src/shared-kernel/events.md",
+    "modules/src/shared-kernel/ids.md",
+    "modules/src/shared-kernel/money.md",
+    "modules/src/shared-kernel/result.md",
+    "modules/src/shared-kernel/time.md"
+  ]
+}

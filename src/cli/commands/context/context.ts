@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { loadConfig } from '#modules/config/load';
-import { buildModuleTree, levelFolders, listContext, maxModulesFor, planIndexFor, renderLevel, renderListing, renderTree, writeContext } from '#modules/context/context';
+import { allFolders, buildModuleTree, listContext, maxModulesFor, proseFiles, renderFullTree, repoRelativeRoots, renderListing, writeContext } from '#modules/context/context';
 import { CONTEXT_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { recordInit } from '#modules/evidence/init-entry';
@@ -19,7 +19,7 @@ export const contextWriteCommand: CliCommand = {
     const { config } = await loadConfig(runtime.fs, root);
     const text = await runtime.stdin.read(MAX_HOOK_INPUT_BYTES);
     if (text === null) throw new AmbicodeError('bad-argument', 'bundle on stdin is too large', { field: 'bundle' });
-    const outcome = await writeContext(runtime.fs, root, text, config.context, args.flag('replace'), await git.listFiles(null), args.all('root'));
+    const outcome = await writeContext(runtime.fs, root, text, config.context, args.flag('replace'), await git.listFiles(null), repoRelativeRoots(root, args.all('root')));
     const problems = outcome.check.problems;
     await recordInit(runtime, args.value('task'), 'context write', `${outcome.written.length} files written, ${problems.length} problems`);
     return { text: JSON.stringify(outcome), data: outcome, json: 'compact', ...(problems.length > 0 ? { exitCode: 1 } : {}) };
@@ -40,21 +40,15 @@ export const contextListCommand: CliCommand = {
 
 export const contextTreeCommand: CliCommand = {
   name: 'context tree',
-  summary: 'Modules; --level N or --index.',
-  options: { repeated: ['root'], values: ['level'], flags: ['json', 'index'] },
+  summary: 'Modules of the source roots with every level\'s file lines, plus the documentation files.',
+  options: { repeated: ['root'], flags: ['json'] },
   run: async (runtime, args) => {
     const { repositoryRoot: root, git } = await openRepository(runtime);
     const { config } = await loadConfig(runtime.fs, root);
     const files = await git.listFiles(null);
-    const result = buildModuleTree(files, { roots: args.all('root'), maxModules: maxModulesFor(config.context) });
-    if (args.flag('index')) {
-      const plan = await planIndexFor(runtime.fs, root, result, config.context);
-      return { text: plan.text.trimEnd(), data: plan };
-    }
-    const level = args.value('level');
-    if (level === null) return { text: renderTree(result), data: result };
-    if (!/^[1-9]\d*$/.test(level)) throw new AmbicodeError('bad-argument', '"context tree --level" takes a positive integer (roots are level 1).', { field: 'level' });
-    const folders = await levelFolders(runtime.fs, root, result, files, Number(level));
-    return { text: renderLevel(folders, Number(level)), data: folders };
+    const result = buildModuleTree(files, { roots: repoRelativeRoots(root, args.all('root')), maxModules: maxModulesFor(config.context) });
+    const folders = await allFolders(runtime.fs, root, result, files);
+    const docs = await proseFiles(runtime.fs, root, files);
+    return { text: renderFullTree(result, folders, docs), data: { ...result, folders, docs } };
   },
 };

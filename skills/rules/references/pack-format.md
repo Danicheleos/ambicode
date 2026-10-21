@@ -27,7 +27,8 @@ The field-by-field reference for `.ambicode/policies/<id>.yaml`. The worked exam
 - **`check.kind`** — `reviewer` when a model must judge it, `command` when one
   of the project's **already declared** commands proves it (an undeclared
   command id makes a hand-written pack an error), `none` when nothing verifies it. All
-  three need an `explanation`.
+  three need an `explanation`; `command` also needs `command: <id>` beside `kind`
+  (`pack-invalid: ...check.command` when it is missing).
 
 ## Which keys go where
 

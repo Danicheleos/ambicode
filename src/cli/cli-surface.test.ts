@@ -30,7 +30,7 @@ const TABLE: Record<string, readonly string[]> = {
   'config packs': ['list', 'task'],
   'context list': [],
   'context write': ['task'],
-  'context tree': ['root', 'level', 'index'],
+  'context tree': ['root'],
   version: [],
 };
 
@@ -136,14 +136,13 @@ describe('context tree', () => {
       const out = await run('--root', 'src');
       assert.match(out.text, /^source files 6, modules 2 /);
       assert.match(out.text, /modules\/src\/app\/features\/overview\.md {2}dir src\/app\/features {2}depth 3 {2}files 6 {2}submodules: modules\/src\/app\/features\/dashboard\/widgets\.md/);
-      assert.match(out.text, /modules\/src\/app\/features\/dashboard\/widgets\.md {2}dir src\/app\/features\/dashboard\/widgets {2}depth 5 {2}files 3\n?$/);
-      assert.doesNotMatch(out.text, /onlyInTest|docs\/guide/);
+      assert.match(out.text, /modules\/src\/app\/features\/dashboard\/widgets\.md {2}dir src\/app\/features\/dashboard\/widgets {2}depth 5 {2}files 3\n/);
+      assert.doesNotMatch(out.text, /onlyInTest/);
+      assert.match(out.text, /\ndocumentation files \(path, bytes\): docs\/guide\.md 8\n/);
+      assert.match(out.text, /\nlevel 1: 1 folders, 3 base names\n- \[src\/app\/features\]\(modules\/src\/app\/features\/overview\.md\)\n {2}- a: makea/);
+      assert.match(out.text, /\nlevel 2: 1 folders, 3 base names\n {2}- \[src\/app\/features\/dashboard\/widgets\]\(modules\/src\/app\/features\/dashboard\/widgets\.md\)\n {4}- d: Widgetd/);
       assert.deepEqual((out.data as { modules: { parent: string | null }[] }).modules.map((module) => module.parent), [null, 'src/app/features']);
       assert.match((await run('--root', 'docs')).text, /^source files 0, modules 0 /);
-      const level2 = await run('--root', 'src', '--level', '2');
-      assert.equal(level2.text, 'level 2: 1 folders, 3 base names\n  - [src/app/features/dashboard/widgets](modules/src/app/features/dashboard/widgets.md)\n    - d: Widgetd\n    - e: Widgete\n    - f: Widgetf');
-      assert.match((await run('--root', 'src', '--level', '1')).text, /^level 1: 1 folders, 3 base names\n- \[src\/app\/features\]\(modules\/src\/app\/features\/overview\.md\)\n {2}- a: makea/);
-      await assert.rejects(() => run('--level', '0'), /positive integer/);
     } finally {
       await repo.dispose();
     }

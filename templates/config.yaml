@@ -12,7 +12,7 @@ skills:                          # every skill: model, effort, timeoutMinutes, p
     model: sonnet
     effort: medium
     timeoutMinutes: 20
-    scout: { model: sonnet, effort: medium, timeoutMinutes: 10 }
+    scout: { model: haiku, effort: medium, timeoutMinutes: 10 }
   review:
     model: sonnet
     effort: medium

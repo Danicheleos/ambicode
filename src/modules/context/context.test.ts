@@ -5,12 +5,13 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REPO_ROOT } from '#testing/paths';
-import { baseNameOf, buildModuleTree, checkContext, levelFolders, listContext, maxModulesFor, noteOf, parseBundle, planIndex, planIndexFor, renderLevel, renderListing, renderTree, tokensOf, writeContext } from './context.ts';
+import { proseFiles, repoRelativeRoots, baseNameOf, buildModuleTree, checkContext, allFolders, listContext, maxModulesFor, noteOf, parseBundle, planIndex, planIndexOfNotes, renderLevel, renderListing, renderTree, tokensOf, writeContext } from './context.ts';
 import type { TreeModule } from './context.ts';
 
 const LIMITS = { maxTotalTokens: 200, maxFileTokens: 50, maxIndexTokens: 5000 };
 const bundle = (...files: [string, string][]): string => files.map(([name, body]) => `=== ${name}\n${body}`).join('\n');
 const OVERVIEW = '# Overview of x\n## Purpose\n- a tool\n';
+const CONVENTIONS: [string, string] = ['conventions.md', '# Conventions of x\n'];
 
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'ambicode-context-'));
@@ -21,11 +22,11 @@ async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
 describe('context write', () => {
   it('writes accepted kinds and lists them', async (t) => {
     const root = await sandbox(t);
-    const out = await writeContext(nodeFileSystem, root, bundle(['overview.md', OVERVIEW], ['modules/search-map.md', '# Search map module\n']), LIMITS, false, []);
-    assert.deepEqual(out.written, ['modules/search-map.md', 'overview.md']);
+    const out = await writeContext(nodeFileSystem, root, bundle(['overview.md', OVERVIEW], ['modules/search-map.md', '# Search map module\n'], CONVENTIONS), LIMITS, false, []);
+    assert.deepEqual(out.written, ['conventions.md', 'modules/search-map.md', 'overview.md']);
     assert.deepEqual(out.check.problems, []);
     const files = await listContext(nodeFileSystem, root);
-    assert.deepEqual(files.map((file) => [file.path, file.title]), [['modules/search-map.md', 'Search map module'], ['overview.md', 'Overview of x']]);
+    assert.deepEqual(files.map((file) => [file.path, file.title]), [['conventions.md', 'Conventions of x'], ['modules/search-map.md', 'Search map module'], ['overview.md', 'Overview of x']]);
     assert.match(renderListing(files, LIMITS), /total ~\d+ of 200 tokens/);
     assert.equal(renderListing([], LIMITS), 'no context: run /ambicode:init');
   });
@@ -60,8 +61,8 @@ describe('context write', () => {
     assert.equal(dup2.check.problems[0]?.kind, 'duplicate-h2');
     const dup1 = await writeContext(nodeFileSystem, root, bundle(['overview.md', '# Same\n'], ['navigation.md', '# Same\n']), LIMITS, false, []);
     assert.equal(dup1.check.problems[0]?.kind, 'duplicate-h1');
-    await writeContext(nodeFileSystem, root, bundle(['overview.md', '# Same\n']), LIMITS, false, []);
-    const later = await writeContext(nodeFileSystem, root, bundle(['conventions.md', '# Same\n']), LIMITS, false, []);
+    await writeContext(nodeFileSystem, root, bundle(['overview.md', '# Same\n'], CONVENTIONS), LIMITS, false, []);
+    const later = await writeContext(nodeFileSystem, root, bundle(['navigation.md', '# Same\n']), LIMITS, false, []);
     assert.equal(later.check.problems[0]?.kind, 'duplicate-h1');
   });
 
@@ -86,18 +87,18 @@ describe('context write', () => {
     const long = `${Array.from({ length: 400 }, () => `- [src/a](modules/a.md) - ${'k'.repeat(20)}`).join('\n')}\n`;
     assert.deepEqual(await kinds(index(long)), []);
     assert.deepEqual(await kinds(index(`${long}${long}`)), ['file-too-large']);
-    assert.deepEqual(await kinds(['overview.md', `# o\n${'x'.repeat(100)}\n`]), ['file-too-large']);
+    assert.deepEqual(await kinds(['conventions.md', `# o\n${'x'.repeat(100)}\n`]), ['file-too-large']);
   });
 
   it('--replace removes files not in the bundle; without it they stay', async (t) => {
     const root = await sandbox(t);
-    await writeContext(nodeFileSystem, root, bundle(['overview.md', '# O\n'], ['modules/old.md', '# Old\n']), LIMITS, false, []);
+    await writeContext(nodeFileSystem, root, bundle(['overview.md', '# O\n'], CONVENTIONS, ['modules/old.md', '# Old\n']), LIMITS, false, []);
     await writeContext(nodeFileSystem, root, bundle(['navigation.md', '# N\n']), LIMITS, false, []);
-    assert.equal((await listContext(nodeFileSystem, root)).length, 3);
-    const out = await writeContext(nodeFileSystem, root, bundle(['overview.md', '# O2\n']), LIMITS, true, []);
+    assert.equal((await listContext(nodeFileSystem, root)).length, 4);
+    const out = await writeContext(nodeFileSystem, root, bundle(['overview.md', '# O2\n'], CONVENTIONS), LIMITS, true, []);
     assert.deepEqual(out.removed, ['modules/old.md', 'navigation.md']);
     assert.equal(await readFile(path.join(root, '.ambicode/context/overview.md'), 'utf8'), '# O2\n');
-    assert.deepEqual((await listContext(nodeFileSystem, root)).map((file) => file.path), ['overview.md']);
+    assert.deepEqual((await listContext(nodeFileSystem, root)).map((file) => file.path), ['conventions.md', 'overview.md']);
   });
 
   it('rejects a bundle with text before the first header, duplicate paths, or nothing', () => {
@@ -122,7 +123,7 @@ describe('context write', () => {
     assert.deepEqual(out.check.problems, []);
     assert.equal(out.written.length, 4);
     assert.equal(await readFile(path.join(root, '.ambicode/context/modules/src/app/features/Dashboard_v2.md'), 'utf8'), '# src/app/features/Dashboard_v2 module\nRoot: src/app/features/Dashboard_v2\n');
-    const replaced = await writeContext(nodeFileSystem, root, bundle(['overview.md', OVERVIEW]), LIMITS, true, []);
+    const replaced = await writeContext(nodeFileSystem, root, bundle(['overview.md', OVERVIEW], CONVENTIONS), LIMITS, true, []);
     assert.equal(replaced.removed.length, 4);
   });
 });
@@ -186,6 +187,67 @@ describe('context write fills Key files from code', () => {
   });
 });
 
+describe('context write generates Depends on from file references', () => {
+  const SOURCES: Record<string, string> = {
+    'src/billing/invoice-calculator.ts': "import { rate } from './tax-rules-engine';\nimport { r2 } from './tax-rules-engine';\nimport { t } from './tax-rate-tables';\nimport { e } from './tax-extra-rules';\nimport { x } from '../tax/short';\nimport { y } from '../tax/shared-helpers';\nuse(invoice-calculator); child-ledger-writer;\n",
+    'src/tax/tax-rate-tables.ts': 'export const t = 1;\n',
+    'src/tax/tax-extra-rules.ts': 'export const e = 1;\n',
+    'src/billing/child/child-ledger-writer.ts': 'use(invoice-calculator);\n',
+    'src/tax/tax-rules-engine.ts': 'export const rate = 1;\n',
+    'src/tax/short.ts': 'export const s = 1;\n',
+    'src/tax/shared-helpers.ts': 'export const h = 1;\n',
+    'src/other/shared-helpers.ts': 'export const h2 = 1;\n',
+  };
+  const NOTE = (title: string, tail = ''): string => `# ${title}\n## Purpose\n- x\n${tail}`;
+  const limits = { maxTotalTokens: 5000, maxFileTokens: 500, maxIndexTokens: 5000 };
+
+  async function run(t: { after(fn: () => unknown): void }, notes: [string, string][]): Promise<string> {
+    const root = await sandbox(t);
+    for (const [file, text] of Object.entries(SOURCES)) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), text);
+    }
+    const out = await writeContext(nodeFileSystem, root, bundle(...notes), limits, false, Object.keys(SOURCES));
+    assert.deepEqual(out.check.problems, []);
+    return root;
+  }
+  const read = (root: string, name: string): Promise<string> => readFile(path.join(root, '.ambicode/context', name), 'utf8');
+  const NOTES: [string, string][] = [
+    ['modules/src/billing/overview.md', NOTE('src/billing module', '## Depends on\n- none\n## Gotchas\n- slow\n')],
+    ['modules/src/billing/child.md', NOTE('src/billing/child module')],
+    ['modules/src/tax.md', NOTE('src/tax module', '## Depends on\n- none\n')],
+    ['modules/src/other.md', NOTE('src/other module')],
+  ];
+
+  it('lists the referenced files of the module whose file names a module mentions (at most 2 per module, most mentioned first), and leaves Gotchas as written', async (t) => {
+    const root = await run(t, NOTES);
+    assert.match(await read(root, 'modules/src/billing/overview.md'), /## Depends on\n- src\/tax\/tax-rules-engine\.ts, src\/tax\/tax-extra-rules\.ts\n## Gotchas\n- slow\n$/);
+  });
+
+  it('skips the module itself, its ancestors and its descendants', async (t) => {
+    const root = await run(t, NOTES);
+    assert.doesNotMatch(await read(root, 'modules/src/billing/child.md'), /## Depends on/);
+    assert.doesNotMatch(await read(root, 'modules/src/billing/overview.md'), /^- src\/billing/m);
+    assert.doesNotMatch(await read(root, 'modules/src/billing/overview.md'), /child-ledger-writer/);
+  });
+
+  it('ignores names under 8 characters and names borne by two modules; the written section stays when nothing is referenced', async (t) => {
+    const root = await run(t, NOTES);
+    // short.ts (5) and shared-helpers.ts (two owners) are both mentioned by billing; only tax-rules-engine counts.
+    const text = await read(root, 'modules/src/billing/overview.md');
+    assert.equal(text.match(/^- src\/(tax|other)\//gm)?.length, 1);
+    assert.doesNotMatch(text, /short\.ts|shared-helpers|src\/other/);
+    assert.match(await read(root, 'modules/src/tax.md'), /## Depends on\n- none\n$/);
+  });
+
+  it('adds the section when the note has none, and keeps it free of paths with backslashes', async (t) => {
+    const root = await run(t, [['modules/src/billing/overview.md', NOTE('src/billing module')], ...NOTES.slice(1)]);
+    const text = await read(root, 'modules/src/billing/overview.md');
+    assert.match(text, /## Folders\n## Depends on\n- src\/tax\/tax-rules-engine\.ts, src\/tax\/tax-extra-rules\.ts\n$/);
+    assert.doesNotMatch(text, /\\/);
+  });
+});
+
 describe('context write Key files and maxTotalTokens', () => {
   it('successive incremental writes each fit: one note never takes the total the later notes and index still need', async (t) => {
     const root = await sandbox(t);
@@ -198,7 +260,7 @@ describe('context write Key files and maxTotalTokens', () => {
     }
     const note = (dir: string): [string, string] => [`modules/src/${dir}.md`, `# ${dir} module\n## Key files\n`];
     const overview: [string, string] = ['overview.md', `# o\n${'x'.repeat(9000)}\n`];
-    const first = await writeContext(nodeFileSystem, root, bundle(overview, note('a')), limits, false, files);
+    const first = await writeContext(nodeFileSystem, root, bundle(overview, CONVENTIONS, note('a')), limits, false, files);
     assert.deepEqual(first.check.problems, []);
     for (const dir of ['b', 'c']) assert.deepEqual((await writeContext(nodeFileSystem, root, bundle(note(dir)), limits, false, files)).check.problems, [], dir);
     for (const dir of ['a', 'b', 'c']) assert.ok(tokensOf(await readFile(path.join(root, `.ambicode/context/modules/src/${dir}.md`), 'utf8')) <= 400, dir);
@@ -349,7 +411,9 @@ describe('relative paths in context write and index', () => {
     const ok = await writeContext(nodeFileSystem, root, bundle(['modules/src/overview.md', parent], ['modules/src/kid.md', '# kid\n'], ['modules/src/big/overview.md', '# big\n']), limits, false, files, ['src']);
     assert.deepEqual(ok.check.problems, []);
     assert.match(await read(root, 'modules/src/overview.md'), /## Submodules\n- kid\.md - leaf\n- big\/overview\.md - nested\n/);
-    const bad = await writeContext(nodeFileSystem, root, bundle(['modules/src/overview.md', '# src module\n## Submodules\n- modules/src/ghost.md - none\n']), limits, false, files, ['src']);
+    // The set is final once every module of the tree has a note; a dangling link is reported only then.
+    const every = buildModuleTree(files, { roots: ['src'], maxModules: 10 }).modules.map((module): [string, string] => [module.note, `# ${module.path}\n`]);
+    const bad = await writeContext(nodeFileSystem, root, bundle(...every, ['modules/src/overview.md', '# src module\n## Submodules\n- modules/src/ghost.md - none\n']), limits, false, files, ['src']);
     assert.deepEqual(bad.check.problems.map((problem) => problem.kind), ['submodule-link']);
   });
 
@@ -402,14 +466,16 @@ describe('relative paths in context write and index', () => {
     assert.match(check(100).join('\n'), /file-too-large: ~\d+ tokens > maxIndexTokens 100/);
   });
 
-  it('planIndexFor stops at the last whole level that fits limits.maxIndexTokens', async (t) => {
-    const root = await sandbox(t);
+  it('planIndexOfNotes stops at the last whole level that fits maxTokens and leaves out modules without a note or under one', () => {
     const files = ['src/a/x1.ts', 'src/a/x2.ts', 'src/a/x3.ts', 'src/a/b/y1.ts', 'src/a/b/y2.ts', 'src/a/b/y3.ts'];
     const result = buildModuleTree(files, { roots: ['src'], maxModules: 20 });
     assert.equal(result.modules.length, 2);
-    const small = { maxTotalTokens: 100000, maxFileTokens: 500, maxIndexTokens: 5 };
-    assert.equal((await planIndexFor(nodeFileSystem, root, result, small)).shownLevels, 1);
-    assert.equal((await planIndexFor(nodeFileSystem, root, result, { ...small, maxIndexTokens: 5000 })).shownLevels, 2);
+    const notes = new Map(result.modules.map((module) => [module.note, '# n\n']));
+    assert.equal(planIndexOfNotes(result.modules, notes, 5).shownLevels, 1);
+    assert.equal(planIndexOfNotes(result.modules, notes, 5000).shownLevels, 2);
+    const parentOnly = planIndexOfNotes(result.modules, new Map([[result.modules[0]!.note, '# n\n']]), 5000);
+    assert.equal(parentOnly.folders, 1);
+    assert.equal(planIndexOfNotes(result.modules, new Map([[result.modules[1]!.note, '# n\n']]), 5000).folders, 0);
   });
 
   it('every module note is linked from the index when the budget allows, and the cut is a whole level', () => {
@@ -436,13 +502,17 @@ describe('scout recipe and spec for nested modules', () => {
     assert.doesNotMatch(scout, /-f1-2|immediate subdirector/);
     assert.doesNotMatch(scout, /Grep over|Item names/);
     assert.match(scout, /context write --task init --root <dir>/);
-    assert.match(scout, /first write adds `--replace`; later writes omit it/);
-    assert.match(scout, /write that level again before going deeper/);
+    assert.match(scout, /`context write` fills them from the code, and writes `## Depends on` itself/);
+    assert.match(spec, /`## Depends on` \(filled by `context write`/);
+    assert.match(scout, /first call carries `overview.md`, `navigation.md`, `conventions.md` once and adds `--replace`; later calls carry module notes only and omit it/);
+    assert.match(scout, /at most 15 module notes in one call/);
+    assert.match(scout, /builds `index.md` itself from the notes: never write it/);
+    assert.doesNotMatch(scout, /--level|--index|once per level/);
+    assert.doesNotMatch(spec, /--level|--index/);
     assert.match(scout, /empty headings: `context write` fills them from the code/);
     assert.match(spec, /filled by `context write` from the code/);
     assert.match(scout, /## Submodules/);
-    assert.match(scout, /context tree --root <dir> .*--level <n>/);
-    assert.match(scout, /once per level before you write it/);
+    assert.match(scout, /documentation files/);
     assert.doesNotMatch(scout, /## features|## literals|`aka`/);
     assert.match(spec, /`- \[<dir>\]\(<note path>\)`/);
     assert.match(spec, /maxIndexTokens/);
@@ -623,7 +693,8 @@ describe('level listing', () => {
     }
     const files = Object.keys(sources);
     const result = buildModuleTree(files, { roots: ['src'], maxModules: 10 });
-    const one = await levelFolders(nodeFileSystem, root, result, files, 1);
+    const everything = await allFolders(nodeFileSystem, root, result, files);
+    const one = everything.filter((folder) => folder.level === 1);
     assert.deepEqual(one.map((folder) => folder.module.path), ['src/app']);
     assert.deepEqual(one[0]!.files, [
       { base: 'card', names: ['CardComponent', 'loadCard', 'CARD_KEY'] },
@@ -631,8 +702,133 @@ describe('level listing', () => {
       { base: 'util', names: ['formatThing'] },
     ]);
     assert.equal(renderLevel(one, 1), 'level 1: 1 folders, 3 base names\n- [src/app](modules/src/app/overview.md)\n  - card: CardComponent, loadCard, CARD_KEY\n  - tiny/only: tinyOnly\n  - util: formatThing');
-    const two = await levelFolders(nodeFileSystem, root, result, files, 2);
+    const two = everything.filter((folder) => folder.level === 2);
     assert.equal(renderLevel(two, 2), 'level 2: 1 folders, 3 base names\n  - [src/app/deep/leaf](modules/src/app/deep/leaf.md)\n    - a: LeafA\n    - b: LeafB\n    - c: LeafC');
-    assert.deepEqual(await levelFolders(nodeFileSystem, root, result, files, 3), []);
+    assert.deepEqual(everything.filter((folder) => folder.level === 3), []);
+  });
+});
+
+describe('context write conventions check', () => {
+  it('reports conventions-missing once overview or navigation is in the final set, and not for module notes alone', async (t) => {
+    const root = await sandbox(t);
+    const kinds = async (replace: boolean, ...files: [string, string][]): Promise<string[]> =>
+      (await writeContext(nodeFileSystem, root, bundle(...files), LIMITS, replace, [])).check.problems.map((problem) => problem.kind);
+    assert.deepEqual(await kinds(false, ['modules/a.md', '# A\n']), []);
+    assert.deepEqual(await kinds(false, ['overview.md', OVERVIEW]), ['conventions-missing']);
+    assert.deepEqual(await kinds(false, ['navigation.md', '# N\n']), ['conventions-missing']);
+    assert.deepEqual((await listContext(nodeFileSystem, root)).map((file) => file.path), ['modules/a.md']);
+    assert.deepEqual(await kinds(false, ['overview.md', OVERVIEW], CONVENTIONS), []);
+    assert.deepEqual(await kinds(false, ['navigation.md', '# N\n']), []);
+    assert.deepEqual(await kinds(true, ['overview.md', '# O2\n']), ['conventions-missing']);
+  });
+});
+
+describe('context write builds index.md', () => {
+  const sources = ['src/a/x1.ts', 'src/a/x2.ts', 'src/a/x3.ts', 'src/a/b/y1.ts', 'src/a/b/y2.ts', 'src/a/b/y3.ts'];
+  const note = (name: string): string => `# ${name} module\n## Purpose\n- holds ${name}\n## Key files\n`;
+  const setup = async (t: { after(fn: () => unknown): void }): Promise<string> => {
+    const root = await sandbox(t);
+    for (const file of sources) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), `export function ${path.basename(file, '.ts')}Fn() {}\n`);
+    }
+    return root;
+  };
+  const limits = { maxTotalTokens: 100000, maxFileTokens: 500, maxIndexTokens: 5000 };
+
+  it('derives index.md from the written notes, replacing any index.md the bundle carries, and links only notes that exist', async (t) => {
+    const root = await setup(t);
+    const parent = '# a module\n## Purpose\n- holds a\n## Key files\n';
+    const first = await writeContext(nodeFileSystem, root, bundle(['modules/src/a/overview.md', parent], ['index.md', '# Index\nnot a folder line\n']), limits, false, sources, ['src']);
+    assert.deepEqual(first.check.problems, []);
+    assert.equal(await readFile(path.join(root, '.ambicode/context/index.md'), 'utf8'), '# Index\n- [src/a](modules/src/a/overview.md) - holds a | x1Fn, x2Fn, x3Fn\n');
+    const second = await writeContext(nodeFileSystem, root, bundle(['modules/src/a/b.md', note('b')]), limits, false, sources, ['src']);
+    assert.deepEqual(second.check.problems, []);
+    assert.match(await readFile(path.join(root, '.ambicode/context/index.md'), 'utf8'), /\n {2}- \[b\]\(modules\/src\/a\/b\.md\) - holds b \| y1Fn, y2Fn, y3Fn\n$/);
+  });
+
+  it('counts a regenerated index once in the size check, so a later write that really fits is accepted', async (t) => {
+    // maxModulesFor reserves 3000 tokens for the fixed notes, so the cap must sit above that for the tree to keep both modules.
+    const tight = { maxTotalTokens: 3800, maxFileTokens: 4000, maxIndexTokens: 5000 };
+    const first = (filler: number): string => bundle(['overview.md', `# o\n${'x'.repeat(filler)}\n`], CONVENTIONS, ['modules/src/a/overview.md', note('a')]);
+    const second = bundle(['modules/src/a/b.md', note('b')]);
+    const sizeOf = async (dir: string): Promise<number> => (await listContext(nodeFileSystem, dir)).reduce((sum, file) => sum + file.tokens, 0);
+    const probe = await setup(t);
+    await writeContext(nodeFileSystem, probe, first(0), tight, false, sources, ['src']);
+    await writeContext(nodeFileSystem, probe, second, tight, false, sources, ['src']);
+    const filler = (tight.maxTotalTokens - 2 - await sizeOf(probe)) * 4;
+    const root = await setup(t);
+    assert.deepEqual((await writeContext(nodeFileSystem, root, first(filler), tight, false, sources, ['src'])).check.problems, []);
+    const out = await writeContext(nodeFileSystem, root, second, tight, false, sources, ['src']);
+    assert.deepEqual(out.check.problems, []);
+    assert.ok(await sizeOf(root) <= tight.maxTotalTokens);
+    assert.ok(tokensOf(await readFile(path.join(root, '.ambicode/context/index.md'), 'utf8')) > 10);
+  });
+
+  it('writes no index.md for a bundle without module notes', async (t) => {
+    const root = await setup(t);
+    await writeContext(nodeFileSystem, root, bundle(['overview.md', OVERVIEW], CONVENTIONS), limits, false, sources, ['src']);
+    assert.deepEqual((await listContext(nodeFileSystem, root)).map((file) => file.path), ['conventions.md', 'overview.md']);
+  });
+});
+
+describe('prose files in context tree', () => {
+  it('lists documentation by type wherever it sits, shallowest then largest first, capped, without tests or source', async (t) => {
+    const root = await sandbox(t);
+    const sizes: Record<string, number> = { 'zeta.txt': 5, 'notes/misc-3.md': 900, 'a/b/c/deep.rst': 4000, 'src/app/main.ts': 50, 'src/app/main.test.md': 10, 'top.md': 30, 'big.adoc': 700 };
+    for (let i = 0; i < 20; i += 1) sizes[`pile/p${String(i).padStart(2, '0')}.md`] = 1 + i;
+    for (const [file, size] of Object.entries(sizes)) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), 'x'.repeat(size));
+    }
+    const docs = await proseFiles(nodeFileSystem, root, [...Object.keys(sizes), 'gone.md']);
+    assert.equal(docs.length, 15);
+    assert.deepEqual(docs.slice(0, 3).map((doc) => [doc.path, doc.bytes]), [['big.adoc', 700], ['top.md', 30], ['zeta.txt', 5]]);
+    assert.ok(!docs.some((doc) => /main|gone/.test(doc.path)));
+    assert.equal(docs[3]!.path, 'notes/misc-3.md');
+  });
+});
+
+describe('context write: order-free submodule links, index from disk, repo-relative roots', () => {
+  const sources = ['src/a/x1.ts', 'src/a/x2.ts', 'src/a/x3.ts', 'src/a/b/y1.ts', 'src/a/b/y2.ts', 'src/a/b/y3.ts'];
+  const limits = { maxTotalTokens: 100000, maxFileTokens: 500, maxIndexTokens: 5000 };
+  const note = (name: string, submodules = ''): string => `# ${name} module\n## Purpose\n- holds ${name}\n## Key files\n${submodules}`;
+  const parent = (target: string): string => note('a', `## Submodules\n- ${target} - b\n`);
+  const kinds = (out: { check: { problems: { kind: string }[] } }): string[] => out.check.problems.map((problem) => problem.kind);
+  const setup = async (t: { after(fn: () => unknown): void }): Promise<string> => {
+    const root = await sandbox(t);
+    for (const file of sources) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), `export function ${path.basename(file, '.ts')}Fn() {}\n`);
+    }
+    return root;
+  };
+  const write = (root: string, ...files: [string, string][]) => writeContext(nodeFileSystem, root, bundle(...files), limits, false, sources, ['src']);
+
+  it('a parent may name a child the run writes later; a dangling link is reported once the set is final', async (t) => {
+    const root = await setup(t);
+    assert.deepEqual(kinds(await write(root, ['modules/src/a/overview.md', parent('b.md')])), []);
+    assert.deepEqual(kinds(await write(root, ['modules/src/a/b.md', note('b')])), []);
+    const dangling = await setup(t);
+    assert.deepEqual(kinds(await write(dangling, ['modules/src/a/overview.md', parent('zz.md')], ['modules/src/a/b.md', note('b')])), ['submodule-link']);
+    assert.deepEqual(await listContext(nodeFileSystem, dangling), []);
+  });
+
+  it('never writes an index without folders, and rebuilds it from every note on disk at the end of each write', async (t) => {
+    const root = await setup(t);
+    await write(root, ['modules/src/a/b.md', note('b')]);
+    assert.deepEqual((await listContext(nodeFileSystem, root)).map((file) => file.path), ['modules/src/a/b.md']);
+    await write(root, ['modules/src/a/overview.md', note('a')]);
+    const index = await readFile(path.join(root, '.ambicode/context/index.md'), 'utf8');
+    assert.equal(index.split('\n').filter((line) => line.includes('](modules/')).length, 2);
+    await writeContext(nodeFileSystem, root, bundle(['conventions.md', '# C\n']), limits, false, sources, ['src']);
+    assert.equal(await readFile(path.join(root, '.ambicode/context/index.md'), 'utf8'), index);
+  });
+
+  it('repoRelativeRoots turns an absolute root inside the repository into a relative one and refuses one outside', () => {
+    const repo = path.resolve('/tmp/some-repo');
+    assert.deepEqual(repoRelativeRoots(repo, [path.join(repo, 'src'), 'lib/', './app']), ['src', 'lib', 'app']);
+    assert.throws(() => repoRelativeRoots(repo, [path.resolve('/tmp/elsewhere/src')]), /outside the repository/);
+    assert.throws(() => repoRelativeRoots(repo, ['../x']), /outside the repository/);
   });
 });

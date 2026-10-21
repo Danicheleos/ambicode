@@ -44,5 +44,6 @@ gym/planing/new-architecture/implementation-reports
 gym/planing/new-architecture/cutting-down
 
 /evals/cases/navigator/
+/evals/cases/init-large/
 /evals/bare/navigator/
 .plugin-master/exports/

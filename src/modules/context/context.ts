@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { CONTEXT_DIR } from '#types/defaults';
+import { CONTEXT_DIR, MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
 import { isSearchable, isTestPath } from '#util/path-classes';
 import { harvest } from '#modules/search/harvest';
@@ -52,7 +52,8 @@ const headings = (text: string, level: number): string[] =>
   text.split('\n').filter((line) => line.startsWith(`${'#'.repeat(level)} `)).map((line) => line.slice(level + 1).trim());
 
 /** Problems in `files` as they would stand on disk; `existing` is what the bundle leaves in place. */
-export function checkContext(files: ReadonlyMap<string, string>, limits: ContextLimits, existing: ReadonlyMap<string, string> = new Map()): ContextProblem[] {
+/** `linksFinal` false while module notes are still missing: a link to a note that is not there yet may be written by a later call, so it is checked once the set is complete. */
+export function checkContext(files: ReadonlyMap<string, string>, limits: ContextLimits, existing: ReadonlyMap<string, string> = new Map(), linksFinal = true): ContextProblem[] {
   const problems: ContextProblem[] = [];
   const bad = (kind: string, message: string, file?: string): number => problems.push({ kind, message, ...(file === undefined ? {} : { file }) });
   const h1Owner = new Map<string, string>();
@@ -72,7 +73,7 @@ export function checkContext(files: ReadonlyMap<string, string>, limits: Context
     if (h1s.length !== 1) bad('h1', `needs exactly one H1 (the file's purpose), found ${h1s.length}`, name);
     else if (h1Owner.has(h1s[0]!)) bad('duplicate-h1', `H1 "${h1s[0]}" is also the H1 of ${h1Owner.get(h1s[0]!)}`, name);
     else h1Owner.set(h1s[0]!, name);
-    if (name.startsWith('modules/')) {
+    if (linksFinal && name.startsWith('modules/')) {
       for (const bullet of sectionOf(text.split('\n'), SUBMODULES).filter((line) => line.startsWith('- '))) {
         const target = path.posix.join(path.posix.dirname(name), bullet.slice(2).split(/\s/)[0]!);
         if (!files.has(target) && !existing.has(target)) bad('submodule-link', `Submodules bullet "${bullet}" does not name a note of the bundle or already written, relative to ${name}`, name);
@@ -80,6 +81,10 @@ export function checkContext(files: ReadonlyMap<string, string>, limits: Context
     }
     const seen = new Set<string>();
     for (const h2 of headings(text, 2)) { if (seen.has(h2)) bad('duplicate-h2', `H2 "${h2}" appears twice`, name); seen.add(h2); }
+  }
+  const fixed = [...existing.keys(), ...files.keys()];
+  if ((fixed.includes('overview.md') || fixed.includes('navigation.md')) && !fixed.includes('conventions.md')) {
+    bad('conventions-missing', 'the context has no conventions.md: read the documentation files `context tree` lists that describe how the code is written, and the code, and write it with overview.md and navigation.md');
   }
   if (total > limits.maxTotalTokens) bad('total-too-large', `~${total} tokens > maxTotalTokens ${limits.maxTotalTokens}`);
   return problems;
@@ -99,8 +104,61 @@ const KEY_FILES = '## Key files';
 const FOLDERS = '## Folders';
 const SUBMODULES = '## Submodules';
 const ROOT_PREFIX = 'Root: ';
-const SECTIONS_AFTER_KEY_FILES = [FOLDERS, SUBMODULES, '## Depends on', '## Gotchas'];
+const DEPENDS = '## Depends on';
+const SECTIONS_AFTER_KEY_FILES = [FOLDERS, SUBMODULES, DEPENDS, '## Gotchas'];
 const MAX_NAMES_PER_FILE = 8;
+/**
+ * A file name (last extension dropped) names a module in another module's text only when it is this long and borne by one module.
+ * Measured on a 115-module repository against its real import statements (module level): the first segment of the name
+ * ("report" of report.service.ts) gave precision 0.13 to 0.23 because common words matched; the full name with length 5 gave
+ * 0.78, 8 gave 0.91 (recall 0.90), 12 gave 0.99 (recall 0.83); uniqueness (2 to 100 owners allowed) changed nothing there.
+ */
+const MIN_REFERENCE_NAME = 8;
+/** The real imports average 8.4 modules per module; a cap of 8 kept recall 0.63 at precision 0.95, 6 gave 0.51 and 4 gave 0.37. */
+const MAX_DEPENDS = 8;
+/** A bullet names the referenced files of one module: the two most mentioned keep it one line, since a bullet per file would multiply the lines the cap of 8 already bounds. */
+const MAX_DEPENDS_FILES = 2;
+
+/** Name (file name without its last extension) to the one module whose own files carry it and the file; names under MIN_REFERENCE_NAME or borne by two modules are left out. */
+function referenceOwners(own: ReadonlyMap<string, readonly string[]>): Map<string, { module: string; file: string }> {
+  const owners = new Map<string, { module: string; file: string } | null>();
+  for (const [module, files] of own) {
+    for (const file of files) {
+      const name = file.slice(file.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+      if (name.length < MIN_REFERENCE_NAME) continue;
+      const seen = owners.get(name);
+      owners.set(name, seen === undefined || seen?.module === module ? seen ?? { module, file } : null);
+    }
+  }
+  return new Map([...owners].filter((entry): entry is [string, { module: string; file: string }] => entry[1] !== null));
+}
+
+/**
+ * One bullet per module, other than this one, its ancestors and its descendants, whose file names the text mentions as a word (letters, digits, `.`, `_`, `-`):
+ * the module's most mentioned files (at most MAX_DEPENDS_FILES), comma separated; modules most mentioned first, then by path. Text match, not import syntax, so any language works.
+ */
+function referencedFiles(modulePath: string, text: string, owners: ReadonlyMap<string, { module: string; file: string }>): string[] {
+  const perModule = new Map<string, Map<string, number>>();
+  for (const match of text.matchAll(/[A-Za-z0-9_.-]+/g)) {
+    const owner = owners.get(match[0]);
+    if (owner === undefined || owner.module === modulePath || modulePath.startsWith(`${owner.module}/`) || owner.module.startsWith(`${modulePath}/`)) continue;
+    const files = perModule.get(owner.module) ?? new Map<string, number>();
+    files.set(owner.file, (files.get(owner.file) ?? 0) + 1);
+    perModule.set(owner.module, files);
+  }
+  const total = (files: Map<string, number>): number => [...files.values()].reduce((sum, n) => sum + n, 0);
+  return [...perModule].sort(([a, x], [b, y]) => total(y) - total(x) || (a < b ? -1 : 1)).slice(0, MAX_DEPENDS).map(([, files]) => `- ${[...files].sort(([a, x], [b, y]) => y - x || (a < b ? -1 : 1)).slice(0, MAX_DEPENDS_FILES).map(([file]) => file).join(', ')}`);
+}
+
+/** The note's lines with `## Depends on` holding exactly these bullets: the section is replaced, or placed before `## Gotchas`, or last. Nothing to say leaves the lines as written. */
+function withDepends(lines: readonly string[], bullets: readonly string[]): string[] {
+  if (bullets.length === 0) return [...lines];
+  const at = lines.indexOf(DEPENDS);
+  const end = at < 0 ? -1 : lines.findIndex((line, i) => i > at && line.startsWith('## '));
+  if (at >= 0) return [...lines.slice(0, at), DEPENDS, ...bullets, ...(end < 0 ? [] : lines.slice(end))];
+  const gotchas = lines.indexOf('## Gotchas');
+  return gotchas < 0 ? [...lines, DEPENDS, ...bullets] : [...lines.slice(0, gotchas), DEPENDS, ...bullets, ...lines.slice(gotchas)];
+}
 
 /** The directory a module note stands for; its files are those no deeper module note claims. */
 const moduleDirOf = (note: string): string | null => (note.startsWith('modules/') ? note.slice('modules/'.length).replace(/(\/overview)?\.md$/, '') : null);
@@ -164,6 +222,18 @@ function folderBullets(modulePath: string, files: readonly string[], written: re
   });
 }
 
+/** The text of the files, each whole unless over MAX_SNAPSHOT_FILE_BYTES; a file that cannot be read adds nothing. */
+async function readSources(fs: FileSystem, root: string, files: readonly string[]): Promise<string> {
+  const parts: string[] = [];
+  for (const file of files) {
+    try {
+      const absolute = path.join(root, file);
+      if ((await fs.stat(absolute)).size <= MAX_SNAPSHOT_FILE_BYTES) parts.push(await fs.readText(absolute));
+    } catch { /* not on disk */ }
+  }
+  return parts.join('\n');
+}
+
 /**
  * Rewrites `## Key files` and `## Folders` of each module note from the declarations of the module's own tracked source files, files
  * with the most declarations first. A bullet the model wrote is kept when it adds a description (`:`) to a path whose
@@ -175,10 +245,12 @@ function folderBullets(modulePath: string, files: readonly string[], written: re
  * deepest directory of the module tree (or of a note), not of the notes present: notes are written level by level, so
  * a parent written first would otherwise list its whole subtree (198 files twice on a 904-directory repository).
  * Folders bullets take the note's room before Key files bullets: a folder named once beats a tail of the file list.
+ * `## Depends on` is generated too, from the other modules whose file names the module's own files mention (referencedFiles), and takes room after Folders and before the Key files tail: at most 8 short lines, and the dependencies are what a reader cannot get from the module's own files.
  */
-async function fillKeyFiles(fs: FileSystem, root: string, bundle: Map<string, string>, others: ReadonlyMap<string, string>, sourceFiles: readonly string[], limits: ContextLimits, tree: TreeResult): Promise<void> {
+async function fillKeyFiles(fs: FileSystem, root: string, bundle: Map<string, string>, others: ReadonlyMap<string, string>, sourceFiles: readonly string[], limits: ContextLimits, tree: TreeResult, indexChars: number): Promise<void> {
   const treePaths = new Map(tree.modules.map((module) => [moduleDirOf(module.note)!, module.path]));
   const owned = ownedFiles(new Set([...[...bundle.keys(), ...others.keys()].map(moduleDirOf).filter((dir): dir is string => dir !== null), ...treePaths.keys()]), sourceFiles);
+  const owners = referenceOwners(new Map([...owned].map(([dir, files]) => [treePaths.get(dir) ?? dir, files])));
   const names = new Map<string, string[]>();
   for (const declaration of await harvest(fs, root, [...owned.values()].flat())) {
     const list = names.get(declaration.path) ?? [];
@@ -212,13 +284,14 @@ async function fillKeyFiles(fs: FileSystem, root: string, bundle: Map<string, st
       return `- ${relative(file)} - ${kept ?? declared.join(', ')}`;
     });
     const folders = folderBullets(modulePath, files, writtenFolders);
-    pending.push({ note, before, after, bullets, folders, base: [...before, KEY_FILES, FOLDERS, ...after].join('\n').length + 3 });
+    const depends = referencedFiles(modulePath, await readSources(fs, root, files), owners);
+    pending.push({ note, before, after, bullets, folders, depends, base: [...before, KEY_FILES, FOLDERS, ...after].join('\n').length + 3 });
   }
   // ceil(len / 4) per file can add one token each, so one token per note is held back.
   const filled = new Set(pending.map((item) => item.note));
   const unfilled = [...others.values(), ...[...bundle].filter(([note]) => !filled.has(note)).map(([, text]) => text)];
-  let remaining = (limits.maxTotalTokens - bundle.size - others.size) * 4 - unfilled.reduce((sum, text) => sum + text.length, 0) - pending.reduce((sum, item) => sum + item.base, 0);
-  const need = (item: { bullets: string[]; folders: string[] }): number => [...item.bullets, ...item.folders].reduce((sum, bullet) => sum + bullet.length + 1, 0);
+  let remaining = (limits.maxTotalTokens - bundle.size - others.size) * 4 - unfilled.reduce((sum, text) => sum + text.length, 0) - pending.reduce((sum, item) => sum + item.base, 0) - indexChars;
+  const need = (item: { bullets: string[]; folders: string[]; depends: string[] }): number => [...item.bullets, ...item.folders, ...item.depends].reduce((sum, bullet) => sum + bullet.length + 1, 0);
   pending.sort((a, b) => need(a) - need(b));
   pending.forEach((item, i) => {
     let room = Math.min(Math.min(limits.maxFileTokens, NOTE_TOKENS) * 4 - item.base, Math.floor(remaining / (pending.length - i)));
@@ -229,17 +302,33 @@ async function fillKeyFiles(fs: FileSystem, root: string, bundle: Map<string, st
       return true;
     });
     const folders = take(item.folders);
-    bundle.set(item.note, `${[...item.before, KEY_FILES, ...take(item.bullets), FOLDERS, ...folders, ...item.after].join('\n').trim()}\n`);
+    const depends = take(item.depends);
+    const key = take(item.bullets);
+    bundle.set(item.note, `${[...item.before, KEY_FILES, ...key, FOLDERS, ...folders, ...withDepends(item.after, depends)].join('\n').trim()}\n`);
   });
 }
 
 export async function writeContext(fs: FileSystem, root: string, bundleText: string, limits: ContextLimits, replace: boolean, sourceFiles: readonly string[], roots: readonly string[] = []): Promise<WriteOutcome> {
   const dir = path.join(root, CONTEXT_DIR);
-  const bundle = parseBundle(bundleText);
+  const parsed = parseBundle(bundleText);
   const onDisk = await readAll(fs, dir);
-  const kept = new Map([...onDisk].filter(([name]) => !bundle.has(name) && !replace));
-  await fillKeyFiles(fs, root, bundle, kept, sourceFiles, limits, buildModuleTree(sourceFiles, { roots, maxModules: maxModulesFor(limits) }));
-  const problems = checkContext(bundle, limits, kept);
+  const kept = new Map([...onDisk].filter(([name]) => !parsed.has(name) && !replace));
+  const tree = buildModuleTree(sourceFiles, { roots, maxModules: maxModulesFor(limits) });
+  const build = async (indexChars: number) => {
+    const bundle = new Map(parsed);
+    await fillKeyFiles(fs, root, bundle, kept, sourceFiles, limits, tree, indexChars);
+    const indexed = planIndexOfNotes(tree.modules, new Map([...kept, ...bundle].filter(([name]) => name.startsWith('modules/'))), limits.maxIndexTokens);
+    if (indexed.folders > 0) bundle.set(INDEX, indexed.text);
+    const notes = new Map([...kept, ...bundle].filter(([name]) => name.startsWith('modules/')));
+    const complete = tree.modules.every((module) => notes.has(module.note));
+    // A regenerated index replaces the one on disk; counting both made a final write of 107 notes fail at 51348 tokens when the set held 44132.
+    const standing = indexed.folders > 0 ? new Map([...kept].filter(([name]) => name !== INDEX)) : kept;
+    return { bundle, indexed, problems: checkContext(bundle, limits, standing, complete) };
+  };
+  let built = await build(0);
+  // The index is made after the notes are filled and counts in the total: a 115-note write was rejected at 47351 tokens of 47000 when the notes took the whole budget. The second fill leaves room for the index the first one produced.
+  if (built.indexed.folders > 0 && built.problems.some((problem) => problem.kind === 'total-too-large')) built = await build(Math.max(0, built.indexed.text.length - (kept.get(INDEX)?.length ?? 0)));
+  const { bundle, problems } = built;
   const written = [...bundle.keys()].sort();
   if (problems.length > 0) return { written: [], removed: [], check: { problems } };
   const removed = replace ? [...onDisk.keys()].filter((name) => !bundle.has(name)) : [];
@@ -398,15 +487,6 @@ export const baseNameOf = (file: string): string => /^\.?[^.]*/.exec(file.slice(
 interface LevelFile { base: string; names: string[] }
 interface LevelFolder { module: TreeModule; level: number; files: LevelFile[] }
 
-/**
- * The modules at one level of the module tree (roots are level 1), each with the base names of the files it owns and the
- * entities those files declare. A file in a folded directory below the module is keyed with its path inside the module,
- * so a base name is unique per folder. Companions are out through isModuleSource, as in Key files.
- */
-export async function levelFolders(fs: FileSystem, root: string, result: TreeResult, sourceFiles: readonly string[], level: number): Promise<LevelFolder[]> {
-  return (await allFolders(fs, root, result, sourceFiles)).filter((folder) => folder.level === level);
-}
-
 /** The module's files grouped by path inside the module plus base name, each with the entity names its files declare. */
 function groupByBase(modulePath: string, files: readonly string[], names: ReadonlyMap<string, string[]>): Map<string, string[]> {
   const groups = new Map<string, string[]>();
@@ -420,8 +500,12 @@ function groupByBase(modulePath: string, files: readonly string[], names: Readon
   return groups;
 }
 
-/** Every module of the tree with its level, files and names; the one harvest behind --level and --index. */
-async function allFolders(fs: FileSystem, root: string, result: TreeResult, sourceFiles: readonly string[]): Promise<LevelFolder[]> {
+/**
+ * Every module of the tree with its level, the base names of the files it owns and the entities they declare. A file in a folded
+ * directory below the module is keyed with its path inside the module, so a base name is unique per folder. Companions are out
+ * through isModuleSource, as in Key files.
+ */
+export async function allFolders(fs: FileSystem, root: string, result: TreeResult, sourceFiles: readonly string[]): Promise<LevelFolder[]> {
   const byPath = new Map(result.modules.map((module) => [module.path, module]));
   const levelOf = (module: TreeModule): number => (module.parent === null ? 1 : levelOf(byPath.get(module.parent)!) + 1);
   const owned = ownedFiles(new Set(result.modules.map((module) => moduleDirOf(module.note)!)), sourceFiles);
@@ -501,8 +585,43 @@ export function planIndex(modules: readonly TreeModule[], notes: ReadonlyMap<str
   return { text, tokens: tokensOf(text), folders, shownLevels, totalLevels };
 }
 
-export async function planIndexFor(fs: FileSystem, root: string, result: TreeResult, limits: ContextLimits): Promise<IndexPlan> {
-  const notes = new Map<string, string>();
-  for (const module of result.modules) notes.set(module.note, await fs.readText(path.join(root, CONTEXT_DIR, module.note)).catch(() => ''));
-  return planIndex(result.modules, notes, limits.maxIndexTokens);
+/** Roots as the tree matches them: relative to the repository. A model may pass an absolute path; one outside the repository is an error. */
+export function repoRelativeRoots(repositoryRoot: string, roots: readonly string[]): string[] {
+  return roots.map((given) => {
+    const relative = path.relative(repositoryRoot, path.resolve(repositoryRoot, given));
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new AmbicodeError('bad-argument', `--root ${given} is outside the repository`, { field: 'root' });
+    return relative.split(path.sep).join('/');
+  });
+}
+
+/** The index of the modules that have a note; a module whose ancestor has none is left out, so every link names a written note. */
+export function planIndexOfNotes(modules: readonly TreeModule[], notes: ReadonlyMap<string, string>, maxTokens: number): IndexPlan {
+  const byPath = new Map(modules.map((module) => [module.path, module]));
+  const linked = (module: TreeModule): boolean => notes.has(module.note) && (module.parent === null || linked(byPath.get(module.parent)!));
+  const kept = modules.filter(linked);
+  const keptPaths = new Set(kept.map((module) => module.path));
+  return planIndex(kept.map((module) => ({ ...module, children: module.children.filter((child) => keptPaths.has(child)) })), notes, maxTokens);
+}
+
+const PROSE_FILE = /\.(md|mdx|markdown|rst|adoc|asciidoc|org|txt)$/i;
+/** 15 lines is ~1 KB of tree output; past that the list stops telling the scout which doc is worth a read. Shallowest, then largest, are kept. */
+const MAX_PROSE_FILES = 15;
+
+interface ProseFile { path: string; bytes: number }
+
+/** Documentation by type, wherever it sits: tracked markup and plain-text files that are not tests or generated, with their sizes. */
+export async function proseFiles(fs: FileSystem, root: string, files: readonly string[]): Promise<ProseFile[]> {
+  const found: ProseFile[] = [];
+  for (const file of files.filter((candidate) => PROSE_FILE.test(candidate) && !isTestPath(candidate) && !GENERATED_PATTERNS.some((pattern) => pattern.test(candidate)))) {
+    const stats = await fs.stat(path.join(root, file)).catch(() => null);
+    if (stats !== null && stats.isFile()) found.push({ path: file, bytes: stats.size });
+  }
+  const depth = (file: ProseFile): number => file.path.split('/').length;
+  return found.sort((a, b) => depth(a) - depth(b) || b.bytes - a.bytes || (a.path < b.path ? -1 : 1)).slice(0, MAX_PROSE_FILES);
+}
+
+/** The module list, the guidance docs as a plain fact, then every level with its file lines: all a scout needs from one call. */
+export function renderFullTree(result: TreeResult, folders: readonly LevelFolder[], docs: readonly ProseFile[]): string {
+  const levels = [...new Set(folders.map((folder) => folder.level))].sort((a, b) => a - b);
+  return [renderTree(result), ...(docs.length === 0 ? [] : [`documentation files (path, bytes): ${docs.map((doc) => `${doc.path} ${doc.bytes}`).join(', ')}`]), ...levels.map((level) => renderLevel(folders.filter((folder) => folder.level === level), level))].join('\n');
 }

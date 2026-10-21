@@ -4,6 +4,7 @@
  * `install` runs after the last commit; it must leave `provides`, and init must then wire `wires`.
  */
 import { readFileSync } from 'node:fs';
+import { GO_MODULE_FILES, JVM_GRADLE_FILES, MONOREPO_FILES, PY_SERVICE_FILES, TS_SERVICE_FILES } from './init-stacks.mjs';
 import { APP_FILES, APP_MONEY_CHANGE, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
@@ -302,6 +303,12 @@ export const FIXTURES = [
       { commit: 'init' },
     ],
   },
+  // Uninitialised repositories on other stacks, for the /ambicode:init --auto cases; no install step, nothing is fetched.
+  { name: 'ts-service-lendbox', steps: [{ write: TS_SERVICE_FILES }, { commit: 'init' }] },
+  { name: 'py-service-tidewatch', steps: [{ write: PY_SERVICE_FILES }, { commit: 'init' }] },
+  { name: 'go-module-parcelhub', steps: [{ write: GO_MODULE_FILES }, { commit: 'init' }] },
+  { name: 'jvm-gradle-seedvault', steps: [{ write: JVM_GRADLE_FILES }, { commit: 'init' }] },
+  { name: 'monorepo-rust-ts-kiln', steps: [{ write: MONOREPO_FILES }, { commit: 'init' }] },
 ];
 
 export function fixtureByName(name) {
