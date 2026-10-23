@@ -45,8 +45,11 @@ describe('skill coverage suite', () => {
     for (const file of disk) assert.equal(readFileSync(path.join(EVALS, file), 'utf8'), FILES.get(file), file);
   });
 
-  it('covers every skill with at least one case, and only skills that exist', () => {
-    assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), [...SKILLS].sort());
+  // Their old cases were removed; delete the skill from this list when its new cases land.
+  const WITHOUT_CASES = ['investigate', 'plan', 'task'];
+  it('covers every skill with at least one case, except those awaiting new cases, and only skills that exist', () => {
+    assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), SKILLS.filter((s) => !WITHOUT_CASES.includes(s)).sort());
+    for (const skill of WITHOUT_CASES) assert.ok(SKILLS.includes(skill), `${skill} is a skill`);
   });
 
   for (const c of CASES) {
