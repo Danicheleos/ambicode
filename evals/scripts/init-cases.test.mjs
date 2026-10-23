@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import { parse } from 'yaml';
 import { materialize } from '../../fixtures/materialize.mjs';
 import { FIXTURES, fixtureByName } from '../../fixtures/definitions.mjs';
-import { EVALS, render } from './cases.mjs';
+import { EVALS, caseDir, render } from './cases.mjs';
 import { INIT_TRUTHS, expectedConfig, modulesOf } from './init-cases.mjs';
 
 const ROOT = path.dirname(EVALS);
@@ -67,7 +67,7 @@ const NAME_GUESS = {
 };
 
 const frontmatter = (text) => parse(text.split('---')[1]);
-const graderTexts = (name) => [...FILES].filter(([file]) => file.startsWith(`cases/${name}/graders/`)).map(([file, text]) => ({ name: path.basename(file, '.md'), ...frontmatter(text) }));
+const graderTexts = (name) => [...FILES].filter(([file]) => file.startsWith(`${caseDir('cases', name)}/graders/`)).map(([file, text]) => ({ name: path.basename(file, '.md'), ...frontmatter(text) }));
 
 const listFiles = (dir, base = '') => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? listFiles(path.join(dir, entry.name), `${base}${entry.name}/`) : [`${base}${entry.name}`])) : []);
 
@@ -288,7 +288,7 @@ describe('init --auto cases', () => {
   });
 
   it('the harness has Agent for the scout-invoked grader', () => {
-    for (const truth of INIT_TRUTHS) assert.match(FILES.get(`cases/init-auto-${truth.slug}/prompt.md`), /allowed_tools: \[[^\]]*\bAgent\b/);
+    for (const truth of INIT_TRUTHS) assert.match(FILES.get(`${caseDir('cases', `init-auto-${truth.slug}`)}/prompt.md`), /allowed_tools: \[[^\]]*\bAgent\b/);
   });
 
   describe('draft graders read the produced files and the call that wrote them, whatever the tool', () => {
@@ -321,15 +321,16 @@ describe('init --auto cases', () => {
       }
     });
 
-    // Real runs of 2026-10-21 (traces in this repo, workspaces in the sibling eval-archive); skipped where the archive is absent.
+    // Real runs of 2026-10-21 (traces in this repo, workspaces in the sibling eval-archive); skipped where the trace or its archived workspace is absent (CI has neither).
     const TRACES = path.join(ROOT, 'evals', 'cases', 'results', 'traces', 'plugin');
     const ARCHIVE = path.join(ROOT, '..', 'eval-archive', 'evals', 'cases', 'results', 'traces', 'plugin');
     const calls = (file) => readFileSync(file, 'utf8').split('\n').flatMap((line) => {
       try { return (JSON.parse(line).message?.content ?? []).filter((block) => block.type === 'tool_use').map(({ name, input }) => ({ name, input })); } catch { return []; }
     });
     const run = (stamp, name) => ({ trace: path.join(TRACES, stamp, `${name}.jsonl`), workspace: path.join(ARCHIVE, stamp, `${name}.ambicode`) });
+    const kept = (stamp, name) => existsSync(run(stamp, name).trace) && existsSync(run(stamp, name).workspace);
 
-    it('a monorepo run that drafted by heredoc passes drafts-written and the drafts it wrote', { skip: !existsSync(run('2026-10-21T07-07-36-777Z', 'init-auto-monorepo-2').workspace) }, () => {
+    it('a monorepo run that drafted by heredoc passes drafts-written and the drafts it wrote', { skip: !kept('2026-10-21T07-07-36-777Z', 'init-auto-monorepo-2') }, () => {
       const { trace, workspace } = run('2026-10-21T07-07-36-777Z', 'init-auto-monorepo-2');
       const truth = INIT_TRUTHS.find((one) => one.slug === 'monorepo');
       const heredoc = calls(trace).filter((call) => call.name === 'Bash' && /drafts\//.test(call.input.command));
@@ -356,7 +357,7 @@ describe('init --auto cases', () => {
       }
     });
 
-    it('a python run that wrote no draft still fails drafts-written and every draft grader', { skip: !existsSync(run('2026-10-21T06-09-32-705Z', 'init-auto-python-1').workspace) }, () => {
+    it('a python run that wrote no draft still fails drafts-written and every draft grader', { skip: !(kept('2026-10-21T06-09-32-705Z', 'init-auto-python-1') && kept('2026-10-21T06-09-32-705Z', 'init-auto-python-2')) }, () => {
       for (const n of [1, 2]) {
         const { trace, workspace } = run('2026-10-21T06-09-32-705Z', `init-auto-python-${n}`);
         const truth = INIT_TRUTHS.find((one) => one.slug === 'python');
@@ -368,6 +369,6 @@ describe('init --auto cases', () => {
 
   it('every new fixture is an uninitialised repository with no install step', () => {
     for (const truth of INIT_TRUTHS) assert.equal(fixtureByName(truth.fixture).install, undefined);
-    assert.equal(FIXTURES.filter((fixture) => /^(ts-service|py-service|go-module|jvm-gradle|monorepo-rust)/.test(fixture.name)).length, 5);
+    assert.equal(FIXTURES.filter((fixture) => /^(ts-service|py-service|go-module|jvm-gradle|monorepo-rust)/.test(fixture.name) && !fixture.name.includes('-review-')).length, 5);
   });
 });

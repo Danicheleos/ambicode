@@ -1,0 +1,109 @@
+[
+  {
+    "id": "main",
+    "category": "arch-style",
+    "main": true,
+    "what": "BayHandler reads and writes core.Store directly, repeating depot.Planner.Assign instead of calling it as the other handlers call their services; httpapi.New now takes the raw store for it",
+    "locations": [
+      {
+        "file": "internal/httpapi/bays.go",
+        "lines": [
+          34,
+          44
+        ]
+      },
+      {
+        "file": "internal/httpapi/server.go",
+        "lines": [
+          17,
+          17
+        ]
+      },
+      {
+        "file": "cmd/parceld/routes.go",
+        "lines": [
+          18,
+          18
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "BayHandler",
+          "Assign"
+        ],
+        "near": "bypass|bypasses|bypassing|planner|depot|directly|layer|duplicates|reimplements|repeats"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "tests",
+    "main": false,
+    "what": "no test exercises the /bays/ route",
+    "locations": [
+      {
+        "file": "internal/httpapi/server.go",
+        "lines": [
+          24,
+          24
+        ]
+      },
+      {
+        "file": "internal/httpapi/server_test.go",
+        "lines": [
+          21,
+          21
+        ]
+      },
+      {
+        "file": "internal/httpapi/bays.go",
+        "lines": [
+          14,
+          14
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "BayHandler",
+          "/bays/"
+        ],
+        "gap": true
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "error-security",
+    "main": false,
+    "what": "the handler assigns a bay, a write, on any HTTP method including GET",
+    "locations": [
+      {
+        "file": "internal/httpapi/bays.go",
+        "lines": [
+          18,
+          19
+        ]
+      },
+      {
+        "file": "internal/httpapi/bays.go",
+        "lines": [
+          35,
+          40
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "ServeHTTP",
+          "BayHandler"
+        ],
+        "near": "method|methods|GET|verb|verbs"
+      }
+    ]
+  }
+]

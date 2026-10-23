@@ -20,7 +20,7 @@ interface DirectoryEntry {
 export interface FileSystem {
   readText(absolutePath: string): Promise<string>;
   readBytes(absolutePath: string): Promise<Uint8Array>;
-  writeText(absolutePath: string, contents: string): Promise<void>;
+  writeText(absolutePath: string, contents: string, mode?: number): Promise<void>;
   /** Atomic (`O_EXCL`): of two processes racing for the per-review publication lease, only one wins. */
   createExclusive(absolutePath: string, contents: string): Promise<boolean>;
   /** One `O_APPEND` write, so lines under the pipe buffer size from two processes do not interleave. */
@@ -64,6 +64,8 @@ export interface ProcessRequest {
   maxOutputBytes: number;
   env: EnvironmentPolicy;
   stdin?: string;
+  /** The child outlives this process; the outcome is its first stdout line, then its pipes are closed. */
+  detached?: boolean;
 }
 
 export interface ProcessOutcome {
@@ -86,4 +88,25 @@ export interface StandardInput {
    * silent no-op on an oversized payload, while a requirement envelope must fail loudly.
    */
   read(maxBytes: number): Promise<string | null>;
+}
+
+export interface HttpRequest {
+  method: string;
+  url: string;
+  /** Lower-case names; a repeated header is joined with a comma. */
+  headers: Readonly<Record<string, string | undefined>>;
+  body: string;
+}
+
+export interface HttpResponse {
+  status: number;
+  headers?: Readonly<Record<string, string>>;
+  body?: string;
+}
+
+/** A listener on the loopback interface only, on `port` (0: one the OS picks); a port in use rejects with `code: 'EADDRINUSE'`. */
+export interface HttpHost {
+  listen(handler: (request: HttpRequest) => Promise<HttpResponse>, port?: number): Promise<{ port: number; close(): Promise<void> }>;
+  /** One request to 127.0.0.1:`port`; null when nothing answers there. */
+  call(port: number, request: { method: string; url: string; headers?: Record<string, string>; body?: string }): Promise<HttpResponse | null>;
 }

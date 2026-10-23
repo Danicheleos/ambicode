@@ -151,3 +151,11 @@ test('context.maxIndexTokens is required and positive; the shipped template carr
     assert.throws(() => parseConfig(`${broken.split('projects:')[0]}${body}`), (error: Error & { code?: string }) => error.code === 'config-invalid');
   }
 });
+
+test('skills.review.pagePort is a TCP port or null, and null when unset', () => {
+  const doc = withProjects(ONE);
+  assert.equal(parseConfig(doc).skills.review.pagePort, null);
+  const withPort = (value: string): string => doc.replace('excludePaths: []', `excludePaths: [], pagePort: ${value}`);
+  assert.equal(parseConfig(withPort('45831')).skills.review.pagePort, 45831);
+  for (const bad of ['0', '70000', '"x"', '1.5']) assert.throws(() => parseConfig(withPort(bad)), (error: Error & { code?: string }) => error.code === 'config-invalid', bad);
+});

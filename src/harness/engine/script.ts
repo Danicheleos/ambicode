@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { TEST_PATH_PATTERNS } from '#util/path-classes';
 import type { Handler, HandlerResult } from '#types/harness';
 
 const NAME = /^[\w-]+$/;
@@ -18,7 +19,7 @@ interface ScriptOutput {
 
 /**
  * `run: script(<name>)` (C7): the step is `skills/<skill>/scripts/<name>.mjs`, a plain ESM file with no
- * imports from src/. It gets the step input as JSON on stdin and answers with JSON on stdout:
+ * imports from src/. It gets the step input as JSON on stdin (with `testPatterns`, the sources of the test-path regular expressions, so a script judges a test file as the review does) and answers with JSON on stdout:
  * `payload` (the step text), `record` (fields merged into the step's completion entry), `entries`
  * (ledger entries to append, each with a `kind`), or `failed` / `raise` with the handler's own shapes. Entries are appended before a `failed`, so a failing check still leaves its record.
  * The script never writes the ledger itself; a script that must write outside the ledger is a CLI command.
@@ -30,6 +31,7 @@ export const scriptHandler: Handler = async (input): Promise<HandlerResult> => {
   const stdin = JSON.stringify({
     task: input.view.task, skill: input.view.skill, repositoryRoot: input.dir.repositoryRoot, cwd: input.runtime.cwd, taskDir: input.dir.root, steps: input.dir.steps,
     args: input.args, params: input.params.slice(1), revise: input.revise, raisedBy: input.raisedBy, headless: input.view.mode === 'headless',
+    testPatterns: TEST_PATH_PATTERNS.map((pattern) => pattern.source),
   });
   const outcome = await input.runtime.runner.run({ argv: [process.execPath, file], cwd: input.dir.repositoryRoot, timeoutMs: TIMEOUT_MS, maxOutputBytes: MAX_OUTPUT_BYTES, env: { kind: 'inherited' }, stdin });
   const where = path.relative(input.runtime.pluginRoot, file);

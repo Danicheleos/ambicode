@@ -8,6 +8,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initCases } from './init-cases.mjs';
+import { reviewCases } from './review-cases.mjs';
 import { isNavigatorCase, writeNavigator } from './navigator-cases.mjs';
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
@@ -41,7 +42,6 @@ const FIVE_FIELDS = 'Goal.*Changes.*Accept.*Checks.*Leaves out';
 const noGit = shared(never('no-git-mutation', 'Bash', 'git (commit|push|stash|reset|checkout|clean|merge|rebase)'));
 
 const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
-const R = (slug) => `repo/.ambicode/reviews/${slug}/ledger.jsonl`;
 const DONE = (file) => ledger('route-done', '"kind":"exit"[^\\n]*"reason":"done"', file);
 const REPO = 'The repository is at `repo/`.';
 // The files list a case scores; both arms get the same sentence, so the list is a contract, not plugin behaviour.
@@ -75,10 +75,6 @@ ${where} PASS only if all hold:
 - Changes extend the existing Invoice interface (src/invoices/model.ts), src/invoices/service.ts and invoicesRoute in src/routes/invoices.ts rather than new parallel modules, and name no file under src/users/, src/legacy/ or src/reports/ as something to change.
 FAIL otherwise.`;
 
-const FINDING_CORRECT = (where) => `
-PASS only if ${where} reports that the changed money.round (half to even instead of half up) alters the result of a caller that is not in the diff, and names that caller with its location: any affected caller outside src/shared/money.js and its test, for example taxFor or the invoice total in src/invoices/service.js (a 1005-cent subtotal at 1000 basis points now gives a tax of 100, not 101), src/invoices/summary.js, averageInvoiceCents in src/reports/service.js, or anything else that uses money.round or money.total.
-FAIL if it only restates the rounding change, says the change is safe or correct, or names no caller outside src/shared/money.js and its test.`;
-
 const REUSE_QUALITY =(where) => `
 ${where} PASS only if all hold:
 - The dueDate check reuses validateDate and validateRange from src/shared/validation (for example validateRange(dueDate, { min: issuedAt }, 'dueDate')) and ValidationError through them; it does not add a new date comparison, a new validator module or a bare Error.
@@ -95,8 +91,8 @@ FAIL otherwise.`;
  * version: raise it whenever a prompt or grader changes; a lift is computed only between rows of the current version.
  * metrics: recall and precision of the files the answer names (metrics.mjs): `relevant` must be named, `allowed` may be.
  */
-/** The grader builders, for generated cases that live outside this file (init-large-case.mjs). */
-export const BUILDERS = { regex, tool, never, exists, llm };
+/** The grader builders, for generated cases that live outside this file (init-large-case.mjs, review-cases.mjs). */
+export const BUILDERS = { regex, ledger, tool, never, exists, llm, shared, noEdits, DONE };
 
 export const CASES = [
   // ---------------------------------------------------------------- investigate
@@ -362,107 +358,8 @@ FAIL if it says the change was reviewed, or omits that the review was skipped.`)
     ],
   },
   // ---------------------------------------------------------------- review
-  {
-    name: 'review-defect',
-    description: 'An uncommitted off-by-one: the reviewer subagent runs, the finding is recorded and reported with its location.',
-    tags: ['review'],
-    fixture: 'ts-off-by-one', flags: '--ambicode-init',
-    prompt: `/ambicode:review --task rev-page --headless --answer estimate=run ${REPO}`,
-    bare: `Review the uncommitted change in the repository at \`repo/\`.`,
-    graders: [
-      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
-      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', R('rev-page')),
-      ledger('finding-recorded', '"findings":[1-9]', R('rev-page'), { weight: 2 }),
-      DONE(R('rev-page')),
-      ...noEdits,
-      regex('part4-fenced', '```'),
-      shared(regex('cites-location', 'src/page\\.js:\\d+')),
-      shared(llm('finding-correct', `
-PASS only if the final message reports a finding that the changed slice in src/page.js drops the last item of each page (the end bound lost one element), and does not claim any check passed unless a check with a result is listed.
-FAIL if no such finding appears, if the change is called clean, or if a check is reported as passed without one being recorded or run.`)),
-    ],
-  },
-  {
-    name: 'review-clean',
-    description: 'A docstring-only Python change: no behavioural defect may be asserted, and the verification gap still has to be stated.',
-    tags: ['review'],
-    fixture: 'py-clean-docstring', flags: '--ambicode-init',
-    prompt: `/ambicode:review --task rev-clean --headless --answer estimate=run ${REPO}`,
-    bare: `Review the uncommitted change in the repository at \`repo/\`.`,
-    graders: [
-      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
-      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', R('rev-clean')),
-      DONE(R('rev-clean')),
-      ...noEdits,
-      regex('part4-fenced', '```'),
-      shared(llm('no-false-defect', `
-PASS if the final message asserts no behavioural defect in src/tax.py (a docstring and a type hint were added; the body is unchanged), and still states what was not verified (checks not run, or an empty finding list not meaning clean).
-FAIL if it reports a behavioural defect or regression in src/tax.py, or calls the change verified or clean without qualification.`)),
-    ],
-  },
-  {
-    name: 'review-regression',
-    description: 'A source-only change that breaks an unchanged test; the reviewer should see it and a check should be recorded.',
-    tags: ['review', 'checks'],
-    fixture: 'ts-source-regression', flags: '--ambicode-init --install',
-    prompt: `/ambicode:review --task rev-math --headless --answer estimate=run ${REPO}`,
-    bare: `Review the uncommitted change in the repository at \`repo/\`.`,
-    graders: [
-      ledger('check-recorded', '"kind":"check"', R('rev-math')),
-      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
-      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', R('rev-math')),
-      ledger('finding-recorded', '"findings":[1-9]', R('rev-math'), { weight: 2 }),
-      DONE(R('rev-math')),
-      ...noEdits,
-      shared(regex('cites-location', 'src/math\\.js:\\d+')),
-      shared(llm('finding-correct', `
-PASS if the final message reports a finding that add() in src/math.js now computes a - b (subtracts) instead of adding, and does not present any check as passed unless a check with a result is listed.
-FAIL if the change is called clean, the finding is missing, or a check is reported as passed without one being run.`)),
-    ],
-  },
-  {
-    name: 'review-subtle',
-    description: 'An uncommitted change to a shared helper whose breakage is in callers outside the diff, plus a convention violation inside it.',
-    tags: ['review'],
-    version: 3,
-    fixture: 'ts-app-medium-money-change', flags: '--ambicode-init --context',
-    prompt: `/ambicode:review --task rev-money --headless --answer estimate=run ${CITE} ${REPO}`,
-    bare: `Review the uncommitted change in the repository at \`repo/\`. ${CITE}`,
-    graders: [
-      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
-      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', R('rev-money')),
-      ledger('finding-recorded', '"findings":[1-9]', R('rev-money'), { weight: 2 }),
-      DONE(R('rev-money')),
-      ...noEdits,
-      regex('part4-fenced', '```'),
-      shared(regex('cites-caller', 'src/(invoices|reports)/[\\w./-]+\\.js:\\d+')),
-      // The plugin arm is judged on the printed report: the final message paraphrases it and dropped the caller location in 3/3 runs of 2026-10-17 11:44 although the reviewer's answer had it.
-      shared(llm('finding-correct', FINDING_CORRECT('the report'), { file: 'repo/.ambicode/reviews/rev-money/1/report.txt' }), llm('finding-correct', FINDING_CORRECT('the final message'))),
-      shared(llm('convention-finding', `
-PASS if the final message flags the new \`throw new Error('round: not a number')\` in src/shared/money.js as breaking the project convention that errors are AppError subclasses (for example ValidationError from src/shared/errors), as stated in CONTRIBUTING.md.
-FAIL if the bare Error is not mentioned, or is accepted as fine.`)),
-      shared(llm('no-false-defect', `
-PASS if the final message does not report percentOf or anything under src/legacy/ as broken by this change, and does not claim the test suite passes.
-FAIL if it reports one of those as broken, or claims the test suite passes.`)),
-    ],
-  },
-  {
-    name: 'review-skipped',
-    description: 'No gate answer: the estimate gate defaults to skip, no reviewer runs and no finding may be reported.',
-    tags: ['review', 'gate'],
-    fixture: 'ts-off-by-one', flags: '--ambicode-init',
-    prompt: `/ambicode:review --task rev-skip --headless ${REPO}`,
-    bare: null,
-    graders: [
-      ledger('estimate-defaulted', '"kind":"default-taken","gate":"estimate"', R('rev-skip')),
-      never('no-reviewer', 'Agent', 'ambicode:reviewer'),
-      ledger('nothing-recorded', '"stage":"recorded"', R('rev-skip'), { match: 'not_contains' }),
-      ...noEdits,
-      llm('skip-stated', `
-PASS if the final message reports no finding and no verdict on the change, and says the change is to be treated as not reviewed (the reviewer did not run, was skipped, or its run cannot be confirmed).
-FAIL if it reports findings, calls the change clean or reviewed, or describes reviewer output that did not exist.`),
-    ],
-  },
+  // Fourteen cases on the init stacks (review-cases.mjs): same scaffold in both arms, graded per issue.
+  ...reviewCases(BUILDERS),
   // ---------------------------------------------------------------- rules
   {
     name: 'rules-migrate',
@@ -495,7 +392,8 @@ FAIL otherwise.`),
 ];
 
 // ---------------------------------------------------------------- rendering
-const ROOT_FROM_CASE = '$(cd "$(dirname "$0")/../../.." && pwd)';
+// Four levels up: a case sits in <tree>/<suite>/<name>, one deeper than the flat layout it replaced.
+const ROOT_FROM_CASE = '$(cd "$(dirname "$0")/../../../.." && pwd)';
 
 function scaffold(fixture, flags, intoCwd) {
   const materialize = `node "${ROOT_FROM_CASE}/fixtures/materialize.mjs" ${fixture}`;
@@ -538,10 +436,10 @@ export function render(cases = CASES) {
   const files = new Map();
   for (const c of cases) {
     const arms = [['cases', c.prompt, c.flags, c.graders]];
-    // The bare arm gets no config: the fixture as a user without the plugin would have it.
-    if (c.bare !== null) arms.push(['bare', c.bare, c.flags.replace('--ambicode-init', '').replace('--context', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
+    // The bare arm gets no config: the fixture as a user without the plugin would have it, unless the case sets `bareFlags` (review cases hold both arms to the same scaffold).
+    if (c.bare !== null) arms.push(['bare', c.bare, c.bareFlags ?? c.flags.replace('--ambicode-init', '').replace('--context', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
     for (const [tree, body, flags, graders] of arms) {
-      const dir = `${tree}/${c.name}`;
+      const dir = caseDir(tree, c.name);
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
       files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, c.intoCwd === true));
       files.set(`${dir}/prompt.md`, promptFile(c, body));
@@ -552,6 +450,9 @@ export function render(cases = CASES) {
   return files;
 }
 
+/** A case lives in <tree>/<suite>/<name>; the suite is the name's first word (investigate, plan, task, rules, review, init), as navigator/ is for the navigator cases. */
+export const suiteOf = (name) => name.split('-')[0];
+export const caseDir = (tree, name) => `${tree}/${suiteOf(name)}/${name}`;
 export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
 export const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -565,9 +466,13 @@ function write(argv = []) {
   for (const tree of ['cases', 'bare']) {
     const dir = path.join(EVALS, tree);
     mkdirSync(dir, { recursive: true });
-    for (const name of readdirSync(dir)) {
-      if (name === 'results' || name === 'navigator' || name === 'init-large') continue;
-      if (pattern === null || pattern.test(name)) rmSync(path.join(dir, name), { recursive: true, force: true });
+    for (const suite of readdirSync(dir)) {
+      if (suite === 'results' || suite === 'navigator' || suite === 'init-large') continue;
+      if (pattern === null) rmSync(path.join(dir, suite), { recursive: true, force: true });
+      else if (selected.some((c) => suiteOf(c.name) === suite)) {
+        for (const name of readdirSync(path.join(dir, suite))) if (pattern.test(name)) rmSync(path.join(dir, suite, name), { recursive: true, force: true });
+        if (readdirSync(path.join(dir, suite)).length === 0) rmSync(path.join(dir, suite), { recursive: true, force: true });
+      }
     }
   }
   const files = render(selected);

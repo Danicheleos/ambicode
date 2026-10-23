@@ -12,6 +12,7 @@ import { mapCommand, refsCommand } from './search/search.ts';
 import { requirementsNormalizeCommand } from './requirements/requirements.ts';
 import { routeNextCommand, routeStartCommand, routeStopCommand } from './route/route.ts';
 import { reviewCommand } from './review/review.ts';
+import { reviewPageCommand } from './review/page.ts';
 import type { CliCommand } from '../types/cli.ts';
 
 const VERSION_OPTIONS = { flags: ['json'] } as const;
@@ -29,7 +30,7 @@ const versionCommand: CliCommand = {
 export const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
   configValidateCommand, configPacksCommand, initRecordCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand,
   checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
-  requirementsNormalizeCommand, reviewCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand,
+  requirementsNormalizeCommand, reviewCommand, reviewPageCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand,
 ].map((entry) => [entry.name, entry]));
 
 /** Generated from `COMMANDS`, so a command cannot be registered and missing from the usage text, or the reverse. */

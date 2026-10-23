@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { archiveOf, contextOf, harvest, sandboxOf } from './context.mjs';
+import { archiveOf, contextOf, finalMessageOf, harvest, reviewRunsOf, sandboxOf } from './context.mjs';
 
 const call = (id, input, created, read, parent = null, content = undefined) =>
   JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { id, content, usage: { input_tokens: input, cache_creation_input_tokens: created, cache_read_input_tokens: read, output_tokens: 9 } } });
@@ -63,6 +63,35 @@ describe('evals context size', () => {
     assert.equal(readFileSync(path.join(archive, 'task-fix-1.ambicode', 'repo', '.ambicode', 'context', 'modules', 'm', 'a.md'), 'utf8'), 'y', 'including modules/**');
     assert.equal(existsSync(path.join(traces, 'task-fix-1.ambicode')), false, 'no workspace copy beside the trace');
     assert.equal(existsSync(sandbox), false);
+  });
+
+  it('a review run leaves a record: final message, trace, and the plugin arm report, answer and brief', () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'evals-review-record-'));
+    const trace = `${TRACE}\n${JSON.stringify({ type: 'result', result: 'the final words' })}`;
+    const make = (name, withReview) => {
+      const sandbox = path.join(tmp, name);
+      mkdirSync(path.join(sandbox, 'out'), { recursive: true });
+      writeFileSync(path.join(sandbox, 'out', 'trace.jsonl'), trace);
+      const run = path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'reviews', 'rev-1', '1');
+      mkdirSync(run, { recursive: true });
+      if (withReview) for (const file of ['report.txt', 'answer.json', 'brief.md', 'findings.json']) writeFileSync(path.join(run, file), `${file} body`);
+      return path.join(sandbox, 'out', 'trace.jsonl');
+    };
+    const result = { cases: [{ name: 'review-x', arms: { with: [{ tracePath: make('e-Rev1', true) }, { tracePath: make('e-Rev2', false) }] } }, { name: 'task-fix', arms: { with: [{ tracePath: make('e-Rev3', true) }] } }] };
+    const records = path.join(tmp, 'archive', 'review-runs', 'plugin', 'S1');
+    harvest(result, path.join(tmp, 'traces'), { archiveDir: path.join(tmp, 'archive', 'x'), reviewRunsDir: records });
+    const one = path.join(records, 'review-x-1');
+    assert.equal(readFileSync(path.join(one, 'final-message.md'), 'utf8'), 'the final words');
+    assert.equal(readFileSync(path.join(one, 'report.txt'), 'utf8'), 'report.txt body');
+    assert.equal(readFileSync(path.join(one, 'brief.md'), 'utf8'), 'brief.md body');
+    assert.equal(existsSync(path.join(one, 'findings.json')), false);
+    assert.equal(readFileSync(path.join(one, 'trace.jsonl'), 'utf8'), trace);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(one, 'meta.json'), 'utf8')), { case: 'review-x', run: 1, arm: 'plugin', stamp: 'S1', finalMessage: true });
+    assert.equal(existsSync(path.join(records, 'review-x-2', 'final-message.md')), true);
+    assert.equal(existsSync(path.join(records, 'review-x-2', 'report.txt')), false, 'a run without a review keeps no report');
+    assert.equal(existsSync(path.join(records, 'task-fix-1')), false, 'only review cases are recorded');
+    assert.equal(finalMessageOf(TRACE), null);
+    assert.equal(reviewRunsOf('bare', 'S', { AMBICODE_EVAL_ARCHIVE: '/a' }, '/r/repo'), path.resolve('/a/review-runs/bare/S'));
   });
 
   it('archiveOf mirrors the path relative to the repo under the archive root, overridable by AMBICODE_EVAL_ARCHIVE', () => {

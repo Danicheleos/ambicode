@@ -136,22 +136,60 @@ there the tests are usually the work you just did.
 
 ### Publishing
 
-After the read-back the route lists the findings as `n. path:line — comment`
-and asks "Post which findings as merge-request comments?" with `all`, `none`,
-or a number list as free text. `none` is the default and ends the route.
-After your answer the route posts one discussion per selected finding with
-`glab api -X POST`, body the suggested comment, position the new path and line
-on the fetched head. The route's exit records what was posted. A failed post
-ends the route with `mr-publish-failed`, glab's message and the comments
-already posted.
+Merge-request comments are posted only from the review page. The chat route ends
+at the read-back and posts nothing. On the page, tick findings, edit their
+comment text and press Publish. The page posts one discussion per selected
+finding with `glab api -X POST`, body the comment text, position the new path
+and line on the fetched head. It writes one record, `publication.json` in the
+review folder (finding number, status, discussion id), under `publication.lock`,
+and skips findings already posted, so a double submit posts once. One window
+remains: if the process dies or glab times out after GitLab took the comment
+but before the record is written, the finding reads as unposted or failed, and
+posting it again duplicates the comment. A failed post is recorded as failed and
+stays pickable. A requirement row that is missed or cannot be verified has its own
+checkbox and note; it is posted through the same button as a general merge request
+note, recorded in `publication.json` as `r<row>`.
+
+### The review page server
+
+There is one page server per repository, on 127.0.0.1 only. `/` lists every folder
+under `.ambicode/reviews/` (title, date, findings, how many are posted), read on
+each request, so a review that finishes later appears at once. A review page is
+`/r/<review>`. Each review run prints its one-time link: the first run starts the
+server, a later run finds it and registers with it instead of starting another.
+
+- **Port.** `skills.review.pagePort` fixes the port (45831, say, for an ssh
+  forward); unset, the OS picks one. When the fixed port is held by something
+  that is not this repository's server, that process is left alone, one line says
+  so, and the page uses a free port.
+- **Finding the server.** `.ambicode/page.json` (mode 600) holds its port and a
+  secret. A later run sends the secret in a header to `POST /register` and gets a
+  login link back. A process that does not know the secret answers 403, which is
+  how a foreign process on the port is told from the server.
+- **Close and Delete.** Close returns to the list. Delete removes only that
+  review's folder (`.ambicode/reviews/<review>`), refuses while a publish holds
+  the lock, and leaves other reviews, tasks, config and context alone. Posted
+  comments stay on the merge request; the record of what was posted is deleted.
+  The server stops when the last open review page is closed or deleted, or after
+  30 minutes without a request.
+- **Trust.** Links open once and become a cookie session; every post needs the
+  session, the CSRF token and a same-origin request; the Host header must be the
+  loopback name. Anyone who can read `page.json` is the user and can mint links.
 
 ## What the reviewer can do
 
 The reviewer is the plugin subagent `ambicode:reviewer`
 (`agents/reviewer.md`). It has `Read`, `Grep`, `Glob` and `Write`, and `Write` is
 for its `answer.json` in the review folder alone: the guard refuses any other file call it makes. No
-MCP, no way to post. Its prompt names a work file that points at `brief.md`, which holds the whole diff; the code is in the checkout. A
+MCP, no way to post. Its prompt names a work file that points at `brief.md`, which holds the diff; the code is in the checkout. A
 merge request is diff-only: the reviewer has no file content for it.
+
+A part of the brief stays under 32 KB, what one `Read` returns without cutting. `brief.md` lists
+requirements, discussions, policy rules and conventions first, then the diff. A larger diff
+continues in `brief-2.md`, `brief-3.md` and so on, split at file or hunk boundaries, and the
+related files follow. The work file names every part and tells the reviewer to read all of them in
+order. The diff is never cut for size; the related files are trimmed beyond a 60 KB total and the
+cut is named in the brief.
 
 Code, requirements and check output reach it below a heading marked
 `UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or a
@@ -170,13 +208,20 @@ Four parts, in this order.
 1. **What was reviewed.** Review id, mode, pinned target, measured input,
    and the requirements with their versions and retrieval times.
 2. **Findings.** Each with risk, confidence, category, a validated location, an
-   excerpt, an explanation, a suggested comment, and the
+   excerpt, a problem, an impact and the reason for its confidence (one sentence each), a suggested comment, and the
    rules or requirements it cites.
 3. **Checks and verification evidence.** Per recorded check: key, phase, exit
    code and the exact argument vector, or "no check recorded" as a gap.
 4. **Omissions, uncertainty and unavailable coverage.** What was excluded and
    why, what the reviewer said it could not assess, and every finding that was
-   rejected for naming a file or line that is not in the change.
+   rejected for naming a file or line that is not in the change. It has three
+   parts, grouped by the source that produced each line, never by its text:
+   the requirements, one row per acceptance point (covered, cannot verify from
+   the diff, or missed, with a link to the finding); what needs attention (what
+   the reviewer could not assess or declined to follow, dropped refs and
+   locations, failed or unrun checks), shown open; and the routine review
+   scope (mode, diff source, test code left out, no check recorded), which the
+   page folds into a closed details and the read-back into one line.
 
 `review` writes `result.json`, `changed.diff`, `files.txt`, `report.txt` and
 `brief.md` to a numbered review folder (gitignored); recording the answer adds

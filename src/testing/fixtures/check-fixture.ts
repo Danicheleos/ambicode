@@ -50,6 +50,10 @@ commandPolicy:
   - { command: format, action: run, reason: "format" }
 `;
 
+export const PAGE_URL = 'http://127.0.0.1:43210/page-capability-token-0000';
+/** A detached start must never reach a real process in a test: it would leave a page server running. */
+export const startedPage = (): ProcessOutcome => ({ kind: 'exited', exitCode: 0, stdout: `${PAGE_URL}\n`, stderr: '', truncated: false, durationMs: 1, failure: null });
+
 /** Real git, scripted everything else: `out` decides what a check prints. */
 export class SplitRunner implements ProcessRunner {
   readonly calls: string[][] = [];

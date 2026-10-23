@@ -130,9 +130,9 @@ describe('U09 --exclude narrows a review the limits would otherwise refuse', () 
       assert.match(left?.exclusionReason ?? '', /pattern/);
       assert.ok(
         output.result.omissions.some(
-          (line) => line.includes('narrowed on request') && line.includes('assets/i18n/**'),
+          (omission) => omission.kind === 'scope' && /^\d+ files? matching .*assets\/i18n\/\*\*.* excluded from the review\.$/.test(omission.text),
         ),
-        `the narrowing must be stated once, as coverage; got ${JSON.stringify(output.result.omissions)}`,
+        `a configured exclusion is one scope line naming the pattern and the count; got ${JSON.stringify(output.result.omissions)}`,
       );
     } finally {
       await repo.dispose();
@@ -202,7 +202,7 @@ describe('U09 the reviewed set is bounded on both sides, and never empty', () =>
       assert.deepEqual(reviewed.map((file) => file.newPath), ['src/app.ts']);
       const left = output.result.changedFiles.find((file) => file.newPath === 'web/page.ts');
       assert.ok(
-        output.result.omissions.some((line) => line.includes('narrowed on request') && line.includes('src/**')),
+        output.result.omissions.some((omission) => omission.text.includes('narrowed on request') && omission.text.includes('src/**')),
         `the narrowing must be stated as coverage; got ${JSON.stringify(output.result.omissions)}`,
       );
     } finally {

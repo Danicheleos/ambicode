@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
-import { comment, fetchMr, parseMrUrl } from './glab.ts';
+import { comment, externalIssueLinks, fetchMr, parseMrUrl } from './glab.ts';
 
 const URL_MR = 'https://git.example.org/team/sub/app/-/merge_requests/12';
 const REFS = { base_sha: 'b'.repeat(40), start_sha: 's'.repeat(40), head_sha: 'h'.repeat(40) };
@@ -19,14 +19,23 @@ describe('parseMrUrl', () => {
   });
 });
 
+describe('externalIssueLinks', () => {
+  it('reads the external_issue anchors of the rendered title and description, without the query string, once each', () => {
+    const anchor = (href: string) => `<a href="${href}" data-reference-type="external_issue" data-external-issue="VS-6876" class="gfm">VS-6876</a>`;
+    const html = `<p>${anchor('https://x.atlassian.net/browse/VS-6876?atlOrigin=abc&amp;x=1')}: wizard</p>\n<p>${anchor('https://x.atlassian.net/browse/VS-6876?atlOrigin=zzz')} <a href="https://example.com/p" class="gfm">plain</a> <a data-reference-type="external_issue" href="https://x.atlassian.net/browse/VS-7">VS-7</a></p>`;
+    assert.deepEqual(externalIssueLinks(html), ['https://x.atlassian.net/browse/VS-6876', 'https://x.atlassian.net/browse/VS-7']);
+    assert.deepEqual(externalIssueLinks('<p>VS-1 <a href="https://example.com/a">x</a></p>'), []);
+  });
+});
+
 describe('glab adapter', () => {
   it('fetchMr reads the raw diff and the MR record with args arrays', async () => {
     const runner = new FakeProcessRunner().stubArgv(['glab', 'mr', 'diff'], { stdout: DIFF }).stubArgv(['glab', 'api'], { stdout: MR_JSON });
     const mr = await fetchMr(runner, '/repo', URL_MR);
-    assert.deepEqual(mr, { diff: DIFF, refs: REFS, title: 'T', description: 'D' });
+    assert.deepEqual(mr, { diff: DIFF, refs: REFS, title: 'T', description: 'D', links: [] });
     assert.deepEqual(runner.argvs(), [
       ['glab', 'mr', 'diff', '12', '-R', 'https://git.example.org/team/sub/app', '--raw'],
-      ['glab', 'api', '--hostname', 'git.example.org', 'projects/team%2Fsub%2Fapp/merge_requests/12'],
+      ['glab', 'api', '--hostname', 'git.example.org', 'projects/team%2Fsub%2Fapp/merge_requests/12?render_html=true'],
     ]);
   });
 
@@ -64,7 +73,7 @@ describe('glab adapter', () => {
     await fetchMr(runner, '/repo', 'http://git.corp:8443/g/p/-/merge_requests/3');
     assert.deepEqual(runner.argvs(), [
       ['glab', 'mr', 'diff', '3', '-R', 'http://git.corp:8443/g/p', '--raw'],
-      ['glab', 'api', '--hostname', 'git.corp', 'projects/g%2Fp/merge_requests/3'],
+      ['glab', 'api', '--hostname', 'git.corp', 'projects/g%2Fp/merge_requests/3?render_html=true'],
     ]);
     assert.deepEqual(runner.calls[1]!.env, { kind: 'inherited', overrides: { GITLAB_API_HOST: 'git.corp:8443', GLAB_API_PROTOCOL: 'http' } });
     assert.deepEqual(runner.calls[0]!.env, { kind: 'inherited' });

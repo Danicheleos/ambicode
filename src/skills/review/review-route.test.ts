@@ -22,7 +22,8 @@ type Fixture = Awaited<ReturnType<typeof reviewRouteFixture>>;
 
 const MR = 'https://gitlab.example.com/g/p/-/merge_requests/7';
 const TICKET = 'https://example.atlassian.net/browse/ORD-17';
-const STUB_ESTIMATE: Record<string, Handler> = { 'review.estimate': async () => ({ state: 'ok', payload: 'stub estimate' }) };
+/** Asks, so the route stops at the gate and starts several targets without pinning any. */
+const STUB_ESTIMATE: Record<string, Handler> = { 'review.estimate': async () => ({ state: 'ok', payload: 'stub estimate', record: { asks: true } }) };
 
 const checksOf = (checks: string): string => CHECK_CONFIG.replace(/checks:[\s\S]*$/, `checks:\n${checks}`);
 const UNIT = (command: string): string => checksOf(`      unit: { all: null, file: "${command}" }\n      typecheck: { all: "tsc --noEmit", file: null }\n      format: { all: null, file: "fmt {file}" }\n`);
@@ -41,24 +42,24 @@ const prints = async (t: Fixture, gate: string) => (await t.kinds('gate')).filte
 const steps = async (t: Fixture, status: string): Promise<string[]> => (await t.kinds('step')).filter((entry) => entry['status'] === status).map((entry) => String(entry['step']));
 const code = (promise: Promise<unknown>): Promise<string | null> => promise.then(() => null, (error: { code?: string }) => error.code ?? 'other');
 const routeArgs = async (t: Fixture, task: string) => (await t.fx.kinds(task, 'route'))[0]?.['args'] as { target?: unknown; hash: string };
-const RUN = { answers: [{ gate: 'estimate', option: 'run' }] };
 const cli = (...argv: string[]) => parseArgs('route start', ['review', ...argv], ROUTE_START_OPTIONS);
 
 describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
   it('08-R1: routes/review/review.yaml has the contract steps, the estimate gate, loads with the registry and is packaged with its step files', async () => {
     const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8')) as { skill: string; version: number; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
     assert.deepEqual([route.skill, route.version], ['review', 3]);
-    assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['fetch', 'model'], ['ground', 'code'], ['mr-fetch', 'code'], ['estimate-step', 'code'], ['estimate', 'human'], ['brief', 'code'], ['review-agent', 'model'], ['review-record', 'code'], ['readback', 'model'], ['publish-list', 'code'], ['publish', 'human'], ['publish-run', 'code']]);
+    assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['mr-fetch', 'code'], ['fetch', 'model'], ['ground', 'code'], ['estimate-step', 'code'], ['estimate', 'human'], ['brief', 'code'], ['review-agent', 'model'], ['review-record', 'code'], ['page', 'code'], ['readback', 'model']]);
     const gate = route.steps.find((step) => step.id === 'estimate')!.gate!;
-    assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['run', 'narrow', 'skip'], ['run'], 'skip']);
+    assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['narrow', 'skip'], undefined, 'skip']);
+    assert.equal(route.steps.find((step) => step.id === 'estimate')!.when, 'estimate.asks');
     const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[] };
-    assert.deepEqual([brief.when, brief.run], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)']]);
+    assert.deepEqual([brief.when, brief.run], ['estimate.run', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)']]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces?: string[]; instruction: string };
-    assert.deepEqual([agent.when, agent.produces, agent.instruction], ['gate.estimate.is(run)', undefined, 'file:routes/review/agent.md']);
+    assert.deepEqual([agent.when, agent.produces, agent.instruction], ['estimate.run', undefined, 'file:routes/review/agent.md']);
     const record = route.steps.find((step) => step.id === 'review-record') as unknown as { when: string; run: string; produces: string[] };
-    assert.deepEqual([record.when, record.run, record.produces], ['gate.estimate.is(run)', 'review.record', ['review{recorded}']]);
+    assert.deepEqual([record.when, record.run, record.produces], ['estimate.run', 'review.record', ['review{recorded}']]);
     for (const name of ['review/fetch', 'review/readback', 'review/agent', 'review/agent-work']) assert.ok((await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).length > 0, name);
   });
 
@@ -105,12 +106,12 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     }
   });
 
-  it('08-R3: ceremony — one message and the gate without a requirement; fetch, one route next, then the gate with one', async () => {
+  it('08-R3: ceremony — one message to the reviewer without a requirement; fetch, one route next, then the reviewer with one', async () => {
     await withReview(async (t) => {
       const first = await t.start();
-      assert.equal(first.position, 'estimate');
-      assert.equal((await prints(t, 'estimate')).length, 1);
-      assert.deepEqual(await steps(t, 'skipped'), ['fetch', 'ground', 'mr-fetch']);
+      assert.equal(first.position, 'review-agent', 'nothing was refused, so no question is asked');
+      assert.equal((await prints(t, 'estimate')).length, 0);
+      assert.deepEqual((await steps(t, 'skipped')).slice(0, 4), ['mr-fetch', 'fetch', 'ground', 'estimate']);
     });
     const normalize: Handler = async ({ ledger, view }) => {
       await ledger.append({ kind: 'envelope', route: view.routeId, sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'stub' });
@@ -121,36 +122,36 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
       assert.equal(fetch.position, 'fetch');
       assert.equal((await prints(t, 'estimate')).length, 0);
       const gate = await t.next();
-      assert.equal(gate.position, 'estimate');
-      assert.equal((await prints(t, 'estimate')).length, 1);
+      assert.equal(gate.position, 'review-agent');
+      assert.equal((await prints(t, 'estimate')).length, 0);
       assert.deepEqual((await t.kinds('step')).filter((entry) => ['ground', 'estimate-step'].includes(String(entry['step']))).map((entry) => `${entry['step']}:${entry['status']}`), ['ground:completed', 'estimate-step:completed']);
     }, { handlers: { 'requirements.normalize': normalize } });
   });
 });
 
 describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
-  it('08-R4: answer skip completes the route without brief, review-agent or readback and reports the skip under Not verified', async () => {
+  it('08-R4: a refused estimate asks; answer skip completes the route without brief, review-agent or readback and reports the skip under Not verified', async () => {
     await withReview(async (t) => {
-      await t.start();
+      assert.equal((await t.start()).position, 'estimate');
       assert.equal((await t.hook('estimate', 'skip')).position, 'complete');
       const skipped = await steps(t, 'skipped');
       for (const step of ['brief', 'review-agent', 'readback']) assert.ok(skipped.includes(step), step);
       assert.equal((await t.kinds('review')).length, 0);
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
-    });
+    }, { refuse: true });
   });
 
-  it('08-R4/S14: a headless start takes the default skip, starts no reviewer and the report carries default-taken', async () => {
-    await withReview(async (t) => {
-      const ended = await t.start({ headless: true });
-      assert.equal(ended.position, 'complete');
-      assert.doesNotMatch(ended.text, /Name each/, 'prose naming gaps arms the Stop check without the sections it demands');
-      assert.match(ended.text, /\nNot verified\b[\s\S]*- estimate: default taken, "skip" \(headless\)/, 'the end print lists the gap the Stop hook checks');
-      assert.doesNotMatch(ended.text, /Evidence/);
-      assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer'], entry['via']]), [['estimate', 'skip', 'headless']]);
-      assert.equal((await t.kinds('review')).length, 0);
-      assert.match(gapsOf(await t.ledger()).join('\n'), /estimate: default taken, "skip" \(headless\)/);
-    });
+  it('08-R4: an estimate that refuses nothing asks nothing: the pin and the reviewer follow, with or without a headless start', async () => {
+    for (const headless of [false, true]) {
+      await withReview(async (t) => {
+        const started = await t.start({ headless });
+        assert.equal(started.position, 'review-agent');
+        assert.equal((await prints(t, 'estimate')).length, 0);
+        assert.equal((await t.kinds('default-taken')).length, 0);
+        assert.deepEqual((await t.kinds('review')).map((entry) => entry['stage']), ['pending']);
+        assert.ok((await steps(t, 'skipped')).includes('estimate'));
+      });
+    }
   });
 
   it('08-R4: an unanswered gate holds the route: no default is taken however often it advances, and no reviewer starts', async () => {
@@ -160,54 +161,29 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.equal((await t.kinds('default-taken')).length, 0);
       assert.equal((await t.kinds('review')).length, 0);
       assert.equal((await t.kinds('exit')).length, 0);
-    });
+    }, { refuse: true });
   });
 
-  it('08-R4/S14: an untrusted --answer estimate=run at a cli start is declined, the default is skip and no review is delivered', async () => {
+  it('08-R5: with nothing refused the review is pinned in code and the reviewer step is next', async () => {
     await withReview(async (t) => {
-      await t.start({ channel: 'cli', headless: true, answers: [{ gate: 'estimate', option: 'run' }] });
-      assert.equal((await t.kinds('preanswer')).length, 0);
-      assert.deepEqual((await t.kinds('declined')).map((entry) => [entry['gate'], entry['reason'], entry['via']]), [['estimate', 'acting-needs-human', 'flag']]);
-      assert.equal((await t.kinds('review')).length, 0);
-      assert.equal((await steps(t, 'delivered')).includes('brief'), false);
-    });
-  });
-
-  it('08-R4/S14: a model --answer estimate=run after a trusted start is declined and the gate stays open', async () => {
-    await withReview(async (t) => {
-      await t.start();
-      const again = await t.next({ answers: [{ gate: 'estimate', option: 'run' }] });
-      assert.equal(again.position, 'estimate');
-      assert.deepEqual((await t.kinds('declined')).map((entry) => [entry['gate'], entry['reason']]), [['estimate', 'acting-needs-human']]);
-      assert.equal((await t.hook('estimate', 'skip')).position, 'complete');
-      assert.equal((await t.kinds('review')).length, 0);
-    });
-  });
-
-  it('08-R5/S14: a trusted preanswer run is honoured at the printed instance; the review is pinned in code, the reviewer step is next and nothing is asked again', async () => {
-    await withReview(async (t) => {
-      const run = await t.start(RUN);
+      const run = await t.start();
       assert.equal(run.position, 'review-agent');
       assert.doesNotMatch(run.text, /review --task/);
       assert.deepEqual((await t.kinds('review')).map((entry) => [entry['stage'], entry['route'] !== undefined]), [['pending', true]]);
       assert.equal((await steps(t, 'delivered')).includes('review-run'), false);
-      const print = (await prints(t, 'estimate'))[0]!;
-      const preanswer = (await t.kinds('preanswer'))[0]!;
-      assert.deepEqual((await t.kinds('acceptance')).map((entry) => [entry['gate'], entry['answer'], entry['via'], entry['instance'], entry['preanswer']]), [['estimate', 'run', 'prompt', print.id, preanswer.id]]);
-      assert.equal((await prints(t, 'estimate')).length, 1);
+      assert.equal((await prints(t, 'estimate')).length, 0);
       assert.equal((await t.next()).position, 'readback', 'route next ends the reviewer step and records its (missing) answer');
-      assert.equal((await prints(t, 'estimate')).length, 1);
       assert.deepEqual((await t.kinds('review')).map((entry) => entry['stage']), ['pending', 'recorded'], 'a second advance pins nothing again');
     });
   });
 
   describe('the route runs the configured file-scoped checks itself', () => {
     const reviewDir = (t: Fixture) => t.bundle;
-    const resultOf = async (t: Fixture) => JSON.parse(await readFile(path.join(reviewDir(t), 'result.json'), 'utf8')) as { checks: { key: string; exit: number }[]; omissions: string[]; status: string };
+    const resultOf = async (t: Fixture) => JSON.parse(await readFile(path.join(reviewDir(t), 'result.json'), 'utf8')) as { checks: { key: string; exit: number }[]; omissions: { text: string }[]; status: string };
 
     it('a check with a file form runs on the changed files and is recorded as a check entry; the all-only and format checks do not run; brief and result carry it', async () => {
       await withReview(async (t) => {
-        assert.equal((await t.start(RUN)).position, 'review-agent');
+        assert.equal((await t.start()).position, 'review-agent');
         assert.deepEqual((await t.kinds('check')).map((entry) => [entry['key'], entry['files'], entry['exit'], entry['phase'], entry['route'] !== undefined]), [['app/unit', ['src/orders.ts'], 0, 'green', true]]);
         assert.deepEqual((await resultOf(t)).checks.map((check) => [check.key, check.exit]), [['app/unit', 0]]);
         assert.match(await readFile(path.join(t.bundle, 'brief.md'), 'utf8'), /- app\/unit: passed; on: src\/orders\.ts/);
@@ -216,20 +192,20 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 
     it('a failing check is recorded as a failure: the brief and the report mark it FAILED, the result names it and the review is partial', async () => {
       await withReview(async (t) => {
-        assert.equal((await t.start(RUN)).position, 'review-agent');
+        assert.equal((await t.start()).position, 'review-agent');
         assert.deepEqual((await t.kinds('check')).map((entry) => entry['exit']), [1]);
         assert.match(await readFile(path.join(t.bundle, 'brief.md'), 'utf8'), /- app\/unit: FAILED \(exit 1\)/);
         assert.match(await readFile(path.join(t.bundle, 'report.txt'), 'utf8'), /app\/unit green: exit 1.*FAILED/);
         const result = await resultOf(t);
         assert.equal(result.status, 'partial');
-        assert.match(result.omissions.join('\n'), /app\/unit failed with exit 1/);
+        assert.match(result.omissions.map((omission) => omission.text).join('\n'), /app\/unit failed with exit 1/);
       }, { config: UNIT('false {file}') });
     });
 
     it('no check with a command: nothing runs, no check entry, and the brief says no check was recorded', async () => {
       const none = CHECK_CONFIG.replace(/checks:[\s\S]*$/, 'checks:\n      lint: { all: null, file: null }\n      unit: { all: null, file: null }\n');
       await withReview(async (t) => {
-        assert.equal((await t.start(RUN)).position, 'review-agent');
+        assert.equal((await t.start()).position, 'review-agent');
         assert.deepEqual(await t.kinds('check'), []);
         assert.match(await readFile(path.join(t.bundle, 'brief.md'), 'utf8'), /No check recorded for this task/);
       }, { config: none });
@@ -246,7 +222,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 `;
       await withReview(async (t) => {
         // policy.stage still asks which project (it did before the pin moved into code); the checks ran before it, on the touched project only.
-        await t.start(RUN);
+        await t.start();
         assert.deepEqual((await t.kinds('check')).map((entry) => entry['key']), ['app/unit']);
       }, { config: `${UNIT('true {file}')}${second}` });
     });
@@ -255,7 +231,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 
     it('a check that needs approval asks the user before the review is pinned; approving runs it once, and the checks that already ran are not run again', async () => {
       await withReview(async (t) => {
-        const asked = await t.start(RUN);
+        const asked = await t.start();
         assert.equal(asked.position, 'brief');
         assert.deepEqual((await prints(t, 'check-only-unauthorized')).length, 1);
         assert.equal((await t.kinds('review')).length, 0);
@@ -268,30 +244,28 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 
     it('declining that question records no check, says so in the result, and the review goes on', async () => {
       await withReview(async (t) => {
-        assert.equal((await t.start(RUN)).position, 'brief');
+        assert.equal((await t.start()).position, 'brief');
         assert.equal((await t.hook('check-only-unauthorized', 'decline')).position, 'review-agent');
         assert.deepEqual((await t.kinds('check')).map((entry) => entry['key']), ['app/unit']);
-        assert.match((await resultOf(t)).omissions.join('\n'), /app\/e2e was not run: declined/);
+        assert.match((await resultOf(t)).omissions.map((omission) => omission.text).join('\n'), /app\/e2e was not run: declined/);
       }, { config: E2E('true {file}') });
     });
 
     it('a check the policy forbids is not run and is named in the result; the others still run', async () => {
       await withReview(async (t) => {
-        assert.equal((await t.start(RUN)).position, 'review-agent');
+        assert.equal((await t.start()).position, 'review-agent');
         assert.deepEqual((await t.kinds('check')).map((entry) => entry['key']), ['app/unit']);
         assert.deepEqual((await t.kinds('limit')).map((entry) => entry['which']), ['check-forbidden']);
-        assert.match((await resultOf(t)).omissions.join('\n'), /app\/lint was not run: check-only-unauthorized/);
+        assert.match((await resultOf(t)).omissions.map((omission) => omission.text).join('\n'), /app\/lint was not run: check-only-unauthorized/);
       }, { config: checksOf('      unit: { all: null, file: "true {file}" }\n      lint: { all: null, file: "true {file}" }\n') });
     });
   });
 
   it('08-R5: a recorded review after the run goes on to readback and nothing is asked again', async () => {
     await withReview(async (t) => {
-      await t.start();
-      const run = await t.hook('estimate', 'run');
-      assert.equal(run.position, 'review-agent');
+      assert.equal((await t.start()).position, 'review-agent');
       assert.equal((await t.synthetic([], { stage: 'recorded' })).position, 'readback');
-      assert.equal((await prints(t, 'estimate')).length, 1, 'nothing is asked again');
+      assert.equal((await prints(t, 'estimate')).length, 0, 'nothing is asked');
     });
   });
 
@@ -310,7 +284,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.doesNotMatch(work, /review record|Run commands from|review my change/);
       const readback = await t.synthetic([], { stage: 'recorded' });
       assert.match(readback.text, /Review read-back/);
-      assert.doesNotMatch(readback.text, /Review page/);
+      assert.doesNotMatch(readback.text, /Review page: http/, 'no finding on a local target: no page, so no link is delivered');
       assert.doesNotMatch(readback.text, /route next/);
       const steps = (await t.kinds('step')).map((entry) => `${entry['step']}:${entry['status']}`);
       assert.ok(steps.includes('review-agent:delivered') && steps.includes('readback:delivered'), steps.join(' '));
@@ -328,15 +302,12 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.equal(bare.position, 'estimate');
       assert.match(bare.text, /give the --only\/--exclude tokens as your answer/);
       const narrowed = await t.hook('estimate', "--exclude 'docs/**' --only 'src/**'");
-      assert.equal(narrowed.position, 'estimate');
-      assert.match(narrowed.text, /narrowed: --exclude 'docs\/\*\*' --only 'src\/\*\*'/);
-      assert.equal((await prints(t, 'estimate')).length, 3);
-      const run = await t.hook('estimate', 'run');
-      assert.equal(run.position, 'review-agent');
-      const result = JSON.parse(await readFile(path.join(t.bundle, 'result.json'), 'utf8')) as { omissions: string[] };
-      assert.match(result.omissions.join('\n'), /narrowed on request: only paths matching "src\/\*\*"/);
-      assert.match(result.omissions.join('\n'), /narrowed on request: paths matching "docs\/\*\*"/);
-    });
+      assert.equal(narrowed.position, 'review-agent');
+      assert.equal((await prints(t, 'estimate')).length, 2, 'the narrowed estimate is under the limit: nothing is asked again');
+      const result = JSON.parse(await readFile(path.join(t.bundle, 'result.json'), 'utf8')) as { omissions: { text: string }[] };
+      assert.match(result.omissions.map((omission) => omission.text).join('\n'), /narrowed on request: only paths matching "src\/\*\*"/);
+      assert.doesNotMatch(result.omissions.map((omission) => omission.text).join('\n'), /narrowed on request: paths/);
+    }, { refuse: true });
   });
 
   // Reproduces: a flag answer takes the model revise path, which the target's default repeat 1 refuses. Not fixed (task-lifecycle P3).
@@ -352,10 +323,19 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
   it('08-R5: the pin takes the route target: a --branch review pins the branch, not the working tree', async () => {
     await withReview(async (t) => {
       await t.start({ target: { branch: true, base: 'HEAD~1', mr: null } });
-      assert.equal((await t.hook('estimate', 'run')).position, 'review-agent');
       const result = JSON.parse(await readFile(path.join(t.bundle, 'result.json'), 'utf8')) as { target: { kind: string } };
       assert.equal(result.target.kind, 'branch');
     }, { dirty: false });
+  });
+
+  it('a review stages only the packs that match the files it reviews, also when the tree holds no baseline of its own', async () => {
+    const pack = (applies: string): string => ['schemaVersion: 1', 'id: scoped', 'authority: team', `appliesTo: ["${applies}"]`, 'activities: [review]', 'source: { location: "test" }', 'rules:', '  - id: freeze', '    category: security', '    instruction: Freeze this file.', '    check: { kind: reviewer, explanation: x }', ''].join('\n');
+    for (const [applies, included] of [['ci/**', false], ['src/**', true]] as const) {
+      await withReview(async (t) => {
+        await t.start({ target: { branch: true, base: 'HEAD~1', mr: null } });
+        assert.equal((await readFile(path.join(t.bundle, 'brief.md'), 'utf8')).includes('scoped/freeze'), included, applies);
+      }, { dirty: false, pack: pack(applies) });
+    }
   });
 
 });
@@ -389,31 +369,31 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     const work = await read('review/agent-work');
     assert.match(work, /Write tool, to the file named `answer:` under `## script:brief`/);
     assert.doesNotMatch(work, /review record|<<'EOF'/);
+    assert.match(work, /If it lists several parts, Read every part, in order, before writing/);
     assert.match(work, /never a position in the brief/);
+    assert.match(work, /reply with one line: `Answer written\.`/);
   });
 
   it('08-B1: the route start output is at most 3,072 bytes and the printed estimate at most 2,048', async () => {
     await withReview(async (t) => {
       const start = await t.start();
       assert.ok(Buffer.byteLength(start.text) <= 3072, `${Buffer.byteLength(start.text)}`);
-      const estimate = start.text.split('\nRun the independent reviewer on this change?\n')[1]!.split('\nOptions:')[0]!;
-      assert.match(estimate, /^Review estimate: /);
+      const estimate = start.text.split('\nThe review cannot run on this change as it stands. Narrow it, or skip the review?\n')[1]!.split('\nOptions:')[0]!;
+      assert.match(estimate, /Review estimate: /);
       assert.ok(Buffer.byteLength(estimate) <= 2048, `${Buffer.byteLength(estimate)}`);
-    });
+    }, { refuse: true });
   });
 
 });
 
 describe('review.pin assembly', () => {
-  it('assembles the bundle once: one unmerged-paths probe on the run answer', async () => {
+  it('assembles the bundle once: the pin adds one unmerged-paths probe to the estimate\'s', async () => {
     await withReview(async (t) => {
       const real = t.fx.runtime.runner;
       let probes = 0;
       t.fx.runtime.runner = { run: (request) => (request.argv.includes('--unmerged') && (probes += 1), real.run(request)) };
       await t.start();
-      const atEstimate = probes;
-      await t.hook('estimate', 'run');
-      assert.equal(probes - atEstimate, 1);
+      assert.equal(probes, 2);
     });
   });
 });

@@ -32,7 +32,7 @@ async function toRun(t: Fixture, before: () => Promise<void> = async () => {}, a
 }
 
 /** The review the route pinned itself, as the model's brief and the report read it. */
-const pinned = async (t: Fixture): Promise<{ omissions: string[]; changedFiles: { newPath?: string; oldPath?: string }[] }> =>
+const pinned = async (t: Fixture): Promise<{ omissions: { text: string }[]; changedFiles: { newPath?: string; oldPath?: string }[] }> =>
   JSON.parse(await readFile(path.join(t.fx.repo.root, String((await t.kinds('review')).at(-1)!['result'])), 'utf8'));
 
 describe('review baseline scope (07-B): the task route pin, and the plain command', () => {
@@ -40,7 +40,7 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
     await withTask(async (t) => {
       await toRun(t, () => t.fx.repo.write('src/pre.ts', 'export const pre = 1;\n'));
       const out = await pinned(t);
-      assert.ok(out.omissions.includes('not covered: pre-existing changes: src/pre.ts'), out.omissions.join('|'));
+      assert.ok(out.omissions.some((omission) => omission.text === 'not covered: pre-existing changes: src/pre.ts'), JSON.stringify(out.omissions));
       assert.ok(out.changedFiles.some((file) => file.newPath === 'src/orders.ts'));
       assert.ok(!out.changedFiles.some((file) => file.newPath === 'src/pre.ts' || file.oldPath === 'src/pre.ts'));
     });
@@ -49,7 +49,7 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
   it('07-B3: more than 10 pre-existing paths are listed first 10, then (+N more)', async () => {
     await withTask(async (t) => {
       await toRun(t, async () => { for (let i = 0; i < 12; i += 1) await t.fx.repo.write(`src/p${String(i).padStart(2, '0')}.ts`, 'x\n'); });
-      const line = (await pinned(t)).omissions.find((entry) => entry.startsWith('not covered: pre-existing changes:')) ?? '';
+      const line = (await pinned(t)).omissions.find((entry) => entry.text.startsWith('not covered: pre-existing changes:'))?.text ?? '';
       assert.match(line, /p09\.ts/);
       assert.doesNotMatch(line, /p10\.ts/);
       assert.match(line, /\(\+2 more\)/);
@@ -63,14 +63,14 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
       await t.fx.repo.commitAll('moved head');
       await t.fx.repo.write('src/orders.ts', 'export const later = 1;\n');
       await t.hook('review-offer', 'run');
-      assert.ok((await pinned(t)).omissions.includes('HEAD moved since the task baseline'));
+      assert.ok((await pinned(t)).omissions.some((omission) => omission.text === 'HEAD moved since the task baseline'));
     });
   });
 
   it('07-B3: with an unmoved HEAD and no pre-existing changes there is no baseline omission', async () => {
     await withTask(async (t) => {
       await toRun(t);
-      const omissions = (await pinned(t)).omissions.join('\n');
+      const omissions = (await pinned(t)).omissions.map((omission) => omission.text).join('\n');
       assert.doesNotMatch(omissions, /HEAD moved|not covered: pre-existing|no task baseline/);
     });
   });
@@ -79,7 +79,7 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
     await withTask(async (t) => {
       await t.fx.repo.write('src/orders.ts', 'export const changed = 1;\n');
       const out = await runReview(t.runtime, parseArgs('review', [], REVIEW_OPTIONS));
-      assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
+      assert.doesNotMatch(out.result.omissions.map((omission) => omission.text).join('\n'), /baseline|pre-existing/);
     });
   });
 });

@@ -1,0 +1,13 @@
+{
+  "id": "9722d54c-d5b8-4329-9a75-f3cc494440ea",
+  "title": "Draft the phases for the active plan \"reveiw\" and set them with plan_set_phases.",
+  "startedAt": "2026-10-21T11:40:52.510Z",
+  "endedAt": "2026-10-21T11:40:52.518Z",
+  "turns": 0,
+  "costUsd": 0,
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "commit": "5cf30f6c45a52c6de4efeebbd74620853f8fcec7",
+  "claudeVersion": "2.1.301"
+}

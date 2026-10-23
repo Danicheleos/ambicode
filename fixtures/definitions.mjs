@@ -5,24 +5,13 @@
  */
 import { readFileSync } from 'node:fs';
 import { GO_MODULE_FILES, JVM_GRADLE_FILES, MONOREPO_FILES, PY_SERVICE_FILES, TS_SERVICE_FILES } from './init-stacks.mjs';
-import { APP_FILES, APP_MONEY_CHANGE, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
+import { REVIEW_FIXTURES } from './review-changes.mjs';
+import { APP_FILES, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
 /** eslint 9 refuses to run without a flat config, so every fixture carries one. */
 const ESLINT_CONFIG = 'export default [];\n';
-
-const PYTHON_DEV = ['pytest>=9', 'ruff>=0.14'];
-
-const PYPROJECT = [
-  '[project]',
-  'name = "fixture"',
-  'version = "0.0.0"',
-  '',
-  '[dependency-groups]',
-  `dev = [${PYTHON_DEV.map((entry) => `"${entry}"`).join(', ')}]`,
-  '',
-].join('\n');
 
 const JEST_MANIFEST = JSON.stringify(
   { name: 'fixture', private: true, devDependencies: { jest: '^30.0.0', eslint: '^9.0.0' } },
@@ -72,8 +61,8 @@ const APP_STAGES = [
   ['init: shared layer, customers and invoices', /./],
 ];
 
-/** `overrides` replace files before they are committed; `uncommitted` is written after the last commit. */
-function appSteps({ overrides = {}, dropTests = {}, uncommitted = null } = {}) {
+/** `overrides` replace files before they are committed. */
+function appSteps({ overrides = {}, dropTests = {} } = {}) {
   const files = { ...APP_FILES, ...overrides };
   for (const [file, title] of Object.entries(dropTests)) files[file] = withoutTest(files[file], title);
   const staged = APP_STAGES.map(() => ({}));
@@ -85,8 +74,7 @@ function appSteps({ overrides = {}, dropTests = {}, uncommitted = null } = {}) {
   }
   // Oldest first: the catch-all stage is the first commit, the app wiring the last.
   const order = [APP_STAGES.length - 1, ...APP_STAGES.keys()].slice(0, APP_STAGES.length);
-  const steps = order.flatMap((index) => [{ write: staged[index] }, { commit: APP_STAGES[index][0] }]);
-  return uncommitted === null ? steps : [...steps, { write: uncommitted }];
+  return order.flatMap((index) => [{ write: staged[index] }, { commit: APP_STAGES[index][0] }]);
 }
 
 const MATH_PROJECT_COMMITTED = [
@@ -111,26 +99,6 @@ export const FIXTURES = [
     steps: [
       ...MATH_PROJECT_COMMITTED,
       { write: { 'src/math.js': 'module.exports.add = (a, b) => a - b;\n' } },
-    ],
-  },
-  {
-    name: 'py-clean-docstring',
-    steps: [
-      {
-        write: {
-          'pyproject.toml': PYPROJECT,
-          '.gitignore': STANDARD_IGNORE,
-          'src/tax.py': 'RATES = {"eu": 0.2, "us": 0.0}\n\n\ndef rate(region):\n    return RATES[region]\n',
-          'tests/test_tax.py': 'from src.tax import rate\n\n\ndef test_rate():\n    assert rate("eu") == 0.2\n',
-        },
-      },
-      { commit: 'init' },
-      {
-        write: {
-          'src/tax.py':
-            'RATES = {"eu": 0.2, "us": 0.0}\n\n\ndef rate(region: str) -> float:\n    """Return the VAT rate for a region."""\n    return RATES[region]\n',
-        },
-      },
     ],
   },
   {
@@ -258,11 +226,6 @@ export const FIXTURES = [
     steps: appSteps({ overrides: APP_REFUND_BUG, dropTests: APP_REFUND_BUG_DROPPED_TESTS }),
   },
   {
-    name: 'ts-app-medium-money-change',
-    ...MATH_PROJECT,
-    steps: appSteps({ uncommitted: APP_MONEY_CHANGE }),
-  },
-  {
     name: 'eval-rules-contributing',
     steps: [
       {
@@ -309,6 +272,8 @@ export const FIXTURES = [
   { name: 'go-module-parcelhub', steps: [{ write: GO_MODULE_FILES }, { commit: 'init' }] },
   { name: 'jvm-gradle-seedvault', steps: [{ write: JVM_GRADLE_FILES }, { commit: 'init' }] },
   { name: 'monorepo-rust-ts-kiln', steps: [{ write: MONOREPO_FILES }, { commit: 'init' }] },
+  // The review cases (evals/scripts/review-cases.mjs): the same stacks with one uncommitted change on top.
+  ...REVIEW_FIXTURES,
 ];
 
 export function fixtureByName(name) {

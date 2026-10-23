@@ -1,6 +1,6 @@
 import type { Git } from '#platform/git/git';
 import type { AmbicodeConfig } from './modules/config.ts';
-import type { ProcessRunner, FileSystem, Clock, IdSource, StandardInput } from './platform/ports.ts';
+import type { ProcessRunner, FileSystem, Clock, IdSource, StandardInput, HttpHost } from './platform/ports.ts';
 
 /**
  * The only place that touches `node:fs`, `process`, `process.env`, `Date` or
@@ -11,6 +11,7 @@ export interface Runtime {
   fs: FileSystem;
   clock: Clock;
   ids: IdSource;
+  http: HttpHost;
   cwd: string;
   /** The directory the shell ran in when `cwd` was moved into a task's repository. */
   invokedFrom?: string;

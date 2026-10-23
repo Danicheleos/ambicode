@@ -61,6 +61,8 @@ export const AmbicodeConfig = z.strictObject({
       maxChangedFiles: Limit,
       maxChangedLines: Limit,
       maxContextBytes: Limit,
+      /** The review page binds this port on 127.0.0.1 (an ssh forward needs a fixed one); null picks a free port. */
+      pagePort: z.number().int().min(1).max(65535).nullable().default(null),
       /**
        * The only way past the per-file snapshot ceiling, which no limit raises: one
        * large generated file would otherwise block the whole change. `--exclude` adds to it.

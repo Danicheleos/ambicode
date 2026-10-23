@@ -15,6 +15,28 @@
 10. **The remaining gap is agentic search, not post-processing.** Bare reaches F1 0.525 with model-driven source Grep. Next test: give the navigator source Grep/Glob/Read with the context as its map, on the bench x2. Untested.
 11. **Bench validity issue: `inseer-frontend` HEAD is after every truth commit.** The sandbox tree and the context both contain the solution, which favors source search for both arms. 17 truth folders also do not exist at HEAD. Open: user decision.
 
+## 2026-10-21 Review
+14. **`agents/reviewer.md` is the main review mechanism and is tuned first in p10.** The first hypothesis: let it report violations of conventions with authority `observed` (collected from the project). Today `agents/reviewer.md:44-50` says they are not violations on their own. If the controls or off-target findings get noisy, loosen its rules. One baseline on the current reviewer runs first, so the change is measured. Rejected: changing the contract before the baseline.
+15. **The old `review-skipped` eval case is deleted without a replacement.** Declining review is covered by unit tests: in task (`task-route.test.ts:242-262,284-304`, `task-exit.test.ts:45-75`, `task-integration.test.ts:93-110`) and in standalone review (`review-route.test.ts:132-175`). The route reaches `exit done`, and a skip is reported as a gap. The user's requirement (2026-10-21) is that declining review in task must never block. The only hold is an unanswered gate, which waits for the human by design.
+16. **Review eval set: 14 cases on the init stacks, approved by the user 2026-10-21.** Twelve cases carry planted defects and two are clean controls (py: a new plugin that follows every convention; mono: a Rust change with `expect("invariant: …")` and `_dc` units).
+    - **Coverage:** every category appears at least twice, on different stacks. The categories are:
+      - team rule;
+      - convention collected by init;
+      - inferred architecture or code-style;
+      - bloat or over-engineering;
+      - naming or comments;
+      - dead code or duplication;
+      - correctness;
+      - missing or weakened test;
+      - swallowed error or security.
+    - **Mixing:** on top of its main defect, each defect case mixes in 1-3 quieter secondary issues from other categories (user). This makes the diff realistic and tests whether minor issues are caught next to a major one. Controls stay clean.
+    - **Grading:** every planted issue has its own grader, so recall per category stays measurable.
+    - **Scaffold:** `.ambicode/` is pre-baked with config, team rules from the fixture's contributor doc, and `conventions.md` from the init truth. These are deterministic, not taken from a live init run. Both arms use the same scaffold.
+    - **Rejected:** 12 cases, which leaves a category with one sample or drops the second control under ±0.15 variance; 20 cases, which adds cost without new categories (precision comes from runs); single-defect diffs.
+
+17. **Review recall comes from the brief, not from reviewer wording (p15).** The brief inlines related code: the adjacent test, up to 2 same-dir files and the global top 4 by shared identifiers, same extension. Why: the sonnet reviewer reads only the work file and the brief. Wording (it2) and listed paths (it3, opened 0/12) changed nothing; inlined content raised it to 104/117 on 14x3, against 68 for the plugin base and 102 for bare, with 0 false. Rejected: exploration instructions, sibling selection by directory only (missed cross-dir duplicates).
+18. **Independent reviewer subagent kept everywhere, including standalone `/review` (user, 2026-10-22).** Cost: $0.110/run against bare $0.079. The gap is structural: a second session pays its own cache prefix (about 10.7k tokens). Accepted as the price of independence. Why: `/review` often runs in the session that wrote the code, so in-session review would see the author's reasoning. Rejected: in-session review for standalone `/review` (it only looks independent in the empty eval sandbox). Done instead: trim the duplicated readback and final message.
+
 ## 2026-10-20 Haiku navigator
 12. **Navigator on haiku, one agent file, tools Read/Grep/Glob, no Bash.** Why: user decision (frequent scope subagent, a senior model refines); granting Bash removed Grep/Glob from the subagent, and the user judged Bash too risky. Rejected: `map --folders/--near` CLI (bench R .427/.356 vs .443), sonnet navigator.
 13. **Fix haiku's self-cutting by wording, not by a separate route.** Evidence rule ("a note line or a Grep hit is evidence") instead of "confirmed", keep same-kind siblings, Glob only self-composed paths, cap 6 notes, open the deepest matching index line first (parents only when no child matches). Result 932b65e4, 10x3: F1 .572 R .593 $0.054/run vs bare .505/$0.144 and sonnet V2.1 .542/$0.128. Rejected: cap 3 (6141 opened parent overviews), cap 12 (bench F1 .488), no context (.480), route for the agent (too much, user).

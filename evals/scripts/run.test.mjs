@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { NAKED, buildNaked, childEnv, plan, recallOfGraders, runCase } from './run.mjs';
+import { NAKED, buildNaked, childEnv, plan, recallOfGraders, runCase, withProgress } from './run.mjs';
 
 describe('navigator metrics', () => {
   const truth = { relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [], ancestorShare: 0.5, ancestors: {} };
@@ -99,12 +99,12 @@ describe('evals runner', () => {
 
   it('the empty plugin has a manifest and nothing else, and its scaffolds point at the repository by absolute path', () => {
     const repo = mkdtempSync(path.join(tmpdir(), 'evals-repo-'));
-    mkdirSync(path.join(repo, 'evals', 'bare', 'one'), { recursive: true });
-    writeFileSync(path.join(repo, 'evals', 'bare', 'one', 'scaffold.sh'), 'node "$(cd "$(dirname "$0")/../../.." && pwd)/fixtures/materialize.mjs" x "$PWD/repo"\n');
+    mkdirSync(path.join(repo, 'evals', 'bare', 'suite', 'one'), { recursive: true });
+    writeFileSync(path.join(repo, 'evals', 'bare', 'suite', 'one', 'scaffold.sh'), 'node "$(cd "$(dirname "$0")/../../../.." && pwd)/fixtures/materialize.mjs" x "$PWD/repo"\n');
     const naked = path.join(repo, '.tmp', 'naked');
     buildNaked(repo, naked);
     assert.equal(JSON.parse(readFileSync(path.join(naked, '.claude-plugin', 'plugin.json'), 'utf8')).name, 'naked');
-    assert.equal(readFileSync(path.join(naked, 'evals', 'bare', 'one', 'scaffold.sh'), 'utf8'), `node "${repo}/fixtures/materialize.mjs" x "$PWD/repo"\n`);
+    assert.equal(readFileSync(path.join(naked, 'evals', 'bare', 'suite', 'one', 'scaffold.sh'), 'utf8'), `node "${repo}/fixtures/materialize.mjs" x "$PWD/repo"\n`);
   });
 });
 
@@ -112,5 +112,96 @@ describe('child environment', () => {
   it('drops the subagent model overrides and keeps the rest', () => {
     const env = childEnv({ PATH: '/bin', CLAUDE_CODE_SUBAGENT_MODEL: 'claude-sonnet-5-5', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' }, { CLAUDE_CODE_EFFORT_LEVEL: 'low' });
     assert.deepEqual(env, { PATH: '/bin', CLAUDE_CODE_EFFORT_LEVEL: 'low' });
+  });
+});
+
+describe('series progress file', () => {
+  const setup = () => {
+    const results = mkdtempSync(path.join(tmpdir(), 'run-progress-'));
+    return { results, file: path.join(results, 'running.json') };
+  };
+  const result = (name, scores) => ({ cases: [{ name, arms: { with: scores.map((score) => ({ score, costUsd: 0.1, judgeCostUsd: 0.01 })) } }] });
+  const command = (results, args, outcome, seen = []) => {
+    const argv = args.split(' ');
+    const run = plan(argv, undefined, results);
+    return withProgress(run, argv, () => {
+      seen.push(JSON.parse(readFileSync(path.join(results, 'running.json'), 'utf8')));
+      return outcome;
+    }, { now: () => new Date('2026-10-23T10:00:00Z') });
+  };
+  const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
+
+  it('starts a series with every case queued, marks the running one, then scores it', () => {
+    const { results, file } = setup();
+    const seen = [];
+    command(results, '--series a,b --case a --runs 2', { status: 0, result: result('a', [1, 0.5]) }, seen);
+    assert.deepEqual(seen[0].cases.map((c) => [c.name, c.state]), [['a', 'running'], ['b', 'queued']]);
+    assert.equal(seen[0].current, 'a');
+    const state = read(file);
+    assert.deepEqual(state.cases, [{ name: 'a', state: 'done', score: 0.75, costUsd: 0.22 }, { name: 'b', state: 'queued', score: null, costUsd: null }]);
+    assert.deepEqual([state.kind, state.arm, state.runsPerCase, state.total, state.done, state.current, state.costUsd, state.finishedAt], ['eval-series', 'plugin', 2, 2, 1, null, 0.22, null]);
+    assert.match(state.series, /^[0-9a-f]{8}$/);
+    assert.equal(state.startedAt, '2026-10-23T10:00:00.000Z');
+  });
+
+  it('a later command of the same series updates the file and the last one finishes it', () => {
+    const { results, file } = setup();
+    command(results, '--series a,b --case a', { status: 0, result: result('a', [1]) });
+    const first = read(file);
+    command(results, '--series a,b --case b', { status: 0, result: result('b', [0]) });
+    const state = read(file);
+    assert.equal(state.series, first.series);
+    assert.equal(state.startedAt, first.startedAt);
+    assert.deepEqual([state.done, state.total, state.costUsd, state.finishedAt], [2, 2, 0.22, '2026-10-23T10:00:00.000Z']);
+  });
+
+  it('a different series, the other arm or a finished file starts a new file', () => {
+    const { results, file } = setup();
+    command(results, '--series a,b --case a', { status: 0, result: result('a', [1]) });
+    const old = read(file).series;
+    command(results, '--series a,c --case a', { status: 0, result: result('a', [1]) });
+    assert.notEqual(read(file).series, old);
+    assert.deepEqual(read(file).cases.map((c) => c.name), ['a', 'c']);
+    command(results, '--bare --series a,c --case a', { status: 0, result: result('a', [1]) });
+    assert.equal(read(file).arm, 'bare');
+    command(results, '--bare --series a --case a', { status: 0, result: result('a', [1]) });
+    assert.notEqual(read(file).finishedAt, null);
+    command(results, '--bare --series a --case a', { status: 0, result: result('a', [0]) });
+    assert.equal(read(file).cases[0].score, 0, 'a finished series restarts instead of being updated');
+  });
+
+  it('a case with no result is failed with no score and still counts as done', () => {
+    const { results, file } = setup();
+    command(results, '--series a --case a', { status: 3, result: null });
+    const state = read(file);
+    assert.deepEqual(state.cases, [{ name: 'a', state: 'failed', score: null, costUsd: null }]);
+    assert.deepEqual([state.done, state.current], [1, null]);
+    assert.notEqual(state.finishedAt, null);
+  });
+
+  it('without --series a lone command is a one-case series, and the file has no schemaVersion', () => {
+    const { results, file } = setup();
+    command(results, '--case solo', { status: 1, result: result('solo', [0.5]) });
+    const state = read(file);
+    assert.deepEqual(state.cases.map((c) => [c.name, c.state, c.score]), [['solo', 'done', 0.5]]);
+    assert.equal('schemaVersion' in state, false);
+    assert.notEqual(state.finishedAt, null);
+  });
+
+  it('a progress file that cannot be written warns once and does not fail the command', () => {
+    const { results } = setup();
+    const blocked = path.join(results, 'blocked');
+    writeFileSync(blocked, 'a file where the directory should be');
+    const argv = ['--case', 'a'];
+    const warnings = [];
+    const original = console.warn;
+    console.warn = (text) => warnings.push(text);
+    try {
+      const outcome = withProgress(plan(argv, undefined, results), argv, () => ({ status: 0, result: null }), { file: path.join(blocked, 'running.json') });
+      assert.equal(outcome.status, 0);
+    } finally {
+      console.warn = original;
+    }
+    assert.equal(warnings.length, 1);
   });
 });

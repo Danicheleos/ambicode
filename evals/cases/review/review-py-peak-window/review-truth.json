@@ -1,0 +1,71 @@
+[
+  {
+    "id": "main",
+    "category": "correctness",
+    "main": true,
+    "what": "the loop stops at len(heights) - 3, so a peak at the last interior hour is never reported",
+    "locations": [
+      {
+        "file": "src/tidewatch/domain/rules/extremes.py",
+        "lines": [
+          8,
+          8
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "high_water_hours"
+        ],
+        "near": "off-by-one|never reported|missed|misses|skips|skipped|loop bound"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "dead-dup",
+    "main": false,
+    "what": "smooth() has no caller",
+    "locations": [
+      {
+        "file": "src/tidewatch/domain/rules/extremes.py",
+        "lines": [
+          14,
+          20
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "smooth"
+        ],
+        "near": "unused|dead|never called|no caller|not used|unreferenced|uncalled"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "tests",
+    "main": false,
+    "what": "the test checks only the first high water, so no test reaches the last interior hour",
+    "locations": [
+      {
+        "file": "tests/test_peaks.py",
+        "lines": [
+          8,
+          8
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "high_water_hours"
+        ],
+        "gap": true
+      }
+    ]
+  }
+]

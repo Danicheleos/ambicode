@@ -13,7 +13,9 @@ const DIST = path.join(ROOT, 'dist');
 // holds this repository's acceptance records, which must not ship; shipped docs are
 // named individually in FILE_ALLOWLIST.
 const DIRECTORY_ALLOWLIST = [
-  { from: 'skills', extensions: ['.md'] },
+  { from: 'skills', extensions: ['.md', '.mjs'] },
+  { from: 'agents', extensions: ['.md'] },
+  { from: 'templates', extensions: ['.md', '.yaml'] },
   { from: 'prompts', extensions: ['.md'] },
   { from: 'policies', extensions: ['.yaml', '.md'] },
   { from: 'scripts/chunks', extensions: ['.mjs'] },

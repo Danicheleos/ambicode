@@ -85,9 +85,9 @@ A merge request reaches a review through the `glab` CLI
 (`src/platform/gitlab/glab.ts`): the route's `mr-fetch` step runs
 `glab mr diff --raw` and `glab api projects/<project>/merge_requests/<iid>`
 and writes `reviews/mr-diff.patch` and `mr-diff.json` in the task directory.
-Publication is the `publish` gate followed by a code step that posts each
-selected finding with `glab api -X POST .../discussions`. Both fail with
-`mr-fetch-failed` / `mr-publish-failed` and glab's stderr.
+Publication happens only on the review page, which posts each selected finding
+with `glab api -X POST .../discussions`. The fetch fails with `mr-fetch-failed`
+and glab's stderr; a failed post is shown on the page.
 
 Not verified here: a live merge request end to end. The tests fake the process
 runner; the `glab` argument shapes come from `glab api --help`.

@@ -13,10 +13,13 @@ export function finding(overrides: Partial<Finding> & { id: string }): Finding {
     category: 'correctness',
     location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 },
     evidence: '  return amounts.reduce((a, b) => a + b, 0);',
-    explanation: 'The reduce has no initial value when the list is empty.',
+    problem: 'The reduce has no initial value when the list is empty.',
+    impact: 'An empty order throws instead of totalling zero.',
+    confidenceReason: 'the call site passes an empty array in the diff.',
     suggestedComment: 'Consider seeding the reduce so an empty list returns zero.',
     ruleRefs: [],
     requirementRefs: [],
+    supportingLocations: [],
     ...overrides,
   };
 }
@@ -73,13 +76,14 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
     ruleIds: [],
     checks: [{ key: 'web/lint', phase: 'green', exit: 1, files: ['src/orders.ts'] }],
     changedFiles: [],
+    requirementCoverage: [],
     findings: options.findings ?? [
       finding({ id: 'f-aaaa' }),
       finding({
         id: 'f-bbbb',
         risk: 'low',
         location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 3 },
-        explanation: `An explanation carrying hostile text: ${HOSTILE}`,
+        problem: `A problem carrying hostile text: ${HOSTILE}`,
         suggestedComment: `A suggested comment carrying hostile text: ${HOSTILE}`,
         evidence: `const injected = "${HOSTILE}";`,
       }),
@@ -89,7 +93,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
         location: { oldPath: null, newPath: 'src/unmapped.ts', side: 'new', line: 99 },
       }),
     ],
-    omissions: [`An omission carrying hostile text: ${HOSTILE}`],
+    omissions: [{ kind: 'attention', text: `An omission carrying hostile text: ${HOSTILE}` }],
     status: options.status ?? 'partial',
     statusReason: 'The review ran, with gaps.',
   };

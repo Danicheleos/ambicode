@@ -1,6 +1,6 @@
 # Evals: skill coverage
 
-Twenty-one synthetic cases, at least one per skill, each checking one behaviour. Twelve of them also run with no
+Thirty synthetic cases, at least one per skill, each checking one behaviour. Twenty-two of them also run with no
 plugin loaded, which is the baseline. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
 here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
 and are not run any more.
@@ -8,8 +8,8 @@ and are not run any more.
 ```
 evals/
   scripts/cases.mjs       the single source: every case, its prompt per arm, its graders
-  cases/<case>/           plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/)
-  bare/<case>/            no-plugin arm, generated: same request in plain words, shared graders only
+  cases/<suite>/<case>/   plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/); the suite is the case name's first word (investigate, plan, task, rules, review, init), `navigator/` and `init-large/` come from their own generators
+  bare/<suite>/<case>/    no-plugin arm, generated: same request in plain words, shared graders only
   scripts/run.mjs         runs one arm through `claude plugin eval` and leaves the result in `cases/results/`
   scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
   scripts/trace.mjs       trace parsing and `mean`, shared by the scripts below
@@ -22,8 +22,8 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: 21 cases
-npm run evals:bare                  # bare arm: 12 cases, no plugin
+npm run evals                       # plugin arm: 30 cases
+npm run evals:bare                  # bare arm: 22 cases, no plugin
 npm run evals -- --case 'task-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
@@ -34,6 +34,8 @@ Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap 
 `--model`, `--effort`, `--runs` or `--max-cost-usd`. The harness has no effort flag, so `run.mjs` sets
 `CLAUDE_CODE_EFFORT_LEVEL` in the environment. A probe showed the variable inside the run. It does not prove the
 model honoured it.
+
+A series of one-case commands reports progress: pass every command the same `--series <case1,case2,...>` plus its own `--case <name>` (`npm run evals -- --series a,b,c --case a`, then `--case b`, ...). Each command updates `evals/cases/results/running.json` (series id, arm, per-case queued/running/done/failed, score, cost, `finishedAt` once all are done), which the plugin-master Evals view shows. A different list or a finished file starts a new one; without `--series` a lone `--case` is a one-case series. The file has no `schemaVersion`, so the viewer does not list it as a run, and a write failure only warns.
 
 Read a run in `evals/cases/results/<arm>.json` and its traces under `results/traces/<arm>/<run time>/`; the plugin-master viewer shows both.
 
@@ -85,7 +87,7 @@ Read the result files, not the exit code. The harness exits 1 whenever any case 
 
 1. **Scaffold.** `scaffold.sh` replays a fixture into `repo/`, a fresh git repository with known history. The
    plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real. `--context` also writes
-   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (8 of the 21 cases).
+   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (22 of the 30 cases).
 2. **Prompt.** The plugin arm types the skill exactly as a user would, for example
    `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() …`. `--task` fixes the slug so
    graders can find the ledger. `--answer` pre-answers a gate. A case with no answer tests the gate's default. The
@@ -107,8 +109,8 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Nine cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,
-`task-review-skipped`, `review-skipped`), policy packs (`rules-migrate`) and the five `init-auto-*` cases.
+Eight cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,
+`task-review-skipped`), policy packs (`rules-migrate`) and the five `init-auto-*` cases.
 
 ## Cases
 
@@ -124,11 +126,7 @@ Nine cases have no bare arm because what they test belongs to the plugin: a gate
 | task-fix | eval-page-bug | format, reviewer subagent, report sections, fix and test correct | yes |
 | task-multi | ts-app-medium-refund-bug | a fix across payments service and repository with AppError and the test factory | yes |
 | task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so | no |
-| review-defect | ts-off-by-one | the off-by-one is found with its location | yes |
-| review-subtle | ts-app-medium-money-change | the broken caller outside the diff is named, the bare Error is flagged | yes |
-| review-clean | py-clean-docstring | no false defect, verification gap stated | yes |
-| review-regression | ts-source-regression | a check is recorded, the broken behaviour is found | yes |
-| review-skipped | ts-off-by-one | the estimate gate defaults to skip, no reviewer, no finding | no |
+| review-<stack>-<topic> (14) | the stack's `*-review-<n>` fixture | see Review cases below | yes |
 | rules-migrate | eval-rules-contributing | drafts checked and applied, the vague line and the embedded `rm -rf` ignored | no |
 | init-auto-ts | ts-service-lendbox (32 modules) | TypeScript service by bounded context with a shared kernel, jest and eslint declared not installed; drafts for importing a context only through `index.ts`, `<context>.<past-tense-verb>` event names, deps-first use-case factories, `createX` returning `Result` |
 | init-auto-python | py-service-tidewatch (30 modules) | layered domain/app/infra/api with a `plugins/sources/` directory of 12 sibling adapters; drafts for `TW-nnn` error codes, `test_<module>__<behaviour>` names, keyword-only arguments, `PLUGIN = SourcePlugin(...)` per adapter |
@@ -146,6 +144,36 @@ Scout-quality graders (deterministic, `scoutGraders` in `init-cases.mjs`):
 - `conventions-descriptive`: `conventions.md` has no `must`, `never` or `always`; the `context-conventions` grader holds that the file exists.
 - `draft-<convention>`: one tight pattern per planted convention on the Write, Edit or Bash call that puts a draft under `.ambicode/policies/drafts/` (a regex on the trace; the harness can read only one fixed file, and draft file names vary). `drafts-written` is a `file_exists` glob over the created files, so any tool counts. The main session drafts the scout's conventions also with `--auto`. A pattern needs a token only the code or the document shows, and the test feeds each one a paraphrase of the rule (passes) and a guess made from folder names (fails).
 
+## Review cases
+
+Fourteen cases (`evals/scripts/review-cases.mjs`) review an uncommitted change of 48 to 91 added lines (blank lines included) on the five init stacks (`fixtures/review-changes.mjs`, fixtures `<base>-review-<n>`, numbered so a name says nothing about the defect). Twelve hold one main issue and two or three others, each from a category other than the main's, and every real issue in a diff is in the truth; `py-clean-plugin` and `mono-clean-rust` are clean controls. Both arms get the same scaffold: config (`--ambicode-init`), conventions (`--context`) and, where the matrix assigns a team rule, a project pack (`--policy`, `fixtures/policies/<stack>.yaml`, authority `team`, listed under `policyFiles`). The lift measures the reviewer route, not the material.
+
+Each case directory holds `review-truth.json`: `[{id, category, main, what, locations: [{file, lines}], anchors: [{ids, near | gap}]}]`, `[]` for a control. An issue has one or more locations (resolved from `find` strings in the fixture; the first lies inside the added lines of the working-tree diff, checked by `fixtures/review-fixtures.test.mjs`, the others may name code the change leaves alone, like the second limit a new constant duplicates) and anchors. Task names are neutral (`rev-<n>`) and the case description names no defect: the scaffold materializes only `repo/`, so nothing of the case directory is in the run's working directory.
+
+- `found-<id>` (shared; `found-main` weighs 2, the rest 1): passes on any location or any anchor of the issue.
+  - A location is the shortest trailing path that names one file of the repository (down to the basename), then a line, an `a-b` range or an `a, b` list that reaches the location's lines widened by three (`f.ts:12`, `f.ts (line 12)`, `f.ts:5-40`, `f.ts#L12-L20`).
+  - An anchor is one of its identifiers (exact case, whole word) within 200 characters of one of its keywords (any case, standing alone: "latest" and a path such as `tests/test_x.py` are not "test"; an identifier may not supply its own keyword), in either order, for the report that names the problem without a line. A tests issue uses a gap anchor instead: the identifier and a phrase saying a test is absent ("no test", "untested", "tests missing"), so a remark that only mentions a test credits nothing. Issues whose windows share lines in one file declare it with `overlaps`.
+  - The plugin arm reads `repo/.ambicode/reviews/<slug>/1/report.txt`, because the final message paraphrases the report and has dropped locations; the bare arm reads the final message. The same pattern runs in both arms.
+- `main-nature`, `no-false-claim`: llm graders, shared. `no-false-claim` shows the judge the touched files, the real issues and the sound parts, and defines a false claim as a finding about a sound part, a claimed passing check that is not listed, or a finding outside the touched files. The harness runs 3 votes of one word on haiku (`claude-haiku-4-5`) and keeps no reasoning.
+- Controls: `no-high-risk-finding` (plugin only, `not_contains` a medium or high `risk` in `answer.json`) and the shared llm `no-defect-claimed`, which defines a false alarm as a finding of medium or high risk or a claim that the change is verified when no check ran.
+- Plugin only: `reviewer-invoked`, `review-recorded`, `route-done`, `finding-recorded` (defect cases).
+
+`review-cases.test.mjs` feeds every case synthetic outputs and asserts each deterministic grader: a perfect output (every issue cited as full path, basename, range, list and anchor only) credits every issue in both arms; one issue's exact citation credits only it and the issues it declares overlap with, and its anchor credits no other; the audit probes (a remark about one issue that used to credit another: "retested", "a unit test would have caught it", a generic id and keyword pair) credit only their own issue; an empty output, a clean report, an identifier alone, a citation moved ten lines and a citation of another file credit nothing; a control fails on a medium finding and passes on a low one.
+
+| Category | Count | Where |
+| --- | --- | --- |
+| team-rule | 3 | ts-boundary, go-wall-clock, mono-notes-html (secondary) |
+| naming-comments | 4 | ts-boundary (secondary), ts-strategy (secondary), py-error-codes (secondary), jvm-transfer-use-case (secondary) |
+| tests | 11 | ts-boundary (secondary), ts-strategy (secondary), ts-weak-tests, py-peak-window (secondary), go-handler-bypass (secondary), go-swallowed-error (secondary), go-wall-clock (secondary), jvm-transfer-use-case (secondary), jvm-lot-query (secondary), jvm-retire-rule (secondary), mono-notes-html (secondary) |
+| correctness | 5 | ts-boundary (secondary), ts-weak-tests (secondary), py-error-codes (secondary), py-peak-window, jvm-retire-rule |
+| bloat | 2 | ts-strategy, jvm-lot-query |
+| dead-dup | 6 | ts-strategy (secondary), ts-weak-tests (secondary), py-peak-window (secondary), go-swallowed-error (secondary), go-wall-clock (secondary), jvm-retire-rule (secondary) |
+| collected | 3 | ts-weak-tests (secondary), py-error-codes, jvm-lot-query (secondary) |
+| arch-style | 2 | go-handler-bypass, jvm-transfer-use-case |
+| error-security | 3 | go-handler-bypass (secondary), go-swallowed-error, mono-notes-html |
+
+`node evals/scripts/cases.mjs --case 'review-*'` rewrites just these cases. `review-cases.test.mjs` checks them at no cost; no paid run has scored them yet. Each fixture also builds and passes its own tests with the stack's toolchain (go build, vet and test; cargo check, clippy and test; gradle test; tsc and the tests; pytest) apart from the intended defects.
+
 ## Change or add a case
 
 1. Edit `evals/scripts/cases.mjs`. Use an existing fixture or add an `eval-*` one to `fixtures/definitions.mjs`.
@@ -159,3 +187,7 @@ Scout-quality graders (deterministic, `scoutGraders` in `init-cases.mjs`):
 
 Keep a case to one behaviour and under 15 graders. Ledger entry shapes are in `src/platform/ledger/kinds.ts`. Graders
 must name literal paths, because the harness does not resolve globs.
+
+### Review run archive and offline re-grade
+
+Every `review-*` run, in both arms, leaves `eval-archive/review-runs/<arm>/<stamp>/<case>-<n>/` (`$AMBICODE_EVAL_ARCHIVE` moves the root; `harvest` in `context.mjs` writes it beside the `.ambicode` copy): `final-message.md`, `trace.jsonl`, `meta.json`, and for the plugin arm `report.txt`, `answer.json`, `brief.md` and `changed.diff`. The regex graders stay the harness's fast signal. `node evals/scripts/review-regrade.mjs <run dir | <arm>/<stamp> | stamp>...` grades the same runs offline: it takes the findings of `report.txt` (deterministic split) or has the judge enumerate those of a free-text final message, then asks `claude -p` (`claude-haiku-5-5`, 5 votes, all votes stored) which one known issue each finding reports, or whether it is a real, arguable or false finding outside the list. It writes `review-runs/regrade/<time>/regrade.{json,md}`: recall (main, all, per category), outside-real, arguable and false findings, and the regex verdict beside each matcher verdict. `review-regrade-validate.mjs` scores the matcher on hand-labelled findings (`review-regrade-labels.mjs`: the audit probes plus one paraphrase per truth issue) before a baseline is graded; the judge budget is a hard stop (`--budget`, dollars).

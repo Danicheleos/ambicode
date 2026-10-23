@@ -1,9 +1,8 @@
 /**
  * Source of the ts-app-medium fixtures (definitions.mjs): a small billing service, plain CommonJS so that jest runs
- * it with no build step, like eval-page-bug. `npm test` passes on APP_FILES. The three fixtures built on it:
+ * it with no build step, like eval-page-bug. `npm test` passes on APP_FILES. The two fixtures built on it:
  *   ts-app-medium             APP_FILES as committed.
  *   ts-app-medium-refund-bug  APP_REFUND_BUG replaces six files in the commits (the tests that would have caught it are absent).
- *   ts-app-medium-money-change  APP_MONEY_CHANGE is replayed after the last commit, uncommitted.
  * Edit this file by hand; the content has no generator. Template literals use BT for a backtick.
  */
 const BT = '`';
@@ -2801,113 +2800,3 @@ export function withoutTest(source, title) {
   else before = before.replace(/\n$/, '');
   return before + after;
 }
-
-/**
- * Uncommitted: money.round becomes half-to-even and gains a bare-Error guard. Its own tests are updated and pass;
- * invoices/service.taxFor and reports/service.averageInvoiceCents, which are not in the diff, depend on half-up.
- */
-export const APP_MONEY_CHANGE = {
-  "src/shared/money.js": raw`const { ValidationError } = require('./errors');
-
-const CURRENCY = 'EUR';
-
-// Half to even ("banker's rounding"): the accounting export wants totals that do not drift upward.
-function round(value) {
-  if (!Number.isFinite(value)) throw new Error('round: not a number');
-  const floor = Math.floor(value);
-  const fraction = value - floor;
-  if (fraction < 0.5) return floor;
-  if (fraction > 0.5) return floor + 1;
-  return floor % 2 === 0 ? floor : floor + 1;
-}
-
-// Decimal major units (12.34) to integer cents. Only for input from outside; inside the service money is cents.
-function toCents(amount) {
-  if (typeof amount !== 'number' || !Number.isFinite(amount)) {
-    throw new ValidationError('amount', 'must be a number');
-  }
-  return round(amount * 100);
-}
-
-function sum(values) {
-  return values.reduce((total, value) => total + value, 0);
-}
-
-// basisPoints: 1000 is 10%.
-function percentOf(cents, basisPoints) {
-  return Math.round((cents * basisPoints) / 10000);
-}
-
-// Splits cents into parts that add up exactly; the first parts take the remainder.
-function split(cents, parts) {
-  const base = Math.floor(cents / parts);
-  const remainder = cents - base * parts;
-  return Array.from({ length: parts }, (_, index) => base + (index < remainder ? 1 : 0));
-}
-
-function format(cents) {
-  const sign = cents < 0 ? '-' : '';
-  const abs = Math.abs(cents);
-  return sign + Math.floor(abs / 100) + '.' + String(abs % 100).padStart(2, '0') + ' ' + CURRENCY;
-}
-
-module.exports = { CURRENCY, round, toCents, sum, percentOf, split, format };
-`,
-  "tests/shared/money.test.js": raw`const money = require('../../src/shared/money');
-const { ValidationError } = require('../../src/shared/errors');
-
-describe('money', () => {
-  test('round is half to even', () => {
-    expect(money.round(100.5)).toBe(100);
-    expect(money.round(101.5)).toBe(102);
-    expect(money.round(100.4)).toBe(100);
-    expect(money.round(100.6)).toBe(101);
-  });
-
-  test('round rejects NaN', () => {
-    expect(() => money.round(NaN)).toThrow();
-  });
-
-  test('toCents converts major units and rejects non-numbers', () => {
-    expect(money.toCents(12.34)).toBe(1234);
-    expect(() => money.toCents('12')).toThrow(ValidationError);
-  });
-
-  test('percentOf takes basis points', () => {
-    expect(money.percentOf(1005, 1000)).toBe(101);
-    expect(money.percentOf(1000, 0)).toBe(0);
-  });
-
-  test('split keeps the total and gives the remainder to the first parts', () => {
-    expect(money.split(100, 3)).toEqual([34, 33, 33]);
-    expect(money.sum(money.split(1001, 7))).toBe(1001);
-  });
-
-  test('percentOf rounds the half cent up', () => {
-    expect(money.percentOf(5, 1000)).toBe(1);
-    expect(money.percentOf(4, 1000)).toBe(0);
-    expect(money.percentOf(1015, 1000)).toBe(102);
-  });
-
-  test('toCents rounds float noise away', () => {
-    expect(money.toCents(0.1 + 0.2)).toBe(30);
-    expect(money.toCents(19.99)).toBe(1999);
-  });
-
-  test('split rejects nothing but handles one part', () => {
-    expect(money.split(7, 1)).toEqual([7]);
-    expect(money.split(0, 4)).toEqual([0, 0, 0, 0]);
-  });
-
-  test('sum of nothing is zero', () => {
-    expect(money.sum([])).toBe(0);
-  });
-
-  test('format prints two decimals and the currency', () => {
-    expect(money.format(1234)).toBe('12.34 EUR');
-    expect(money.format(5)).toBe('0.05 EUR');
-    expect(money.format(-250)).toBe('-2.50 EUR');
-  });
-});
-`,
-};

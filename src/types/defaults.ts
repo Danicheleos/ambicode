@@ -24,3 +24,6 @@ export const CONTEXT_DIR = `${AMBICODE_DIR}/context`;
 /** Review runs live apart from the other runs; everything else is a task directory. */
 export type DirKind = 'task' | 'review';
 export const dirKindFor = (skill: string): DirKind => (skill === 'review' ? 'review' : 'task');
+
+/** The review page stops after this long without a request; the old page's `page.idleTimeoutSeconds` default (1800), kept. */
+export const PAGE_IDLE_MS = 30 * 60 * 1000;

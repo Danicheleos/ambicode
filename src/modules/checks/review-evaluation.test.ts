@@ -23,7 +23,7 @@ describe('evaluateReview (07-V)', () => {
   });
 
   it('07-V3: a finding line is cut to one short line', () => {
-    const long = finding({ id: 'f1', explanation: `first\n${'x'.repeat(400)}` });
+    const long = finding({ id: 'f1', problem: `first\n${'x'.repeat(400)}` });
     const out = evaluateReview(reviewEntry(), reviewResult({ kind: 'working', findings: [long] }));
     assert.ok(out.next === 'revise-fix' && !out.findings[0]!.includes('\n') && out.findings[0]!.length < 200);
   });

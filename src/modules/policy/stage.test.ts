@@ -55,8 +55,8 @@ describe('03-P policy stage', () => {
       assert.doesNotMatch(task.text, /common-(design|security)\/(need|cohesion|data-boundary): /);
       const review = await policyStage({ runtime, project, activity: 'review', paths: ['src/a.ts'], stage: 'before-work' });
       // Deliberate: the reviewer agent's own checklist covers five rules, so they no longer reach review.
-      const planTaskOnly = ['reuse-before-reimplementing', 'unjustified-complexity', 'dead-surface', 'callers', 'error-honesty'];
-      assert.equal(review.entry.rules, plan.entry.rules + task.entry.rules - 2 - planTaskOnly.length + 5, 'review carries 19 of 24: fix-the-cause sits in plan and task (-2 counts reuse too), five plan/task rules skip review, five rules are review-only');
+      const planTaskOnly = ['unjustified-complexity', 'dead-surface', 'callers', 'error-honesty'];
+      assert.equal(review.entry.rules, plan.entry.rules + task.entry.rules - 2 - planTaskOnly.length + 5, 'review carries 20 of 24: fix-the-cause and reuse sit in plan and task (-2), four plan/task rules skip review, five rules are review-only');
       for (const id of planTaskOnly) assert.doesNotMatch(review.text, new RegExp(`common-[a-z]+/${id}: `), `${id} must not reach review`);
       for (const id of ['honest-gaps', 'scope', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger']) assert.match(review.text, new RegExp(`common-[a-z]+/${id}: `), id);
       assert.doesNotMatch(plan.text + task.text, /honest-gaps|no-secret-exposure|untrusted-input-allowlist|outbound-timeouts|configured-logger/);
@@ -64,7 +64,7 @@ describe('03-P policy stage', () => {
       assert.doesNotMatch(plan.text, /common-code\/callers: /);
       assert.match(task.text, /common-code\/callers: /);
       assert.doesNotMatch(task.text, /common-design\/scope: /);
-      // Measured 2463 B plan / 2964 B task / 4237 B review with authority headers and five rules off review (was 2559 / 3096 / 5693), rounded up to 64 B.
+      // Measured 2463 B plan / 2964 B task / 4237 B review (about 430 B more with reuse-before-reimplementing on review) with authority headers and five rules off review (was 2559 / 3096 / 5693), rounded up to 64 B.
       assert.ok(plan.bytes <= 2496, `plan ${plan.bytes}`);
       assert.ok(task.bytes <= 3008, `task ${task.bytes}`);
       for (const payload of [plan, task]) assert.ok(payload.bytes < review.bytes, `${payload.bytes} vs ${review.bytes}`);

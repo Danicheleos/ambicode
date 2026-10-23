@@ -40,6 +40,26 @@ function linkedKey(input: Record<string, unknown> | undefined, asked: readonly s
 /** The last path segment of a URL, so a call that names only the issue key still matches the URL the route asked for. */
 const tailOf = (asked: string): string => asked.split(/[?#]/)[0]!.split('/').filter((segment) => segment !== '').at(-1) ?? asked;
 
+const findText = (value: unknown, name: string, depth = 0): string | null => {
+  if (depth > 6 || !isObject(value) && !Array.isArray(value)) return null;
+  for (const [field, child] of Object.entries(value)) {
+    if (field === name && typeof child === 'string' && child.trim() !== '') return child.trim();
+    const inner = typeof child === 'object' && child !== null ? findText(child, name, depth + 1) : null;
+    if (inner !== null) return inner;
+  }
+  return null;
+};
+
+/** A captured result's own name: the first `summary` (Jira) or `title` (Confluence) string in its JSON, else the key. The key stands in for it when the tool returned prose. */
+export function titleOf(content: string, key: string): string {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return findText(parsed, 'summary') ?? findText(parsed, 'title') ?? key;
+  } catch {
+    return key;
+  }
+}
+
 export const fileOf = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key.replace(/[^\w.-]+/g, '_').slice(0, 80)}.${contentHash(key).replace(/^sha256:/, '').slice(0, 8)}.json`);
 
 /** The stored capture for a key, or null when its file is gone, unreadable, or its content no longer matches the recorded hash. */

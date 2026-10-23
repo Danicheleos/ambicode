@@ -79,14 +79,14 @@ describe('review route, missing sources (08-Q)', () => {
     }
   });
 
-  it('08-Q2: capturing the second source and route next reaches the estimate, with missingAsked empty; route stop is the exit', async () => {
+  it('08-Q2: capturing the second source and route next goes on to the reviewer, with missingAsked empty; route stop is the exit', async () => {
     const s = await shipped();
     try {
       await s.capture(GET, mcp(jira('ORD-17')), { asked: ASKED });
       await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-missing');
       await s.capture(GET, mcp(jira('ORD-18')), { asked: ASKED });
       const next = await s.next();
-      assert.equal(next.position, 'estimate');
+      assert.equal(next.position, 'review-agent');
       const envelope = (await s.fx.kinds(s.task, 'envelope')).at(-1)!;
       assert.deepEqual([envelope['builtFrom'], envelope['missingAsked']], ['captures', []]);
       assert.deepEqual(await s.exits(), []);
@@ -193,15 +193,14 @@ const pinnedResult = async (s: Awaited<ReturnType<typeof shipped>>): Promise<{ r
   JSON.parse(await readFile(path.join(s.fx.repo.root, String((await s.fx.kinds(s.task, 'review')).at(-1)!['result'])), 'utf8'));
 
 describe('the route envelope is the review evidence (08-PLAN-2)', () => {
-  it('08-PLAN-2: with both sources captured and run answered, the pinned review is requirement-based on the captured sources, with no --evidence flag', async () => {
+  it('08-PLAN-2: with both sources captured, the pinned review is requirement-based on the captured sources, with no --evidence flag', async () => {
     const s = await shipped();
     try {
       await s.capture(GET, mcp(jira('ORD-17')), { asked: ASKED });
       await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-missing');
       await s.capture(GET, mcp(jira('ORD-18')), { asked: ASKED });
-      assert.equal((await s.next()).position, 'estimate');
-      const print = (await s.fx.kinds(s.task, 'gate')).findLast((entry) => entry['gate'] === 'estimate')!;
-      const run = await s.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
+      const run = await s.next();
+      assert.equal(run.position, 'review-agent');
       assert.doesNotMatch(run.text, /--evidence/);
       const output = await pinnedResult(s);
       assert.equal(output.requirementMode, 'requirement-based');
@@ -214,8 +213,6 @@ describe('the route envelope is the review evidence (08-PLAN-2)', () => {
   it('08-PLAN-2: a route without captured requirements still runs a quality review', async () => {
     const s = await shipped({ requirements: [] });
     try {
-      const print = (await s.fx.kinds(s.task, 'gate')).findLast((entry) => entry['gate'] === 'estimate')!;
-      await s.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
       assert.equal((await pinnedResult(s)).requirementMode, 'quality-review');
     } finally {
       await s.fx.dispose();

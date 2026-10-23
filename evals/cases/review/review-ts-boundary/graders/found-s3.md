@@ -1,0 +1,7 @@
+---
+type: regex
+pattern: '(?:(?<![\w-])charge-late-fees\.ts[:\s(,#L`*]{0,6}(?:[Ll]ines?\s+)?(?:\d+(?:\s*[-–]\s*L?\d+)?\s*(?:,|;|and|&)\s*L?)*(?<!\d)(?:(?:19|20|21|22|23|24|25)(?!\d)|(?:1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18)\s*[-–]\s*L?(?:[1-9]\d{2,}|19|[2-9]\d{1})(?!\d))|(?<![\w-])on-loan-returned\.ts[:\s(,#L`*]{0,6}(?:[Ll]ines?\s+)?(?:\d+(?:\s*[-–]\s*L?\d+)?\s*(?:,|;|and|&)\s*L?)*(?<!\d)(?:(?:5|6|7|8|9|10|11)(?!\d)|(?:1|2|3|4)\s*[-–]\s*L?(?:[1-9]\d{1,}|5|[6-9]\d{0})(?!\d))|(?:(?<![A-Za-z0-9_])(?:chargeLateFees|onLoanReturned)(?![A-Za-z0-9_])[\s\S]{0,200}?(?<![\w/.-])(?:[tT][wW][iI][cC][eE]|[dD][oO][uU][bB][lL][eE]|[dD][oO][uU][bB][lL][yY]|[dD][oO][uU][bB][lL][eE]-[bB][iI][lL][lL][iI][nN][gG]|[dD][uU][pP][lL][iI][cC][aA][tT][eE]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][dD]|[dD][uU][pP][lL][iI][cC][aA][tT][iI][oO][nN]|[oO][vV][eE][rR][lL][aA][pP][sS]|[rR][eE][bB][iI][lL][lL]|[rR][eE][bB][iI][lL][lL][sS]|[rR][eE]-[bB][iI][lL][lL])(?![\w/-]|\.\w)|(?<![\w/.-])(?:[tT][wW][iI][cC][eE]|[dD][oO][uU][bB][lL][eE]|[dD][oO][uU][bB][lL][yY]|[dD][oO][uU][bB][lL][eE]-[bB][iI][lL][lL][iI][nN][gG]|[dD][uU][pP][lL][iI][cC][aA][tT][eE]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][dD]|[dD][uU][pP][lL][iI][cC][aA][tT][iI][oO][nN]|[oO][vV][eE][rR][lL][aA][pP][sS]|[rR][eE][bB][iI][lL][lL]|[rR][eE][bB][iI][lL][lL][sS]|[rR][eE]-[bB][iI][lL][lL])(?![\w/-]|\.\w)[\s\S]{0,200}?(?<![A-Za-z0-9_])(?:chargeLateFees|onLoanReturned)(?![A-Za-z0-9_])))'
+match: contains
+target: { source: file, path: repo/.ambicode/reviews/rev-1/1/report.txt }
+weight: 1
+---
