@@ -133,11 +133,11 @@ describe('facts and citations accept the right wording and refuse the plausible 
   const pick = (name, grader_) => cases.find((c) => c.name === name).graders.find((g) => g.name === grader_);
   const spec = (name, grader_) => frontmatter(pick(name, grader_).text);
   const wrongAndRight = [
-    ['investigate-py-cli-empty-store', 'code-tw-101', 'It prints failed TW-101.', 'It prints 4200 4375 4521.'],
-    ['investigate-go-quote-price', 'price-7-40', 'price: 7.40', 'price: 3.50'],
-    ['investigate-go-max-weight', 'limit-10-kg', 'The last band ends at 10000 grams.', 'The limit is 15000000 cents.'],
+    ['investigate-go-label-bay', 'price-7-40', 'price: 7.40', 'price: 3.50'],
+    ['investigate-go-parceld-lookup', 'status-404', 'It answers 404 no such parcel.', 'It answers 200 with the parcel.'],
     ['investigate-jvm-sow-mail', 'fallback-desk', 'To: desk@example.org', 'To: seeds@example.org'],
-    ['investigate-ts-late-fee-wiring', 'fee-150-cents', 'three days is 150 cents', 'three days is 1500 cents'],
+    ['investigate-ts-extend-late-fee', 'fee-100-cents', 'two days late is 100 cents', 'nine days late is 450 cents'],
+    ['investigate-mono-over-limit-post', 'names-the-limit', 'setpoint 13500 is outside the kiln limits', 'the engine refuses the schedule'],
     ['investigate-mono-max-setpoint', 'limit-13000', 'MAX_SETPOINT_DC is 13_000', 'the limit is 1300'],
     ['investigate-app-segment-flow-2', 'gold-threshold', 'gold needs 500000 cents', 'gold needs 5000 cents'],
     ['investigate-app-segment-flow-2', 'window-365', 'a 365 day window', 'a 30 day window'],
@@ -152,9 +152,9 @@ describe('facts and citations accept the right wording and refuse the plausible 
   }
 
   it('a citation grader needs a line number and takes the path with or without a leading directory', () => {
-    const g = spec('investigate-ts-late-fee-wiring', 'cites-src-composition-ts');
-    for (const ok of ['src/composition.ts:12', 'repo/src/composition.ts:10-20', '`src/composition.ts:3`']) assert.ok(passes(ok, g), ok);
-    for (const no of ['src/composition.ts has no wiring', 'composition.ts:12']) assert.ok(!passes(no, g), no);
+    const g = spec('investigate-ts-extend-late-fee', 'cites-application-extend-ts');
+    for (const ok of ['src/contexts/lending/application/extend.ts:12', 'repo/src/contexts/lending/application/extend.ts:10-20', '`src/contexts/lending/application/extend.ts:3`']) assert.ok(passes(ok, g), ok);
+    for (const no of ['src/contexts/lending/application/extend.ts has no cap', 'extend.ts:12']) assert.ok(!passes(no, g), no);
   });
 
   it('an app answer that lists the legacy export in its files fails the decoy grader; one that cites it in prose passes', () => {

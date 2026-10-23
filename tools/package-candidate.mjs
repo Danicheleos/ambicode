@@ -229,7 +229,9 @@ async function buildZip(stagingParent, version) {
 }
 
 async function main() {
-  execFileSync('node', ['tools/build.mjs'], { cwd: ROOT, stdio: 'inherit' });
+  // build.mjs deletes scripts/ before rewriting it; the test suite packages in parallel with tests that run the bundle
+  // (tools/hook-artifact.test.mjs failed with MODULE_NOT_FOUND in every full run), so the test packages a bundle `npm run build` made.
+  if (!process.argv.includes('--prebuilt')) execFileSync('node', ['tools/build.mjs'], { cwd: ROOT, stdio: 'inherit' });
 
   const version = await canonicalVersion();
   const candidateDir = path.join(DIST, `ambicode-${version}`);
