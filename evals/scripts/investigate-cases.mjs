@@ -260,7 +260,11 @@ export function violations(truth, files) {
   return broken;
 }
 
-export const decoyPattern = (decoys) => `## Files[\\s\\S]*(${decoys.map(escape).join('|')})`;
+// A decoy fails only as an entry of a Files list: a line inside the `## Files…` section (any heading suffix) that opens, after an
+// optional bullet, number, backtick or `repo/`, with the decoy path. The old `## Files[\s\S]*decoy` also failed an answer whose
+// heading was "## Files that change" and that explained a ruled-out file in the prose below it (optout-files-2, 2026-10-23).
+export const decoyPattern = (decoys) =>
+  `(?:^|\\n)#{1,6}[ \\t]*Files\\b[^\\n]*(?:\\n(?!#{1,6}[ \\t])[^\\n]*)*?\\n[ \\t]*(?:[-*]|\\d+[.)])?[ \\t]*[\`*]*(?:repo/)?(?:${decoys.map(escape).join('|')})(?![\\w/-])`;
 export const citePattern = (file) => `${escape(tail(file))}:\\d+`;
 
 export function investigateCases(b) {

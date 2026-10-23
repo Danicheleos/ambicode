@@ -182,3 +182,23 @@ describe('the deep app variant', () => {
     for (const file of deep.keys()) if (file.startsWith('src/') && file !== 'src/customers/patch.js') assert.doesNotMatch(deep.get(file), /receiptChannels/, file);
   });
 });
+
+describe('the decoy grader reads the entries of the Files list, not the prose around it', () => {
+  const g = frontmatter(grader(cases.find((c) => c.name === 'investigate-app-optout-files-2'), 'files-skip-decoys').text);
+  // The shape of the optout-files-2 plugin answer of 2026-10-23: a "Files that change" heading with a numbered list, then decisions in prose that name a ruled-out file.
+  const answer = (tail) => `## Files that change\n1. \`src/customers/patch.js\`: add the field (\`src/customers/patch.js:4-8\`).\n2. \`src/notifications/handlers.js\`: use the chosen channels.\n\n### Decisions\n- The \`smsReceipts\` flag (\`src/flags.js:4\`) may still gate SMS.\n${tail}`;
+
+  it('passes a decoy named only in prose below a "## Files that change" heading', () => {
+    assert.ok(passes(answer('\n## Files\nsrc/customers/patch.js\nsrc/notifications/handlers.js\n'), g));
+    assert.ok(passes(answer(''), g));
+  });
+
+  it('fails a decoy that is an entry of the list, whatever the bullet, number, backticks or prefix, and under any heading suffix', () => {
+    for (const entry of ['- src/flags.js', '* `src/flags.js`', '3. src/flags.js: unrelated', 'repo/src/flags.js', '- **src/flags.js**']) {
+      assert.ok(!passes(`## Files that change\n- src/customers/patch.js\n${entry}\n`, g), entry);
+    }
+    assert.ok(!passes(answer('\n## Files\nsrc/customers/patch.js\nsrc/flags.js\n'), g));
+    assert.ok(passes('## Files\n- src/flags.json\n- src/customers/patch.js\n', g), 'a longer name is not the decoy');
+  });
+});
+
