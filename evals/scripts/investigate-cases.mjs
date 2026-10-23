@@ -1,4 +1,4 @@
-// The /ambicode:investigate cases: ten broad ones (two per stack fixture) and five in depth on ts-app-medium. cases.mjs spreads
+// The /ambicode:investigate cases: ten broad ones (two per stack fixture) and five in depth on ts-app-medium (two of them on its ts-app-medium-deep variant). cases.mjs spreads
 // `investigateCases`. Every answer below was read off the fixture's own files (fixtures/definitions.mjs); investigate-cases.test.mjs
 // checks each `anchors` line is still there and each `absent` claim still holds, so a fixture edit cannot silently turn a truth false.
 //
@@ -177,10 +177,11 @@ FAIL if it says the ramp or curve code shapes the target, or that the relay cont
     cites: ['src/notifications/handlers.js', 'src/invoices/service.js'],
     facts: [['names-direct-call', 'sendInvoiceCreated']],
     verdict: ['bus-or-direct', `
-PASS only if all hold:
-- The payment receipt goes over the bus: payments emits payment.received, notifications.register (called by createApp) subscribed onPaymentReceived to it, and that handler delivers the mail.
-- The invoice-created mail does not go over the bus: invoices/service.js create calls notifications sendInvoiceCreated directly. The invoice.created event is emitted but nothing subscribes to it.
-FAIL if it says a subscriber sends the invoice-created mail, or presents src/legacy code as part of either path.`],
+PASS if the answer conveys both points, in any wording:
+- The payment receipt goes over the event bus: payments emits payment.received, notifications register (called from createApp) subscribes onPaymentReceived to it, and that handler delivers the mail.
+- The invoice-created mail does not go over the bus: the invoices service calls the notifications service's sendInvoiceCreated directly. The invoice.created event is emitted, but no subscriber sends mail for it.
+Naming the files or functions differently, or describing the flow in prose, is fine as long as each of the two mails is placed on the right path.
+FAIL if it says a subscriber sends the invoice-created mail, says the receipt is sent by a direct call, or presents src/legacy code as part of either path.`],
     anchors: [['src/invoices/service.js', 'notifications.sendInvoiceCreated(invoice'], ['src/invoices/service.js', 'bus.emit(TOPICS.INVOICE_CREATED'], ['src/payments/service.js', 'bus.emit(TOPICS.PAYMENT_RECEIVED'], ['src/notifications/index.js', 'eventBus.on(TOPICS.PAYMENT_RECEIVED'], ['src/app.js', 'notifications.register(eventBus)']],
     absent: [{ find: 'on(TOPICS.INVOICE_CREATED', in: 'src/' }, { find: "on('invoice.created'", in: 'src/' }, { find: 'notifyPaymentLegacy', except: ['src/legacy/payment-hooks.js'] }],
   },
@@ -194,8 +195,8 @@ FAIL if it says a subscriber sends the invoice-created mail, or presents src/leg
     cites: ['src/invoices/service.js', 'src/invoices/lines.js'],
     facts: [['tax-in-basis-points', 'taxBps']],
     verdict: ['current-total-not-legacy', `
-PASS only if the answer says the total is the subtotal of the lines (quantity times unitCents, in integer cents) plus tax, where tax is the subtotal times taxBps divided by 10000, rounded half up, in src/invoices/service.js, and it does not present the legacy floating-point total as the one the application uses.
-FAIL if it describes the legacy total as the live computation, or leaves tax out.`],
+PASS if the answer states, in any wording, that the live total is the sum over the lines of quantity times unitCents (integer cents) plus tax, where tax is the subtotal times taxBps divided by 10000 rounded to a whole cent (half up), computed in src/invoices/service.js. The floating-point legacy total may be mentioned as a separate, unused copy.
+FAIL if it describes the legacy total as the one the application uses, or leaves tax out.`],
     anchors: [['src/invoices/service.js', 'return subtotal(invoice.lines) + taxFor(invoice);'], ['src/invoices/service.js', 'money.round((subtotal(invoice.lines) * invoice.taxBps) / 10000)'], ['src/invoices/lines.js', 'line.quantity * line.unitCents'], ['src/legacy/invoice-total.js', 'unitCents / 100']],
     absent: [{ find: 'legacy/invoice-total', in: 'src/app.js' }, { find: "require('./invoice-total')", except: ['src/legacy/invoice-export.js'] }],
   },
@@ -210,39 +211,39 @@ FAIL if it describes the legacy total as the live computation, or leaves tax out
     cites: ['src/flags.js'],
     facts: [['finds-the-flag', 'overdueReminders']],
     verdict: ['nothing-sends-reminders', `
-PASS only if the answer says no code sends overdue reminders: the overdueReminders flag in src/flags.js is defined (off by default) and nothing reads it, and there is no job or scheduler. It may mention the aging report as the nearest existing thing.
-FAIL if it names a file or function as the reminder sender, gives a number of days (the aging buckets are not a reminder schedule), or answers from general knowledge as if it were this repository's code.`],
+PASS if the answer states, in any wording, that this repository has no overdue-reminder job or sender: no code mails customers about overdue invoices and no scheduler triggers one (the overdueReminders flag in src/flags.js exists, is off by default and is read by no code). "There is no reminder job", "the feature does not exist", "nothing sends overdue reminders" all count. Mentioning the flag, the aging report or the queue's "scheduled job" comment as nearby things is fine, as are statements about what was not searched.
+FAIL if it names a file or function as what sends overdue reminders, states a number of days after which a reminder goes out (the aging buckets are not a reminder schedule), or describes a reminder feature as existing, or answers from general knowledge instead of this repository's code.`],
     anchors: [['src/flags.js', 'overdueReminders: false'], ['src/config.js', 'agingBucketsDays: [30, 60]'], ['src/notifications/queue.js', 'e.g. from a scheduled job']],
     absent: [{ find: 'overdueReminders', except: ['src/flags.js'] }, { find: 'setInterval' }, { find: 'cron' }],
   },
   {
-    name: 'investigate-app-optout-files', slug: 'inv-optout', fixture: 'ts-app-medium',
-    description: 'Which files a change to an existing feature would edit.',
-    question: 'Which files would change to let a customer turn off payment receipts after the account exists, through PATCH /customers/:customerId with { "receipts": false }?',
+    name: 'investigate-app-optout-files-2', slug: 'inv-optout2', fixture: 'ts-app-medium-deep',
+    description: 'Which files a change to an existing feature would edit, when the request body passes through a layer the obvious file does not show.',
+    question: 'Which files would change to let a customer choose which channel gets their payment receipts (email, sms or both) after the account exists, through PATCH /customers/:customerId with { "receiptChannels": ["sms"] }?',
     filesRule: 'End your answer with a `## Files` section: one path per line, only the files the change edits.',
-    relevant: ['src/customers/service.js', 'tests/customers/service.test.js'],
-    allowed: ['src/customers/routes.js', 'tests/customers/routes.test.js'],
-    decoys: ['src/notifications/handlers.js', 'src/customers/model.js', 'src/customers/repository.js', 'src/flags.js', 'src/notifications/service.js', 'src/legacy/payment-hooks.js'],
-    cites: ['src/customers/service.js'],
+    relevant: ['src/customers/patch.js', 'src/customers/service.js', 'src/notifications/handlers.js', 'tests/customers/service.test.js'],
+    allowed: ['src/customers/model.js', 'src/customers/routes.js', 'tests/customers/routes.test.js', 'tests/notifications/handlers.test.js'],
+    decoys: ['src/flags.js', 'src/legacy/payment-hooks.js', 'src/notifications/service.js', 'src/customers/repository.js'],
+    cites: ['src/customers/patch.js', 'src/notifications/handlers.js'],
     facts: [['lists-a-test', 'tests/customers/(service|routes)\\.test\\.js']],
     verdict: null,
-    anchors: [['src/customers/service.js', 'function setReceipts'], ['src/customers/service.js', 'if (patch.phone !== undefined) next.phone = patch.phone;'], ['src/customers/routes.js', 'service.update(req.params.customerId, req.body)'], ['src/notifications/handlers.js', 'if (!contact.receipts) return null;']],
-    absent: [{ find: 'patch.receipts' }, { find: 'receipts', in: 'src/customers/routes.js' }, { find: 'setReceipts(', except: ['src/customers/service.js', 'tests/customers/service.test.js', 'tests/notifications/handlers.test.js'] }],
+    anchors: [['src/customers/patch.js', 'phone: (value) => value,'], ['src/customers/service.js', 'const next = patchable.pick(patch);'], ['src/customers/routes.js', 'service.update(req.params.customerId, req.body)'], ['src/notifications/handlers.js', 'if (!contact.receipts) return null;'], ['src/notifications/handlers.js', "flags.isEnabled('smsReceipts') && contact.phone"], ['src/customers/service.js', 'function contactFor']],
+    absent: [{ find: 'receipt', in: 'src/customers/patch.js' }, { find: 'receiptChannels' }, { find: 'patchable', except: ['src/customers/service.js'] }, { find: 'patch.js', in: 'src/customers/routes.js' }],
   },
   {
-    name: 'investigate-app-segment-flow', slug: 'inv-segment', fixture: 'ts-app-medium',
-    description: 'Follow a customer figure across three modules.',
-    question: 'How is the segment of a customer (gold, silver, standard) determined, which modules does its data come from, and are void invoices counted?',
-    relevant: ['src/customers/segments.js', 'src/invoices/service.js', 'src/invoices/repository.js'],
-    allowed: ['src/invoices/lines.js', 'src/invoices/status.js', 'src/shared/money.js', 'src/db/index.js', 'src/db/store.js', 'tests/customers/segments.test.js'],
-    decoys: ['src/reports/top-customers.js', 'src/legacy/invoice-total.js'],
-    cites: ['src/customers/segments.js', 'src/invoices/service.js'],
-    facts: [['gold-threshold', '500[_,]?000']],
-    verdict: ['void-is-counted', `
-PASS only if the answer says the segment comes from the customer's lifetime billed amount, the sum of invoices.total over every invoice listed for the customer (src/customers/segments.js through the invoices service and repository), with thresholds of 500000 cents for gold and 100000 for silver, and that void invoices ARE counted because nothing filters by status.
-FAIL if it says void invoices are excluded or leaves the question unanswered. Mentioning that reports/top-customers.js does exclude them is fine.`],
-    anchors: [['src/customers/segments.js', 'invoices.list({ customerId }).map(invoices.total)'], ['src/customers/segments.js', 'gold: 500000, silver: 100000'], ['src/invoices/repository.js', 'status === undefined'], ['src/reports/top-customers.js', "invoice.status !== 'void'"]],
-    absent: [{ find: 'segmentOf', except: ['src/customers/segments.js', 'tests/customers/segments.test.js'] }, { find: 'void', in: 'src/customers/segments.js' }],
+    name: 'investigate-app-segment-flow-2', slug: 'inv-segment2', fixture: 'ts-app-medium-deep',
+    description: 'A figure that changes with no new data: the cause is two modules and a setting away from the symptom.',
+    question: 'A customer was gold last year and is silver today. What made their segment change, and what would put them back to gold?',
+    relevant: ['src/customers/segments.js', 'src/customers/window.js', 'src/config.js', 'src/invoices/repository.js'],
+    allowed: ['src/invoices/service.js', 'src/invoices/lines.js', 'src/shared/clock.js', 'src/shared/money.js', 'tests/customers/segments.test.js'],
+    decoys: ['src/reports/aging.js', 'src/reports/top-customers.js', 'src/legacy/invoice-total.js'],
+    cites: ['src/customers/segments.js', 'src/customers/window.js'],
+    facts: [['gold-threshold', '500[_,]?000'], ['window-365', '365']],
+    verdict: ['window-ages-out', `
+PASS if the answer states, in any wording, that the segment is computed only from invoices issued inside a rolling time window (365 days, set by segmentWindowDays in src/config.js), so older invoices stop counting as time passes and the customer's billed amount fell below the gold threshold of 500000 cents; and that returning to gold takes enough invoices inside the window to reach 500000 cents (tax included in each invoice total).
+FAIL if it says the segment is an all-time or lifetime sum with no window, explains the change by voiding, refunds or payments, or does not identify a time window as the cause.`],
+    anchors: [['src/customers/segments.js', 'invoices.list({ customerId, since: window.startOfWindow() })'], ['src/customers/window.js', 'start.setUTCDate(start.getUTCDate() - config.segmentWindowDays)'], ['src/config.js', 'segmentWindowDays: 365'], ['src/invoices/repository.js', 'invoice.issuedAt >= since'], ['src/customers/segments.js', 'gold: 500000, silver: 100000']],
+    absent: [{ find: 'startOfWindow', except: ['src/customers/segments.js', 'src/customers/window.js'] }, { find: 'segmentWindowDays', except: ['src/config.js', 'src/customers/window.js'] }, { find: 'customers/window', in: 'src/reports/' }],
   },
 ];
 
@@ -280,7 +281,7 @@ export function investigateCases(b) {
     return {
       name: t.name,
       description: t.description,
-      tags: ['investigate', t.fixture === 'ts-app-medium' ? 'depth' : 'stack'],
+      tags: ['investigate', t.fixture.startsWith('ts-app-medium') ? 'depth' : 'stack'],
       version: 1,
       fixture: t.fixture,
       flags: '--ambicode-init --context',

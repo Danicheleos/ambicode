@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { GO_MODULE_FILES, JVM_GRADLE_FILES, MONOREPO_FILES, PY_SERVICE_FILES, TS_SERVICE_FILES } from './init-stacks.mjs';
 import { REVIEW_FIXTURES } from './review-changes.mjs';
-import { APP_FILES, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
+import { APP_DEEP, APP_FILES, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
@@ -224,6 +224,12 @@ export const FIXTURES = [
     name: 'ts-app-medium-refund-bug',
     ...MATH_PROJECT,
     steps: appSteps({ overrides: APP_REFUND_BUG, dropTests: APP_REFUND_BUG_DROPPED_TESTS }),
+  },
+  // The investigate variant: a windowed customer segment and a PATCH field whitelist (APP_DEEP); no other case uses it.
+  {
+    name: 'ts-app-medium-deep',
+    ...MATH_PROJECT,
+    steps: appSteps({ overrides: APP_DEEP }),
   },
   {
     name: 'eval-rules-contributing',
