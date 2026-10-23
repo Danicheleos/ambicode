@@ -1,5 +1,5 @@
 // The /ambicode:plan cases: ten on the five stack fixtures (two each: one small change, one that crosses layers or projects)
-// and five on ts-app-medium (reuse, a legacy decoy, a large feature, a vague request, a draft nobody accepts). cases.mjs spreads
+// and five on ts-app-medium-plan (reuse, a legacy decoy, a large feature, a vague request, a draft nobody accepts). cases.mjs spreads
 // `planCases`; PLAN_SPECS is also what plan-cases.test.mjs reads, so every file a check names is verified against the fixture.
 //
 // Both arms are asked for the plan as their answer and graded on the same artefact: the plugin's plan-body.md, the bare arm's
@@ -11,6 +11,45 @@
 const CHECK_COMMANDS = String.raw`(^|"command":"|[;&|]|\n)\s*(npx\s+|node\s+|uv run\s+|python -m\s+)?(npm\s+(test|run)|jest|eslint|vitest|pytest|ruff|go\s+(test|vet|build)|golangci-lint|\.\/gradlew|gradle|cargo\s+(test|clippy|fmt|build|check))\b`;
 const ITERATIONS = (count) => Array(count).fill('Goal').join(String.raw`[\s\S]*?`);
 const legacyAnchored = String.raw`src/legacy/[\w.-]+:\d|new:\s*src/legacy`;
+// One line of the plan, in plain text and in the JSON of a Write call, where a line break is the two characters \n.
+const LINE = String.raw`(?:(?!\\n)[^\n])`;
+// A line that rules a thing out ("never toFixed", "the legacy export uses toFixed", "unrelated") is not a line that plans it.
+const NEGATION = String.raw`\b([Nn]ot?|[Nn]ever|[Nn]one|[Nn]othing|[Ww]ithout|[Ii]nstead|[Rr]ather|[Aa]void\w*|[Uu]nrelated|[Dd]ecoy|[Ff]rozen|[Ll]egacy|[Ii]gnor\w*|[Ff]orbid\w*|[Uu]nchanged|[Uu]ntouched|[Cc]annot)\b|n't\b`;
+/** A `mustNot` pattern that flags `pattern` only on a line with no negation (or `alsoFine`) in it. */
+const planned = (pattern, alsoFine = null) => String.raw`(^|\n|\\n)(?!${LINE}*(${NEGATION}${alsoFine === null ? '' : `|${alsoFine}`}))${LINE}*(${pattern})`;
+// CONTRIBUTING.md of the app fixture, as checks on the plan text.
+const BARE_ERROR = planned(String.raw`\bnew Error\(`);
+// An acceptance line that states the expected value ("equals totalCents / 100 as a decimal", the v3 csv plan) computes nothing.
+const FLOAT_MONEY = planned(String.raw`toFixed\(|parseFloat\(|\/ ?100\b`, 'as a decimal');
+// "using the factory" counts: the plugin remind and bare reuse plans of the v2 run said only that and failed.
+const FACTORY = String.raw`tests/factory\.js|make(Invoice|Customer|Payment)\(|\b[Ff]actory\b`;
+// The app plan variant's existing due-date mechanism and Finance's definition of overdue (src/invoices/terms.js, src/config.js).
+// Not paymentTermsDays: a plan that never opened terms.js invents that name (the bare remind plan of 2026-10-23 did).
+const TERMS = String.raw`dueDateFor|terms\.js`;
+const GRACE = String.raw`overdueGraceDays`;
+// A line that puts invoice reads in a notifications file or the notifications feature (the bare remind plan of 2026-10-23:
+// "put it in the notifications feature and call `invoices/service`"). A line where notifications is the callee passes.
+const INVOICE_READ = String.raw`invoices/(service|repository)|invoices\.(list|get|outstanding|all\w*)\(|reports/repository|require\([^)\n]*invoices`;
+const NOTIFICATIONS_READ_INVOICES = `(notifications/[\\w-]+\\.js|notifications (feature|module|folder|directory))${LINE}{0,160}(${INVOICE_READ})`;
+// Checks that need two facts joined, not one name found (each v2 plan found every name and still missed these):
+// Finance's day is clock.businessDay (docs/architecture.md, Days); every v2 plan counted overdue in clock.today().
+const BUSINESS_DAY = String.raw`businessDay|Europe/Berlin|config\.timeZone`;
+// A validator name that src/shared/validation does not export yet.
+const NEW_VALIDATOR = String.raw`\bvalidate(?!(Range|Date|Cents|Email|Id|Required|String|Boolean)\b)\w+`;
+// The due date kept on the invoice at create: the back office can change a customer's terms later (customers/patch.js), so a
+// day derived again from the terms is not the day the mail printed. All four v2 remind and vague plans derived it.
+const DUE_DAY = String.raw`(dueDate|[Dd]ue ?[Dd]ate|[Dd]ue day|pay-by day)\b`;
+const DUE_STORED = planned(String.raw`\b(stor|persist)\w*${LINE}{0,80}${DUE_DAY}|${DUE_DAY}${LINE}{0,80}(\b(stor|persist)\w*|on the invoice(?! mail)|createInvoice|invoices/model)|(createInvoice|invoices/model\.js)${LINE}{0,120}dueDate\b`);
+
+/**
+ * A `mustNot` pattern that flags `pattern` only where the plan proposes changing that file: a bullet that opens with the path (the
+ * Changes entries) or a line with a change verb before it. A file cited as the pattern to mirror or as a fact ("Style follows
+ * billing/on-loan-returned.ts:6-9", the 2026-10-23 ts-grace and ts-reserve plans) is not planned work, nor is anything under a
+ * findings heading ("What the code lacks or already settles", Assumptions, Open decisions) until the next Iteration heading (the
+ * mono-calibrate bullet "__generated__/engine-api.ts:1 says it is generated ... not edited by hand").
+ */
+const FINDINGS_SECTION = String.raw`(?<=(?:^|\n)#+ *(?:What the code|Findings|Assumptions|Open decisions)[^\n]*\n(?:(?!#+ *Iteration)[\s\S])*)`;
+const changes = (pattern) => String.raw`(^|\n|\\n)(?!${FINDINGS_SECTION})(?:${LINE}*?\b(?:add|change|edit|modify|update|extend|replace|rewrite|touch|move|rename|delete|regenerate)(?:s|d|es|ed|ing)?\b${LINE}*?(?:${pattern})|\s*(?:[-*]|\d+[.)]|\|)\s*[*_\x60]*[\w/.-]*?(?:${pattern}))`;
 
 const both = (a, b) => `${a}[\\s\\S]*${b}|${b}[\\s\\S]*${a}`;
 
@@ -28,7 +67,7 @@ export const PLAN_SPECS = [
     ],
     mustNot: [
       ['no-reach-into-members', String.raw`(import|from|require)[^\n]*members/(domain|application|http)/`, "import { Tier } from '../../members/domain/tier.js'", "import type { Member } from '../../members/index.js'"],
-      ['no-unrelated-contexts', String.raw`contexts/(billing|notifications|catalog)/[\w/.-]+\.ts:\d`, 'src/contexts/billing/application/on-loan-returned.ts:6 changes'],
+      ['no-unrelated-contexts', changes(String.raw`contexts/(billing|notifications|catalog)/[\w/.-]+\.ts:\d`), '- `src/contexts/billing/application/on-loan-returned.ts:6` changes', 'Mirror the existing pattern (`CatalogApi`, `src/contexts/catalog/index.ts:8-10`, consumed in lending)'],
     ],
   },
   {
@@ -48,7 +87,7 @@ export const PLAN_SPECS = [
     ],
     mustNot: [
       ['no-cross-context-internals', String.raw`(import|from|require)[^\n]*(lending|catalog|members|notifications|billing)/(domain|application|http|channels)/`, "import { returnItem } from '../../lending/application/return.js'", "import type { Loan } from '../../lending/index.js'"],
-      ['billing-untouched', String.raw`contexts/billing/[\w/.-]+\.ts:\d`, 'src/contexts/billing/application/issue-invoice.ts:1 changes'],
+      ['billing-untouched', changes(String.raw`contexts/billing/[\w/.-]+\.ts:\d`), '- `src/contexts/billing/application/issue-invoice.ts:1` changes', '- `src/contexts/lending/application/return.ts:13`: the handler. Style follows `src/contexts/billing/application/on-loan-returned.ts:6-9`.'],
     ],
   },
   {
@@ -64,7 +103,7 @@ export const PLAN_SPECS = [
       ['test-name-convention', String.raw`test_[a-z]+__[a-z_]+`, 'test_staleness__uses_the_configured_limit in tests/test_staleness.py:16'],
     ],
     mustNot: [
-      ['no-unrelated-layers', String.raw`(plugins|api/handlers|cli)/[\w/.-]+\.py:\d`, 'src/tidewatch/cli/main.py:9 changes'],
+      ['no-unrelated-layers', changes(String.raw`(plugins|api/handlers|cli)/[\w/.-]+\.py:\d`), '- `src/tidewatch/cli/main.py:9` changes', '`settings_from_env` is the single place that reads the environment (`src/tidewatch/cli/main.py:10` is its only caller).'],
     ],
   },
   {
@@ -166,7 +205,7 @@ export const PLAN_SPECS = [
     ],
     mustNot: [
       ['no-second-formatter', String.raw`new:\s*dashboard/src/lib/format/`, 'new: dashboard/src/lib/format/celsius.ts toCelsius'],
-      ['no-other-projects', String.raw`(engine|tools|vendor)/[\w/.-]+\.(rs|py|js|ts|toml):\d|__generated__/[\w.-]+:\d`, 'engine/crates/units/src/temperature.rs:2 changes'],
+      ['no-other-projects', changes(String.raw`(?<![\w/.-])(engine|tools|vendor)/[\w/.-]+\.(rs|py|js|ts|toml):\d|__generated__/[\w.-]+:\d`), '- `engine/crates/units/src/temperature.rs:2` changes', 'the view is that edge, so `Firing.targetDc` (`dashboard/src/lib/engine/types.ts:3`) stays in tenths'],
     ],
   },
   {
@@ -185,129 +224,186 @@ export const PLAN_SPECS = [
       ['engine-http-gap-noticed', String.raw`openapi|no (HTTP|http|REST)[^\n]{0,40}(server|endpoint|layer|surface)|(does not|doesn't|has no|there is no)[^\n]{0,40}(HTTP|http)`, 'the engine has no HTTP surface and engine/openapi.yaml is absent: assumed'],
     ],
     mustNot: [
-      ['generated-and-vendored-untouched', String.raw`__generated__/[\w.-]+:\d|new:[^\n]*__generated__|vendor/[\w/.-]+:\d`, 'dashboard/src/__generated__/engine-api.ts:2 gets a new path', 'regenerate the client instead of editing dashboard/src/__generated__'],
+      ['generated-and-vendored-untouched', changes(String.raw`__generated__/[\w.-]+:\d|new:[^\n]*__generated__|vendor/[\w/.-]+:\d`), '- `dashboard/src/__generated__/engine-api.ts:2` gets a new path', 'regenerate the client instead of editing dashboard/src/__generated__'],
     ],
   },
 
-  // ---------------------------------------------------------------- ts-app-medium
+  // ---------------------------------------------------------------- ts-app-medium-plan
+  // The app cases run on the plan variant (APP_PLAN in fixtures/app-medium.mjs): payment terms that print a pay-by day nobody
+  // stores and the back office can change per customer, Finance's overdue grace and time zone, a PATCH whitelist, an invoice
+  // page view, CSV download helpers, a gateway cache on /reports, a refund event with no customerId and a test that keeps
+  // src/notifications from requiring invoices. `policy-` checks grade CONTRIBUTING.md.
+  // Weights: 3 for a check that needs two facts joined, 2 for an existing mechanism to find, 1 for the rest. The v2 run
+  // passed every weight-1 check in all nine plans, so they only set the floor.
   {
-    name: 'plan-app-reuse', slug: 'plan-app-overdue', fixture: 'ts-app-medium', size: 'narrow',
+    name: 'plan-app-reuse', slug: 'plan-app-overdue', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
+    weights: { 'policy-validation-shared': 3, 'page-shows-due-date': 3, 'no-parallel-validator': 2, 'business-day': 2, 'terms-reused': 2, 'invoice-mail-follows': 2, 'grace-days-honoured': 2 },
     request: 'Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each.',
-    description: 'A feature the shared validators, the money helpers and the reports module already carry; a frozen legacy copy and a payment-plan dueDate are decoys.',
+    description: 'A feature the repository half has: payment terms already compute a pay-by day for the invoice mail, config holds the overdue grace, validateRange compares days, the invoice page is a view that drops unknown fields and days count in Finance\'s zone; a payment-plan dueDate and a legacy total are decoys.',
     must: [
-      ['validators-reused', String.raw`validateRange|validateDate|shared/validation`, 'validateRange (src/shared/validation/range.js:4) with min: issuedAt'],
-      ['invoice-files-extended', String.raw`src/invoices/`, 'src/invoices/model.js:3 and src/invoices/service.js:59'],
-      ['outstanding-reused', String.raw`outstanding\(|invoices?\.outstanding|unpaidInvoices`, 'invoices.outstanding (src/invoices/service.js:63) gives the amount still owed'],
-      ['reports-module-extended', String.raw`src/reports/`, 'src/reports/service.js:34 gets overdueInvoices'],
-      ['factory-used-in-tests', String.raw`tests/factory\.js`, 'tests/factory.js:21 makeInvoice takes dueDate'],
+      ['policy-validation-shared', String.raw`validateRange`, 'validateRange (src/shared/validation/range.js:4) with { min: issuedAt } rejects an earlier dueDate'],
+      ['terms-reused', TERMS, "the default is dueDateFor(issuedAt, customer.paymentTermsDays) (src/invoices/terms.js:6), the day the mail already promises"],
+      ['invoice-mail-follows', String.raw`sendInvoiceCreated|invoiceCreated|payableBy|notifications/(service|templates)\.js|(mail|line 41|service\.js:41)${LINE}{0,100}(stored|invoice\.dueDate)|(stored|invoice\.dueDate)${LINE}{0,100}mail`, 'src/invoices/service.js:41 passes the stored dueDate to sendInvoiceCreated instead of recomputing it'],
+      // The invoice page (src/invoices/routes.js view) lists its fields: a dueDate on the record alone never reaches it.
+      ['page-shows-due-date', planned(String.raw`\bview\b|invoices/routes\.js|\bpage\b${LINE}{0,80}dueDate\b|dueDate\b${LINE}{0,80}\bpage\b`), 'view (src/invoices/routes.js:8) gains dueDate so the invoice page shows it'],
+      ['grace-days-honoured', GRACE, 'overdue means dueDate plus config.overdueGraceDays (src/config.js:9) is before the as-of day'],
+      ['business-day', BUSINESS_DAY, 'the as-of day defaults to clock.businessDay() (src/shared/clock.js:9), Finance\'s day'],
+      ['outstanding-reused', String.raw`outstanding\(|invoices?\.outstanding|unpaidInvoices|outstandingCents`, 'invoices.outstanding (src/invoices/service.js:64) gives the amount still owed'],
+      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice takes dueDate'],
+      ['policy-tests-next-to-module', String.raw`tests/(invoices|reports)/[\w-]+\.test\.js`, 'tests/invoices/service.test.js and tests/reports/service.test.js get the cases'],
     ],
     mustNot: [
-      ['no-parallel-validator', String.raw`new:\s*src/shared/(validation|dates?)/`, 'new: src/shared/validation/due-date.js validateDueDate'],
+      // Also a validator added to an existing shared/validation file with no `new:` (the v3 bare plan: "`src/shared/validation/date.js`
+      // and `index.js`: add `validateDateNotBefore(`"); calling an existing one is fine.
+      ['no-parallel-validator', String.raw`new:\s*(src/)?shared/(validation/|dates?\b)|shared/validation${LINE}{0,120}\badd\w*${LINE}{0,40}${NEW_VALIDATOR}|\badd\w*${LINE}{0,40}${NEW_VALIDATOR}${LINE}{0,80}shared/validation`,
+        'src/shared/validation/date.js and index.js: add `validateDateNotBefore(value, notBefore, field)`',
+        'src/invoices/service.js: add validateRange(dueDate, { min: issuedAt }) from src/shared/validation/range.js:4'],
+      ['no-decoy-due-date', planned(String.raw`addMonths|nextDue|installments\.js:\d`), 'src/payments/installments.js:5 addMonths gives the due day', 'the dueDate of src/payments/installments.js:1 belongs to payment plans and is unrelated'],
       ['legacy-untouched', legacyAnchored, 'src/legacy/invoice-total.js:4 is reused'],
+      ['policy-no-bare-error', BARE_ERROR, "src/invoices/service.js:27 throws new Error('dueDate before issuedAt')", 'never throw new Error; validateRange throws a ValidationError'],
+      ['policy-no-float-money', FLOAT_MONEY, 'the report prints (outstandingCents / 100).toFixed(2)', 'amounts stay in cents, no toFixed'],
     ],
-    llm: ['no-decoy-due-date', `
-The plan is for adding a due date to invoices (a new field) and an overdue report.
-PASS only if all hold:
-- It does not treat the dueDate of src/payments/installments.js, which belongs to a payment-plan installment, as an existing invoice due date, and does not plan to reuse addMonths or schedule for invoices.
-- Overdue is computed from the invoice's new dueDate and the as-of day, not from issuedAt plus a hard-coded number of days.
-FAIL otherwise.`],
   },
   {
-    name: 'plan-app-csv', slug: 'plan-app-csv', fixture: 'ts-app-medium', size: 'narrow',
+    name: 'plan-app-csv', slug: 'plan-app-csv', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
+    weights: { 'served-live': 3, 'page-total-used': 3, 'decimal-helper-reused': 2, 'download-helper-reused': 2 },
     request: 'Finance wants a CSV download of the invoices: one line per invoice with id, customer id, status and the total, and a grand total line at the end. The amounts must match what the invoice page shows.',
-    description: 'A frozen legacy CSV export with floating-point totals sits beside a reports CSV writer and an invoice summary read model; the plan must build on the live ones and leave legacy alone.',
+    description: 'A revenue CSV download already exists (shared/http.attachment, money.toDecimal, reports/csv.toCsv) beside a frozen legacy export with floating-point totals; the gateway caches /reports for an hour and the invoice page shows a void invoice at 0, so matching the page means a live path and the page\'s total.',
     must: [
-      ['summary-model-reused', String.raw`invoices/summary\.js|summarize`, 'summarize (src/invoices/summary.js:6) has every number the invoice page shows, in cents'],
-      ['csv-writer-reused', String.raw`reports/csv\.js|toCsv`, 'src/reports/csv.js:6 toCsv and its cell escaping'],
-      ['money-helper', String.raw`shared/money|money\.(sum|format)`, 'the grand total uses money.sum (src/shared/money.js)'],
-      ['route-added', String.raw`src/(reports|invoices)/routes\.js`, 'src/reports/routes.js:14 gets a GET route for the invoice CSV'],
-      ['tests-next-to-module', String.raw`tests/(reports|invoices)/`, 'tests/reports/csv.test.js gets invoice rows'],
+      // Any existing source of the invoice numbers: the v3 plugin plan took the page's own rule (displayTotal over service.total).
+      ['summary-model-reused', String.raw`invoices/summary\.js|summarize|\bview\b|displayTotal|(service|invoices)\.total\b`,'summarize (src/invoices/summary.js:6) has the id, customer and status of each line, in cents'],
+      // docs/architecture.md: the gateway caches /reports for an hour, so an export that must match the live page sits elsewhere.
+      ['served-live', String.raw`(^|\W)/invoices(\.csv\b|/[\w.-]*(csv|export|download)|\?format=csv)`, 'GET /invoices.csv in src/invoices/routes.js:30, live, since /reports is cached for an hour (docs/architecture.md:8)'],
+      // The page is view (src/invoices/routes.js), which shows a void invoice at 0; summarize and invoices.total do not.
+      ['page-total-used', planned(String.raw`\bview\b|[Vv]oid${LINE}{0,120}(\b0\b|0\.00|zero)|(\b0\b|0\.00|zero)${LINE}{0,120}[Vv]oid`), 'each total is the page\'s view (src/invoices/routes.js:16), so a void invoice prints 0'],
+      ['decimal-helper-reused', String.raw`toDecimal`, 'money.toDecimal (src/shared/money.js:35) writes each amount'],
+      ['download-helper-reused', String.raw`attachment\(|http\.attachment|\battachment\b[^\n;]{0,60}(shared/http|http\.js)|(shared/http|http\.js)[^\n]{0,60}\battachment\b(?!;)|revenueCsv|revenue\.csv`, 'served like revenueCsv (src/reports/routes.js:5) through attachment (src/shared/http.js:8)'],
+      ['policy-money-helper', String.raw`money\.(sum|toDecimal)|shared/money`, 'the grand total is money.sum of the cents (src/shared/money.js:18), formatted once'],
+      ['policy-tests-next-to-module', String.raw`tests/(reports|invoices|shared)/[\w-]+\.test\.js`, 'tests/reports/routes.test.js gets the invoice CSV case'],
+      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice builds the rows'],
     ],
     mustNot: [
       ['legacy-untouched', legacyAnchored, 'src/legacy/invoice-export.js:5 exportCsv is reused'],
+      ['policy-no-float-money', FLOAT_MONEY, 'each line writes (totalCents / 100).toFixed(2)', 'src/legacy/invoice-export.js uses toFixed, which this plan avoids'],
+      ['policy-routes-thin', planned(String.raw`routes\.js[^\n]{0,80}\b(toCsv|summarize|money\.\w+|\.map|\.reduce)\(`), 'src/reports/routes.js:5 maps summarize(invoice) into rows and calls toCsv(rows)', "src/reports/routes.js:5 stays thin: attachment(service.invoicesCsv(), { filename: 'invoices.csv' })"],
+      ['policy-no-bare-error', BARE_ERROR, "throw new Error('empty export')", 'no bare Error is thrown'],
     ],
   },
   {
-    name: 'plan-app-remind', slug: 'plan-app-remind', fixture: 'ts-app-medium', size: 'narrow',
-    request: 'Send customers an email reminder when an invoice is overdue. Invoices have no due date today, so they need one. A reminder goes out at most once a day while the invoice is unpaid and past due. Customers can opt out of reminders separately from receipts. It ships switched off.',
-    description: 'A large multi-step feature: due date, opt-out, template, delivery and a once-a-day record, with a feature flag that already exists unused and a frozen legacy mail as decoy.',
+    name: 'plan-app-remind', slug: 'plan-app-remind', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
+    weights: { 'due-date-stored': 3, 'business-day': 3, 'due-date-source': 2, 'grace-days-honoured': 2, 'opt-out-in-patch': 2 },
+    request: 'Send customers an email reminder when an invoice is overdue. A reminder for an invoice goes out at most once a day while it is unpaid and overdue. Customers can switch reminders off and on themselves, separately from receipts. It ships switched off.',
+    description: 'A large multi-step feature across invoices, customers and notifications: the due date comes from the payment terms and must be kept since terms change, overdue from the configured grace, days in Finance\'s zone, the preference must pass the PATCH whitelist, the flag already exists, and src/notifications must not require invoices.',
     limits: { max_turns: 40, timeout_seconds: 1200 },
     iterations: 3,
     must: [
-      ['existing-flag-reused', String.raw`overdueReminders`, 'the overdueReminders flag (src/flags.js:5) already exists and is off'],
-      ['due-date-on-invoice', String.raw`src/invoices/`, 'src/invoices/model.js:3 carries dueDate'],
-      ['opt-out-on-customer', String.raw`src/customers/`, 'src/customers/service.js:34 contactFor returns the reminders preference like receipts'],
-      ['template-added', String.raw`notifications/templates\.js|template`, 'src/notifications/templates.js:3 gets overdueReminder'],
-      ['delivery-reused', String.raw`notifications/service\.js|deliver\(`, 'deliver (src/notifications/service.js:10) sends it and keeps the record'],
-      ['once-a-day-record', String.raw`forCustomer|notifications/repository\.js`, 'forCustomer (src/notifications/repository.js:7) shows whether one went out today'],
-      ['factory-used-in-tests', String.raw`tests/factory\.js`, 'tests/factory.js:21 makeInvoice takes dueDate'],
+      ['policy-flag-reused', String.raw`overdueReminders`, 'the overdueReminders flag (src/flags.js:5) already exists and is off'],
+      ['due-date-source', TERMS, 'the due day is dueDateFor (src/invoices/terms.js:6) with the customer\'s terms'],
+      ['due-date-stored', DUE_STORED, 'dueDate is stored on the invoice at create (src/invoices/model.js:3): the back office can change the terms later (src/customers/patch.js:10)'],
+      ['grace-days-honoured', GRACE, 'overdue means past the due day plus config.overdueGraceDays (src/config.js:9)'],
+      ['business-day', BUSINESS_DAY, 'once a day and overdue count in clock.businessDay() (src/shared/clock.js:9), not the UTC day'],
+      ['opt-out-in-patch', String.raw`customers/patch\.js|FIELDS|patchable|\bpick\(`, 'FIELDS (src/customers/patch.js:4) gains reminders, or PATCH drops it'],
+      ['policy-validation-shared', String.raw`validateBoolean`, "validateBoolean (src/shared/validation/boolean.js:3) checks it, as receipts does"],
+      ['opt-out-in-contact', String.raw`contactFor`, 'contactFor (src/customers/service.js:35) returns the reminders preference'],
+      ['once-a-day-record', String.raw`last\w*[Rr]emind\w*|[Rr]emind\w*(At|On|Day|Date)\b|forCustomer|notifications/repository\.js|sentAt`, 'lastRemindedOn on the invoice, compared with clock.today(), keeps it to one a day'],
+      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice takes dueDate'],
     ],
     mustNot: [
       ['legacy-untouched', legacyAnchored, 'src/legacy/payment-hooks.js:5 is extended'],
+      ['policy-no-bare-error', BARE_ERROR, "throw new Error('reminders are off')", 'a ValidationError, never new Error'],
+      ['policy-no-float-money', FLOAT_MONEY, 'the mail shows (outstanding / 100).toFixed(2)', 'the mail uses money.format, no toFixed'],
+      ['policy-no-manual-reset', planned(String.raw`\b(db|flags|clock|bus|channels)\.(reset|clear|clearOutbox)\(`, String.raw`setup\.js|already`), 'beforeEach(() => flags.reset())', 'tests/setup.js already runs flags.reset() before each test'],
+      // docs/architecture.md:12 and tests/architecture.test.js: nothing under src/notifications requires invoices. A job in invoices
+      // that calls a notifications service function, or an event a notifications handler subscribes to, passes.
+      ['policy-feature-boundary', planned(NOTIFICATIONS_READ_INVOICES, String.raw`(called|invoked|used) (from|by)`),
+        'new: src/notifications/reminders.js runOverdueReminders lists invoices through invoices/service',
+        'src/invoices/service.js:64 selects the overdue invoices and calls sendOverdueReminder in src/notifications/service.js:10'],
     ],
   },
   {
-    name: 'plan-app-vague', slug: 'plan-app-vague', fixture: 'ts-app-medium', size: 'narrow',
+    name: 'plan-app-vague', slug: 'plan-app-vague', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
+    weights: { 'due-date-stored': 2, 'business-day': 2, 'terms-found': 2, 'overdue-rule-found': 2 },
     request: 'Late payers are a mess for us. Make the billing service handle them better.',
-    description: 'A vague request: the repository has no invoice due date, an aging report by issue date and a reminders flag that is off; the plan has to ground itself in that and say what it assumed.',
+    description: 'A vague request: invoices store no due date though the mail prints one from terms the back office can change, Finance has an overdue grace and a time zone, the aging report counts from the issue date and a reminders flag is off; the plan has to ground itself in that and say what it assumed.',
     must: [
-      ['no-due-date-noticed', String.raw`(no|not|without|lacks?|missing|has none|does not (have|carry|store)|doesn't)[^\n]{0,60}([Dd]ue ?[Dd]ate|dueDate)`, 'invoices carry no dueDate today (src/invoices/model.js:3)'],
-      ['existing-pieces-found', String.raw`overdueReminders|reports/aging\.js|bucketFor`, 'the aging report buckets by issue date (src/reports/aging.js:5) and overdueReminders (src/flags.js:5) is off'],
+      ['no-due-date-noticed', String.raw`(no|not|without|lacks?|missing|has none|does not (have|carry|store)|doesn't|never)[^\n]{0,60}([Dd]ue ?[Dd]ate|dueDate|due day)|([Dd]ue ?[Dd]ate|dueDate|due day)[^\n]{0,120}(not|isn't|is never|n't be) stored`,'invoices carry no dueDate today (src/invoices/model.js:3)'],
+      ['terms-found', TERMS, 'the invoice mail prints a pay-by day from dueDateFor (src/invoices/terms.js:6) that is never stored'],
+      ['due-date-stored', DUE_STORED, 'Iteration 1 stores dueDate on the invoice at create, since a customer\'s terms can change (src/customers/patch.js:10)'],
+      ['overdue-rule-found', GRACE, 'Finance counts overdue after config.overdueGraceDays (src/config.js:9)'],
+      ['business-day', BUSINESS_DAY, 'overdue is counted in clock.businessDay() (src/shared/clock.js:9)'],
+      ['aging-by-issue-noticed', String.raw`(aging|bucketFor)[^\n]{0,120}(issue|issuedAt)|(issue|issuedAt)[^\n]{0,120}(aging|bucketFor)`, 'the aging report buckets by days since the issue date (src/reports/service.js:45)'],
       ['assumptions-stated', String.raw`[Aa]ssum|[Oo]pen decision`, 'Assumptions: late payers means unpaid invoices past a due date'],
+      ['left-out-stated', String.raw`[Ll]eaves? out|[Ll]eft out|[Oo]ut of scope|[Oo]pen decision|[Nn]ot (in|part of) (this|scope)|[Nn]ot covered|[Dd]eferred|[Ff]ollow-?up`, 'Leaves out: late fees and payment plans, left as an open decision'],
+      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice builds the cases'],
     ],
     mustNot: [
       ['legacy-untouched', legacyAnchored, 'src/legacy/invoice-total.js:4 is reused'],
+      ['policy-no-bare-error', BARE_ERROR, "throw new Error('customer is blocked')", 'a ConflictError, never new Error'],
+      ['policy-no-float-money', FLOAT_MONEY, 'late fee = Math.round(total * 0.02 * 100) / 100', 'the fee is money.percentOf in cents'],
+      // Features with nothing to do with late payment: free-text invoice search and the top-customers ranking.
+      ['no-unrelated-feature', planned(String.raw`(invoices/search|reports/top-customers)\.js:\d`), 'src/invoices/search.js:6 gains a late filter', 'src/reports/top-customers.js:1 is unrelated'],
     ],
-    llm: ['scope-grounded', `
-The request is vague: "Late payers are a mess for us. Make the billing service handle them better."
-PASS only if all hold:
-- The plan states at least one explicit assumption about what "handle late payers better" means (for example reminders, a due date, an overdue report, a late fee) and says what it left out or leaves as an open decision.
-- Every iteration serves the reading it states; none adds an unrelated feature.
-FAIL otherwise.`],
   },
   {
-    name: 'plan-app-draft', slug: 'plan-app-draft', fixture: 'ts-app-medium', size: 'narrow', draft: true,
+    // Graded on the plan-body.md the route writes (a Write call), since the draft that survives has a timestamped name.
+    name: 'plan-app-draft', slug: 'plan-app-draft', fixture: 'ts-app-medium-plan', size: 'narrow', draft: true, version: 2,
+    weights: { 'refund-payload-extended': 2 },
     request: 'Send the customer an email when a payment is refunded. Today the refund handler only logs it.',
-    description: 'No gate answer is given: the plan stays a draft, the gate is printed, nothing is promoted, and the closing message must not call the plan accepted.',
+    description: 'No gate answer is given: the plan stays a draft, the gate is printed, nothing is promoted, and the closing message must not call the plan accepted. The refund event carries no customerId and notifications may not require invoices, so the payload has to grow.',
     must: [
-      ['refund-handler-extended', String.raw`src/notifications/`, 'src/notifications/handlers.js:25 onPaymentRefunded sends the mail'],
-      ['template-added', String.raw`notifications/templates\.js|template`, 'src/notifications/templates.js:3 gets paymentRefund'],
+      ['refund-handler-extended', String.raw`onPaymentRefunded|notifications/handlers\.js`, 'src/notifications/handlers.js:25 onPaymentRefunded sends the mail'],
+      ['refund-payload-extended', `payments/service\\.js${LINE}{0,200}customerId|customerId${LINE}{0,200}(payments/service\\.js|PAYMENT_REFUNDED|payment\\.refunded)|(PAYMENT_REFUNDED|payment\\.refunded)${LINE}{0,120}customerId`, 'src/payments/service.js:48 adds customerId to the payment.refunded payload'],
       ['flag-and-preference-kept', String.raw`receiptEmails|receipts`, 'it keeps the receiptEmails flag and the customer receipts preference as onPaymentReceived does'],
-      ['handler-tests-extended', String.raw`tests/notifications/`, 'tests/notifications/handlers.test.js:11 gets refund cases'],
+      ['policy-money-format', String.raw`money\.format`, 'the amount is money.format (src/shared/money.js:41)'],
+      ['policy-tests-next-to-module', String.raw`tests/notifications/[\w-]+\.test\.js`, 'tests/notifications/handlers.test.js:52 replaces the refund-is-only-logged case'],
     ],
-    mustNot: [],
+    mustNot: [
+      ['policy-no-reach-back', planned(String.raw`(handlers|notifications/[\w-]+)\.js${LINE}{0,160}(invoices\.get|invoices/(service|repository)|require\([^)]*invoices)`), 'src/notifications/handlers.js:25 looks the customer up with invoices.get(event.invoiceId)', 'src/notifications/handlers.js:25 must not require invoices/service (tests/architecture.test.js)'],
+      ['legacy-untouched', legacyAnchored, 'src/legacy/payment-hooks.js:5 is extended'],
+      ['policy-no-bare-error', BARE_ERROR, "throw new Error('customer missing')", 'never a bare Error'],
+    ],
   },
 ];
 
 /** The text a good plan for `spec` would hold: every positive sample, plus enough `Goal` headings for its iterations. */
 export const goodPlan = (spec) => [...spec.must.map(([, , sample]) => sample), ...Array(spec.iterations ?? 1).fill('Goal: one iteration')].join('\n');
 
+/** A Write of the route's plan body whose content matches `pattern`: how the draft case, whose saved draft has no fixed name, is graded. */
+export const planBodyWrite = (pattern) => String.raw`^(?=[\s\S]*plan-body\.md)[\s\S]*?(?:${pattern})`;
+
 export function planCases({ regex, ledger, tool, never, exists, llm, shared, DONE }) {
   // A promoted plan is renamed to plan.md. closeRoute removes steps/ at every route exit (run-context.ts), so a draft nobody
-  // accepted survives only as plan-draft_<timestamp>.md: no literal path, hence the draft case checks it by glob and not by content.
+  // accepted survives only as plan-draft_<timestamp>.md: no literal path, hence the draft case checks it by glob and its
+  // content on the Write of steps/plan-body.md.
   const body = (slug) => `repo/.ambicode/tasks/${slug}/plan.md`;
   const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
   const REPO = 'The repository is at `repo/`.';
   // Source and test directories of every fixture; the plan route itself writes only below .ambicode/.
   const WRITE_SOURCE = String.raw`"file_path":"[^"]*/(src|tests?|internal|cmd|engine|dashboard|tools|domain|application|adapters|bootstrap)/`;
+  // A plan-check row with no bad anchor: the first check, or the one after the fix round.
+  const checked = (slug) => [ledger('anchors-valid', '"worker":"plan-check"[^\\n]*"anchorsBad":0', T(slug))];
+  // The one Edit the route allows is the fix of its own plan body after a failed check.
+  const NOT_PLAN_BODY = String.raw`"file_path":"(?![^"]*/\.ambicode/tasks/[^"/]+/steps/plan-body\.md")`;
 
   return PLAN_SPECS.map((spec) => {
     const { slug } = spec;
     const at = body(slug);
-    const planText = (name, pattern, match = 'contains', weight = 1) => shared(regex(name, pattern, { file: at, match, weight }), regex(name, pattern, { match, weight }));
+    // A trap check (an existing mechanism a skim misses) weighs 2, so missing two or three of them costs a plan about 0.2.
+    const weightOf = (name) => spec.weights?.[name] ?? 1;
+    const planText = (name, pattern, match = 'contains') => shared(regex(name, pattern, { file: at, match, weight: weightOf(name) }), regex(name, pattern, { match, weight: weightOf(name) }));
     const content = [
       ...spec.must.map(([name, pattern]) => planText(name, pattern)),
       ...spec.mustNot.map(([name, pattern]) => planText(name, pattern, 'not_contains')),
       ...(spec.llm ? [shared(llm(spec.llm[0], spec.llm[1], { file: at }), llm(spec.llm[0], spec.llm[1]))] : []),
     ];
     const boundary = [
-      shared(never('no-edit', 'Edit', '.')),
+      shared(never('no-edit', 'Edit', NOT_PLAN_BODY), never('no-edit', 'Edit', '.')),
       shared(never('no-write-source', 'Write', WRITE_SOURCE)),
       shared(never('no-checks-run', 'Bash', CHECK_COMMANDS)),
     ];
     const asked = `/ambicode:plan --task ${slug}`;
     const flags = '--ambicode-init --context';
-    const base = { name: spec.name, description: spec.description, tags: ['plan', spec.size], version: 1, fixture: spec.fixture, flags, ...(spec.limits ? { limits: spec.limits } : {}) };
+    const base = { name: spec.name, description: spec.description, tags: ['plan', spec.size], version: spec.version ?? 1, fixture: spec.fixture, flags, ...(spec.limits ? { limits: spec.limits } : {}) };
 
     if (spec.draft) {
       return {
@@ -319,7 +415,9 @@ export function planCases({ regex, ledger, tool, never, exists, llm, shared, DON
           exists('plan-draft-saved', `repo/.ambicode/tasks/${slug}/plan-draft_*.md`),
           ledger('accept-gate-printed', '"kind":"gate","gate":"plan-accept"', T(slug)),
           ledger('not-promoted', '"note":"plan"', T(slug), { match: 'not_contains' }),
-          ledger('anchors-valid', '"worker":"plan-check"(?![^\\n]*"uncoded")[^\\n]*"anchorsBad":0', T(slug)),
+          ...checked(slug),
+          ...spec.must.map(([name, pattern]) => tool(name, 'Write', planBodyWrite(pattern), { weight: weightOf(name) })),
+          ...spec.mustNot.map(([name, pattern]) => never(name, 'Write', planBodyWrite(pattern))),
           ...boundary,
           regex('draft-stated', String.raw`[Dd]raft`),
           regex('not-called-accepted', String.raw`(is|was|been|now|as) (accepted|approved|final)|implementation (can|may) (start|begin)`, { match: 'not_contains' }),
@@ -335,8 +433,8 @@ export function planCases({ regex, ledger, tool, never, exists, llm, shared, DON
       bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone, and give the plan as your answer; do not implement it. If something is unclear, state your assumptions. ${request} ${REPO}`,
       graders: [
         exists('plan-written', at),
-        regex('five-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Accept[\\s\\S]*Checks[\\s\\S]*Leaves out', { file: at }),
-        ledger('anchors-valid', '"worker":"plan-check"(?![^\\n]*"uncoded")[^\\n]*"anchorsBad":0', T(slug)),
+        regex('three-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Checks', { file: at }),
+        ...checked(slug),
         DONE(T(slug)),
         ...iterationGraders,
         ...content,

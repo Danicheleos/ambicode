@@ -78,7 +78,7 @@ const schemas = [
   }),
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
-    summary: z.object({ failed: z.boolean(), anchorsBad: count, uncoded: z.array(text).optional() }).optional(),
+    summary: z.object({ failed: z.boolean(), anchorsBad: count }).optional(),
   }),
   entry('init', { what: text, outcome: text }),
   entry('note', {

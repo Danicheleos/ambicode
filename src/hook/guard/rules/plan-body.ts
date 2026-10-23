@@ -6,7 +6,7 @@ import { isAbsolute } from '../paths.ts';
 export const PLAN_BODY = /^(.*\/)?\.ambicode\/tasks\/([^/]+)\/steps\/plan-body\.md$/;
 
 export function planBodyReason(slug: string, pluginRoot: string): string {
-  return `AMBICODE: the plan body is written once, with the Write tool (no shell, no Edit) to .ambicode/tasks/${slug}/steps/plan-body.md. Run \`node "${pluginRoot}/scripts/ambicode.mjs" route next --task ${slug}\`: the route saves it as the draft and checks it. After a revise, rewrite the whole file with Write.`;
+  return `AMBICODE: the plan body is written with the Write tool (no shell) to .ambicode/tasks/${slug}/steps/plan-body.md and fixed with Edit after a failed check. Run \`node "${pluginRoot}/scripts/ambicode.mjs" route next --task ${slug}\`: the route saves it as the draft and checks it.`;
 }
 
 /** Why `slug`'s plan body may not be written now; `null` when its live route is a plan route. */

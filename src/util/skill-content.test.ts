@@ -166,10 +166,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(Buffer.byteLength(plan) <= 1800, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
-    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/tasks/*/steps/plan-body.md)');
+    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(.ambicode/tasks/*/steps/plan-body.md), Write(.ambicode/tasks/*/steps/plan-body.md)');
     // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
     const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8');
-    for (const judgment of [/material when/i, /reuse over new/i, /independently reviewable iterations/i]) {
+    for (const judgment of [/ask a material question/i, /reuse what the repository already has/i, /independently reviewable iterations/i]) {
       assert.match(steps.replace(/\s+/g, ' '), judgment);
       assert.doesNotMatch(plan, judgment);
     }
@@ -207,11 +207,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('06-S4: the design step names the five iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
+  it('06-S4: the design step names the three iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8');
     assert.ok(!write.includes('*Tests*'), 'plan/design.md still asks for *Tests*');
-    for (const field of ['Goal', 'Changes', 'Accept', 'Checks', 'Leaves out']) {
+    for (const field of ['Goal', 'Changes', 'Checks']) {
       assert.ok(!plan.includes(`*${field}*`), `plan/SKILL.md repeats *${field}*, which plan/design.md delivers`);
       assert.ok(write.includes(`*${field}*`), `plan/design.md lacks *${field}*`);
     }
@@ -253,10 +253,9 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(plan, /never\s+instructions?\s+or\s+authorization/i);
   });
 
-  it('06-S4: plan passes the arguments to the route unchanged, so the whole primary request reaches it', async () => {
+  it('plan has no route start fallback: the /ambicode:plan launch hook starts the route and delivers its first step', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.match(plan.replace(/\s+/g, ' '), /start it with the arguments unchanged/);
-    assert.ok(plan.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...'));
+    assert.doesNotMatch(plan, /route start/);
   });
 
   it('the reviewer role states the three-way authority distinction, and never conflates "observed" with "team" (doc 04 P2.4 correction A5)', async () => {

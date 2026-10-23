@@ -3,19 +3,14 @@ name: plan
 description: "Turn a request into an implementation roadmap a human accepts before /ambicode:task implements it; it never implements. Use when the user asks for a plan, a roadmap, or an implementation approach — for a described change or a Jira/Confluence URL — or wants to think through a feature or change before coding it."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/tasks/*/steps/plan-body.md)
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(.ambicode/tasks/*/steps/plan-body.md), Write(.ambicode/tasks/*/steps/plan-body.md)
 ---
 
 # Plan a change
 
-The arguments are `<request-or-jira/confluence-url> [--requirement <url>]...`;
+The arguments (they begin `$0`) are `<request-or-jira/confluence-url> [--requirement <url>]...`;
 `--requirement <url>` repeats, and there is no plural flag. The plan route
-runs the steps and prints each one; follow what it prints. If no step was
-printed, start it with the arguments unchanged (they begin `$0`):
-
-```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...
-```
+runs the steps and prints each one; follow what it prints.
 
 ## Draft and accepted
 

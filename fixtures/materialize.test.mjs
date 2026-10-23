@@ -32,7 +32,21 @@ describe('fixtures materialize', () => {
     });
   }
 
-  for (const name of ['ts-app-medium', 'ts-feature-boundary', 'ts-app-medium-refund-bug']) {
+  it('a materialized repo is not repacked in the background: the eval harness lists the run dir once and fails when .git/objects changes', async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));
+    const destination = path.join(parent, 'repo');
+    try {
+      await materialize(fixtureByName('ts-app-medium-plan'), destination);
+      const objects = async () => (await readdir(path.join(destination, '.git', 'objects'))).sort().join(',');
+      const before = await objects();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.equal(await objects(), before);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  for (const name of ['ts-app-medium', 'ts-feature-boundary', 'ts-app-medium-refund-bug', 'ts-app-medium-plan']) {
     it(`--context leaves a valid, uncommitted .ambicode/context (${name})`, async () => {
       const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));
       const destination = path.join(parent, 'repo');
@@ -40,8 +54,8 @@ describe('fixtures materialize', () => {
         await materialize(fixtureByName(name), destination, { ambicodeInit: true, context: true });
         const cli = path.join(import.meta.dirname, '..', 'scripts', 'ambicode.mjs');
         const listing = execFileSync(process.execPath, [cli, 'context', 'list'], { cwd: destination, encoding: 'utf8' });
-        assert.match(listing, /^overview\.md /m);
-        assert.match(listing, /^modules\/.+\.md /m);
+        assert.match(listing, /^\.ambicode\/context\/overview\.md /m);
+        assert.match(listing, /^\.ambicode\/context\/modules\/.+\.md /m);
         assert.doesNotMatch(listing, /no context/);
         const root = path.join(destination, '.ambicode', 'context');
         const files = new Map();

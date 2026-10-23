@@ -375,7 +375,7 @@ export function renderListing(files: readonly ContextFile[], limits: ContextLimi
   }
   const lines = entries.filter((entry) => entry.ancestors.length < levels).map((entry) => {
     const more = below.get(entry.file.path);
-    return `${nested ? '  '.repeat(entry.ancestors.length) : ''}${entry.file.path}  ${entry.file.title}  ~${entry.file.tokens} tokens${more === undefined ? '' : `  (+${more} notes below)`}`;
+    return `${nested ? '  '.repeat(entry.ancestors.length) : ''}${CONTEXT_DIR}/${entry.file.path}  ${entry.file.title}  ~${entry.file.tokens} tokens${more === undefined ? '' : `  (+${more} notes below)`}`;
   });
   const hidden = below.size === 0 ? [] : ['notes below are named in the Submodules section of the note above them'];
   return [...lines, ...hidden, `total ~${total} of ${limits.maxTotalTokens} tokens`].join('\n');

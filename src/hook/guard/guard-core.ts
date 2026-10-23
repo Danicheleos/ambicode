@@ -117,8 +117,8 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
     const body = PLAN_BODY.exec(target);
     if (body !== null && !RUN_DIR.test(body[1] ?? '')) {
       const refusal = planBodyRefusal(state, `${body[1] ?? ''}.ambicode/tasks/${body[2]!}`, body[2]!, pluginRoot);
-      // The plan is one Write; a patch to the owner's file is refused with the same next step.
-      return refusal !== null ? decide('deny', refusal) : input.tool_name === 'Write' ? {} : decide('deny', planBodyReason(body[2]!, pluginRoot));
+      // The plan is one Write, and the one fix round after a failed plan-check is an Edit of the same file.
+      return refusal !== null ? decide('deny', refusal) : input.tool_name === 'Write' || input.tool_name === 'Edit' ? {} : decide('deny', planBodyReason(body[2]!, pluginRoot));
     }
     return decide('deny', noteSaveReason(pluginRoot));
   }

@@ -55,7 +55,7 @@ const body = (anchor: string): string =>
   ].join('\n');
 
 describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
-  it('06-H2/06-P10: under the real ledger lock, start → design → decision → failing check → gate shows it → human Revise → fixed check → Accept promotes, with 2 + N + 1 ceremony calls and one work command per write', async () => {
+  it('06-H2/06-P10: under the real ledger lock, start → design → decision → failing check sends it back with the anchors → fixed check → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
@@ -80,20 +80,16 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const design = await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
       assert.equal(design.position, 'design');
       assert.ok(design.bytes <= 4096, `start delivery ${design.bytes}`);
-      assert.match(design.text, /src\/invoices\/service\.ts/);
+      assert.doesNotMatch(design.text, /## map|## policy/);
 
       await hook('Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']);
 
       const failing = await check(body('src/invoices/service.ts:30'));
-      assert.equal(failing.position, 'plan-accept');
-      assert.match(failing.text, /Plan check FAILED: 1 bad anchors\.\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
-      assert.doesNotMatch(failing.text, /Coverage rows without code/);
-      const failedPrint = (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
-      await hook(`Accept this plan? [ambicode gate plan-accept ${failedPrint.id}]`, 'Revise', ['Accept', 'Revise', 'Reject']);
-      assert.equal((await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'revise')?.['via'], 'gate');
+      assert.equal(failing.position, 'design');
+      assert.match(failing.text, /## bad anchors\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
       const passing = await check(body('src/invoices/service.ts:3-6'));
       assert.equal(passing.position, 'plan-accept');
-      assert.match(passing.text, /Revise \(2 left\)/);
+      assert.doesNotMatch(passing.text, /Plan check FAILED/);
       for (const output of [failing, passing]) assert.ok(output.bytes <= 4096, `${output.bytes}`);
 
       const ledger = async () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
@@ -110,7 +106,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
 
       const decisions = 1;
       const writes = 2;
-      assert.equal(ceremony, 2 + decisions + 1);
+      assert.equal(ceremony, 1 + decisions + 1);
       assert.equal(work, writes);
       assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes);
       await rm(scratchpad, { recursive: true, force: true });

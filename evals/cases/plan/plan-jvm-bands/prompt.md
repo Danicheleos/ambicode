@@ -5,7 +5,7 @@ tags: ["plan", "small"]
 runs: 1
 max_turns: 30
 timeout_seconds: 900
-allowed_tools: [Read, Glob, Grep, Bash, Write, Skill]
+allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
 /ambicode:plan --task plan-jvm-bands --headless --answer plan-accept=Accept The stock report should show how many lots are excellent, viable and weak, next to the viable count, in the REST report and in the CLI report table. The repository is at `repo/`.

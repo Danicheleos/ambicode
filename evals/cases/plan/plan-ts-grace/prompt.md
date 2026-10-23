@@ -5,7 +5,7 @@ tags: ["plan", "small"]
 runs: 1
 max_turns: 30
 timeout_seconds: 900
-allowed_tools: [Read, Glob, Grep, Bash, Write, Skill]
+allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
 /ambicode:plan --task plan-ts-grace --headless --answer plan-accept=Accept Members on the plus tier should get two grace days before a late fee starts to accrue. Basic members keep today's rule. The repository is at `repo/`.

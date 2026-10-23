@@ -3,6 +3,7 @@
  * it with no build step, like eval-page-bug. `npm test` passes on APP_FILES. The two fixtures built on it:
  *   ts-app-medium             APP_FILES as committed.
  *   ts-app-medium-refund-bug  APP_REFUND_BUG replaces six files in the commits (the tests that would have caught it are absent).
+ *   ts-app-medium-deep        APP_DEEP, the investigate variant; ts-app-medium-plan  APP_PLAN, the plan variant (npm test passes on it).
  * Edit this file by hand; the content has no generator. Template literals use BT for a backtick.
  */
 const BT = '`';
@@ -2895,4 +2896,439 @@ module.exports = { FIELDS, pick };
   return repository.update(id, next);`,
     ],
   ),
+};
+
+/**
+ * Overrides for `ts-app-medium-plan`, the plan variant: existing mechanisms a plan has to find and build on rather than
+ * reinvent. Payment terms (config.paymentTermsDays, invoices/terms.dueDateFor over shared/dates.addDays) already print a
+ * pay-by day on the invoice mail without storing it; config.overdueGraceDays is Finance's definition of overdue; PATCH
+ * /customers/:id goes through a field whitelist (customers/patch.js) with a shared validateBoolean; money.toDecimal is
+ * the decimal formatter of the reports CSV, and shared/http.attachment serves the revenue CSV download; the refund event
+ * carries no customerId; tests/architecture.test.js forbids src/notifications from requiring invoices, payments or reports.
+ * Facts a plan has to connect, not just find: the back office can change a customer's terms (customers/patch.js), so a
+ * due date derived later drifts from the one mailed; days count in Finance's zone (clock.businessDay, docs Days); the
+ * invoice page is a view that hides fields and shows a void invoice at 0; the gateway caches /reports for an hour.
+ * The base files stay as they are for the task, init, review and investigate cases.
+ */
+const swapIn = (file, ...pairs) => ({ [file]: swap(file, ...pairs) });
+
+export const APP_PLAN = {
+  ...swapIn('src/config.js', [
+    '  agingBucketsDays: [30, 60],\n',
+    `  agingBucketsDays: [30, 60],
+  // Days from the issue day to the pay-by day printed on the invoice mail (invoices/terms.js), unless the back office
+  // gave the customer terms of their own.
+  paymentTermsDays: 30,
+  // Finance counts an invoice as overdue only once this many days past its due date have gone by.
+  overdueGraceDays: 5,
+  // Finance's calendar (shared/clock.businessDay).
+  timeZone: 'Europe/Berlin',
+`,
+  ]),
+  ...swapIn('src/shared/clock.js', [
+    'const today = () => now().toISOString().slice(0, 10);\n',
+    `// The UTC day, for stamps on records.
+const today = () => now().toISOString().slice(0, 10);
+// The calendar day in Finance's time zone: at 23:30 UTC it is already the next day in Berlin. See docs/architecture.md, Days.
+const businessDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: config.timeZone }).format(now());
+`,
+  ], ['let fixed = null;\n', "const config = require('../config');\n\nlet fixed = null;\n"], ['module.exports = { now, today, setNow, reset };', 'module.exports = { now, today, businessDay, setNow, reset };']),
+  ...swapIn('tests/shared/clock-ids.test.js', [
+    `  test('ids count per prefix and start again after a reset', () => {`,
+    `  test('the business day is the day in Berlin, not the UTC day', () => {
+    clock.setNow(new Date('2026-05-05T22:30:00Z'));
+    expect(clock.today()).toBe('2026-05-05');
+    expect(clock.businessDay()).toBe('2026-05-06');
+  });
+
+  test('ids count per prefix and start again after a reset', () => {`,
+  ]),
+  ...swapIn('src/customers/model.js', [
+    'function createCustomer({ id, name, email, phone = null, receipts = true, createdAt }) {\n  return { id, name, email, phone, receipts, createdAt };',
+    '// paymentTermsDays: the customer\'s own terms, set by the back office; null means config.paymentTermsDays.\nfunction createCustomer({ id, name, email, phone = null, receipts = true, paymentTermsDays = null, createdAt }) {\n  return { id, name, email, phone, receipts, paymentTermsDays, createdAt };',
+  ]),
+  'src/shared/dates.js': raw`const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Calendar arithmetic on YYYY-MM-DD days, in UTC so that a day never shifts with the host time zone.
+function addDays(day, days) {
+  return new Date(Date.parse(day) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+module.exports = { addDays };
+`,
+  'src/invoices/terms.js': raw`const config = require('../config');
+const { addDays } = require('../shared/dates');
+
+// The day an invoice is payable by: its issue day plus the customer's terms (customers.paymentTermsDays, else the
+// default). Printed on the invoice mail; not stored.
+function dueDateFor(issuedAt, termsDays) {
+  return addDays(issuedAt, termsDays ?? config.paymentTermsDays);
+}
+
+module.exports = { dueDateFor };
+`,
+  ...swapIn(
+    'src/invoices/service.js',
+    ["const { subtotal } = require('./lines');\n", "const { subtotal } = require('./lines');\nconst { dueDateFor } = require('./terms');\n"],
+    ['  customers.get(input.customerId);\n  const invoice', '  const customer = customers.get(input.customerId);\n  const invoice'],
+    ['  notifications.sendInvoiceCreated(invoice, total(invoice));\n', '  notifications.sendInvoiceCreated(invoice, total(invoice), dueDateFor(invoice.issuedAt, customer.paymentTermsDays));\n'],
+  ),
+  ...swapIn(
+    'src/invoices/routes.js',
+    ["const { paginate } = require('../shared/pagination');\n", `const { paginate } = require('../shared/pagination');
+const { STATUS } = require('./status');
+
+// The invoice page: what the customer sees. A void invoice shows a total of 0, since nothing is owed on it; internal
+// fields such as notes stay out.
+const view = (invoice) => ({
+  id: invoice.id,
+  customerId: invoice.customerId,
+  status: invoice.status,
+  issuedAt: invoice.issuedAt,
+  lines: invoice.lines,
+  taxBps: invoice.taxBps,
+  paidCents: invoice.paidCents,
+  totalCents: invoice.status === STATUS.VOID ? 0 : service.total(invoice),
+});
+`],
+    [
+      `const create = handle((req) => created({ ...service.create(req.body) }));
+const get = handle((req) => {
+  const invoice = service.get(req.params.invoiceId);
+  return ok({ ...invoice, totalCents: service.total(invoice) });
+});
+const list = handle((req) => ok(paginate(service.list(req.query), req.query)));
+const voidInvoice = handle((req) => ok(service.voidInvoice(req.params.invoiceId)));`,
+      `const create = handle((req) => created(view(service.create(req.body))));
+const get = handle((req) => ok(view(service.get(req.params.invoiceId))));
+const list = handle((req) => ok(paginate(service.list(req.query).map(view), req.query)));
+const voidInvoice = handle((req) => ok(view(service.voidInvoice(req.params.invoiceId))));`,
+    ],
+  ),
+  ...swapIn('tests/invoices/routes.test.js', [
+    `  test('void returns 409 once the invoice has payments', () => {`,
+    `  test('the page leaves internal notes out', () => {
+    const invoice = makeInvoice({ notes: 'call before chasing' });
+    expect(routes.get({ params: { invoiceId: invoice.id } }).body.notes).toBeUndefined();
+  });
+
+  test('a void invoice shows a total of 0', () => {
+    const invoice = makeInvoice();
+    routes.voidInvoice({ params: { invoiceId: invoice.id } });
+    expect(routes.get({ params: { invoiceId: invoice.id } }).body.totalCents).toBe(0);
+  });
+
+  test('void returns 409 once the invoice has payments', () => {`,
+  ]),
+  ...swapIn(
+    'src/notifications/service.js',
+    [
+      `function sendInvoiceCreated(invoice, totalCents) {
+  const contact = customers.contactFor(invoice.customerId);
+  const message = templates.invoiceCreated({ customerName: contact.name, invoiceId: invoice.id, totalCents });`,
+      `function sendInvoiceCreated(invoice, totalCents, payableBy) {
+  const contact = customers.contactFor(invoice.customerId);
+  const message = templates.invoiceCreated({ customerName: contact.name, invoiceId: invoice.id, totalCents, payableBy });`,
+    ],
+  ),
+  ...swapIn('src/notifications/templates.js', [
+    `function invoiceCreated({ customerName, invoiceId, totalCents }) {
+  return {
+    subject: 'Invoice ' + invoiceId,
+    body: 'Hello ' + customerName + ', invoice ' + invoiceId + ' for ' + money.format(totalCents) + ' is ready.',
+  };
+}`,
+    `function invoiceCreated({ customerName, invoiceId, totalCents, payableBy }) {
+  return {
+    subject: 'Invoice ' + invoiceId,
+    body: 'Hello ' + customerName + ', invoice ' + invoiceId + ' for ' + money.format(totalCents) + ' is ready. Please pay by ' + payableBy + '.',
+  };
+}`,
+  ]),
+  ...swapIn('tests/notifications/templates.test.js', [
+    `  test('the invoice mail names the total', () => {
+    expect(templates.invoiceCreated({ customerName: 'Ada', invoiceId: 'inv_0002', totalCents: 1106 }).body).toContain('11.06 EUR');
+  });`,
+    `  test('the invoice mail names the total and the pay-by day', () => {
+    const { body } = templates.invoiceCreated({ customerName: 'Ada', invoiceId: 'inv_0002', totalCents: 1106, payableBy: '2026-02-14' });
+    expect(body).toContain('11.06 EUR');
+    expect(body).toContain('Please pay by 2026-02-14.');
+  });`,
+  ]),
+  'tests/invoices/terms.test.js': raw`const { dueDateFor } = require('../../src/invoices/terms');
+const { addDays } = require('../../src/shared/dates');
+const notifications = require('../../src/notifications/repository');
+const customers = require('../../src/customers/service');
+const { makeInvoice, makeCustomer } = require('../factory');
+
+describe('payment terms', () => {
+  test('an invoice is payable thirty days after its issue day', () => {
+    expect(dueDateFor('2026-01-15')).toBe('2026-02-14');
+    expect(dueDateFor('2026-12-15')).toBe('2027-01-14');
+  });
+
+  test('addDays crosses month ends and goes backwards', () => {
+    expect(addDays('2026-02-27', 2)).toBe('2026-03-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+  });
+
+  test('the invoice mail prints the pay-by day', () => {
+    const invoice = makeInvoice({ issuedAt: '2026-01-15' });
+    const [mail] = notifications.forCustomer(invoice.customerId);
+    expect(mail.body).toContain('Please pay by 2026-02-14.');
+  });
+
+  test('a customer with terms of their own gets them on the mail', () => {
+    const customer = customers.update(makeCustomer().id, { paymentTermsDays: 14 });
+    expect(dueDateFor('2026-01-15', 14)).toBe('2026-01-29');
+    makeInvoice({ customerId: customer.id, issuedAt: '2026-01-15' });
+    expect(notifications.forCustomer(customer.id)[0].body).toContain('Please pay by 2026-01-29.');
+  });
+});
+`,
+  'src/shared/validation/boolean.js': raw`const { ValidationError } = require('../errors');
+
+function validateBoolean(value, field) {
+  if (value !== true && value !== false) throw new ValidationError(field, 'must be true or false');
+  return value;
+}
+
+module.exports = { validateBoolean };
+`,
+  ...swapIn(
+    'src/shared/validation/index.js',
+    ["const { validateCents } = require('./money');\n", "const { validateCents } = require('./money');\nconst { validateBoolean } = require('./boolean');\n"],
+    [
+      'module.exports = { validateRequired, validateString, validateEmail, validateId, validateDate, validateRange, validateCents };',
+      'module.exports = { validateRequired, validateString, validateEmail, validateId, validateDate, validateRange, validateCents, validateBoolean };',
+    ],
+  ),
+  'src/customers/patch.js': raw`const { validateString, validateEmail, validateBoolean, validateRange } = require('../shared/validation');
+
+// The fields a PATCH may change, each with its check; anything else in the body is dropped.
+const FIELDS = {
+  name: (value) => validateString(value, 'name'),
+  email: (value) => validateEmail(value),
+  phone: (value) => value,
+  receipts: (value) => validateBoolean(value, 'receipts'),
+  // The back office moves a customer to other terms (net 14, net 60) whenever a contract changes.
+  paymentTermsDays: (value) => validateRange(value, { min: 0, max: 120 }, 'paymentTermsDays'),
+};
+
+function pick(patch) {
+  const next = {};
+  for (const [field, check] of Object.entries(FIELDS)) {
+    if (patch[field] !== undefined) next[field] = check(patch[field]);
+  }
+  return next;
+}
+
+module.exports = { FIELDS, pick };
+`,
+  ...swapIn(
+    'src/customers/service.js',
+    ["const { createCustomer } = require('./model');\n", "const { createCustomer } = require('./model');\nconst patchable = require('./patch');\n"],
+    [
+      `  const next = {};
+  if (patch.name !== undefined) next.name = validateString(patch.name, 'name');
+  if (patch.email !== undefined) {
+    next.email = validateEmail(patch.email);
+    const other = repository.findByEmail(next.email);
+    if (other !== null && other.id !== id) throw new ConflictError('a customer with this email exists', { email: next.email });
+  }
+  if (patch.phone !== undefined) next.phone = patch.phone;
+  return repository.update(id, next);`,
+      `  const next = patchable.pick(patch);
+  if (next.email !== undefined) {
+    const other = repository.findByEmail(next.email);
+    if (other !== null && other.id !== id) throw new ConflictError('a customer with this email exists', { email: next.email });
+  }
+  return repository.update(id, next);`,
+    ],
+  ),
+  'tests/customers/patch.test.js': raw`const customers = require('../../src/customers/service');
+const { makeCustomer } = require('../factory');
+const { ValidationError } = require('../../src/shared/errors');
+
+describe('customer patch', () => {
+  test('receipts can be switched off and on', () => {
+    const customer = makeCustomer();
+    expect(customers.update(customer.id, { receipts: false }).receipts).toBe(false);
+    expect(customers.update(customer.id, { receipts: true }).receipts).toBe(true);
+  });
+
+  test('receipts must be a boolean', () => {
+    expect(() => customers.update(makeCustomer().id, { receipts: 'no' })).toThrow(ValidationError);
+  });
+
+  test('the back office sets a customer\'s own payment terms', () => {
+    const customer = makeCustomer();
+    expect(customer.paymentTermsDays).toBeNull();
+    expect(customers.update(customer.id, { paymentTermsDays: 60 }).paymentTermsDays).toBe(60);
+    expect(() => customers.update(customer.id, { paymentTermsDays: -1 })).toThrow(ValidationError);
+  });
+
+  test('fields outside the whitelist are dropped', () => {
+    const customer = makeCustomer();
+    expect(customers.update(customer.id, { createdAt: 'never', id: 'x' })).toEqual(customer);
+  });
+});
+`,
+  ...swapIn(
+    'src/shared/money.js',
+    [
+      `function format(cents) {
+  const sign = cents < 0 ? '-' : '';
+  const abs = Math.abs(cents);
+  return sign + Math.floor(abs / 100) + '.' + String(abs % 100).padStart(2, '0') + ' ' + CURRENCY;
+}`,
+      `// Cents as a plain decimal (1234 -> '12.34') for files other programs read; integer arithmetic only.
+function toDecimal(cents) {
+  const sign = cents < 0 ? '-' : '';
+  const abs = Math.abs(cents);
+  return sign + Math.floor(abs / 100) + '.' + String(abs % 100).padStart(2, '0');
+}
+
+function format(cents) {
+  return toDecimal(cents) + ' ' + CURRENCY;
+}`,
+    ],
+    ['module.exports = { CURRENCY, round, toCents, sum, percentOf, split, format };', 'module.exports = { CURRENCY, round, toCents, sum, percentOf, split, toDecimal, format };'],
+  ),
+  ...swapIn('tests/shared/money.test.js', [
+    `  test('format prints two decimals and the currency', () => {`,
+    `  test('toDecimal prints cents as a plain decimal', () => {
+    expect(money.toDecimal(1106)).toBe('11.06');
+    expect(money.toDecimal(5)).toBe('0.05');
+    expect(money.toDecimal(-250)).toBe('-2.50');
+  });
+
+  test('format prints two decimals and the currency', () => {`,
+  ]),
+  ...swapIn(
+    'src/reports/csv.js',
+    ['    lines.push([cell(row.key), row.count, (row.totalCents / 100).toFixed(2)].join(\',\'));', '    lines.push([cell(row.key), row.count, money.toDecimal(row.totalCents)].join(\',\'));'],
+    [
+      "  lines.push(['total', rows.reduce((n, row) => n + row.count, 0), (money.sum(rows.map((row) => row.totalCents)) / 100).toFixed(2)].join(','));",
+      "  lines.push(['total', rows.reduce((n, row) => n + row.count, 0), money.toDecimal(money.sum(rows.map((row) => row.totalCents)))].join(','));",
+    ],
+  ),
+  ...swapIn(
+    'src/shared/http.js',
+    [
+      'const created = (body) => ({ status: 201, body });\n',
+      `const created = (body) => ({ status: 201, body });
+
+// A file to download: the body goes out as is, with the headers that make a browser save it under filename.
+const attachment = (body, { filename, type = 'text/csv' }) => ({
+  status: 200,
+  headers: { 'content-type': type, 'content-disposition': 'attachment; filename="' + filename + '"' },
+  body,
+});
+`,
+    ],
+    ['module.exports = { ok, created, toResponse, handle };', 'module.exports = { ok, created, attachment, toResponse, handle };'],
+  ),
+  ...swapIn('tests/shared/http.test.js', [
+    `  test('handle turns a thrown error into a response', () => {`,
+    `  test('attachment names the file and its type', () => {
+    expect(attachment('a,b\\n', { filename: 'x.csv' })).toEqual({
+      status: 200,
+      headers: { 'content-type': 'text/csv', 'content-disposition': 'attachment; filename="x.csv"' },
+      body: 'a,b\\n',
+    });
+  });
+
+  test('handle turns a thrown error into a response', () => {`,
+  ], ["const { handle, toResponse, ok } = require('../../src/shared/http');", "const { handle, toResponse, ok, attachment } = require('../../src/shared/http');"]),
+  ...swapIn(
+    'src/reports/service.js',
+    ["const { createRow } = require('./model');\n", "const { createRow } = require('./model');\nconst { toCsv } = require('./csv');\n"],
+    [
+      `function outstandingByCustomer() {`,
+      `// The revenue report as a spreadsheet file.
+function revenueCsv() {
+  return toCsv(revenueByMonth().rows);
+}
+
+function outstandingByCustomer() {`,
+    ],
+    [
+      'module.exports = { total, revenueByMonth, outstandingByCustomer, aging, averageInvoiceCents };',
+      'module.exports = { total, revenueByMonth, revenueCsv, outstandingByCustomer, aging, averageInvoiceCents };',
+    ],
+  ),
+  ...swapIn(
+    'src/reports/routes.js',
+    ["const { handle, ok } = require('../shared/http');", "const { handle, ok, attachment } = require('../shared/http');"],
+    [
+      'const revenue = handle(() => ok(service.revenueByMonth()));\n',
+      "const revenue = handle(() => ok(service.revenueByMonth()));\nconst revenueCsv = handle(() => attachment(service.revenueCsv(), { filename: 'revenue.csv' }));\n",
+    ],
+    ['  revenue,\n  outstanding,', '  revenue,\n  revenueCsv,\n  outstanding,'],
+    [
+      "    { method: 'GET', path: '/reports/revenue', handler: revenue },\n",
+      "    { method: 'GET', path: '/reports/revenue', handler: revenue },\n    { method: 'GET', path: '/reports/revenue.csv', handler: revenueCsv },\n",
+    ],
+  ),
+  ...swapIn('tests/reports/routes.test.js', [
+    `  test('average is in cents', () => {`,
+    `  test('revenue.csv is a download of the revenue rows', () => {
+    makePayment(makeInvoice({ issuedAt: '2026-01-10' }));
+    const response = routes.revenueCsv();
+    expect(response.headers['content-disposition']).toBe('attachment; filename="revenue.csv"');
+    expect(response.body).toBe('key,count,total\\n2026-01,1,11.06\\ntotal,1,11.06\\n');
+  });
+
+  test('average is in cents', () => {`,
+  ], ["const { makeInvoice } = require('../factory');", "const { makeInvoice, makePayment } = require('../factory');"]),
+  ...swapIn('src/payments/service.js', [
+    `  const invoice = invoices.get(invoiceId);
+  const net = repository.netPaidCents(invoiceId);`,
+    `  invoices.get(invoiceId);
+  const net = repository.netPaidCents(invoiceId);`,
+  ], [
+    '  bus.emit(TOPICS.PAYMENT_REFUNDED, { paymentId: payment.id, invoiceId, customerId: invoice.customerId, amountCents });',
+    '  bus.emit(TOPICS.PAYMENT_REFUNDED, { paymentId: payment.id, invoiceId, amountCents });',
+  ]),
+  ...swapIn('docs/architecture.md', [
+    'turns a thrown `AppError` into its status and anything else into a logged 500.\n',
+    `turns a thrown ${BT}AppError${BT} into its status and anything else into a logged 500.
+
+In production the API gateway caches GET responses under ${BT}/reports${BT} for up to an hour: reports are heavy and may lag.
+Every other path is served live.
+`,
+  ], [
+    '## Money\n',
+    `## Days
+
+Finance works in Europe/Berlin (${BT}config.timeZone${BT}). Due dates, the overdue grace and anything allowed once per day are
+counted in ${BT}clock.businessDay()${BT}; ${BT}clock.today()${BT} is the UTC day and only stamps records.
+
+## Money
+`,
+  ], [
+    'Subscribers are registered once, at start-up, by each feature\'s ',
+    `Notifications sits below the billing features: invoices and payments call ${BT}notifications/service${BT} or announce on the
+bus, and nothing under ${BT}src/notifications${BT} requires invoices, payments or reports (${BT}tests/architecture.test.js${BT}).
+Subscribers are registered once, at start-up, by each feature's `,
+  ]),
+  'tests/architecture.test.js': raw`// docs/architecture.md: notifications sits below the billing features. Invoices and payments call it or announce on the
+// bus; it never requires them back.
+const fs = require('fs');
+const path = require('path');
+
+const MUST_NOT_REQUIRE = { notifications: ['invoices', 'payments', 'reports'] };
+
+describe('feature dependencies', () => {
+  for (const [feature, forbidden] of Object.entries(MUST_NOT_REQUIRE)) {
+    const dir = path.join(__dirname, '..', 'src', feature);
+    const files = fs.readdirSync(dir).filter((file) => file.endsWith('.js'));
+    test.each(files)(feature + '/%s requires none of ' + forbidden.join(', '), (file) => {
+      const source = fs.readFileSync(path.join(dir, file), 'utf8');
+      for (const other of forbidden) expect(source).not.toMatch(new RegExp("require\\('\\.\\./" + other + "[/']"));
+    });
+  }
+});
+`,
 };

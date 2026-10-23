@@ -27,6 +27,7 @@ describe('context write', () => {
     assert.deepEqual(out.check.problems, []);
     const files = await listContext(nodeFileSystem, root);
     assert.deepEqual(files.map((file) => [file.path, file.title]), [['conventions.md', 'Conventions of x'], ['modules/search-map.md', 'Search map module'], ['overview.md', 'Overview of x']]);
+    assert.match(renderListing(files, LIMITS), /^\.ambicode\/context\/conventions\.md  Conventions of x  ~\d+ tokens\n\.ambicode\/context\/modules\/search-map\.md /);
     assert.match(renderListing(files, LIMITS), /total ~\d+ of 200 tokens/);
     assert.equal(renderListing([], LIMITS), 'no context: run /ambicode:init');
   });
@@ -528,19 +529,19 @@ describe('context listing of nested notes', () => {
 
   it('a flat set lists as before: one line per file, no indentation, no collapse', () => {
     const text = renderListing([file('modules/a.md'), file('modules/b.md')], BIG);
-    assert.equal(text, 'modules/a.md  a module  ~100 tokens\nmodules/b.md  b module  ~100 tokens\ntotal ~200 of 24000 tokens');
+    assert.equal(text, '.ambicode/context/modules/a.md  a module  ~100 tokens\n.ambicode/context/modules/b.md  b module  ~100 tokens\ntotal ~200 of 24000 tokens');
   });
 
   it('lists every level while at most 20 lines result, indented, in directory order', () => {
     const names = ['modules/src/overview.md', 'modules/src/a/overview.md', 'modules/src/a/x/overview.md', 'modules/src/a/x/y.md', 'modules/src/b.md', 'modules/src-old.md', 'modules/src.b.md'];
     assert.deepEqual(renderListing(names.map((name) => file(name)), BIG).split('\n'), [
-      'modules/src/overview.md  src/overview module  ~100 tokens',
-      '  modules/src/a/overview.md  src/a/overview module  ~100 tokens',
-      '    modules/src/a/x/overview.md  src/a/x/overview module  ~100 tokens',
-      '      modules/src/a/x/y.md  src/a/x/y module  ~100 tokens',
-      '  modules/src/b.md  src/b module  ~100 tokens',
-      'modules/src-old.md  src-old module  ~100 tokens',
-      'modules/src.b.md  src.b module  ~100 tokens',
+      '.ambicode/context/modules/src/overview.md  src/overview module  ~100 tokens',
+      '  .ambicode/context/modules/src/a/overview.md  src/a/overview module  ~100 tokens',
+      '    .ambicode/context/modules/src/a/x/overview.md  src/a/x/overview module  ~100 tokens',
+      '      .ambicode/context/modules/src/a/x/y.md  src/a/x/y module  ~100 tokens',
+      '  .ambicode/context/modules/src/b.md  src/b module  ~100 tokens',
+      '.ambicode/context/modules/src-old.md  src-old module  ~100 tokens',
+      '.ambicode/context/modules/src.b.md  src.b module  ~100 tokens',
       'total ~700 of 24000 tokens',
     ]);
   });
@@ -549,8 +550,8 @@ describe('context listing of nested notes', () => {
     const names = ['modules/src/overview.md'];
     for (let i = 0; i < 10; i += 1) names.push(`modules/src/m${i}/overview.md`, `modules/src/m${i}/a.md`, `modules/src/m${i}/b/overview.md`, `modules/src/m${i}/b/c.md`);
     const lines = renderListing(names.map((name) => file(name)), BIG).split('\n');
-    assert.equal(lines[0], 'modules/src/overview.md  src/overview module  ~100 tokens');
-    assert.equal(lines[1], '  modules/src/m0/overview.md  src/m0/overview module  ~100 tokens  (+3 notes below)');
+    assert.equal(lines[0], '.ambicode/context/modules/src/overview.md  src/overview module  ~100 tokens');
+    assert.equal(lines[1], '  .ambicode/context/modules/src/m0/overview.md  src/m0/overview module  ~100 tokens  (+3 notes below)');
     assert.equal(lines.length, 1 + 10 + 2);
     assert.match(lines.at(-2)!, /^notes below are named in the Submodules section/);
     assert.ok(!lines.some((line) => line.includes('/a.md') || line.includes('/c.md')));
@@ -558,7 +559,7 @@ describe('context listing of nested notes', () => {
 
   it('a note whose parent directory has no note is a top-level line, not hidden', () => {
     const text = renderListing([file('modules/deep/er/x.md')], BIG);
-    assert.match(text, /^modules\/deep\/er\/x\.md /);
+    assert.match(text, /^\.ambicode\/context\/modules\/deep\/er\/x\.md /);
   });
 });
 

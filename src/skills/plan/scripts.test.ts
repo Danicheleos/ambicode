@@ -20,7 +20,7 @@ async function check(root: string, body: string, params: string[] = []) {
     stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[]; uncoded?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
+  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; message: string; revise?: { args: Record<string, string[]> } } };
 }
 
 describe('skills/plan/scripts/plan-check.mjs', () => {
@@ -34,26 +34,20 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       assert.equal(bad.failed?.code, 'plan-check-failed');
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
       assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
-      assert.equal(bad.failed?.revise, undefined);
+      assert.equal(bad.failed?.revise?.args['bad anchors']?.length, 3);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  // The run that failed: "one default per surface" was covered by an iteration that never said where surface lives.
-  it('fails a coverage row that names a requirement but no code representation, and passes anchors and new: entries', async () => {
+  it('a bad anchor fails the check with the listed anchors as revise args, and a coverage table is not checked', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
-      const head = '| requirement | section | code |\n|---|---|---|\n';
-      const good = await check(root, `# Plan\n\n${head}| one default per workspace | Iteration 3 | new: src/views.ts View.workspaceId |\n| totals shown | Iteration 1 | \`src/invoices/service.ts:3-6\` |\n\n## Not covered\n\n| export | later |\n`);
-      assert.equal(good.failed, undefined);
-      const bad = await check(root, `# Plan\n\n${head}| one default per workspace | Iteration 3 | |\n| totals shown | Iteration 1 | the service |\n| ok | Iteration 2 | new: src/a.ts A.b |\n`);
+      const bad = await check(root, '# Plan\n\n`src/invoices/service.ts:3-6` `src/invoices/service.ts:999`\n\n| requirement | section | code |\n|---|---|---|\n| totals | Iteration 1 | |\n');
       assert.equal(bad.failed?.code, 'plan-check-failed');
-      assert.deepEqual(bad.entries[0]!.summary.uncoded, ['one default per workspace', 'totals shown']);
-      assert.equal(bad.entries[0]!.summary.anchorsBad, 0);
-      assert.match(bad.failed!.message, /2 coverage rows without code: one default per workspace; totals shown/);
-      const old = await check(root, '# Plan\n\n| requirement | section |\n|---|---|\n| totals | Iteration 1 |\n');
-      assert.deepEqual(old.entries[0]!.summary.uncoded, ['totals']);
+      assert.equal(bad.entries[0]!.summary.anchorsBad, 1);
+      assert.match(bad.failed!.message, /1 bad anchors: src\/invoices\/service\.ts:999 line-out-of-range/);
+      assert.deepEqual(bad.failed!.revise, { args: { 'bad anchors': bad.entries[0]!.summary.anchors } });
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -99,13 +93,13 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     }
   });
 
-  it('runs as the plan-check step: the failure is recorded and the route goes on to plan-accept', async () => {
+  it('runs as the plan-check step: the failure sends the route back to design', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.start();
       await plan.body('# Plan\n\n`src/orders/limit.ts:99`\n');
-      const gate = await plan.next();
-      assert.equal(gate.position, 'plan-accept');
+      const back = await plan.next();
+      assert.equal(back.position, 'design');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
     } finally {
       await plan.dispose();

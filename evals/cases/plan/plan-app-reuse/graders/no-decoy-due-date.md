@@ -1,11 +1,7 @@
 ---
-type: llm
-focus: { source: file, path: repo/.ambicode/tasks/plan-app-overdue/plan.md }
-weight: 2
+type: regex
+pattern: '(^|\n|\\n)(?!(?:(?!\\n)[^\n])*(\b([Nn]ot?|[Nn]ever|[Nn]one|[Nn]othing|[Ww]ithout|[Ii]nstead|[Rr]ather|[Aa]void\w*|[Uu]nrelated|[Dd]ecoy|[Ff]rozen|[Ll]egacy|[Ii]gnor\w*|[Ff]orbid\w*|[Uu]nchanged|[Uu]ntouched|[Cc]annot)\b|n''t\b))(?:(?!\\n)[^\n])*(addMonths|nextDue|installments\.js:\d)'
+match: not_contains
+target: { source: file, path: repo/.ambicode/tasks/plan-app-overdue/plan.md }
+weight: 1
 ---
-
-The plan is for adding a due date to invoices (a new field) and an overdue report.
-PASS only if all hold:
-- It does not treat the dueDate of src/payments/installments.js, which belongs to a payment-plan installment, as an existing invoice due date, and does not plan to reuse addMonths or schedule for invoices.
-- Overdue is computed from the invoice's new dueDate and the as-of day, not from issuedAt plus a hard-coded number of days.
-FAIL otherwise.

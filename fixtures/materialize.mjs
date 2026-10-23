@@ -195,6 +195,9 @@ export async function materialize(fixture, destination, { install: installing = 
   await git(destination, ['config', 'user.email', 'fixture@example.invalid']);
   await git(destination, ['config', 'user.name', 'AMBICODE Fixture']);
   await git(destination, ['config', 'commit.gpgsign', 'false']);
+  // git 2.55 starts `maintenance run --auto` detached after a commit and repacks .git/objects for a second; the eval harness lists the run dir once and rejects the run when it changes (4 bare runs scored 0 for it on 2026-10-23).
+  await git(destination, ['config', 'maintenance.auto', 'false']);
+  await git(destination, ['config', 'gc.auto', '0']);
   // The developer's global ignore file must not change what a fixture contains.
   await git(destination, ['config', 'core.excludesFile', '/dev/null']);
 

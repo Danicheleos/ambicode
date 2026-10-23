@@ -110,9 +110,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     // After `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
     const unverified = gaps.length === 0 ? '' : `Not verified:\n${gaps.map((gap) => `- ${gap}`).join('\n')}\n\nThe Stop hook blocks your final message once if it leaves one of these out.\n\n`;
+    // The plan is already saved and printed; a recap of it was ~560 output tokens plus a repeat turn when it left a gap out.
+    const closing = run.def.skill === 'plan' ? (gaps.length === 0 ? 'one line, `Done.`' : 'only the Not verified items') : `what was done in plain words${gaps.length === 0 ? '' : ', then each Not verified item'}`;
     const body = status.startsWith('ended')
       ? `The route has ended.\n\n${unverified}${after}, saying why it ended.`
-      : `The route is complete.${recordedLine(chain.entries)}\n\n${unverified}${after}: what was done in plain words${gaps.length === 0 ? '' : ', then each Not verified item'}.`;
+      : `The route is complete.${recordedLine(chain.entries)}\n\n${unverified}${after}: ${closing}.`;
     return (await partOf(run, null, header, body)).part;
   }
 
@@ -186,7 +188,10 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (onFail !== null) {
       // The step ran and its result is on record; the failure is what the route wants redone (S4).
       await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
-      await reviseTo(run, { target: onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id });
+      // A revise past its repeat limit leaves only a bare limit gap; the failure itself stays a Not verified line.
+      if (!(await reviseTo(run, { target: onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id }))) {
+        await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), recorded: true });
+      }
       return null;
     }
     const error = step.onError;

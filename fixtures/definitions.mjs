@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { GO_MODULE_FILES, JVM_GRADLE_FILES, MONOREPO_FILES, PY_SERVICE_FILES, TS_SERVICE_FILES } from './init-stacks.mjs';
 import { REVIEW_FIXTURES } from './review-changes.mjs';
-import { APP_DEEP, APP_FILES, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
+import { APP_DEEP, APP_FILES, APP_PLAN, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
@@ -230,6 +230,12 @@ export const FIXTURES = [
     name: 'ts-app-medium-deep',
     ...MATH_PROJECT,
     steps: appSteps({ overrides: APP_DEEP }),
+  },
+  // The plan variant: payment terms, an overdue grace, a PATCH whitelist, CSV download helpers and a dependency test (APP_PLAN); only the plan app cases use it.
+  {
+    name: 'ts-app-medium-plan',
+    ...MATH_PROJECT,
+    steps: appSteps({ overrides: APP_PLAN }),
   },
   {
     name: 'eval-rules-contributing',

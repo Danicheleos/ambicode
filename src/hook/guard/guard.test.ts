@@ -235,7 +235,7 @@ describe('the task-directory guard sends notes through note save', () => {
   it('the plan-body message wins over the note-save message within one command', () => {
     const out = decide('Bash', { command: 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/steps/plan-body.md <<EOF\nx\nEOF' });
     assert.equal(decisionOf(out), 'deny');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written once, with the Write tool/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written with the Write tool \(no shell\)/);
   });
   for (const command of ['cd /tmp && echo x > /tmp/notes.md', 'cd /tmp && echo x > /dev/null']) {
     it(`leaves an absolute target after a cd alone: ${command}`, () => assert.deepEqual(decide('Bash', { command }), {}));
@@ -313,13 +313,14 @@ function fixture(ledger: LedgerEntry[] | string | null, headless: string[] = [])
 }
 
 describe('plan-body writes: allowed only while the task\'s live route is a plan route', () => {
-  it('Write to steps/plan-body.md passes; Edit and MultiEdit are denied with the next command', () => {
+  it('Write and Edit of steps/plan-body.md pass; MultiEdit and NotebookEdit are denied with the next command', () => {
     const { write } = fixture([planRoute('a-1', 'A')]);
     assert.deepEqual(write(undefined, 'Write'), {});
-    for (const tool of ['Edit', 'MultiEdit', 'NotebookEdit']) {
+    assert.deepEqual(write(undefined, 'Edit'), {});
+    for (const tool of ['MultiEdit', 'NotebookEdit']) {
       const out = write(undefined, tool);
       assert.equal(decisionOf(out), 'deny');
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written once, with the Write tool.*route next --task T`.*rewrite the whole file with Write/s);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written with the Write tool.*fixed with Edit.*route next --task T`/s);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /node "\/p\/scripts\/ambicode\.mjs" route next --task T/);
     }
   });

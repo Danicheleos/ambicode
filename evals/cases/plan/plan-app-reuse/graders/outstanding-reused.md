@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: 'outstanding\(|invoices?\.outstanding|unpaidInvoices'
+pattern: 'outstanding\(|invoices?\.outstanding|unpaidInvoices|outstandingCents'
 match: contains
 target: { source: file, path: repo/.ambicode/tasks/plan-app-overdue/plan.md }
 weight: 1

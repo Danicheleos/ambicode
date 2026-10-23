@@ -45,8 +45,8 @@ const REPO = 'The repository is at `repo/`.';
 const LIMITS = {
   // 40 turns: the old task cases ran 25-35 (route steps, implementer, format, report); a tighter cap failed runs for budget, not quality.
   task: { max_turns: 40, timeout_seconds: 1200, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'Skill', 'Agent'] },
-  // 30 turns, 900 s: the plan route is ground, design, check and gate; the huge cases set their own cap (plan-cases.mjs).
-  plan: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
+  // 30 turns, 900 s: the plan route is ground, design, check and gate; the huge cases set their own cap (plan-cases.mjs). Edit is the route's fix round; the bare arm keeps the v3 tool set it is compared against.
+  plan: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'Skill'], bare_allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
   review: { max_turns: 20, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
   // 30 turns: the old investigate-trace failed at 12 on a 6-file answer and needed 20; these chains are 5-7 files in 90-120-file repositories.
   investigate: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
@@ -134,7 +134,7 @@ ${materialize} "$PWD/repo"${flags === '' ? '' : ` ${flags}`}
 ${seeded ? SEED_COPY : ''}`;
 }
 
-function promptFile(c, body) {
+function promptFile(c, body, tree) {
   const limits = { ...LIMITS[c.name.split('-')[0]], ...c.limits };
   return [
     '---',
@@ -144,7 +144,7 @@ function promptFile(c, body) {
     'runs: 1',
     `max_turns: ${limits.max_turns}`,
     `timeout_seconds: ${limits.timeout_seconds}`,
-    `allowed_tools: [${limits.allowed_tools.join(', ')}]`,
+    `allowed_tools: [${(tree === 'bare' ? limits.bare_allowed_tools ?? limits.allowed_tools : limits.allowed_tools).join(', ')}]`,
     '---',
     '',
     body,
@@ -163,7 +163,7 @@ export function render(cases = CASES) {
       const dir = caseDir(tree, c.name);
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
       files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, c.intoCwd === true, tree === 'cases' && Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/'))));
-      files.set(`${dir}/prompt.md`, promptFile(c, body));
+      files.set(`${dir}/prompt.md`, promptFile(c, body, tree));
       for (const grader of graders) files.set(`${dir}/graders/${grader.name}.md`, grader.text);
       if (tree === 'cases') for (const [name, text] of Object.entries(c.files ?? {})) files.set(`${dir}/${name}`, text);
     }

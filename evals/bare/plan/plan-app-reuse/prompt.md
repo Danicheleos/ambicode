@@ -1,6 +1,6 @@
 ---
 name: plan-app-reuse
-description: 'A feature the shared validators, the money helpers and the reports module already carry; a frozen legacy copy and a payment-plan dueDate are decoys.'
+description: 'A feature the repository half has: payment terms already compute a pay-by day for the invoice mail, config holds the overdue grace, validateRange compares days, the invoice page is a view that drops unknown fields and days count in Finance''s zone; a payment-plan dueDate and a legacy total are decoys.'
 tags: ["plan", "narrow"]
 runs: 1
 max_turns: 30
