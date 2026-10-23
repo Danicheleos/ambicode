@@ -23,6 +23,7 @@ Stay within the limits in the spec; keep bullets sorted; no hedging. Bash is for
 
 Final message (returned to the caller, not written to disk), compact:
 - `projects`: per project `{id, paths, include, exclude}` suggestions (`paths` are working code roots, never `.` unless sources sit at the root; `include`/`exclude` globs).
+- `reviewExclude`: globs of the paths you saw in `git ls-files` that are not worth reviewing or reading: lock files, generated, vendored and minified files, and bulk data files (size a `.json`/`.csv` folder with `ls -lS <dir>`; far larger than the repository's typical source file). Locale and translation files stay out of it, however large. Never specs or stories.
 - `conventions`: up to 10 candidate rules, each `{rule, quote, location, basis}`: `quote` is 20+ characters copied verbatim from `location` (`path:line`), `basis` is `written` when a project document states it or `inferred` when you saw it in code. A candidate is not repeated in `conventions.md`, which keeps only descriptive facts.
 - `context files`: files written, plus any remaining `check.problems`.
 - `unknowns`: anything unclear worth asking the user (optional).

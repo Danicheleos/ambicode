@@ -1,5 +1,6 @@
 import { newestReviews } from '#modules/review/answer/captured';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
+import { mrRequirements } from '#modules/requirements/capture/has-requirement';
 import type { LedgerEntry } from '#types/modules/evidence';
 
 const clip = (value: unknown, length = 80): string => {
@@ -84,9 +85,12 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   for (const entry of of('limit').filter((limit) => limit.which !== 'stop-block' && !proven(limit))) {
     gaps.push(limitGap(entry));
   }
+  for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.commitsError === 'string')) gaps.push(`merge request commits not fetched: ${clip(entry.commitsError, 160)}`);
+  for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.discussionsError === 'string')) gaps.push(`existing merge request discussions not fetched: ${clip(entry.discussionsError, 160)}`);
   for (const entry of of('step').filter((step) => step.recorded === true)) gaps.push(`${clip(entry.step)}: ${clip(entry.message, 160)}`);
   for (const entry of of('policy').filter((policy) => policy.stage === 'drafts' && Number(policy.errors) > 0)) gaps.push(`rules drafts: ${entry.errors} check errors`);
-  for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(`Requirement not captured: ${clip(missing)}`);
+  const mrNamed = new Set(mrRequirements(entries));
+  for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${clip(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${clip(missing)}`);
   // Only a task route has a baseline; a zero count there is the project's, not one check's.
   if (entries.findLast((entry) => entry.kind === 'baseline')?.['runnable'] === 0) gaps.push('nothing was verified by running checks (none configured)');
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);

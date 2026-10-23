@@ -16,6 +16,8 @@ export const ReviewTarget = z.strictObject({
   baseSha: z.string().min(1).nullable(),
   baseRef: z.string().nullable(),
   notes: z.array(z.string()).default([]),
+  /** A merge request whose head is not checked out: why. Its repositoryRoot is then the working tree, which is not the change. */
+  diffOnly: z.string().optional(),
 });
 export type ReviewTarget = z.infer<typeof ReviewTarget>;
 
@@ -44,17 +46,36 @@ export const Finding = z.strictObject({
   confidence: Confidence,
   category: z.string().min(1),
   location: FindingLocation,
+  /** Other places the same issue occurs, each checked against the diff like `location`; one that fails is dropped with a note. */
+  supportingLocations: z.array(FindingLocation).default([]),
   /** Excerpt taken from the checkout or the diff by the validator, never from the model. */
   evidence: z.string(),
-  explanation: z.string().min(1),
+  /** What is wrong, what it risks, and why the reviewer holds the stated confidence: one sentence each (the contract in agents/reviewer.md). */
+  problem: z.string().min(1),
+  impact: z.string().min(1),
+  confidenceReason: z.string().min(1),
   suggestedComment: z.string().min(1),
   ruleRefs: z.array(z.string()).default([]),
   requirementRefs: z.array(z.string()).default([]),
 });
 export type Finding = z.infer<typeof Finding>;
 
+/** What a reader has to act on (`attention`) against the routine facts of how the review was scoped (`scope`); each producer says which. */
+export const Omission = z.strictObject({ kind: z.enum(['attention', 'scope']), text: z.string().min(1) });
+export type Omission = z.infer<typeof Omission>;
+
+/** One acceptance point (or point of the described intent) of a requirement and what the reviewer found about it. */
+const RequirementPoint = z.strictObject({
+  ref: z.string().min(1),
+  point: z.string().min(1),
+  status: z.enum(['covered', 'cannot-verify', 'missed']),
+  note: z.string().default(''),
+});
+
 export const ReviewerOutput = z.strictObject({
   findings: z.array(Finding.omit({ id: true, evidence: true })).default([]),
+  /** Per requirement point. A missed point that is also a finding names it by its 1-based position in `findings`. */
+  requirementCoverage: z.array(RequirementPoint.extend({ finding: z.number().int().positive().nullish() })).default([]),
   coverageNotes: z.array(z.string()).default([]),
 });
 export type ReviewerOutput = z.infer<typeof ReviewerOutput>;
@@ -109,7 +130,9 @@ export const ReviewResult = z.strictObject({
     )
     .default([]),
   findings: z.array(Finding).default([]),
-  omissions: z.array(z.string()).default([]),
+  omissions: z.array(Omission).default([]),
+  /** The reviewer's per-point answer, `ref` resolved to a requirement id and `finding` to the id of a kept finding. */
+  requirementCoverage: z.array(RequirementPoint.extend({ finding: z.string().nullable().default(null) })).default([]),
   status: ReviewStatus,
   statusReason: z.string().nullable().default(null),
 });

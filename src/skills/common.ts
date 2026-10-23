@@ -18,6 +18,7 @@ import { baselineIn, touchedSet } from '#modules/checks/workspace/baseline';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { latestBound } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
+import { ReviewResult } from '#types/modules/review';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
@@ -78,13 +79,22 @@ async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<P
   }
 }
 
-/** The files the stage's rules are scoped to: the task's touched files once there are any, else the map's top candidates; empty means no scoping. */
+/** The files of the latest pinned review: a merge request or branch has no local baseline, so its diff is the only list of what the change touches. */
+async function reviewedFiles(input: HandlerInput, chain: readonly LedgerEntry[]): Promise<string[]> {
+  const file = chain.findLast((entry) => entry.kind === 'review')?.['result'];
+  if (typeof file !== 'string') return [];
+  const parsed = await input.runtime.fs.readText(path.join(input.dir.repositoryRoot, file)).then((text) => ReviewResult.safeParse(JSON.parse(text)), () => null).catch(() => null);
+  return parsed?.success ? parsed.data.changedFiles.filter((changed) => changed.exclusionReason === null).map((changed) => changed.newPath ?? changed.oldPath ?? '').filter((name) => name !== '') : [];
+}
+
+/** The files the stage's rules are scoped to: the task's touched files once there are any, else the pinned review's, else the map's top candidates; empty means no scoping. */
 async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[]): Promise<string[]> {
   const baseline = baselineIn(chain);
   const touched = baseline === null ? [] : (await touchedSet(input.runtime as Runtime, baseline)).touched;
+  const reviewed = touched.length > 0 ? [] : await reviewedFiles(input, chain);
   const mapped = (chain.findLast((entry) => entry.kind === 'map')?.['paths'] as string[] | undefined) ?? [];
   const root = normalizeRelative(project.root);
-  return (touched.length > 0 ? touched : mapped).filter((file) => toProjectRelative(root, file) !== null);
+  return (touched.length > 0 ? touched : reviewed.length > 0 ? reviewed : mapped).filter((file) => toProjectRelative(root, file) !== null);
 }
 
 const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;

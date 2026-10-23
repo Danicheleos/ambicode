@@ -69,7 +69,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `evidence.notes.save(<kind>)`, `evidence.notes.promote` | none | Save a note / promote a plan draft. |
 | `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |
 | `review.evaluate` | `review.evaluate` | Judges the latest review: no findings proceeds; any finding goes back to `fix`, which files the ones outside the brief under Remaining. Fails the step (`onFail`) when there are findings to fix. |
-| `review.publishList` | `review.publishList` | `--mr` review: the recorded findings as a numbered list; none ends the route. |
+| `review.page` | `review.page` | Starts the repository's local review page server as a detached process, or registers with the one already running, and delivers a one-time link; none for a local review with no finding. |
 | `task.verdict` | none | Ends the route `blocked` when its last check is red, so the iteration is not done and the next start redoes it. |
 | `task.start` | `brief` | The task's brief: iteration and plan path, then the plan's current iteration or the request. Exits `iterations-complete` when every iteration is done. |
 | `evidence.report` | `report` | The Checks, Review and Not verified facts of the route, for its final message to copy. |
@@ -77,6 +77,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `checks.baseline` | `baseline` | Records HEAD and the files already changed, once per task. |
 | `checks.approved` | none | Runs each check the user approved that has no check entry after the approval, so an answer given after the model moved on still gets its run. |
 | `checks.format` | none | Runs the configured format check on the touched files; one that needs approval raises the check gate and the answer re-runs the step. |
+| `review.mrFetch` | `review.mrFetch` | `--mr` review: saves the diff, the human discussions and the head sha; lists the requirements the title and description name, which the `fetch` step then fetches and `requirements.normalize` reports as not verified when they are missing. |
 | `review.estimate` | `review.estimate` | Sizes the review (files, lines, refusal) for the estimate gate, with any `--narrow` in force. |
 | `review.pin` | none | Pins the change as a pending `review` entry. The review route first runs each configured check that has a file form on the changed files, as `check` entries; a check that needs approval raises the check gate and the answer revises the step. |
 
@@ -96,6 +97,8 @@ A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, n
 |---|---|
 | `args.hasRequirement` | The request names a requirement (URL, `--requirement`, or a bare key with an MCP server configured). |
 | `args.hasMergeRequest` | The review route was started with `--mr <url>`, or with a merge-request URL as its text. |
+| `mr.requirements` | The `mr-fetch` step recorded issue keys or issue/wiki links from the merge request's title or description (so the step must come after `mr-fetch`). |
+| `estimate.asks` / `estimate.run` | `estimate.asks`: the latest `estimate-step` recorded a refusal or no estimate (`asks: true`). `estimate.run`: the opposite, so the review goes on without a question. |
 | `map.empty` | The search map found nothing. |
 | `iteration.named` / `iteration.unnamed` | The request text names `iteration N` / does not (task route). |
 | `iterations.continue` | The request names no iteration, the `start` step's iteration is below the plan's iteration count, and the route's last check exited 0. |

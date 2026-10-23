@@ -1,0 +1,73 @@
+[
+  {
+    "id": "main",
+    "category": "error-security",
+    "main": true,
+    "what": "the error from tracker.Advance is only logged and the handler replies 200 recorded, so a failed scan looks successful",
+    "locations": [
+      {
+        "file": "internal/httpapi/scans.go",
+        "lines": [
+          36,
+          38
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "Advance"
+        ],
+        "near": "swallow|swallowed|swallows|ignored|ignores|discarded|logged|200|success|successful"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "dead-dup",
+    "main": false,
+    "what": "parseScanLine and scanStates repeat the scan parsing and state table the scanner package already has",
+    "locations": [
+      {
+        "file": "internal/httpapi/scans.go",
+        "lines": [
+          45,
+          54
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "parseScanLine",
+          "scanStates"
+        ],
+        "near": "duplicate|duplicates|duplicated|duplication|scanner|reimplement|reimplements|repeat|repeats"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "tests",
+    "main": false,
+    "what": "no test makes Advance fail, so the 200 on a failed scan is never exercised",
+    "locations": [
+      {
+        "file": "internal/httpapi/scans_test.go",
+        "lines": [
+          10,
+          10
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "Advance",
+          "fakeTracker"
+        ],
+        "gap": true
+      }
+    ]
+  }
+]

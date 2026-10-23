@@ -1,10 +1,12 @@
 // Runs the suite through `claude plugin eval` and leaves the result in evals/cases/results.
 // Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>]
-//                [--max-cost-usd <usd>] [--dry-run]
+//                [--max-cost-usd <usd>] [--series <case1,case2,...>] [--dry-run]
+// --series names every case of a series of one-case commands; each command updates results/running.json (see progressOf).
 // --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { archiveOf, harvest } from './context.mjs';
+import { createHash } from 'node:crypto';
+import { cpSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { archiveOf, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
 import { metricsOf } from './metrics.mjs';
 import { NAVIGATOR_TAG, isNavigatorCase, navigatorMetrics, navigatorTruth } from './navigator-cases.mjs';
@@ -64,13 +66,10 @@ export function buildNaked(repo = REPO, naked = NAKED) {
   writeFileSync(path.join(naked, '.claude-plugin', 'plugin.json'), `${JSON.stringify({ name: 'naked', version: '0.0.0', description: 'No components: the bare arm.' })}\n`);
   const target = path.join(naked, 'evals', 'bare');
   cpSync(path.join(repo, 'evals', 'bare'), target, { recursive: true });
-  for (const name of readdirSync(target)) {
-    const file = path.join(target, name, 'scaffold.sh');
-    try {
-      writeFileSync(file, readFileSync(file, 'utf8').replaceAll('$(cd "$(dirname "$0")/../../.." && pwd)', repo), { mode: 0o755 });
-    } catch (error) {
-      if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
-    }
+  for (const entry of readdirSync(target, { recursive: true })) {
+    if (path.basename(entry) !== 'scaffold.sh') continue;
+    const file = path.join(target, entry);
+    writeFileSync(file, readFileSync(file, 'utf8').replaceAll('$(cd "$(dirname "$0")/../../../.." && pwd)', repo), { mode: 0o755 });
   }
 }
 
@@ -117,7 +116,7 @@ export function runCase(run, deps = REAL) {
   const stamp = String(result.startedAt ?? Date.now()).replace(/[:.]/g, '-');
   // Per suite run: clearing one shared folder lost the traces of every earlier run (2026-10-12).
   const tracesDir = path.join(deps.tracesRoot, run.arm, stamp);
-  deps.harvest(result, tracesDir, { archiveDir: archiveOf(tracesDir) });
+  deps.harvest(result, tracesDir, { archiveDir: archiveOf(tracesDir), reviewRunsDir: reviewRunsOf(run.arm, stamp) });
   for (const evalCase of result.cases ?? []) {
     const navigator = isNavigatorCase(evalCase.name);
     const spec = navigator ? undefined : caseOf(evalCase.name)?.metrics;
@@ -137,6 +136,94 @@ export function runCase(run, deps = REAL) {
   return { status, result };
 }
 
+/**
+ * The progress file of a series of commands, read by plugin-master's Evals view: <results>/running.json, no schemaVersion key
+ * (the view lists every results/*.json that has one as a finished run). A command with no --series is a one-case series.
+ */
+export const seriesOf = (argv) => {
+  const list = (option(argv, '--series') ?? option(argv, '--case') ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+  return list.length === 0 ? null : list;
+};
+
+const score = (runs) => {
+  const scores = runs.map((one) => one.score).filter((value) => typeof value === 'number');
+  return scores.length === 0 ? null : Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(3));
+};
+const cost = (runs) => Number(runs.reduce((sum, one) => sum + (one.costUsd ?? 0) + (one.judgeCostUsd ?? 0), 0).toFixed(4));
+
+/** Runs of the case named `name` in a harness result (every run when the name is a glob matching none exactly). */
+const runsOfCase = (result, name) => {
+  const all = result.cases ?? [];
+  const own = all.filter((one) => one.name === name);
+  return (own.length > 0 ? own : all).flatMap((one) => Object.values(one.arms ?? {}).flat());
+};
+
+/** Runs `exec` (one command's harness call) around updates of the progress file; a failure to write it only warns, once. */
+export function withProgress(run, argv, exec, { file = path.join(path.dirname(run.result), 'running.json'), now = () => new Date() } = {}) {
+  const list = seriesOf(argv);
+  const name = option(argv, '--case');
+  let warned = false;
+  const guard = (step) => {
+    try {
+      return step();
+    } catch (error) {
+      if (!warned) console.warn(`progress file not written: ${error.message}`);
+      warned = true;
+      return undefined;
+    }
+  };
+  const id = list === null ? null : createHash('sha1').update(`${run.arm}\n${list.join(',')}`).digest('hex').slice(0, 8);
+  const load = () => {
+    let state = null;
+    try {
+      state = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {}
+    if (state?.series === id && state.finishedAt === null) return state;
+    const stamp = now().toISOString();
+    return { kind: 'eval-series', series: id, arm: run.arm, startedAt: stamp, updatedAt: stamp, finishedAt: null, runsPerCase: Number(option(argv, '--runs') ?? DEFAULTS.runs), total: 0, done: 0, current: null, costUsd: 0, cases: list.map((one) => ({ name: one, state: 'queued', score: null, costUsd: null })) };
+  };
+  const save = (state) => {
+    state.total = state.cases.length;
+    state.done = state.cases.filter((one) => one.state === 'done' || one.state === 'failed').length;
+    state.costUsd = Number(state.cases.reduce((sum, one) => sum + (one.costUsd ?? 0), 0).toFixed(4));
+    state.updatedAt = now().toISOString();
+    state.finishedAt = state.done === state.total ? state.updatedAt : null;
+    mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
+    renameSync(tmp, file);
+  };
+  const entry = (state) => {
+    let found = state.cases.find((one) => one.name === name);
+    if (found === undefined) state.cases.push((found = { name, state: 'queued', score: null, costUsd: null }));
+    return found;
+  };
+  if (list !== null && name !== null) guard(() => {
+    const state = load();
+    entry(state).state = 'running';
+    state.current = name;
+    save(state);
+  });
+  let outcome;
+  try {
+    outcome = exec();
+  } catch (error) {
+    outcome = { status: 1, result: null, error };
+  }
+  if (list !== null && name !== null) guard(() => {
+    const state = load();
+    const one = entry(state);
+    const runs = outcome.result === null ? [] : runsOfCase(outcome.result, name);
+    one.state = outcome.result === null ? 'failed' : 'done';
+    one.score = score(runs);
+    one.costUsd = outcome.result === null ? null : cost(runs);
+    state.current = null;
+    save(state);
+  });
+  if (outcome.error) throw outcome.error;
+  return outcome;
+}
+
 function main(argv) {
   const run = plan(argv);
   if (argv.includes('--dry-run')) {
@@ -145,7 +232,7 @@ function main(argv) {
   }
   mkdirSync(RESULTS, { recursive: true });
   if (run.arm === 'bare') buildNaked();
-  return runCase(run).status;
+  return withProgress(run, argv, () => runCase(run)).status;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));

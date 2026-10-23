@@ -68,9 +68,9 @@ describe('a merge-request URL typed as the review text', () => {
       const args = route['args'] as { hasRequirement: boolean; target?: { mr: string | null } };
       assert.equal(args.hasRequirement, false);
       assert.equal(args.target?.mr, MR);
-      assert.equal(start.position, 'estimate', 'no requirement fetch or gate precedes the estimate');
-      assert.equal(fake.calls.length, 2, 'mr-fetch ran against the runner');
-      assert.match(start.text, /merge-request|merge request/i);
+      assert.equal(start.position, 'review-agent', 'no requirement fetch or gate precedes the reviewer');
+      assert.equal(fake.calls.length, 4, 'mr-fetch ran against the runner: diff, record, discussions, commits');
+      assert.match(start.text, /mr-fetch \(done\)/);
     } finally {
       await t.fx.dispose();
     }

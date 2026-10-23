@@ -23,7 +23,7 @@ import type { FileSystem } from '#types/platform/ports';
 export const nodeFileSystem: FileSystem = {
   readText: (absolutePath) => readFile(absolutePath, 'utf8'),
   readBytes: (absolutePath) => readFile(absolutePath),
-  writeText: (absolutePath, contents) => writeFile(absolutePath, contents, 'utf8'),
+  writeText: (absolutePath, contents, mode) => writeFile(absolutePath, contents, { encoding: 'utf8', ...(mode === undefined ? {} : { mode }) }),
   createExclusive: async (absolutePath, contents) => {
     try {
       await writeFile(absolutePath, contents, { encoding: 'utf8', flag: 'wx' });

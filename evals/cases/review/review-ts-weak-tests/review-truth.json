@@ -1,0 +1,102 @@
+[
+  {
+    "id": "main",
+    "category": "tests",
+    "main": true,
+    "what": "the borrow test asserts toBeTruthy() where it checked the due date, so it passes for any due date",
+    "locations": [
+      {
+        "file": "test/borrow.test.ts",
+        "lines": [
+          34,
+          34
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "toBeTruthy"
+        ],
+        "near": "weak|weaker|weakened|loose|vague|exact|always|any"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "collected",
+    "main": false,
+    "what": "the event is named 'loan-refused', not <context>.<past-tense-verb>",
+    "locations": [
+      {
+        "file": "src/contexts/lending/application/borrow.ts",
+        "lines": [
+          18,
+          18
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "loan-refused"
+        ],
+        "near": "name|named|event|prefix|convention|lending"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "correctness",
+    "main": false,
+    "what": "a member over the loan limit gets 429 Too Many Requests, a rate-limit status, where the refusal is a conflict",
+    "locations": [
+      {
+        "file": "src/contexts/lending/http/routes.ts",
+        "lines": [
+          15,
+          15
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "429"
+        ],
+        "near": "conflict|409|rate|status|Too Many Requests"
+      }
+    ]
+  },
+  {
+    "id": "s3",
+    "category": "dead-dup",
+    "main": false,
+    "what": "MAX_OPEN_LOANS is a second, fixed loan limit of 5 beside members/domain/tier.ts loanLimit (3 for basic, 5 for plus), so a basic member can borrow more than their tier allows",
+    "locations": [
+      {
+        "file": "src/contexts/lending/domain/policy.ts",
+        "lines": [
+          3,
+          3
+        ]
+      },
+      {
+        "file": "src/contexts/members/domain/tier.ts",
+        "lines": [
+          3,
+          3
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "MAX_OPEN_LOANS",
+          "loanLimit"
+        ],
+        "near": "tier|tiers|member|members|basic|plus|conflict|conflicts|contradict|contradicts|duplicate|duplicated|two sources"
+      }
+    ]
+  }
+]

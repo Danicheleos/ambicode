@@ -2829,6 +2829,7 @@ import org.seedvault.adapters.rest.routes.GerminationRoutes
 import org.seedvault.adapters.rest.routes.LotRoutes
 import org.seedvault.adapters.rest.routes.ReportRoutes
 import org.seedvault.adapters.rest.server.HttpApi
+import org.seedvault.application.port.input.FindLot
 import org.seedvault.application.port.input.RegisterLot
 import org.seedvault.application.port.input.ReportStock
 import org.seedvault.application.port.input.SowLot

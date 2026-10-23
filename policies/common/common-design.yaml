@@ -54,7 +54,7 @@ rules:
 
   - id: reuse-before-reimplementing
     category: architecture
-    activities: [plan, task]
+    activities: [plan, task, review]
     instruction: >-
       Before adding a helper, look for an existing one, a framework API already
       in use, or a language built-in that covers the case. A second

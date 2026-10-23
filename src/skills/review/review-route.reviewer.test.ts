@@ -8,7 +8,7 @@ import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 
 const ANSWER = '```json\n{"findings":[],"coverageNotes":["read only the diff"]}\n```';
-const FINDING = { risk: 'high', confidence: 'high', category: 'correctness', location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }, explanation: 'seeds nothing', suggestedComment: 'seed the reduce' };
+const FINDING = { risk: 'high', confidence: 'high', category: 'correctness', location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }, problem: 'seeds nothing', impact: 'i', confidenceReason: 'c', suggestedComment: 'seed the reduce' };
 
 const checksOf = (checks: string): string => CHECK_CONFIG.replace(/checks:[\s\S]*$/, `checks:\n${checks}`);
 const REVIEW_CONFIG = checksOf('      unit: { all: null, file: "true {file}" }\n      typecheck: { all: "tsc --noEmit", file: null }\n      format: { all: null, file: "fmt {file}" }\n');
@@ -34,7 +34,6 @@ describe('review route: route next records the reviewer answer file', () => {
     const t = await reviewRouteFixture({ config: REVIEW_CONFIG });
     try {
       await t.start();
-      await t.hook('estimate', 'run');
       await answer(t.bundle, ANSWER);
       const next = await t.next();
       assert.equal(next.position, 'readback');
@@ -51,7 +50,6 @@ describe('review route: route next records the reviewer answer file', () => {
     const t = await reviewRouteFixture({ config: REVIEW_CONFIG });
     try {
       await t.start();
-      await t.hook('estimate', 'run');
       await answer(t.bundle, JSON.stringify({ findings: [], coverageNotes: Array.from({ length: 200 }, (_, at) => `note ${at}: ${'x'.repeat(80)}`) }));
       const next = await t.next();
       assert.match(next.text, /Read it whole: \d+ bytes: /);
@@ -66,7 +64,6 @@ describe('review route: route next records the reviewer answer file', () => {
     const t = await reviewRouteFixture({ config: REVIEW_CONFIG });
     try {
       await t.start();
-      await t.hook('estimate', 'run');
       const next = await t.next();
       assert.equal(next.position, 'readback');
       assert.match(next.text, /No finding list was produced[\s\S]*the reviewer wrote no answer\.json/);
@@ -81,7 +78,6 @@ describe('review route: route next records the reviewer answer file', () => {
     const t = await reviewRouteFixture({ config: REVIEW_CONFIG });
     try {
       await t.start();
-      await t.hook('estimate', 'run');
       await answer(t.bundle, 'looks fine to me');
       assert.match((await t.next()).text, /not JSON/);
       assert.equal((await t.kinds('review')).at(-1)?.['status'], 'error');

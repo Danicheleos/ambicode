@@ -1,10 +1,12 @@
 // Static checks over the suite: every case is well-formed, and both trees match cases.mjs, before a paid run finds out.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FIXTURES } from '../../fixtures/definitions.mjs';
-import { CASES, EVALS, render } from './cases.mjs';
+import { CASES, EVALS, caseDir, render } from './cases.mjs';
 
 const ROOT = path.dirname(EVALS);
 const SKILLS = readdirSync(path.join(ROOT, 'skills')).filter((name) => !name.startsWith('.'));
@@ -26,6 +28,17 @@ function onDisk(tree) {
 }
 
 describe('skill coverage suite', () => {
+  it('every case sits in <tree>/<suite>/<name>, and its scaffold finds the repository from there', () => {
+    const c = CASES[0];
+    assert.equal(caseDir('cases', 'review-ts-boundary'), 'cases/review/review-ts-boundary');
+    for (const file of FILES.keys()) assert.match(file, /^(cases|bare)\/[a-z]+\/[a-z0-9-]+\//, file);
+    const deep = path.join(mkdtempSync(path.join(tmpdir(), 'suite-depth-')), ...caseDir('cases', c.name).split('/'));
+    mkdirSync(deep, { recursive: true });
+        const expr = /\$\(cd "\$\(dirname "\$0"\)[^"]*" && pwd\)/.exec(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`))[0];
+    const root = execFileSync('sh', ['-c', `echo ${expr}`, path.join(deep, 'scaffold.sh')], { encoding: 'utf8' }).trim();
+    assert.equal(root, path.resolve(deep, '../../../..'));
+  });
+
   it('evals/cases and evals/bare are exactly what cases.mjs renders (run node evals/scripts/cases.mjs after editing it)', () => {
     const disk = [...onDisk('cases'), ...onDisk('bare')].sort();
     assert.deepEqual(disk, [...FILES.keys()].sort());
@@ -60,7 +73,9 @@ describe('skill coverage suite', () => {
       const shared = c.graders.filter((g) => g.shared);
       assert.ok(shared.length >= 2, 'at least two shared graders');
       for (const grader of shared) assert.doesNotMatch(grader.bare.text, /\.ambicode|ambicode:|Evidence/, `${grader.name} reads only what a bare run can produce`);
-      assert.doesNotMatch(FILES.get(`bare/${c.name}/scaffold.sh`), /--ambicode-init/);
+      // A case that sets `bareFlags` (the review cases) holds both arms to one scaffold; every other bare arm has no config.
+      if (c.bareFlags === undefined) assert.doesNotMatch(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), /--ambicode-init/);
+      else assert.equal(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`));
     });
   }
 });

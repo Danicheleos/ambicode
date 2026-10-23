@@ -5,7 +5,7 @@ type ReviewEvaluation = { next: 'revise-fix'; findings: string[] } | { next: 'pr
 
 const findingLine = (finding: Finding): string => {
   const where = finding.location.newPath ?? finding.location.oldPath ?? '(no path)';
-  return `${finding.id} ${where}:${finding.location.line} — ${finding.explanation.replace(/\s+/g, ' ').slice(0, 140)}`;
+  return `${finding.id} ${where}:${finding.location.line} — ${finding.problem.replace(/\s+/g, ' ').slice(0, 140)}`;
 };
 
 /** Any finding goes back to `fix`; fix.md sends the ones outside the brief to Remaining, so no gate asks about them. */

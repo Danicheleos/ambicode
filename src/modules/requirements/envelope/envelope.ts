@@ -2,7 +2,8 @@ import { RequirementEvidence, type EnvelopeInput, type EnvelopeSource } from '#t
 import { latestBound } from '#modules/evidence/ledger-chain';
 import { contentHash } from '#util/hash';
 import { isIssueKey } from '#util/issue-key';
-import { readCapture } from '../capture/capture.ts';
+import { readCapture, titleOf } from '../capture/capture.ts';
+import { mrRequirements } from '../capture/has-requirement.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs } from '#types/harness';
 
@@ -14,10 +15,10 @@ type EnvelopeResult =
 const URL_IN_TEXT = /https?:\/\/[^\s)>\]"']+/g;
 const CAPTURE_GATE = 'requirements-not-captured-twice';
 
-/** The keys the route asked for: its `--requirement` values, the URLs in its text, and a bare first-word key (03-Q5). */
-export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>): string[] {
+/** The keys the route asked for: its `--requirement` values, the URLs in its text, a bare first-word key (03-Q5), and what its merge request named. */
+export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>, entries: readonly LedgerEntry[] = []): string[] {
   const first = args.text.trim().split(/\s+/)[0] ?? '';
-  const named = [...args.requirements, ...(args.text.match(URL_IN_TEXT) ?? [])];
+  const named = [...args.requirements, ...(args.text.match(URL_IN_TEXT) ?? []), ...mrRequirements(entries)];
   // A first-word key that a listed URL already names is the same requirement, not a second one to capture.
   const sources = isIssueKey(first) && !named.some((source) => source.includes(first)) ? [...named, first] : named;
   return [...new Set(sources.map((source) => source.trim()))];
@@ -28,7 +29,7 @@ async function captured(input: EnvelopeInput, entries: readonly LedgerEntry[]): 
   const found = new Map<string, EnvelopeSource>();
   for (const entry of entries.filter((candidate) => candidate.kind === 'requirement')) {
     const capture = await readCapture(input.runtime.fs, input.dir, String(entry['key']), String(entry['rawHash']));
-    if (capture !== null) found.set(capture.key, { key: capture.key, title: capture.key, content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, rawHash: capture.rawHash, tool: capture.tool });
+    if (capture !== null) found.set(capture.key, { key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, rawHash: capture.rawHash, tool: capture.tool });
   }
   return found;
 }
@@ -67,7 +68,8 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
   const read = await input.ledger.read();
   const all = read.state === 'ok' ? read.entries : [];
   const entries = all.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? '')));
-  const asked = askedKeys(input.args);
+  const asked = askedKeys(input.args, entries);
+  const fromMr = new Set(mrRequirements(entries));
   // One envelope per task: a route reuses what an earlier route of the task captured instead of starting empty.
   const complete = await captured(input, all);
   const missingAsked = asked.filter((key) => !complete.has(key));
@@ -79,7 +81,7 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
 
   // A linked capture rides along with an asked one but never stands in for it.
   if (missingAsked.length < asked.length) {
-    if (missingAsked.length > 0) {
+    if (missingAsked.some((key) => !fromMr.has(key))) {
       if (input.view.skill === 'review') return { state: 'failed', code: 'requirements-missing', message: `The review asked for ${missingAsked.join(', ')}, which is not captured.`, recoverable: true };
     }
     return record(input, [...complete.values()], 'captures', asked, missingAsked);
@@ -88,7 +90,7 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
   const fromArgs = (missing: readonly string[]): Promise<EnvelopeResult> =>
     record(input, [], 'args', asked, [...missing]);
   // Nothing was to be fetched, so a URL in the prose (an image, a link) is not a requirement that went missing.
-  const explicit = new Set(input.args.requirements.map((source) => source.trim()));
+  const explicit = new Set([...input.args.requirements.map((source) => source.trim()), ...fromMr]);
   if (!input.args.hasRequirement) return fromArgs(missingAsked.filter((key) => explicit.has(key)));
   if (latestBound(entries, CAPTURE_GATE)?.['answer'] === 'continue without') return fromArgs(missingAsked);
   if (entries.some((entry) => entry.kind === 'step' && entry['status'] === 'failed' && entry['code'] === 'requirements-not-captured')) return { state: 'raise', gate: CAPTURE_GATE, values: {} };
@@ -105,7 +107,7 @@ export async function envelopeSources(input: Pick<EnvelopeInput, 'runtime' | 'di
   const sources: EnvelopeSource[] = [];
   for (const slim of Array.isArray(entry['sources']) ? (entry['sources'] as { key: string; rawHash?: string | null }[]) : []) {
     const capture = await readCapture(input.runtime.fs, input.dir, slim.key, slim.rawHash ?? null);
-    if (capture !== null) sources.push({ key: capture.key, title: capture.key, content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, tool: capture.tool });
+    if (capture !== null) sources.push({ key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, tool: capture.tool });
   }
   return sources;
 }

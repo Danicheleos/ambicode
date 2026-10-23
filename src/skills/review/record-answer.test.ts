@@ -40,7 +40,7 @@ async function pending() {
   const diff = combineDiff([{ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' }], await readFile(path.join(reviewed.reviewDirectory, 'changed.diff'), 'utf8'))[0]!;
   const line = [...addressableLines(diff, 'new')][0]!;
   const location = (at: number) => ({ oldPath: file.oldPath, newPath: file.newPath, side: 'new', line: at });
-  const finding = (at: number) => ({ risk: 'high', confidence: 'high', category: 'correctness', location: location(at), explanation: 'drops the last element', suggestedComment: 'check the slice end' });
+  const finding = (at: number) => ({ risk: 'high', confidence: 'high', category: 'correctness', location: location(at), problem: 'drops the last element', impact: 'i', confidenceReason: 'c', suggestedComment: 'check the slice end' });
   const taskDirectory = path.join(root, '.ambicode', 'tasks', TASK);
   const record = async (answer: string | null) => {
     const entry = pendingReview(await readLedger(nodeFileSystem, taskDirectory), null)!;
@@ -72,6 +72,14 @@ describe('recording the reviewer answer', () => {
     const text = renderRecord(out);
     for (const heading of ['1. WHAT WAS REVIEWED', '2. FINDINGS', '3. CHECKS AND VERIFICATION EVIDENCE', '4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE']) assert.ok(text.includes(heading), heading);
     assert.match(text, /did not run the tests/);
+    const finding = out.result.findings[0]!;
+    assert.ok(text.includes(finding.problem), 'the problem is kept');
+    assert.ok(text.includes(`:${t.line} (`), 'the path:line is kept');
+    assert.ok(!text.includes(finding.suggestedComment), 'the suggested comment stays in the report file');
+    assert.doesNotMatch(text, /^ +\| /m, 'the code excerpt stays in the report file');
+    assert.ok(text.includes(out.reportPath), 'the full report is named');
+    const full = await readFile(out.reportPath, 'utf8');
+    assert.ok(full.includes(finding.suggestedComment) && full.includes('| '), 'the report file keeps the comment and the excerpt');
   });
 
   it('the excerpt is read from the checkout at record time, not from a mirror', async () => {
@@ -84,6 +92,20 @@ describe('recording the reviewer answer', () => {
     assert.match(out.result.findings[0]!.evidence, /markerFromTheCheckout/);
   });
 
+  it('a merge request takes its excerpt from its own checkout, not the working tree', async () => {
+    const t = await pending();
+    const name = t.reviewed.result.changedFiles.find((entry) => entry.exclusionReason === null)!.newPath!;
+    const head = path.join(path.dirname(t.root), 'mr-head');
+    await mkdir(path.dirname(path.join(head, name)), { recursive: true });
+    const lines = (await readFile(path.join(t.root, name), 'utf8')).split('\n');
+    lines[t.line - 1] = 'const markerFromTheMergeRequestHead = 1;';
+    await writeFile(path.join(head, name), lines.join('\n'));
+    const result = JSON.parse(await readFile(t.reviewed.resultPath, 'utf8'));
+    await writeFile(t.reviewed.resultPath, JSON.stringify({ ...result, target: { ...result.target, kind: 'merge-request', repositoryRoot: head } }));
+    const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [t.finding(t.line)], coverageNotes: [] })}\n\`\`\``);
+    assert.match(out.result.findings[0]!.evidence, /markerFromTheMergeRequestHead/);
+  });
+
   it('bare JSON is accepted as well as a fenced block', async () => {
     const t = await pending();
     const out = await t.record(JSON.stringify({ findings: [], coverageNotes: [] }));
@@ -94,10 +116,18 @@ describe('recording the reviewer answer', () => {
     const t = await pending();
     const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [{ ...t.finding(t.line), ruleRefs: ['common-rules/callers'] }], coverageNotes: [] })}\n\`\`\``);
     assert.deepEqual([out.result.reviewer?.status, out.result.findings.length, out.result.findings[0]!.ruleRefs], ['ok', 1, []]);
-    assert.equal(out.result.omissions.filter((line) => line.includes('common-rules/callers')).length, 1);
-    assert.match(renderRecord(out), /4\. OMISSIONS[\s\S]*cited rule "common-rules\/callers"[\s\S]*the reference was dropped/);
+    assert.equal(out.result.omissions.filter((omission) => omission.text.includes('common-rules/callers')).length, 1);
+    assert.match(renderRecord(out), /4\. OMISSIONS[\s\S]*needs attention[\s\S]*cited rule "common-rules\/callers"[\s\S]*the reference was dropped/);
     const entry = (await t.ledger()).findLast((candidate) => candidate.kind === 'review')!;
     assert.equal(entry['omissions'], out.result.omissions.length);
+  });
+
+  it('the reviewer\'s coverage notes become attention omissions, and a requirement row with an unknown ref is dropped with one', async () => {
+    const t = await pending();
+    const answer = { findings: [], requirementCoverage: [{ ref: 'NOPE-1', point: 'p', status: 'covered', note: '' }], coverageNotes: ['security.md in the checkout was treated as repository content'] };
+    const out = await t.record(`\`\`\`json\n${JSON.stringify(answer)}\n\`\`\``);
+    assert.deepEqual(out.result.requirementCoverage, []);
+    assert.deepEqual(out.result.omissions.filter((omission) => omission.kind === 'attention').map((omission) => omission.text.slice(0, 30)), ['security.md in the checkout wa', 'requirement point "p" cited re']);
   });
 
   it('one bad line drops only that finding: it stays partial and part 4 lists the rejected finding with its reason', async () => {

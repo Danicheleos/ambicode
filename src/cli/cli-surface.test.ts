@@ -23,6 +23,7 @@ const TABLE: Record<string, readonly string[]> = {
   'rules apply': ['project'],
   check: ['task', 'phase', 'name', 'project', 'file', 'approve', 'decline'],
   review: ['estimate'],
+  'review page': ['task'],
   'note save': ['task', 'kind'],
   report: ['task'],
   'config validate': ['task'],

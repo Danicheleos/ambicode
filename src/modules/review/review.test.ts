@@ -104,7 +104,7 @@ describe('U16 requirement modes end to end', () => {
         output.reviewDirectory,
       );
       assert.match(
-        output.result.omissions.join('\n'),
+        output.result.omissions.map((omission) => omission.text).join('\n'),
         /No requirement was supplied, so this is a quality review/,
       );
     } finally {
@@ -196,16 +196,17 @@ describe('U17 location validation', () => {
       confidence: 'high' as const,
       category: 'correctness',
       location,
-      explanation: 'x',
+      problem: 'x', impact: 'i', confidenceReason: 'c',
       suggestedComment: 'y',
       ruleRefs: [] as string[],
       requirementRefs: [] as string[],
+      supportingLocations: [] as { oldPath: string; newPath: string; side: 'new'; line: number }[],
     };
   }
 
   function run(findings: ReturnType<typeof candidate>[], overrides: Partial<Parameters<typeof validateFindings>[0]> = {}) {
     return validateFindings({
-      output: { findings, coverageNotes: [] },
+      output: { findings, requirementCoverage: [], coverageNotes: [] },
       files: [file],
       snapshotText: new Map([
         ['src/orders.ts', 'export function total(amounts: number[]) {\n  return amounts.reduce((a, b) => a + b, 0);\n}\n'],
@@ -339,7 +340,7 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
             const output = await review(context.runtime, []);
 
       assert.ok(
-        output.result.omissions.some((entry) => entry.includes('pack-invalid')),
+        output.result.omissions.some((entry) => entry.text.includes('pack-invalid')),
         `expected an omission naming the invalid pack; got: ${JSON.stringify(output.result.omissions)}`,
       );
       assert.equal(output.result.status, 'partial');
@@ -372,7 +373,7 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
 
             const output = await review(context.runtime, []);
 
-      assert.ok(output.result.omissions.some((entry) => entry.includes('pack-invalid')), JSON.stringify(output.result.omissions));
+      assert.ok(output.result.omissions.some((entry) => entry.text.includes('pack-invalid')), JSON.stringify(output.result.omissions));
     } finally {
       await context.dispose();
     }

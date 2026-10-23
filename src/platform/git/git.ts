@@ -140,6 +140,22 @@ export class Git {
     return sha === '' ? null : sha;
   }
 
+  /** Fetches one ref into FETCH_HEAD only: no local branch or tag is created or moved. */
+  async fetchRef(remote: string, ref: string): Promise<void> {
+    await this.exec(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', remote, ref]);
+  }
+
+  /** A detached checkout of `sha` at `directory`, which must not exist yet. */
+  async addDetachedWorktree(directory: string, sha: string): Promise<void> {
+    await this.exec(['worktree', 'add', '--detach', '--quiet', directory, sha]);
+  }
+
+  /** Removes a worktree and then prunes records whose directory is gone; never throws, so a cleanup cannot fail a route. */
+  async removeWorktree(directory: string): Promise<void> {
+    await this.exec(['worktree', 'remove', '--force', directory], true).catch(() => '');
+    await this.exec(['worktree', 'prune'], true).catch(() => '');
+  }
+
   async mergeBase(a: string, b: string): Promise<string | null> {
     const output = await this.exec(['merge-base', a, b], true);
     const sha = output.trim();

@@ -151,10 +151,15 @@ lines. `script-output-invalid`: it printed no JSON object, or an entry without a
 `script-name-invalid`: the name is not letters, digits, `_` or `-`. Report the message and
 stop; the scripts ship with the plugin, so retrying will not change it.
 
-**`mr-fetch-failed` / `mr-publish-failed`.** `glab` failed to read or post the merge request;
+**`mr-fetch-failed` / `mr-publish-failed`.** `glab` failed to read the merge request, or to post a comment from the review page;
 the message carries glab's own stderr (not installed, not logged in to that host, no access).
 Report it and stop; the route has ended. `mr-diff-missing`: `review --mr` found no fetched
-diff; start the route with `--mr` so its `mr-fetch` step runs.
+diff; start the route with `--mr` so its `mr-fetch` step runs. A failed post is in the
+publication record as failed; the review page can post it again. `publication-busy`: another
+publication on the page held the lock for two minutes, nothing was posted by
+this call; wait for it and publish again. `publication-unreadable`: `publication.json` in the
+review folder is not valid JSON; report it, do not publish until the user has checked the
+merge request for comments already posted.
 
 **`review-findings`.** The task route's review step found findings to fix. They come back
 in the step's `Findings` section; fix them, do not discard them.

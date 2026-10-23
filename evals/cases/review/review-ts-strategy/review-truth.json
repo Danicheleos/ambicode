@@ -1,0 +1,129 @@
+[
+  {
+    "id": "main",
+    "category": "bloat",
+    "main": true,
+    "what": "FeeStrategy, LateFeeStrategy and FeeStrategyFactory wrap what the existing lateFee function already does for one caller",
+    "locations": [
+      {
+        "file": "src/contexts/lending/domain/fees/strategy.ts",
+        "lines": [
+          9,
+          24
+        ]
+      },
+      {
+        "file": "src/contexts/lending/domain/fees/factory.ts",
+        "lines": [
+          3,
+          7
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "FeeStrategy",
+          "FeeStrategyFactory",
+          "LateFeeStrategy"
+        ],
+        "near": "overengineered|over-engineered|overengineering|unnecessary|abstraction|abstractions|indirection|bloat|bloated|speculative|ceremony"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "naming-comments",
+    "main": false,
+    "what": "comments in returnItem restate the line below them",
+    "locations": [
+      {
+        "file": "src/contexts/lending/application/return.ts",
+        "lines": [
+          8,
+          17
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "returnItem"
+        ],
+        "near": "comment|comments|narrate|narrates|narrating|restate|restates|restating|obvious"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "dead-dup",
+    "main": false,
+    "what": "the factory repeats the 50-cent day rate that lateFee holds as CENTS_PER_LATE_DAY, and LateFeeStrategy repeats its clamp at zero (Math.max), so the rule lives in two places",
+    "locations": [
+      {
+        "file": "src/contexts/lending/domain/fees/factory.ts",
+        "lines": [
+          5,
+          5
+        ]
+      },
+      {
+        "file": "src/contexts/lending/domain/fees/late.ts",
+        "lines": [
+          4,
+          4
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "CENTS_PER_LATE_DAY",
+          "lateFee",
+          "LateFeeStrategy"
+        ],
+        "near": "duplicate|duplicated|duplicates|duplication|50|magic|hardcoded|hard-coded|two places|truth|clamp|clamps|repeats"
+      }
+    ]
+  },
+  {
+    "id": "s3",
+    "category": "tests",
+    "main": false,
+    "what": "no test covers the strategy or the factory",
+    "locations": [
+      {
+        "file": "src/contexts/lending/domain/fees/factory.ts",
+        "lines": [
+          9,
+          9
+        ]
+      },
+      {
+        "file": "src/contexts/lending/domain/fees/strategy.ts",
+        "lines": [
+          14,
+          14
+        ]
+      },
+      {
+        "file": "src/contexts/lending/application/return.ts",
+        "lines": [
+          16,
+          16
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "feeStrategyFactory",
+          "FeeStrategyFactory",
+          "FeeStrategy",
+          "LateFeeStrategy"
+        ],
+        "gap": true
+      }
+    ]
+  }
+]

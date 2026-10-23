@@ -1,0 +1,76 @@
+[
+  {
+    "id": "main",
+    "category": "error-security",
+    "main": true,
+    "what": "note text is concatenated into <li> unescaped, so a stored note with markup runs in the page",
+    "locations": [
+      {
+        "file": "dashboard/src/views/firing.ts",
+        "lines": [
+          12,
+          12
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "firingPage",
+          "XSS",
+          "unescaped"
+        ],
+        "near": "html|escape|escaped|markup|inject|injection|script|sanitize|sanitise|sanitized"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "team-rule",
+    "main": false,
+    "what": "a generated file was edited by hand instead of regenerated",
+    "locations": [
+      {
+        "file": "dashboard/src/__generated__/engine-api.ts",
+        "lines": [
+          4,
+          4
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "engine-api.ts",
+          "__generated__"
+        ],
+        "near": "edit|edited|hand|regenerate|regenerated|manual|manually|openapi"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "tests",
+    "main": false,
+    "what": "the test only lists the registered routes: nothing posts a note or renders the page",
+    "locations": [
+      {
+        "file": "dashboard/test/routes.test.ts",
+        "lines": [
+          14,
+          14
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "addNote",
+          "notesOf",
+          "firingPage"
+        ],
+        "gap": true
+      }
+    ]
+  }
+]

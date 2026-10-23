@@ -54,17 +54,14 @@ async function regression() {
 }
 
 describe('review route on ts-source-regression (08-I3)', () => {
-  it('08-I3: start → estimate → run (pin and brief in code) → brief → one reviewer run → readback; the report keeps part 4', async () => {
+  it('08-I3: start → estimate (nothing refused, no question) → pin and brief in code → brief → one reviewer run → readback; the report keeps part 4', async () => {
     const t = await regression();
     try {
       const started = await t.start();
-      assert.equal(started.position, 'estimate');
-      assert.match(started.text, /Review estimate: working tree · 1 file\(s\)/);
+      const done = started;
+      assert.equal(done.position, 'review-agent');
       assert.doesNotMatch(started.text, /waiting:/);
       assert.ok(Buffer.byteLength(started.text) <= 3072, `${Buffer.byteLength(started.text)}`);
-
-      const done = await t.answer('estimate', 'run');
-      assert.equal(done.position, 'review-agent');
       assert.equal(t.runner.calls.length, 0, 'the fixture configures no check with a file form, so the route runs none');
       assert.doesNotMatch(done.text, /review --task/);
       const brief = (await readFile(path.join(t.root, '.ambicode', 'reviews', TASK, 'steps', 'work-review-agent.md'), 'utf8')).match(/brief: (.*brief\.md)/)![1]!;

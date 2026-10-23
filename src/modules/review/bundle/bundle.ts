@@ -10,7 +10,7 @@ import { touchedSet } from '#modules/checks/workspace/baseline';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import { renderReport } from '../findings/report.ts';
 import { requirementSources } from './requirements.ts';
-import { REVIEW_SCHEMA_VERSION, type RecordedCheck, type ReviewResult, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
+import { REVIEW_SCHEMA_VERSION, type RecordedCheck, type Omission, type ReviewResult, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
 import { describeExclusion, isExcludedFromReview } from '#util/path-classes';
 import { byteLength, enforceReviewInputLimits, measureInput, partitionChange } from '../snapshot/change.ts';
 import { resolveBranchTarget, resolveCapturedTarget, resolveWorkingTarget } from '../snapshot/target.ts';
@@ -23,6 +23,7 @@ import type { Runtime, Workspace } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { DiffFile } from '#types/platform/git';
 import type { RequirementSource } from '#types/modules/requirements';
+import { attention, scope } from '../omission.ts';
 import type { TargetResolution } from '../types/snapshot.ts';
 
 type Policies = { project: ProjectConfig; policy: ResolvedPolicy }[];
@@ -130,6 +131,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const taskDirectory = run === null ? null : run.root;
 
   const sourceFree = requirements.length === 0;
+  const patternExcluded = reviewable.excluded.filter((entry) => entry.reason.includes('path pattern this run was given'));
   const narrowed = (what: string, globs: readonly string[], rest: string): string[] => (globs.length === 0 ? [] : [`This review was narrowed on request: ${what} matching ${quoteAll(globs)} ${rest}`]);
   const result: ReviewResult = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
@@ -148,18 +150,24 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       return { oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, addedLines: file.addedLines, removedLines: file.removedLines, exclusionReason: reason === null ? null : describeExclusion(reason) };
     }),
     findings: [],
+    requirementCoverage: [],
     omissions: [
-      ...(preexisting.size === 0 ? [] : [`not covered: pre-existing changes: ${[...preexisting].sort().slice(0, 10).join(', ')}${preexisting.size > 10 ? ` (+${preexisting.size - 10} more)` : ''}`]),
-      ...narrowed('only paths', onlyPaths, 'were reviewed. Everything else the change touches is unexamined.'),
-      ...narrowed('paths', excludePaths, 'were not reviewed. Whatever changed in them is unexamined.'),
-      ...(resolution.target.kind === 'merge-request' ? ['Diff-only review: the reviewer had the merge request diff and no file content, so code the diff does not show was not examined.'] : []),
-      ...(excludeTests && reviewable.excluded.some((entry) => entry.reason.includes('test code'))
-        ? ["This is a merge-request review, so the change's test code was not reviewed and no check executed it. Whether the tests cover the change, and whether any assertion was weakened, is unestablished. Re-run with --with-tests to review them."]
-        : []),
-      ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
-      // An applicable policy error becomes a coverage omission: it keeps the result `partial` without stopping the reviewer.
-      ...policies.flatMap(({ project, policy }) => policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').map((diagnostic) => `project "${project.id}" policy: ${diagnostic.code}: ${diagnostic.message}`)),
-      ...(sourceFree ? ['No requirement was supplied, so this is a quality review. It does not establish that the change does what any ticket or specification asked for.'] : []),
+      ...[
+        ...(preexisting.size === 0 ? [] : [`not covered: pre-existing changes: ${[...preexisting].sort().slice(0, 10).join(', ')}${preexisting.size > 10 ? ` (+${preexisting.size - 10} more)` : ''}`]),
+        ...narrowed('only paths', onlyPaths, 'were reviewed. Everything else the change touches is unexamined.'),
+        // An applicable policy error becomes a coverage omission: it keeps the result `partial` without stopping the reviewer.
+        ...policies.flatMap(({ project, policy }) => policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').map((diagnostic) => `project "${project.id}" policy: ${diagnostic.code}: ${diagnostic.message}`)),
+      ].map(attention),
+      ...[
+        ...(resolution.target.diffOnly !== undefined ? ['Diff-only review: the checkout is not the merge request head, so the reviewer had the merge request diff and no file content, and code the diff does not show was not examined.'] : []),
+        ...(excludeTests && reviewable.excluded.some((entry) => entry.reason.includes('test code'))
+          ? ["This is a merge-request review, so the change's test code was not reviewed and no check executed it. Whether the tests cover the change, and whether any assertion was weakened, is unestablished. Re-run with --with-tests to review them."]
+          : []),
+        // A configured exclusion is routine: one scope line, the files themselves follow below.
+        ...(patternExcluded.length === 0 ? [] : [`${patternExcluded.length} file${patternExcluded.length === 1 ? '' : 's'} matching ${quoteAll(excludePaths)} excluded from the review.`]),
+        ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
+        ...(sourceFree ? ['No requirement was supplied, so this is a quality review. It does not establish that the change does what any ticket or specification asked for.'] : []),
+      ].map(scope),
     ],
     status: 'partial',
     statusReason: 'Evidence bundle only; the independent reviewer has not run.',
@@ -204,7 +212,7 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
 }
 
 /** What a task route adds to a review: the baseline scope and the ledger fields of the `review` entry. */
-interface BaselineScope { preexisting: string[]; omissions: string[]; ledger: Record<string, unknown> }
+interface BaselineScope { preexisting: string[]; omissions: Omission[]; ledger: Record<string, unknown> }
 
 /** The route's requirement envelope as sources, for a review that names none (requirement-based review on a route). */
 export async function envelopeRequirements(deps: CheckDeps, routed: Routed): Promise<RequirementSource[] | null> {
@@ -224,11 +232,11 @@ export const baselineTree = (chain: readonly LedgerEntry[]): string | null => {
 
 /** Separates this task's changes from the ones that were there before it: baseline → touched set → ledger fields. */
 export async function baselineScope(runtime: Runtime, baseline: Awaited<ReturnType<typeof baselineOf>>, ledger: Record<string, unknown>): Promise<BaselineScope> {
-  if (baseline === null) return { preexisting: [], omissions: ['no task baseline: pre-existing changes included'], ledger: { ...ledger, baseline: null, preexisting: [] } };
+  if (baseline === null) return { preexisting: [], omissions: [attention('no task baseline: pre-existing changes included')], ledger: { ...ledger, baseline: null, preexisting: [] } };
   const touched = await touchedSet(runtime, baseline);
   return {
     preexisting: touched.preexisting,
-    omissions: touched.headMoved ? ['HEAD moved since the task baseline'] : [],
+    omissions: touched.headMoved ? [attention('HEAD moved since the task baseline')] : [],
     ledger: { ...ledger, baseline: baseline.id, preexisting: touched.preexisting },
   };
 }
@@ -236,12 +244,12 @@ export async function baselineScope(runtime: Runtime, baseline: Awaited<ReturnTy
 interface PinnedReview { bundle: ReviewBundle; entry: LedgerEntry | null; reportPath: string }
 
 /** Assembles the bundle and writes its artifacts, report and `review` entry; the reviewer is offered the evidence next. */
-export async function pinReview(runtime: Runtime, input: { assemble: Omit<AssembleOptions, 'runtime'>; omissions: readonly string[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
+export async function pinReview(runtime: Runtime, input: { assemble: Omit<AssembleOptions, 'runtime'>; omissions: readonly Omission[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
   return pinAssembled(runtime, await assembleBundle({ runtime, ...input.assemble }), input);
 }
 
 /** For a caller that needed the bundle's files first (the route runs its checks on them), so assembly runs once per pin. */
-export async function pinAssembled(runtime: Runtime, bundle: ReviewBundle, input: { omissions: readonly string[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
+export async function pinAssembled(runtime: Runtime, bundle: ReviewBundle, input: { omissions: readonly Omission[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
   bundle.result.omissions = [...bundle.result.omissions, ...input.omissions];
   bundle.result.status = 'partial';
   bundle.result.statusReason = 'reviewer pending: run the ambicode:reviewer subagent, then `review record`';

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "main",
+    "category": "arch-style",
+    "main": true,
+    "what": "TransferLot declares fun execute where the other input ports are operator fun invoke",
+    "locations": [
+      {
+        "file": "application/src/main/kotlin/org/seedvault/application/port/input/TransferLot.kt",
+        "lines": [
+          10,
+          12
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "TransferLot"
+        ],
+        "near": "execute|invoke|operator|convention|ports"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "naming-comments",
+    "main": false,
+    "what": "locals data and tmp and the helper handle2 say nothing about what they are",
+    "locations": [
+      {
+        "file": "application/src/main/kotlin/org/seedvault/application/usecase/lot/TransferLotService.kt",
+        "lines": [
+          23,
+          25
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "handle2",
+          "tmp"
+        ],
+        "near": "name|names|naming|meaningless|vague|descriptive|cryptic"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "tests",
+    "main": false,
+    "what": "TransferLotService has no test, while the other use cases do",
+    "locations": [
+      {
+        "file": "application/src/main/kotlin/org/seedvault/application/usecase/lot/TransferLotService.kt",
+        "lines": [
+          15,
+          15
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "TransferLotService"
+        ],
+        "gap": true
+      }
+    ]
+  }
+]

@@ -92,6 +92,24 @@ test('a path the operator excludes leaves the review instead of blocking it', as
   assert.doesNotThrow(() => enforceReviewInputLimits(measured, NO_LIMITS, reviewable.files));
 });
 
+test('a merge-request review keeps the hunks of test files out of the patch the brief is built from; --with-tests keeps them', async () => {
+  const repo = await TempRepo.create();
+  try {
+    await repo.write('src/app.ts', 'export const value = 0;\n');
+    await repo.write('src/app.spec.ts', 'expect(0);\n');
+    await repo.commitAll('init');
+    await repo.write('src/app.ts', 'export const value = 1;\n');
+    await repo.write('src/app.spec.ts', 'expect(1);\n');
+    const { files } = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
+    const without = partitionChange(files, { excludeTests: true });
+    assert.deepEqual(without.files.map((file) => file.newPath), ['src/app.ts']);
+    assert.doesNotMatch(without.patch, /app\.spec/);
+    assert.match(partitionChange(files, { excludeTests: false }).patch, /app\.spec/);
+  } finally {
+    await repo.dispose();
+  }
+});
+
 test('test files are told apart from product code by unambiguous markers only', () => {
   const tests = [
     'main/components/assessment-form.component.spec.ts',

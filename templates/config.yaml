@@ -21,6 +21,7 @@ skills:                          # every skill: model, effort, timeoutMinutes, p
     maxChangedFiles: null
     maxChangedLines: null
     maxContextBytes: null
+    pagePort: null # fixed port of the local review page (e.g. 45831 for an ssh forward); null picks a free one
     excludePaths: []
   task: { model: sonnet, effort: medium, timeoutMinutes: 60, checkTimeoutSeconds: 120 }
   plan: { model: sonnet, effort: medium, timeoutMinutes: 30 }

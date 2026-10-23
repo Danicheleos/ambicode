@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { attention } from '#modules/review/omission';
 import { ReviewResult, ReviewerOutput } from '#types/modules/review';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { openWorkspace } from '#modules/config/workspace';
@@ -41,14 +42,14 @@ function parseOutput(raw: string): { ok: true; output: ReviewerOutput } | { ok: 
   return { ok: false, reason };
 }
 
-/** The checkout text of each file a `new`-side finding names, size-bounded; a merge request has no checkout to read, so its snippets come from the diff. */
-async function checkoutText(runtime: Runtime, root: string, result: ReviewResult, output: ReviewerOutput): Promise<Map<string, string>> {
+/** The text, in the target's checkout, of each file a `new`-side finding names, size-bounded. A merge request whose head was not checked out has none: its root is the working tree, so its snippets come from the diff. */
+async function checkoutText(runtime: Runtime, result: ReviewResult, output: ReviewerOutput): Promise<Map<string, string>> {
   const found = new Map<string, string>();
-  if (result.target.kind === 'merge-request') return found;
+  if (result.target.diffOnly !== undefined) return found;
   for (const finding of output.findings) {
     const name = finding.location.side === 'new' ? finding.location.newPath : null;
     if (name === null || found.has(name)) continue;
-    const absolute = path.join(root, name);
+    const absolute = path.join(result.target.repositoryRoot, name);
     try {
       const stats = await runtime.fs.lstat(absolute);
       if (stats.isFile() && stats.size <= MAX_SNAPSHOT_FILE_BYTES) found.set(name, await runtime.fs.readText(absolute));
@@ -85,7 +86,7 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { pending: L
     const reviewable = result.changedFiles.filter((file) => file.exclusionReason === null);
     const files = combineDiff(reviewable.map((file) => ({ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' })), await runtime.fs.readText(path.join(reviewDirectory, 'changed.diff')));
     const validated = validateFindings({
-      output: answer.output, files, snapshotText: await checkoutText(runtime, workspace.repositoryRoot, result, answer.output), maxFindings: config.maxFindings,
+      output: answer.output, files, snapshotText: await checkoutText(runtime, result, answer.output), maxFindings: config.maxFindings,
       knownRuleIds: new Set(result.ruleIds), knownRequirementIds: new Set(result.requirements.map((source) => source.id)),
     });
     if (validated.kind === 'invalid') {
@@ -96,7 +97,9 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { pending: L
       result.findings = validated.findings;
       // Listed in Part 4 beside the omissions; applyStatus keeps the review partial while any is there.
       run.rejections = validated.rejected;
-      result.omissions = [...result.omissions, ...answer.output.coverageNotes, ...validated.dropped];
+      result.requirementCoverage = validated.coverage;
+      const unanswered = result.requirements.filter((source) => !validated.coverage.some((point) => point.ref === source.id));
+      result.omissions = [...result.omissions, ...[...answer.output.coverageNotes, ...validated.dropped, ...unanswered.map((source) => `requirement ${source.id}: the reviewer gave no per-point answer`)].map(attention)];
     }
   }
   if (!ok) {
@@ -125,7 +128,8 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { pending: L
 }
 
 /** What the model reads after a record: the report, then why no findings came when the answer was refused. */
-export function renderRecord({ result, resultPath }: { result: ReviewResult; resultPath: string }): string {
+export function renderRecord({ result, resultPath, reportPath }: { result: ReviewResult; resultPath: string; reportPath: string }): string {
   const failed = result.status === 'error' ? `\n\nNo finding list was produced: ${result.statusReason ?? ''}\n${(result.reviewer?.rejections ?? []).map((line) => `  - ${line}`).join('\n')}` : '';
-  return `${renderReport({ result, resultPath })}${failed}`;
+  const full = result.findings.length === 0 ? '' : `\n\nThe full report, with each finding's code excerpt, suggested comment and rule ids: ${reportPath}`;
+  return `${renderReport({ result, resultPath, compact: true })}${failed}${full}`;
 }

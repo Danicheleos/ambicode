@@ -3,6 +3,7 @@ import { combineDiff, splitPatchSections } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
+import { checkoutDirectory } from './checkout.ts';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import type { Workspace } from '#types/composition';
 import type { DiffFile, RawChange } from '#types/platform/git';
@@ -11,6 +12,9 @@ import type { TargetResolution } from '../types/snapshot.ts';
 
 export const MR_DIFF_PATCH = 'mr-diff.patch';
 export const MR_DIFF_JSON = 'mr-diff.json';
+/** Beside mr-diff.json: the human discussions, or the error that kept them out; the brief script reads it by this name. */
+export const MR_DISCUSSIONS = 'mr-discussions.json';
+export const MR_COMMITS = 'mr-commits.json';
 
 interface WorkingTargetOptions {
   fs: FileSystem;
@@ -163,10 +167,7 @@ function changeOf(section: string): RawChange {
 
 export const capturedFiles = (patch: string): DiffFile[] => combineDiff(splitPatchSections(patch).map(changeOf), patch);
 
-/**
- * Merge-request target from the diff the hook captured off the model's GitLab MCP call. The review is diff-only:
- * the merge request's files are not in the checkout.
- */
+/** Merge-request target from the diff `review.mrFetch` saved with glab; `diffOnly` in its mr-diff.json is why the head is not checked out. */
 export async function resolveCapturedTarget(options: CapturedTargetOptions): Promise<TargetResolution> {
   const { workspace, task, url } = options;
   const { runtime, git, repositoryRoot } = workspace;
@@ -177,13 +178,14 @@ export async function resolveCapturedTarget(options: CapturedTargetOptions): Pro
   const dir = taskDirFor(repositoryRoot, task, '.', 'review').root;
   const patch = await runtime.fs.readText(path.join(dir, MR_DIFF_PATCH)).catch(() => null);
   if (patch === null) throw missing();
-  const meta = JSON.parse(await runtime.fs.readText(path.join(dir, MR_DIFF_JSON)).catch(() => '{}')) as { sha?: string };
+  const meta = JSON.parse(await runtime.fs.readText(path.join(dir, MR_DIFF_JSON)).catch(() => '{}')) as { sha?: string; diffOnly?: string | null };
   const files = capturedFiles(patch);
 
   const headSha = meta.sha === undefined ? null : await git.revParse(meta.sha);
-  const notes = ['Diff fetched with glab; nothing was checked out.', 'Diff only: the reviewer has no file content for this merge request.'];
+  const diffOnly = meta.diffOnly === null ? undefined : meta.diffOnly ?? 'the merge request head was not checked out';
+  const notes = ['Diff fetched with glab.', diffOnly === undefined ? 'The reviewer reads a detached checkout of the merge request head.' : `Diff only: ${diffOnly}.`];
   return {
-    target: { kind: 'merge-request', repositoryRoot, snapshotId: `mr-${contentHash(`${url}\n${patch}`).slice(7, 23)}`, headSha, baseSha: null, baseRef: null, notes },
+    target: { kind: 'merge-request', repositoryRoot: diffOnly === undefined ? checkoutDirectory(dir) : repositoryRoot, snapshotId: `mr-${contentHash(`${url}\n${patch}`).slice(7, 23)}`, headSha, baseSha: null, baseRef: null, notes, ...(diffOnly === undefined ? {} : { diffOnly }) },
     files,
     patch,
   };

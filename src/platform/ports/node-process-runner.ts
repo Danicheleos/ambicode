@@ -17,6 +17,7 @@ export class NodeProcessRunner implements ProcessRunner {
     }
 
     const environment = resolveEnvironment(request.env, this.baseEnv);
+    if (request.detached === true) return startDetached(executable, args, request, environment);
 
     const limit = Math.max(0, request.maxOutputBytes);
     const kept: Record<'stdout' | 'stderr', Buffer[]> = { stdout: [], stderr: [] };
@@ -81,6 +82,42 @@ export class NodeProcessRunner implements ProcessRunner {
     if (settled.error !== null) return outcome('spawn-failed', { ...base, failure: messageOf(settled.error) });
     return outcome('exited', { ...base, exitCode: settled.code });
   }
+}
+
+/** Returns at the first stdout line, exit or deadline (which kills it), then unreferences the child so it survives this process. */
+async function startDetached(executable: string, args: string[], request: ProcessRequest, env: Record<string, string>): Promise<ProcessOutcome> {
+  const started = performance.now();
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(executable, args, { cwd: request.cwd, env, shell: false, windowsHide: true, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    return outcome('spawn-failed', { failure: messageOf(error) });
+  }
+  let out = '';
+  let err = '';
+  let deadline: NodeJS.Timeout | undefined;
+  const first = await new Promise<'line' | 'exit' | 'timeout' | Error>((resolve) => {
+    deadline = setTimeout(() => resolve('timeout'), request.timeoutMs);
+    child.stdout?.on('data', (chunk: Buffer) => { out += chunk.toString('utf8'); if (out.includes('\n')) resolve('line'); });
+    child.stderr?.on('data', (chunk: Buffer) => { err = (err + chunk.toString('utf8')).slice(0, request.maxOutputBytes); });
+    child.once('error', resolve);
+    child.once('close', () => resolve('exit'));
+  });
+  clearTimeout(deadline);
+  const durationMs = Math.round(performance.now() - started);
+  const base = { stdout: out.split('\n')[0]!.slice(0, request.maxOutputBytes), stderr: err, durationMs };
+  if (first === 'line') {
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    child.unref();
+    return outcome('exited', { ...base, exitCode: 0 });
+  }
+  if (first === 'timeout') {
+    if (process.platform === 'win32') killProcessTree(child.pid);
+    else child.kill('SIGKILL');
+    return outcome('timed-out', base);
+  }
+  return first instanceof Error ? outcome('spawn-failed', { ...base, failure: messageOf(first) }) : outcome('exited', { ...base, exitCode: child.exitCode });
 }
 
 /**

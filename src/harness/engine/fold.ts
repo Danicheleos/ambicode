@@ -2,6 +2,7 @@ import type { GateDef, Qualified, When } from '../definition/routes.ts';
 import type { RouteDef, StepDef } from '#types/harness';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Chain } from '#types/modules/evidence';
+import { mrRequirements } from '#modules/requirements/capture/has-requirement';
 import { buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
 export { buildChain, exitOf, isBoundAnswer, latestBound, liveHeads };
@@ -40,10 +41,17 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
 
 interface FoldContext { args: { iteration?: number | null; hasRequirement?: boolean; target?: { mr?: string | null } } }
 
+const estimateAsks = (all: readonly LedgerEntry[]): boolean =>
+  all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'estimate-step' && entry['status'] === 'completed')?.['asks'] === true;
+
 function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext, gateWindow: (gate: string) => readonly LedgerEntry[], opener: LedgerEntry | undefined, step: StepDef): boolean {
   switch (when.predicate) {
     case 'args.hasRequirement': return context.args.hasRequirement === true;
     case 'args.hasMergeRequest': return typeof context.args.target?.mr === 'string';
+    case 'mr.requirements': return mrRequirements(all).length > 0;
+    // The estimate step records whether a refusal needs the human; a route that never ran it asks nothing.
+    case 'estimate.asks': return estimateAsks(all);
+    case 'estimate.run': return !estimateAsks(all);
     case 'map.empty': {
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;

@@ -1,4 +1,4 @@
-import type { Finding, FindingLocation, ReviewerOutput } from '#types/modules/review';
+import type { Finding, FindingLocation, ReviewResult, ReviewerOutput } from '#types/modules/review';
 import { addressableLines, lineAt } from '#platform/git/diff';
 import type { DiffFile } from '#types/platform/git';
 
@@ -20,9 +20,13 @@ export interface ValidateOptions {
 
 type ValidatedFindings =
   /** `dropped` names each unknown rule reference removed from a kept finding; the caller records them as omissions. */
-  | { kind: 'ok'; findings: Finding[]; dropped: string[]; rejected: string[] }
+  | { kind: 'ok'; findings: Finding[]; coverage: ReviewResult['requirementCoverage']; dropped: string[]; rejected: string[] }
   /** `rejections` are persisted, because a refusal is evidence about the review. */
   | { kind: 'invalid'; reason: string; rejections: string[] };
+
+// One sentence each is the contract; a paragraph is clipped, visibly, so the page and report stay readable at a glance.
+const SENTENCE_MAX = 300;
+const clip = (text: string): string => (text.length > SENTENCE_MAX ? `${text.slice(0, SENTENCE_MAX - 1)}…` : text);
 
 export function validateFindings(options: ValidateOptions): ValidatedFindings {
   const rejections: string[] = [];
@@ -40,6 +44,9 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     };
   }
 
+  // A requirement id is often a URL (https://x.atlassian.net/browse/VS-6876) and a reviewer cites its key: the key at the tail of a known id names it.
+  const requirementId = (ref: string): string | undefined => (options.knownRequirementIds.has(ref) ? ref : [...options.knownRequirementIds].find((id) => ref !== '' && id.endsWith(`/${ref}`)));
+  const idOfCandidate = new Map<number, string>();
   for (const [index, candidate] of options.output.findings.entries()) {
     const before = rejections.length;
     const label = `finding ${index + 1} (${describe(candidate.location)})`;
@@ -53,29 +60,41 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     // Excerpt taken from the checkout and the diff, never from text the model supplied.
     const evidence = snippetFor(located, options.snapshotText);
 
+    const supportingLocations: FindingLocation[] = [];
+    for (const extra of candidate.supportingLocations) {
+      const found = resolveLocation(extra, options.files);
+      if (typeof found === 'string') dropped.push(`${label} also named ${describe(extra)}: ${found} The location was dropped`);
+      else if (!sameSpot(found.location, located.location) && !supportingLocations.some((kept) => sameSpot(kept, found.location))) supportingLocations.push(found.location);
+    }
+
     const ruleRefs: string[] = [];
     for (const ref of candidate.ruleRefs) {
       if (options.knownRuleIds.has(ref)) ruleRefs.push(ref);
       else dropped.push(`${label} cited rule "${ref}", which is not in this review's resolved policy; the reference was dropped`);
     }
+    const requirementRefs: string[] = [];
     for (const ref of candidate.requirementRefs) {
-      if (!options.knownRequirementIds.has(ref)) {
-        rejections.push(`${label}: cites requirement "${ref}", which is not in this review's requirements.`);
-      }
+      const known = requirementId(ref);
+      if (known === undefined) dropped.push(`${label} cited requirement "${ref}", which is not in this review's requirements; the reference was dropped`);
+      else if (!requirementRefs.includes(known)) requirementRefs.push(known);
     }
 
     if (rejections.length > before) continue;
+    idOfCandidate.set(index + 1, `f${findings.length + 1}`);
     findings.push({
       id: `f${findings.length + 1}`,
       risk: candidate.risk,
       confidence: candidate.confidence,
       category: candidate.category,
       location: located.location,
+      supportingLocations,
       evidence,
-      explanation: candidate.explanation,
+      problem: clip(candidate.problem),
+      impact: clip(candidate.impact),
+      confidenceReason: clip(candidate.confidenceReason),
       suggestedComment: candidate.suggestedComment,
       ruleRefs,
-      requirementRefs: [...candidate.requirementRefs],
+      requirementRefs,
     });
   }
 
@@ -88,7 +107,14 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     };
   }
 
-  return { kind: 'ok', findings, dropped, rejected };
+  const coverage: ReviewResult['requirementCoverage'] = [];
+  for (const point of options.output.requirementCoverage) {
+    const ref = requirementId(point.ref);
+    if (ref === undefined) { dropped.push(`requirement point "${point.point}" cited requirement "${point.ref}", which is not in this review's requirements; the point was dropped`); continue; }
+    coverage.push({ ref, point: point.point, status: point.status, note: point.note, finding: point.finding == null ? null : idOfCandidate.get(point.finding) ?? null });
+  }
+
+  return { kind: 'ok', findings, coverage, dropped, rejected };
 }
 
 interface Located {
@@ -159,6 +185,8 @@ function snippetFor(located: Located, snapshotText: ReadonlyMap<string, string>)
   const line = lineAt(file, location.side, location.line);
   return line === null ? '' : `${location.line}: ${line.text}${COMMENT_MARKER}`;
 }
+
+const sameSpot = (a: FindingLocation, b: FindingLocation): boolean => a.side === b.side && a.line === b.line && a.oldPath === b.oldPath && a.newPath === b.newPath;
 
 function describe(location: FindingLocation): string {
   const named = location.side === 'new' ? location.newPath : location.oldPath;

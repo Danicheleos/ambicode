@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { addressableLines } from '#platform/git/diff';
+import { checkoutDirectory } from './checkout.ts';
 import { MR_DIFF_JSON, MR_DIFF_PATCH, resolveCapturedTarget } from './target.ts';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import type { Workspace } from '#types/composition';
@@ -28,7 +29,23 @@ test('a captured diff resolves to a merge-request target with addressable lines'
   assert.equal(resolved.target.kind, 'merge-request');
   assert.deepEqual(resolved.files.map((file) => [file.oldPath, file.newPath, file.changeKind]), [['src/a.ts', 'src/a.ts', 'modified'], [null, 'src/b.ts', 'added']]);
   assert.deepEqual([...addressableLines(resolved.files[0]!, 'new')], [1, 2]);
-  assert.match(resolved.target.notes.join('\n'), /Diff only: the reviewer has no file content/);
+  assert.match(resolved.target.notes.join('\n'), /Diff only: the merge request head was not checked out/);
+  assert.equal(resolved.target.repositoryRoot, workspace.repositoryRoot);
+});
+
+test('a pinned checkout becomes the target root; a recorded gap is named in the notes', async (t) => {
+  const { repo, workspace } = await setup(t);
+  const task = taskDirFor(repo.root, 't', '.', 'review').root;
+  const meta = path.relative(repo.root, path.join(task, MR_DIFF_JSON));
+  await repo.write(meta, JSON.stringify({ diffOnly: null }));
+  const pinned = await resolveCapturedTarget({ workspace, task: 't', url: URL_MR });
+  assert.equal(pinned.target.repositoryRoot, checkoutDirectory(task));
+  assert.equal(pinned.target.diffOnly, undefined);
+  await repo.write(meta, JSON.stringify({ diffOnly: 'the merge request head abc is not checked out: git fetch failed' }));
+  const gapped = await resolveCapturedTarget({ workspace, task: 't', url: URL_MR });
+  assert.equal(gapped.target.repositoryRoot, repo.root);
+  assert.equal(gapped.target.diffOnly, 'the merge request head abc is not checked out: git fetch failed');
+  assert.match(gapped.target.notes.join('\n'), /Diff only: the merge request head abc is not checked out: git fetch failed/);
 });
 
 test('a captured head sha is pinned as the target head', async (t) => {

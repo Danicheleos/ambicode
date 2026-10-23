@@ -20,7 +20,7 @@ const LOCK_FILE = 'ledger.lock';
 const heldHere = new AsyncLocalStorage<ReadonlySet<string>>();
 const queues = new Map<string, Promise<void>>();
 
-const processAlive = (pid: number): boolean => {
+export const processAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;

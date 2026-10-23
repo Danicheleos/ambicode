@@ -18,7 +18,7 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'iterations.continue' | 'revised' }
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'iterations.continue' | 'revised' }
   | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string }
   | { predicate: 'any'; of: When[] };
 
@@ -78,9 +78,8 @@ export const HANDLER_NAMES = [
   'checks.runnable',
   'review.evaluate',
   'review.estimate',
-  'review.publishList',
+  'review.page',
   'review.mrFetch',
-  'review.publish',
   'review.pin',
   'review.record',
 ] as const;
