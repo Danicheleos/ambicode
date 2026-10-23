@@ -15,10 +15,11 @@ const BROAD = ['ts-service-lendbox', 'py-service-tidewatch', 'go-module-parcelhu
 const passes = (text, spec) => new RegExp(spec.pattern).test(text) === (spec.match !== 'not_contains');
 
 describe('investigate cases', () => {
-  it('are two per stack fixture and five in depth on ts-app-medium, one case per truth', () => {
+  it('are two per stack fixture, three on ts-app-medium and two on its deep variant, one case per truth', () => {
     assert.equal(cases.length, INVESTIGATE_TRUTHS.length);
     for (const fixture of BROAD) assert.equal(cases.filter((c) => c.fixture === fixture).length, 2, fixture);
-    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium').length, 5);
+    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium').length, 3);
+    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium-deep').length, 2);
     assert.equal(cases.length, 15);
     assert.equal(new Set(cases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, cases.length, 'task slugs are unique');
   });
@@ -138,8 +139,9 @@ describe('facts and citations accept the right wording and refuse the plausible 
     ['investigate-jvm-sow-mail', 'fallback-desk', 'To: desk@example.org', 'To: seeds@example.org'],
     ['investigate-ts-late-fee-wiring', 'fee-150-cents', 'three days is 150 cents', 'three days is 1500 cents'],
     ['investigate-mono-max-setpoint', 'limit-13000', 'MAX_SETPOINT_DC is 13_000', 'the limit is 1300'],
-    ['investigate-app-segment-flow', 'gold-threshold', 'gold needs 500000 cents', 'gold needs 5000 cents'],
-    ['investigate-app-optout-files', 'lists-a-test', '- tests/customers/service.test.js', '- src/customers/service.js'],
+    ['investigate-app-segment-flow-2', 'gold-threshold', 'gold needs 500000 cents', 'gold needs 5000 cents'],
+    ['investigate-app-segment-flow-2', 'window-365', 'a 365 day window', 'a 30 day window'],
+    ['investigate-app-optout-files-2', 'lists-a-test', '- tests/customers/service.test.js', '- src/customers/service.js'],
     ['investigate-py-unit-adapters', 'weir-centimetres', 'weir_levels reads centimetres', 'weir_levels reads millimetres'],
   ];
   for (const [name, graderName, right, wrong] of wrongAndRight) {
@@ -159,5 +161,24 @@ describe('facts and citations accept the right wording and refuse the plausible 
     const g = spec('investigate-app-total-legacy', 'files-skip-decoys');
     assert.ok(!passes('## Files\n- src/invoices/service.js\n- src/legacy/invoice-total.js\n', g));
     assert.ok(passes('src/legacy/invoice-total.js is frozen and unused here.\n## Files\n- src/invoices/service.js\n', g));
+  });
+});
+
+describe('the deep app variant', () => {
+  const base = finalFiles('ts-app-medium');
+  const deep = finalFiles('ts-app-medium-deep');
+
+  it('adds to the base fixture and changes only the files APP_DEEP overrides, so the plan and task truths on the base hold', () => {
+    const changed = [...deep.keys()].filter((file) => base.get(file) !== deep.get(file)).sort();
+    assert.deepEqual(changed, ['src/config.js', 'src/customers/patch.js', 'src/customers/segments.js', 'src/customers/service.js', 'src/customers/window.js', 'src/invoices/repository.js']);
+    for (const file of base.keys()) assert.ok(deep.has(file), file);
+  });
+
+  it('the obvious symbol alone does not find the cause: the symptom file does not hold the window or the whitelist', () => {
+    const segments = deep.get('src/customers/segments.js');
+    assert.doesNotMatch(segments, /365|segmentWindowDays|setUTCDate/);
+    assert.doesNotMatch(deep.get('src/customers/routes.js'), /receipt|patchable|FIELDS/i);
+    assert.doesNotMatch(deep.get('src/customers/service.js'), /validateString\(patch|patch\.phone/);
+    for (const file of deep.keys()) if (file.startsWith('src/') && file !== 'src/customers/patch.js') assert.doesNotMatch(deep.get(file), /receiptChannels/, file);
   });
 });

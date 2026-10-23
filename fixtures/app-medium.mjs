@@ -2800,3 +2800,99 @@ export function withoutTest(source, title) {
   else before = before.replace(/\n$/, '');
   return before + after;
 }
+
+/** Applies [from, to] pairs to one base file; throws unless each `from` occurs exactly once, so a base edit cannot slip past this variant. */
+function swap(file, ...pairs) {
+  return pairs.reduce((text, [from, to]) => {
+    if (text.split(from).length !== 2) throw new Error(`${file}: anchor not found exactly once: ${from}`);
+    return text.replace(from, () => to);
+  }, APP_FILES[file]);
+}
+
+/**
+ * Overrides for `ts-app-medium-deep`, the investigate variant: a customer segment counts only the invoices of a rolling window
+ * (customers/window.js, config.segmentWindowDays, a `since` filter in the invoices repository), and PATCH /customers/:id passes
+ * through a field whitelist (customers/patch.js). The base files stay as they are for the plan, task, init and review cases.
+ */
+export const APP_DEEP = {
+  'src/config.js': swap('src/config.js', ['  agingBucketsDays: [30, 60],\n', '  agingBucketsDays: [30, 60],\n  segmentWindowDays: 365,\n']),
+  'src/invoices/repository.js': swap('src/invoices/repository.js', [
+    `const list = ({ customerId, status } = {}) =>
+  Array.from(rows().values()).filter(
+    (invoice) => (customerId === undefined || invoice.customerId === customerId) && (status === undefined || invoice.status === status),
+  );`,
+    `const list = ({ customerId, status, since } = {}) =>
+  Array.from(rows().values()).filter(
+    (invoice) =>
+      (customerId === undefined || invoice.customerId === customerId) &&
+      (status === undefined || invoice.status === status) &&
+      (since === undefined || invoice.issuedAt >= since),
+  );`,
+  ]),
+  'src/customers/window.js': raw`const config = require('../config');
+const clock = require('../shared/clock');
+
+// First issue day that still counts towards a segment.
+function startOfWindow() {
+  const start = clock.now();
+  start.setUTCDate(start.getUTCDate() - config.segmentWindowDays);
+  return start.toISOString().slice(0, 10);
+}
+
+module.exports = { startOfWindow };
+`,
+  'src/customers/segments.js': swap(
+    'src/customers/segments.js',
+    ["const money = require('../shared/money');\n", "const money = require('../shared/money');\nconst window = require('./window');\n"],
+    [
+      `// Lifetime billed amount of a customer, in cents.
+function lifetimeCents(customerId) {
+  return money.sum(invoices.list({ customerId }).map(invoices.total));
+}`,
+      `// Billed amount of a customer over the segment window, in cents.
+function lifetimeCents(customerId) {
+  return money.sum(invoices.list({ customerId, since: window.startOfWindow() }).map(invoices.total));
+}`,
+    ],
+  ),
+  'src/customers/patch.js': raw`const { validateString, validateEmail } = require('../shared/validation');
+
+// The fields a PATCH may change, each with its check; anything else in the body is dropped.
+const FIELDS = {
+  name: (value) => validateString(value, 'name'),
+  email: (value) => validateEmail(value),
+  phone: (value) => value,
+};
+
+function pick(patch) {
+  const next = {};
+  for (const [field, check] of Object.entries(FIELDS)) {
+    if (patch[field] !== undefined) next[field] = check(patch[field]);
+  }
+  return next;
+}
+
+module.exports = { FIELDS, pick };
+`,
+  'src/customers/service.js': swap(
+    'src/customers/service.js',
+    ["const { createCustomer } = require('./model');\n", "const { createCustomer } = require('./model');\nconst patchable = require('./patch');\n"],
+    [
+      `  const next = {};
+  if (patch.name !== undefined) next.name = validateString(patch.name, 'name');
+  if (patch.email !== undefined) {
+    next.email = validateEmail(patch.email);
+    const other = repository.findByEmail(next.email);
+    if (other !== null && other.id !== id) throw new ConflictError('a customer with this email exists', { email: next.email });
+  }
+  if (patch.phone !== undefined) next.phone = patch.phone;
+  return repository.update(id, next);`,
+      `  const next = patchable.pick(patch);
+  if (next.email !== undefined) {
+    const other = repository.findByEmail(next.email);
+    if (other !== null && other.id !== id) throw new ConflictError('a customer with this email exists', { email: next.email });
+  }
+  return repository.update(id, next);`,
+    ],
+  ),
+};

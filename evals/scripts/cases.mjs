@@ -70,7 +70,7 @@ export const CASES = [
   // Fourteen cases on the init stacks (review-cases.mjs): same scaffold in both arms, graded per issue.
   ...reviewCases(BUILDERS),
   // ---------------------------------------------------------------- investigate
-  // Ten tricky questions on the init stacks and five in depth on ts-app-medium (investigate-cases.mjs).
+  // Ten tricky questions on the init stacks and five in depth on ts-app-medium, two of them on its ts-app-medium-deep variant (investigate-cases.mjs).
   ...investigateCases(BUILDERS),
   // ---------------------------------------------------------------- task
   // Fifteen cases on the init stacks (task-cases.mjs) and five on the app fixtures; seeded ones start after a plan or an investigation.
