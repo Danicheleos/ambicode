@@ -1,4 +1,4 @@
-// The /ambicode:investigate cases: ten broad ones (two per stack fixture) and five in depth on ts-app-medium (two of them on its ts-app-medium-deep variant). cases.mjs spreads
+// The /ambicode:investigate cases: ten broad ones (two per stack fixture, on the base fixtures) and five in depth on ts-app-medium (two of them on its ts-app-medium-deep variant). cases.mjs spreads
 // `investigateCases`. Every answer below was read off the fixture's own files (fixtures/definitions.mjs); investigate-cases.test.mjs
 // checks each `anchors` line is still there and each `absent` claim still holds, so a fixture edit cannot silently turn a truth false.
 //
@@ -25,19 +25,23 @@ const tail = (file) => file.split('/').slice(-2).join('/');
  */
 export const INVESTIGATE_TRUTHS = [
   {
-    name: 'investigate-ts-late-fee-wiring', slug: 'inv-fee', fixture: 'ts-service-lendbox',
-    description: 'Follow a late fee from the return of a tool to the invoice on a bounded-context service.',
-    question: 'A member returns a borrowed tool three days after its due date. How is the late fee worked out, and does the member end up with an invoice for it?',
-    relevant: ['src/contexts/lending/application/return.ts', 'src/contexts/lending/domain/fees/late.ts', 'src/contexts/billing/application/on-loan-returned.ts', 'src/composition.ts'],
-    allowed: ['src/contexts/billing/application/issue-invoice.ts', 'src/contexts/billing/domain/tax.ts', 'src/shared-kernel/events/bus.ts', 'src/shared-kernel/events/event.ts', 'src/shared-kernel/time/period.ts', 'src/contexts/lending/index.ts', 'src/contexts/billing/index.ts', 'src/contexts/lending/http/routes.ts', 'src/contexts/notifications/application/notify.ts', 'src/contexts/notifications/application/templates.ts', 'test/fees.test.ts'],
-    decoys: ['src/contexts/lending/domain/fees/damage.ts', 'src/contexts/lending/domain/fees/waiver.ts'],
-    cites: ['src/composition.ts', 'src/contexts/lending/domain/fees/late.ts'],
-    facts: [['fee-150-cents', '\\b150\\b']],
-    verdict: ['not-invoiced-as-wired', `
-PASS only if the answer says that, as the code is wired, no invoice is issued from a return: billing's onLoanReturned reacts to lending.loan-returned, but nothing subscribes it to the bus (src/composition.ts wires no subscriber and no billing), so the member is not invoiced.
-FAIL if it says the member is invoiced, or describes a subscription that does not exist. Naming onLoanReturned and issueInvoice as the code that would invoice is fine.`],
-    anchors: [['src/contexts/lending/domain/fees/late.ts', 'CENTS_PER_LATE_DAY = 50'], ['src/contexts/lending/application/return.ts', "name: 'lending.loan-returned'"], ['src/contexts/billing/application/on-loan-returned.ts', 'issueInvoice(deps)']],
-    absent: [{ find: '.subscribe(' }, { find: 'billing', in: 'src/composition.ts' }, { find: 'onLoanReturned', except: ['src/contexts/billing/application/on-loan-returned.ts', 'src/contexts/billing/index.ts'] }],
+    name: 'investigate-ts-extend-late-fee', slug: 'inv-extend', fixture: 'ts-service-lendbox',
+    description: 'Work out a late fee from a loan that was extended, across the lending and billing contexts of a bounded-context service.',
+    question: 'A tool is borrowed on 2026-03-02 and its loan is extended three times with the extend use case, then the tool is returned on 2026-04-01. What late fee does the code work out for that return, from which due date, and what happens to the fee afterwards?',
+    relevant: ['src/contexts/lending/application/extend.ts', 'src/contexts/lending/domain/policy.ts', 'src/contexts/lending/domain/loan.ts', 'src/contexts/lending/application/return.ts', 'src/contexts/lending/domain/fees/late.ts', 'src/composition.ts'],
+    allowed: ['src/shared-kernel/time/calendar.ts', 'src/shared-kernel/time/period.ts', 'src/shared-kernel/events/bus.ts', 'src/shared-kernel/events/event.ts', 'src/shared-kernel/money/money.ts', 'src/contexts/lending/application/borrow.ts', 'src/contexts/lending/application/deps.ts', 'src/contexts/lending/index.ts', 'src/contexts/lending/http/routes.ts', 'src/contexts/billing/application/on-loan-returned.ts', 'src/contexts/billing/application/issue-invoice.ts', 'test/fees.test.ts'],
+    decoys: ['src/contexts/lending/domain/fees/waiver.ts', 'src/contexts/lending/domain/fees/damage.ts'],
+    cites: ['src/contexts/lending/application/extend.ts', 'src/contexts/lending/domain/fees/late.ts'],
+    facts: [['fee-100-cents', '\\b100\\b']],
+    verdict: ['uncapped-extensions-fee', `
+PASS if the answer states, in any wording, all three:
+- The fee is 100 cents: two days late at 50 cents a day, counted from the due date after the three extensions (2026-03-30), not from the original due date (2026-03-09).
+- All three extensions take effect: the limit of two extensions (MAX_EXTENSIONS and canExtend in src/contexts/lending/domain/policy.ts) is never checked by the extend use case.
+- The fee leaves lending only as feeCents in the payload of the lending.loan-returned event; nothing subscribes billing to it (src/composition.ts wires no subscriber), so no invoice follows.
+Equivalent wording counts ("the cap is not applied", "nothing consumes the event"). Naming onLoanReturned or issueInvoice as the code that would invoice is fine.
+FAIL if it gives another fee (for example 450 cents from a cap of two extensions, or 350 from the original due date), says the extension limit is enforced, or says the member is invoiced.`],
+    anchors: [['src/contexts/lending/application/extend.ts', 'addDays(loan.dueOn, LOAN_DAYS)'], ['src/contexts/lending/domain/policy.ts', 'MAX_EXTENSIONS = 2'], ['src/contexts/lending/domain/fees/late.ts', 'CENTS_PER_LATE_DAY = 50'], ['src/contexts/lending/application/return.ts', 'lateFee(loan.dueOn, now)'], ['src/shared-kernel/time/period.ts', 'Math.floor']],
+    absent: [{ find: 'canExtend', except: ['src/contexts/lending/domain/policy.ts'] }, { find: 'MAX_EXTENSIONS', except: ['src/contexts/lending/domain/policy.ts'] }, { find: 'extendLoan', except: ['src/contexts/lending/application/extend.ts'] }, { find: 'waive(', except: ['src/contexts/lending/domain/fees/waiver.ts'] }, { find: 'damageFee', except: ['src/contexts/lending/domain/fees/damage.ts'] }, { find: '.subscribe(' }, { find: 'billing', in: 'src/composition.ts' }],
   },
   {
     name: 'investigate-ts-loan-limit', slug: 'inv-limit', fixture: 'ts-service-lendbox',
@@ -49,25 +53,25 @@ FAIL if it says the member is invoiced, or describes a subscription that does no
     cites: ['src/contexts/members/domain/tier.ts', 'src/contexts/lending/application/borrow.ts'],
     facts: [],
     verdict: ['limit-is-not-applied', `
-PASS only if the answer says nothing enforces the per-member loan limit when a loan is started: loanLimit (3 basic, 5 plus, in members/domain/tier.ts) exists, but borrowItem does not call it, and no route or other code does.
+PASS if the answer states, in any wording, that nothing enforces the per-member loan limit when a loan is started: loanLimit (3 for basic, 5 for plus, in src/contexts/members/domain/tier.ts) is defined, but no code calls it; borrowItem does not check it and no route does. "It is not enforced", "defined but never applied", "no check exists" all count. Naming borrowItem as the place where a check would have to go is fine.
 FAIL if it names borrowItem, a route or any other code as enforcing the limit, or invents a check.`],
     anchors: [['src/contexts/members/domain/tier.ts', "tier === 'plus' ? 5 : 3"], ['src/contexts/lending/application/borrow.ts', 'isLendable(itemId)'], ['src/composition.ts', 'isLendable: async () => true']],
     absent: [{ find: 'loanLimit', except: ['src/contexts/members/domain/tier.ts'] }, { find: 'canBorrow', except: ['src/contexts/members/domain/standing.ts'] }],
   },
   {
-    name: 'investigate-py-cli-empty-store', slug: 'inv-cli', fixture: 'py-service-tidewatch',
-    description: 'Follow a command line call through a layered service to the text it prints.',
-    question: 'What does `python -m tidewatch.cli.main dover 6` print when the program has just started, and why?',
-    relevant: ['src/tidewatch/cli/main.py', 'src/tidewatch/infra/wiring.py', 'src/tidewatch/app/queries/latest.py', 'src/tidewatch/api/handlers/window.py', 'src/tidewatch/cli/render.py'],
-    allowed: ['src/tidewatch/app/queries/forecast.py', 'src/tidewatch/infra/store/memory.py', 'src/tidewatch/api/replies.py', 'src/tidewatch/domain/errors.py', 'src/tidewatch/app/services.py', 'src/tidewatch/app/ports/store.py', 'src/tidewatch/domain/rules/staleness.py', 'src/tidewatch/domain/rules/window.py', 'src/tidewatch/app/commands/ingest.py'],
-    decoys: [],
-    cites: ['src/tidewatch/infra/wiring.py', 'src/tidewatch/app/queries/latest.py'],
-    facts: [['code-tw-101', 'TW-101']],
-    verdict: ['empty-store-is-why', `
-PASS only if the answer says the command prints a failure with the unknown-gauge code TW-101, because the store that infra/wiring.py builds starts empty and nothing on the command's path ever adds readings.
-FAIL if it says the command prints hourly water heights, or that it fails for staleness or window length, or names another code as the fresh-start result.`],
-    anchors: [['src/tidewatch/infra/wiring.py', 'MemoryStore(capacity=settings.capacity)'], ['src/tidewatch/app/queries/latest.py', 'raise UnknownGaugeError("TW-101"'], ['src/tidewatch/cli/render.py', "return f\"failed {reply['code']}\""]],
-    absent: [{ find: 'commands.ingest', except: [] }, { find: 'plugin_named', except: ['src/tidewatch/plugins/registry.py', 'tests/test_plugins.py'] }, { find: '.subscribe(' }],
+    name: 'investigate-py-calibrate-ties', slug: 'inv-calib', fixture: 'py-service-tidewatch',
+    description: 'Follow a correction applied to stored readings through the store and the query that reads them back, in a layered service.',
+    question: 'The only reading of the gauge dover, taken a minute ago, is 1000 mm. Then `calibrate(services, "dover", offset_mm=20)` runs. What level does `current_level` report for dover afterwards, and why?',
+    relevant: ['src/tidewatch/app/commands/calibrate.py', 'src/tidewatch/infra/store/memory.py', 'src/tidewatch/app/queries/latest.py', 'src/tidewatch/api/handlers/level.py'],
+    allowed: ['src/tidewatch/app/ports/store.py', 'src/tidewatch/domain/models.py', 'src/tidewatch/domain/rules/staleness.py', 'src/tidewatch/domain/rules/limits.py', 'src/tidewatch/domain/events/readings.py', 'src/tidewatch/domain/events/bus.py', 'src/tidewatch/domain/errors.py', 'src/tidewatch/api/replies.py', 'src/tidewatch/app/services.py', 'src/tidewatch/infra/wiring.py', 'tests/test_handlers.py', 'tests/conftest.py'],
+    decoys: ['src/tidewatch/infra/store/journal.py'],
+    cites: ['src/tidewatch/app/commands/calibrate.py', 'src/tidewatch/app/queries/latest.py'],
+    facts: [],
+    verdict: ['level-unchanged-by-calibration', `
+PASS if the answer states, in any wording, that current_level still reports 1000 mm, the uncorrected value, and why: calibrate adds a corrected copy of each reading to the store (store.add appends, it does not replace the old one) with the same taken_at, and latest_reading takes the newest by taken_at, where max() keeps the first of equal keys, which is the original. "The calibrated 1020 never wins the tie" or "the old row is returned first" count.
+FAIL if it says the level becomes 1020 (or any calibrated value), or says the call fails (unknown gauge, stale reading, window), or explains 1000 by something other than the equal timestamps.`],
+    anchors: [['src/tidewatch/app/commands/calibrate.py', 'replace(reading, level_mm=reading.level_mm + offset_mm)'], ['src/tidewatch/infra/store/memory.py', 'rows.append(reading)'], ['src/tidewatch/app/queries/latest.py', 'max(readings, key=lambda item: item.taken_at)'], ['src/tidewatch/api/handlers/level.py', 'level_mm=reading.level_mm'], ['src/tidewatch/infra/store/journal.py', 'self.journal.append(reading)']],
+    absent: [{ find: 'JournalStore(', except: ['src/tidewatch/infra/store/journal.py'] }, { find: 'GaugeCalibrated', except: ['src/tidewatch/domain/events/readings.py', 'src/tidewatch/app/commands/calibrate.py'] }, { find: '.subscribe(' }],
   },
   {
     name: 'investigate-py-unit-adapters', slug: 'inv-units', fixture: 'py-service-tidewatch',
@@ -83,30 +87,37 @@ FAIL if it says the command prints hourly water heights, or that it fails for st
     absent: [{ find: 'mm_head_from_hpa', except: ['src/tidewatch/domain/units/pressure.py'] }, { find: 'mm_from_m', except: ['src/tidewatch/domain/units/length.py', 'src/tidewatch/plugins/sources/jetty_text/parse.py'] }],
   },
   {
-    name: 'investigate-go-quote-price', slug: 'inv-quote', fixture: 'go-module-parcelhub',
-    description: 'Work out a printed price from a command line call across small packages.',
-    question: 'What does `parcelctl PH-7 1200 north` print for the price, and which code decides each part of that number?',
-    relevant: ['cmd/parcelctl/main.go', 'cmd/parcelctl/print.go', 'internal/pricing/price.go', 'internal/pricing/surcharge.go', 'internal/rates/lookup.go', 'internal/rates/table.go'],
-    allowed: ['cmd/parcelctl/flags.go', 'internal/labels/label.go', 'internal/core/types.go', 'internal/core/errors.go', 'internal/rates/rates_test.go'],
-    decoys: ['internal/routing/zones.go', 'internal/routing/table.go', 'internal/customs/limits.go'],
-    cites: ['internal/pricing/surcharge.go', 'internal/rates/table.go'],
+    name: 'investigate-go-label-bay', slug: 'inv-bay', fixture: 'go-module-parcelhub',
+    description: 'Trace every value printed by a command line tool back to where it comes from, across small packages.',
+    question: 'What does `parcelctl PH-7 1200 north` print, and where does each value on its two lines come from?',
+    relevant: ['cmd/parcelctl/main.go', 'cmd/parcelctl/flags.go', 'cmd/parcelctl/print.go', 'internal/labels/label.go', 'internal/pricing/price.go', 'internal/pricing/surcharge.go', 'internal/rates/table.go'],
+    allowed: ['internal/rates/lookup.go', 'internal/core/types.go', 'internal/core/errors.go', 'internal/memstore/store.go', 'internal/memstore/seed.go', 'internal/rates/rates_test.go'],
+    decoys: ['internal/depot/bays.go', 'internal/depot/planner.go', 'internal/routing/zones.go', 'internal/labels/barcode.go'],
+    cites: ['cmd/parcelctl/main.go', 'internal/labels/label.go'],
     facts: [['price-7-40', '7\\.40|\\b740\\b']],
-    verdict: null,
-    anchors: [['internal/rates/table.go', '{UpToGrams: 2000, Cents: 620}'], ['internal/pricing/surcharge.go', 'zone == "hub"'], ['cmd/parcelctl/print.go', 'price: %d.%02d']],
-    absent: [{ find: 'internal/routing"' }, { find: 'internal/customs"' }],
+    verdict: ['bay-is-zero', `
+PASS if the answer states, in any wording, all three:
+- The first line is "PH-7 | zone north | 1200g | bay 0": the bay is 0 because parcelctl builds the Parcel from its arguments only and nothing assigns a bay (the depot's BayFor and Planner are not called by parcelctl).
+- The zone printed is the argument as typed ("north"); the routing package is not used to derive it.
+- The second line is price 7.40: 620 cents for the band up to 2000 g plus the 120 cent surcharge for a zone other than hub.
+FAIL if it says the bay is a number from 1 to 12 worked out by the depot, says the zone is derived from a postcode by routing, or gives a price other than 7.40.`],
+    anchors: [['cmd/parcelctl/main.go', 'core.Parcel{Tag: opts.tag, Grams: opts.grams, Zone: opts.zone}'], ['internal/labels/label.go', 'bay %d'], ['internal/depot/bays.go', 'func BayFor'], ['internal/routing/zones.go', 'func ZoneFor'], ['internal/rates/table.go', '{UpToGrams: 2000, Cents: 620}'], ['internal/pricing/surcharge.go', 'return 120']],
+    absent: [{ find: 'internal/depot"' }, { find: 'internal/routing"' }, { find: 'ZoneFor(', except: ['internal/routing/zones.go'] }, { find: 'Barcode(', except: ['internal/labels/barcode.go'] }],
   },
   {
-    name: 'investigate-go-max-weight', slug: 'inv-weight', fixture: 'go-module-parcelhub',
-    description: 'Find where a limit lives in a repository of small packages.',
-    question: 'What is the heaviest parcel parcelhub can price, and where is that limit enforced?',
-    relevant: ['internal/rates/table.go', 'internal/rates/lookup.go'],
-    allowed: ['internal/pricing/price.go', 'cmd/parcelctl/main.go', 'internal/core/errors.go', 'internal/rates/rates_test.go'],
-    decoys: ['internal/customs/limits.go', 'internal/carrier/regional/sortline/belt/sensor/thresholds.go'],
-    cites: ['internal/rates/table.go', 'internal/rates/lookup.go'],
-    facts: [['limit-10-kg', '10[,_ ]?000|\\b10 ?kg']],
-    verdict: null,
-    anchors: [['internal/rates/table.go', '{UpToGrams: 10000, Cents: 1450}'], ['internal/rates/lookup.go', 'rates.CentsFor: %w'], ['internal/customs/limits.go', 'MaxValueCents']],
-    absent: [{ find: 'MaxGrams' }, { find: 'MaxWeight' }],
+    name: 'investigate-go-parceld-lookup', slug: 'inv-lookup', fixture: 'go-module-parcelhub',
+    description: 'Follow a parcel from one binary of a repository to another through the store both use.',
+    question: 'After `parcelctl PH-7 1200 north` has run, what does a request `GET /parcels/PH-7` to a running parceld answer, and why?',
+    relevant: ['cmd/parceld/routes.go', 'cmd/parcelctl/main.go', 'internal/memstore/store.go', 'internal/httpapi/parcels.go', 'internal/tracking/service.go', 'internal/httpapi/render/problem.go'],
+    allowed: ['internal/memstore/seed.go', 'internal/httpapi/server.go', 'internal/core/errors.go', 'internal/core/interfaces.go', 'cmd/parceld/main.go', 'internal/httpapi/server_test.go'],
+    decoys: ['internal/audit/log.go', 'internal/retention/policy.go', 'internal/tagging/check.go'],
+    cites: ['cmd/parceld/routes.go', 'internal/httpapi/parcels.go'],
+    facts: [['status-404', '404']],
+    verdict: ['separate-empty-store', `
+PASS if the answer states, in any wording, that parceld answers 404 "no such parcel", because parceld builds its own in-memory store (memstore.New in buildHandler), nothing seeds it and no route writes to it, while the parcel parcelctl seeded lived in the store of another process that has already exited: no store is shared or persisted between the two.
+FAIL if it says the request returns the parcel (200), says parcelctl and parceld share a store, or explains the 404 by tag validation, retention or expiry.`],
+    anchors: [['cmd/parceld/routes.go', 'store := memstore.New()'], ['cmd/parcelctl/main.go', 'store := memstore.New()'], ['internal/httpapi/parcels.go', 'render.Problem(w, http.StatusNotFound, "no such parcel")'], ['internal/memstore/store.go', 'memstore.Get: %w'], ['internal/retention/policy.go', 'func Expired']],
+    absent: [{ find: 'Seed(', in: 'cmd/parceld/' }, { find: '.Put(', in: 'internal/httpapi/' }, { find: 'internal/retention"' }, { find: 'tagging.Valid', except: ['internal/tagging/check.go'] }],
   },
   {
     name: 'investigate-jvm-sow-mail', slug: 'inv-sow', fixture: 'jvm-gradle-seedvault',
@@ -118,8 +129,12 @@ FAIL if it says the command prints hourly water heights, or that it fails for st
     cites: ['bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Recipients.kt'],
     facts: [['fallback-desk', 'desk@example\\.org']],
     verdict: ['printed-not-mailed', `
-PASS only if the answer says the sowing message is built by the handler that Wiring.kt subscribes to the "lot.sown" topic of the in-process bus, is addressed to the fallback desk@example.org (the recipients map is empty), and is only printed to the console: nothing sends mail. The outbox classes are not on this path.
-FAIL if it routes the message through the outbox or the Drainer, or says a real mail is sent.`],
+PASS if the answer states, in any wording, all three:
+- The sowing message is built by the handler that Wiring.kt subscribes to the "lot.sown" topic of the in-process bus (SowLotService publishes LotSown).
+- It is addressed to the fallback desk@example.org, because the recipients map is empty.
+- It is only printed to the console: no mail is sent.
+Saying the outbox classes are not on this path, or that they were not read or not confirmed, is fine.
+FAIL if it routes the message through the outbox or the Drainer, says a real mail is sent, or names another recipient.`],
     anchors: [['bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'subscriptions.add("lot.sown")'], ['bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'Recipients(emptyMap(), "desk@example.org")'], ['application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt', 'events.publish(LotSown(']],
     absent: [{ find: 'Outbox()' }, { find: 'Drainer(', except: ['adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/outbox/Drainer.kt'] }],
   },
@@ -146,25 +161,33 @@ FAIL if it routes the message through the outbox or the Drainer, or says a real 
     cites: ['engine/crates/safety/src/limits.rs', 'dashboard/src/lib/validate/limits.ts'],
     facts: [['limit-13000', '13[_,]?000']],
     verdict: ['two-copies-no-tools', `
-PASS only if the answer says the limit (13_000 tenths of a degree) is enforced in the engine (safety limits, applied when a Schedule is built) and separately in the dashboard (its own constant, applied to the segments of a new firing), and that the Python tools enforce no setpoint limit (their only limit is a calibration offset).
-FAIL if it says the tools enforce the setpoint limit, or that the dashboard takes the constant from the engine.`],
+PASS if the answer states, in any wording, all three:
+- The engine enforces the setpoint limit of 13_000 tenths of a degree (safety limits, applied when a Schedule is built).
+- The dashboard enforces it separately, with its own copy of the constant that it does not import from the engine, applied to the segments of a new firing.
+- The Python tools enforce no setpoint limit (their only limit is a calibration offset).
+Extra detail (alert rules, tests, paths it did not trace) is fine.
+FAIL if it says the tools enforce the setpoint limit, that the dashboard takes the constant from the engine, or that the limit is enforced in only one project.`],
     anchors: [['engine/crates/safety/src/limits.rs', 'MAX_SETPOINT_DC: i32 = 13_000'], ['engine/crates/schedule/src/plan.rs', 'check_setpoint_dc(segment.target_dc)'], ['dashboard/src/lib/validate/limits.ts', 'MAX_SETPOINT_DC = 13_000'], ['dashboard/src/services/firings.ts', 'checkSegments(segments)'], ['tools/src/kilnlab/config/limits.py', 'MAX_OFFSET_DC = 200']],
     absent: [{ find: 'SETPOINT', in: 'tools/' }],
   },
   {
-    name: 'investigate-mono-cli-target', slug: 'inv-glaze', fixture: 'monorepo-rust-ts-kiln',
-    description: 'Follow a Rust workspace command through its crates.',
-    question: 'What does the engine command line tool do with the argument `glaze`: how is the target temperature chosen for each minute, and what sets the power of the simulated kiln?',
-    relevant: ['engine/crates/cli/src/main.rs', 'engine/crates/cli/src/args.rs', 'engine/crates/schedule/src/ramp/profiles/glaze.rs', 'engine/crates/schedule/src/plan.rs', 'engine/crates/sim/src/run.rs', 'engine/crates/controller/src/pid.rs'],
-    allowed: ['engine/crates/cli/src/report.rs', 'engine/crates/sim/src/kiln.rs', 'engine/crates/schedule/src/segment.rs', 'engine/crates/safety/src/limits.rs', 'engine/crates/telemetry/src/stats.rs', 'engine/crates/telemetry/src/sample.rs', 'engine/crates/units/src/temperature.rs'],
-    decoys: ['engine/crates/schedule/src/ramp/linear.rs', 'engine/crates/schedule/src/ramp/curve.rs', 'engine/crates/controller/src/relay.rs', 'engine/crates/controller/src/drivers/relay_board.rs', 'engine/crates/controller/src/drivers/thermocouple.rs'],
-    cites: ['engine/crates/sim/src/run.rs', 'engine/crates/controller/src/pid.rs'],
-    facts: [['glaze-top-12400', '12[_,]?400']],
-    verdict: ['step-target-pid-power', `
-PASS only if the answer says each minute's target is the target of the segment that minute falls in (Schedule::target_at_dc), so it steps to the next segment's value (6000 then 12400 tenths of a degree for glaze) with no ramp in between, and that the simulated power comes from the Pid.
-FAIL if it says the ramp or curve code shapes the target, or that the relay controller drives the simulation.`],
-    anchors: [['engine/crates/schedule/src/ramp/profiles/glaze.rs', 'target_dc: 12_400'], ['engine/crates/schedule/src/plan.rs', 'pub fn target_at_dc'], ['engine/crates/sim/src/run.rs', 'pid.step(schedule.target_at_dc(minute)']],
-    absent: [{ find: 'ramp_dc(', except: ['engine/crates/schedule/src/ramp/linear.rs'] }, { find: 'ease_thousandths(', except: ['engine/crates/schedule/src/ramp/curve.rs'] }, { find: 'Relay::new' }, { find: 'ramp::linear' }, { find: 'ramp::curve' }],
+    name: 'investigate-mono-over-limit-post', slug: 'inv-post', fixture: 'monorepo-rust-ts-kiln',
+    description: 'Follow a rejected request through the validation, the route and the error handling of a web service that sits in front of another project.',
+    question: 'A POST /firings reaches the dashboard with a segment whose targetDc is 13500. What response does the client get, which code produces it, and does the request ever reach the engine?',
+    relevant: ['dashboard/src/routes/firings.routes.ts', 'dashboard/src/services/firings.ts', 'dashboard/src/lib/validate/segments.ts', 'dashboard/src/lib/validate/setpoint.ts', 'dashboard/src/lib/validate/limits.ts', 'dashboard/src/middleware/errors.ts', 'dashboard/src/lib/engine/errors.ts', 'dashboard/package.json'],
+    allowed: ['dashboard/src/app.ts', 'dashboard/src/server.ts', 'dashboard/src/middleware/auth.ts', 'dashboard/src/services/store.ts', 'dashboard/src/lib/engine/types.ts', 'dashboard/test/setpoint.test.ts', 'dashboard/test/routes.test.ts'],
+    decoys: ['engine/crates/safety/src/limits.rs', 'engine/crates/schedule/src/plan.rs', 'dashboard/src/lib/engine/client.ts', 'dashboard/src/services/alerts/rules.ts'],
+    cites: ['dashboard/src/services/firings.ts', 'dashboard/src/lib/validate/segments.ts'],
+    facts: [['names-the-limit', '13[_,]?000|outside the kiln limits']],
+    verdict: ['rejected-before-engine-no-response', `
+PASS if the answer states, in any wording, all three:
+- The dashboard rejects the segment itself: checkSegments (isSetpointDc, limit 13_000 in dashboard/src/lib/validate/limits.ts) throws a SetpointError "setpoint 13500 is outside the kiln limits" inside beginFiring, before startFiring, so the engine is never called.
+- handleErrors would map a SetpointError to a 422 JSON reply, but the route is an async handler on Express 4 (dashboard/package.json), which does not pass a rejected promise to the error middleware.
+- So the client does not get that 422: the request gets no response (it hangs) and the rejection is unhandled.
+Equivalent wording counts ("express 4 does not catch async errors", "the error never reaches handleErrors"). Mentioning that the engine has its own copy of the check is fine.
+FAIL if it says the engine rejects the segment, says the client receives the 422 JSON reply (or any other response) from handleErrors, or says the request reaches the engine.`],
+    anchors: [['dashboard/src/services/firings.ts', 'checkSegments(segments);'], ['dashboard/src/services/firings.ts', 'await startFiring(id, segments);'], ['dashboard/src/lib/validate/segments.ts', 'is outside the kiln limits'], ['dashboard/src/lib/validate/limits.ts', 'MAX_SETPOINT_DC = 13_000'], ['dashboard/src/middleware/errors.ts', 'error instanceof SetpointError'], ['dashboard/src/routes/firings.routes.ts', "app.post('/firings', async (req, res)"], ['dashboard/package.json', '"express": "^4.21.0"'], ['dashboard/src/app.ts', 'app.use(handleErrors)']],
+    absent: [{ find: 'express-async-errors' }, { find: 'asyncHandler' }, { find: 'catch (', in: 'dashboard/src/' }, { find: 'try {', in: 'dashboard/src/' }, { find: 'startFiring', except: ['dashboard/src/services/firings.ts', 'dashboard/src/lib/engine/client.ts'] }],
   },
   // ---------------------------------------------------------------- ts-app-medium, in depth
   {

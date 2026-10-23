@@ -1,4 +1,4 @@
-// Packages the real candidate (build included) and checks the artifact, not the allowlist.
+// Packages the real candidate from the bundle `npm run build` made and checks the artifact, not the allowlist.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
@@ -20,7 +20,7 @@ async function walk(dir, base = dir) {
 
 describe('package candidate', () => {
   it('ships every referenced and tracked plugin file', async () => {
-    const stdout = execFileSync('node', ['tools/package-candidate.mjs'], { cwd: ROOT, encoding: 'utf8' });
+    const stdout = execFileSync('node', ['tools/package-candidate.mjs', '--prebuilt'], { cwd: ROOT, encoding: 'utf8' });
     const candidateDir = /^Candidate directory: (.+)$/m.exec(stdout)?.[1];
     assert.ok(candidateDir, 'package-candidate printed no candidate directory');
     const shipped = new Set(await walk(candidateDir));
