@@ -1,0 +1,7 @@
+---
+type: regex
+pattern: 'internal/httpapi/server\.go|HandleFunc|[Mm]ux|\{tag\}|[Ss]uffix|PathValue'
+match: contains
+target: { source: file, path: repo/.ambicode/tasks/plan-go-price/plan.md }
+weight: 1
+---
