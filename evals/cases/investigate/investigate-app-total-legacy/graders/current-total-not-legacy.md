@@ -4,5 +4,5 @@ focus: last_message
 weight: 2
 ---
 
-PASS only if the answer says the total is the subtotal of the lines (quantity times unitCents, in integer cents) plus tax, where tax is the subtotal times taxBps divided by 10000, rounded half up, in src/invoices/service.js, and it does not present the legacy floating-point total as the one the application uses.
-FAIL if it describes the legacy total as the live computation, or leaves tax out.
+PASS if the answer states, in any wording, that the live total is the sum over the lines of quantity times unitCents (integer cents) plus tax, where tax is the subtotal times taxBps divided by 10000 rounded to a whole cent (half up), computed in src/invoices/service.js. The floating-point legacy total may be mentioned as a separate, unused copy.
+FAIL if it describes the legacy total as the one the application uses, or leaves tax out.
