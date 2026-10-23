@@ -19,20 +19,22 @@ against evidence that already exists, not as open-ended advice.
   rather than the checkout — so it leaves `dist/ambicode-<version>` behind and
   a separate `package:candidate` would only build the same bytes again.
 - [ ] Install the candidate into the normal Claude configuration with
-  `node install-local.mjs install dist/ambicode-<version>`; use the named
+  `node tools/install-local.mjs install dist/ambicode-<version>`; use the named
   `--config-dir <dir>` option only for an intentionally isolated test. Confirm
   ordinary `claude plugin list` and
   `claude plugin details ambicode@ambicode-team` report all six
   skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
-  five hooks (`Hooks (5)  PostToolUse, SessionStart, UserPromptSubmit,
-  PostCompact, SessionEnd`, doc 04 P2.4 correction G) before relying on it.
+  hooks of `hooks/hooks.json` (seven events, fourteen handler entries:
+  `PostToolUse`, `PreToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop`,
+  `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
+  on it.
 - [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A, and the
   failure-safety rewrite of doc 04 P2.3 correction A): proves install,
   inspect, durability after the candidate directory used for install is
   deleted (checked from fresh `claude` processes, not the one that ran the
   install), and uninstall without that candidate directory — not merely
   that the commands exist.
-- [ ] Run `node --test install-local.test.mjs` (included in `npm run
+- [ ] Run `node --test tools/install-local.test.mjs` (included in `npm run
   test:unit`): proves install/uninstall failure-safety against a fake
   native-command adapter — a marketplace-update or plugin-update failure
   during an upgrade preserves the old installation, a plugin-uninstall or
@@ -52,14 +54,15 @@ against evidence that already exists, not as open-ended advice.
   `/bin/sh`, or `.venv/bin`, but macOS evidence is not Windows acceptance
   evidence — and neither is a green CI leg, which does not install the plugin
   or run a hook.
-- [ ] Run `node check-line-endings.mjs`: every tracked text file must be
+- [ ] Run `node tools/check-line-endings.mjs`: every tracked text file must be
   stored with LF. A file committed as CRLF before `.gitattributes` existed
   keeps its CRLF in the index, and a Windows checkout then differs byte for
   byte from a Linux one.
 - [ ] For each pilot language, install the official LSP plugin and server from
   `docs/installation.md`, then record one real definition/reference operation
-  from `/ambicode:investigate`, `/ambicode:plan`, or `/ambicode:task`. Record a
-  fallback reason if the current session exposes no LSP tools.
+  from `/ambicode:investigate`, `/ambicode:plan`, or `/ambicode:task`. If the
+  current session exposes no LSP tools, the one line saying so is the whole
+  record.
 - [ ] Have a second developer — not the person who built the candidate —
   install it in a fresh environment using only `docs/installation.md`, and
   complete one working-tree review end to end. Doc 08 makes this mandatory
@@ -83,7 +86,7 @@ honest adjudication — nothing here can be produced without them.
   evidence").
 - [ ] Confirm authorized model access for the pilot's own usage (separate
   from, and likely more than, the one E02 smoke case — see below).
-- [ ] Confirm `glab` is installed and authenticated against each pilot
+- [ ] Confirm a GitLab MCP server is connected and authorized against each pilot
   repository's GitLab host, and that publishing test comments there is
   acceptable — never pilot against a repository where an accidental
   duplicate comment would be a real incident.
@@ -113,15 +116,14 @@ have.
 
 | Pending item | Exact prerequisite | Exact next step |
 | --- | --- | --- |
-| M05–M09 (live GitLab sandbox scenarios) | A private test GitLab project, an MR with added/renamed/deleted lines, an authenticated `glab` | Follow doc 07's manual scenario table M05–M09 against that project; record the discussion links it produces |
-| M10 (hostile input through a real browser), M12 (real browser idle/reopen/disable/reinstall) | A browser on the machine running the page | Run `ambicode view --review <id>` and drive the scenarios in doc 07 by hand; `curl`/Fastify-injection evidence already exists but does not substitute |
-| M06 executable-check portion, M10 isolation portion | A running Docker daemon and a digest-pinned image | Start the daemon, configure `remoteChecks.image`, rerun the relevant fixture review |
-| M13 and its Phase 2 evaluation | A connected Jira/Confluence MCP server, an authenticated `glab`, and a GitLab sandbox project — P2.1's code (`/ambicode:investigate`), P2.2's (`/ambicode:plan`), and P2.3's (`/ambicode:task`) were explicitly authorized to start and are implemented despite the Phase 1 value gate still being pending; only the *evaluation* against real external services remains gated on these prerequisites | Follow doc 07's M13 procedure once the prerequisites exist; record model/MCP/GitLab cases as pending until they are actually executed with authorized access, never as passed from a unit-test fixture |
+| M05–M09 (live GitLab sandbox scenarios) | A private test GitLab project, an MR with added/renamed/deleted lines, an authorized GitLab MCP server | Follow doc 07's manual scenario table M05–M09 against that project; record the discussion links it produces |
+| M13 and its Phase 2 evaluation | A connected Jira/Confluence MCP server, an authorized GitLab MCP server, and a GitLab sandbox project — P2.1's code (`/ambicode:investigate`), P2.2's (`/ambicode:plan`), and P2.3's (`/ambicode:task`) were explicitly authorized to start and are implemented despite the Phase 1 value gate still being pending; only the *evaluation* against real external services remains gated on these prerequisites | Follow doc 07's M13 procedure once the prerequisites exist; record model/MCP/GitLab cases as pending until they are actually executed with authorized access, never as passed from a unit-test fixture |
 | I01–I08 (P2.1 fixed investigation cases) | Authorized model access; I02–I05/I07 additionally need a connected Jira/Confluence MCP server; I08 needs a configured diagnostic command | Follow doc 07's "P2.1 fixed investigation cases" table |
 | PL01–PL10 (P2.2 fixed plan cases) | Authorized model access; PL02–PL05 additionally need a connected Jira/Confluence MCP server; PL06 needs a prior investigation (note or same-session) | Follow doc 07's "P2.2 fixed plan cases" table |
-| T01–T11 (P2.3 fixed task cases) | Authorized model access with a fixture project whose configured checks actually run; T03 needs a previously accepted plan; T05 needs a fixture with no configured reproduction mechanism; T06 needs a configured `propose` command or an over-limit selection; T09 needs a deliberately planted scope-expanding finding | Follow doc 07's "P2.3 fixed task cases" table |
-| E02 (one authorized eval smoke case) | Authorized, budgeted model access for `claude plugin eval` | `claude plugin eval . --scaffold --allow-tools Bash --runs 1 --max-cost-usd <budget>` on one case; inspect the trace for skill routing *and* the packaged helper actually running, per doc 07. The suite now has 18 cases (12 Phase-1 plus the 6 P2.4 correction-I cases); the zero-cost load check covers all 18 across both arms, but no case has actually been run with model access. |
+| T01–T11 (P2.3 fixed task cases) | Authorized model access with a fixture project whose configured checks actually run; T03 needs a previously accepted plan; T05 needs a fixture with no configured reproduction mechanism; T06 needs a configured `propose` command or an over-limit selection; T09 needs a deliberately planted finding outside the brief (it must end under Remaining, not as a gate) | Follow doc 07's "P2.3 fixed task cases" table |
+| E02 (one authorized eval smoke case) | Authorized, budgeted model access for `claude plugin eval` | `claude plugin eval . --scaffold --allow-tools Bash --runs 1 --max-cost-usd <budget>` on one case; inspect the trace for skill routing *and* the packaged helper actually running, per doc 07. The suite has 17 cases (`evals/cases`; the bare arm runs 12 of them); the zero-cost load check (`npm run evals:dry`) covers both arms, and `evals/cases/results/` holds the runs made so far. |
 | A live authenticated Claude Code session confirming a disabled plugin's skills are unavailable (doc 04 P2.4, "Disable / re-enable" in `docs/installation.md`) | A developer's own authenticated Claude Code session (the isolated sandbox used for this candidate has no credentials in it deliberately) | Disable the plugin (`claude plugin disable ambicode@ambicode-team -s user`) in a real session and confirm no `/ambicode:*` skill is offered |
+| AskUserQuestion gate answers beyond the one probe run (free-text and "Chat about this" answers, multi-question and multi-select calls, resume or compact between ask and answer, subagent askers, other Claude Code versions) | A developer's own interactive Claude Code session on the current 2.1 minor | Repeat the probe in `plan/migration-v6-reports/step-03/probe-p2-p48.md` for each case and record the observed `PostToolUse` payload; single-select answers in the interactive dialog and `additionalContext` delivery were observed on 2026-10-05 (Claude Code 2.1.289) |
 | The comparative evaluation / value gate | Two pilot repositories, pilot owner, authorized model access at pilot scale | See "Pilot owner checklist" above |
 | Second-developer packaged install | Any second person | Hand them `docs/installation.md` and the packaged candidate; record their result in a new dated acceptance record |
 | A real rollback between two independently built candidates | A second, later candidate to roll back from | Repeat this session's rollback mechanism test (see `docs/installation.md`, "Rollback") against that later candidate once it exists |

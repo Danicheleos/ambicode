@@ -1,0 +1,240 @@
+{
+  "id": "3146e432",
+  "title": "navigator eval",
+  "goal": "текущий статус\ncase  | bare  R     P     F1    $/run | plugin R     P     F1    $/run | plugin F1 по прогонам\n438   |       0.833 0.667 0.738 0.111 |        0.500 0.429 0.455 0.097 | 0.50 0.36 0.50\n3571  |       0.421 0.700 0.521 0.172 |        0.183 0.636 0.283 0.127 | 0.26 0.32 0.27\n5164  |       1.000 0.421 0.589 0.158 |        1.000 0.337 0.500 0.121 | 0.50 0.40 0.60\n5948  |       0.593 0.444 0.502 0.142 |        0.333 0.231 0.258 0.117 | 0.23 0.13 0.41\n5967  |       0.521 0.487 0.503 0.171 |        0.396 0.444 0.413 0.097 | 0.50 0.50 0.24\n6086  |       0.334 0.527 0.400 0.137 |        0.425 0.595 0.491 0.107 | 0.58 0.49 0.40\n6141  |       0.348 0.335 0.339 0.210 |        0.141 0.090 0.110 0.163 | 0.00 0.16 0.17\n6292  |       0.111 0.289 0.159 0.121 |        0.045 0.333 0.079 0.084 | 0.12 0.00 0.12\n6404  |       0.762 0.889 0.815 0.107 |        0.857 0.889 0.865 0.082 | 0.92 0.92 0.75\n6406  |       0.375 0.667 0.480 0.107 |        0.375 0.783 0.502 0.085 | 0.50 0.46 0.55\nmean  |       0.530 0.543 0.505 0.144 |        0.425 0.477 0.396 0.108\n\nсделай анализ как прошли забеги по baseline и с плагином.\nспланируй как заапгейдить промпт навигатора чтобы для начала перегнать по R P F1\nкакие тулы ему дать, может файлы с гита получить, может еще что-то\nподойди творчески с знанием технологий, алгоритмов и возможностей, которые нам доступны\n\nКогда побъем по качесту результатов, нужно будет опустить стоимость, количество шагов, контекста\n\nУлучшения не должны быть привязаны к контенту кейсов/проекту, а должны быть универсальны и работать в любых условиях",
+  "parentId": null,
+  "parentPhaseId": null,
+  "status": "done",
+  "createdAt": "2026-10-19T21:16:00.265Z",
+  "phases": [
+    {
+      "id": "p1",
+      "title": "Анализ забегов ($0): по трейсам 30 bare + 30 plugin прогонов классифицировать каждый пропущенный и лишний truth-folder (usage hop / родитель вместо детей / префикс пути / не тот модуль / вспомогательные папки) и выписать, какими шагами bare нашёл то, что навигатор пропустил. Результат: таблица причин с количеством по кейсам и оценка максимального прироста F1 для каждой причины.",
+      "status": "done"
+    },
+    {
+      "id": "p7",
+      "title": "Оффлайн-симуляция рычагов ($0) на всех 10 кейсах, акцент на бенче 6141/3571/6404. (a) Шаг по местам использования: от ответа навигатора грепнуть исходники по символам/селекторам → папки импортёров. (b) git co-change от ответа навигатора, без утечки будущего. (c) Греп по терминам тикета. (d) Сведение к листовым папкам и проверка существования путей. (e) Пробелы покрытия контекста: какие truth-папки невидимы и почему (исключённые assets, обрезанные списки, глубина индекса). Результат: ΔR/ΔP/ΔF1 на рычаг, 1–2 лучших записаны в DECISIONS.md.",
+      "status": "done"
+    },
+    {
+      "id": "p8",
+      "title": "Реализация выбранных рычагов: инструменты навигатору (tools в agents/navigator.md и/или детерминированная CLI-команда с тестами), правки scout/context при пробелах покрытия, правки промпта без привязки к проекту. Проверка: unit-тесты, контракт ```files соблюдён.",
+      "status": "done"
+    },
+    {
+      "id": "p9",
+      "title": "Итерации на бенче 6141 + 3571 (плохие) + 6404 (хороший), каждый ×2 (~$0.7 за итерацию): сравнение с bare и прошлой итерацией по этим кейсам. Коммит после каждой итерации. Выход из фазы — подтверждённый рост выше bare на плохих кейсах без регресса 6404, или остановка с отчётом после 3 итераций без роста.",
+      "status": "done"
+    },
+    {
+      "id": "p10",
+      "title": "Подтверждение на 10 кейсах ×3 (после подтверждения потолка на бенче): средние R, P и F1 не ниже bare (0.530 / 0.543 / 0.505), F1 строго выше.",
+      "status": "done"
+    },
+    {
+      "id": "p11",
+      "title": "Снижение стоимости/шагов/контекста при F1 ≥ bare: замерить $/run, turns, max context, выбрать 1–2 рычага, проверить сначала на бенче ×2, затем 10×3.",
+      "status": "done",
+      "childPlanId": "540d2397"
+    },
+    {
+      "id": "p12",
+      "title": "Закрытие: удалить мёртвый learn/seed/navigator-код в src/, npm run verify зелёный, bump версии, STATE.md и итоговый отчёт, коммит.",
+      "status": "done"
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-10-19T21:16:00.265Z",
+      "message": "Created"
+    },
+    {
+      "at": "2026-10-19T21:16:00.293Z",
+      "message": "Made the active plan"
+    },
+    {
+      "at": "2026-10-19T21:16:25.435Z",
+      "message": "Phases set (6 total)"
+    },
+    {
+      "at": "2026-10-19T21:21:01.812Z",
+      "phaseId": "p1",
+      "message": "Started phase: Анализ забегов ($0): по трейсам 30 bare + 30 plugin прогонов классифицировать каждый пропущенный и лишний truth-folder (usage hop / родитель вместо детей / префикс пути / не тот модуль / вспомогательные папки) и выписать, какими шагами bare нашёл то, что навигатор пропустил. Результат: таблица причин с количеством по кейсам и оценка максимального прироста F1 для каждой причины."
+    },
+    {
+      "at": "2026-10-19T21:33:01.556Z",
+      "phaseId": "p1",
+      "message": "Completed phase: Анализ забегов ($0): по трейсам 30 bare + 30 plugin прогонов классифицировать каждый пропущенный и лишний truth-folder (usage hop / родитель вместо детей / префикс пути / не тот модуль / вспомогательные папки) и выписать, какими шагами bare нашёл то, что навигатор пропустил. Результат: таблица причин с количеством по кейсам и оценка максимального прироста F1 для каждой причины.. Classified all 349 plugin and 278 bare missed folders across 30+30 runs (summary.md + 10 case reports in eval-replay/evals/analysis/2026-10-19-navigator-p1/). Top causes: not-in-context 127 and usage-hop 126, about 75% shared with bare. Only fixing these lifts the F1 upper bound above bare (0.578/0.593 vs 0.505). Method: the scripted recompute reproduced the recorded means exactly."
+    },
+    {
+      "at": "2026-10-19T21:33:01.569Z",
+      "message": "p1 finding: the navigator loses mainly where the folder is outside context notes (assets/helpPages, dialogs list caps, tables/*, manual-override children) or is a consumer reachable only via usages. Bare gets these via Grep files_with_matches over src. Secondary: listed-but-unread notes (28), parent-not-child (57, mostly 6141), path-prefix/note-path leaks (8+11). Possible truth issue in 5948 (reports-list), not changed. Commit blocked: git add/commit denied in .claude/settings.local.json, awaiting the user."
+    },
+    {
+      "at": "2026-10-19T21:36:51.814Z",
+      "message": "Phases set (7 total)"
+    },
+    {
+      "at": "2026-10-19T21:36:56.233Z",
+      "phaseId": "p7",
+      "message": "Started phase: Оффлайн-симуляция рычагов ($0) на всех 10 кейсах, акцент на бенче 6141/3571/6404. (a) Шаг по местам использования: от ответа навигатора грепнуть исходники по символам/селекторам → папки импортёров. (b) git co-change от ответа навигатора, без утечки будущего. (c) Греп по терминам тикета. (d) Сведение к листовым папкам и проверка существования путей. (e) Пробелы покрытия контекста: какие truth-папки невидимы и почему (исключённые assets, обрезанные списки, глубина индекса). Результат: ΔR/ΔP/ΔF1 на рычаг, 1–2 лучших записаны в DECISIONS.md."
+    },
+    {
+      "at": "2026-10-19T21:41:08.118Z",
+      "phaseId": "p7",
+      "message": "p7 context audit: 158 truth entries, 22 index modules, 92 visible only as note Folders bullets, 44 invisible. The 44 split into 11 cut by NOTE_TOKENS=400 (context.ts:300, fillKeyFiles), 16 non-code asset dirs (NON_CODE_EXTENSIONS, path-classes.ts:44) and 17 absent from bench checkout (created by the ticket, unfixable). The on-disk index.md misses 19 of 115 notes, but `context tree --index` prints all 115, so the index was generated or edited differently. The Read of index.md is not truncated (28,105 chars delivered in all 30 traces); the 16k cut was an analysis artifact."
+    },
+    {
+      "at": "2026-10-19T21:45:24.340Z",
+      "phaseId": "p7",
+      "message": "Completed phase: Оффлайн-симуляция рычагов ($0) на всех 10 кейсах, акцент на бенче 6141/3571/6404. (a) Шаг по местам использования: от ответа навигатора грепнуть исходники по символам/селекторам → папки импортёров. (b) git co-change от ответа навигатора, без утечки будущего. (c) Греп по терминам тикета. (d) Сведение к листовым папкам и проверка существования путей. (e) Пробелы покрытия контекста: какие truth-папки невидимы и почему (исключённые assets, обрезанные списки, глубина индекса). Результат: ΔR/ΔP/ΔF1 на рычаг, 1–2 лучших записаны в DECISIONS.md.. Offline simulation using the repo scorer: 25 of 30 runs reproduce exactly, and 5 drift because truth.json was regenerated after the runs. Levers a (usage-hop), b (co-change), c (term grep) and leaf refine do not close the gap; they lose precision, or they win only from leakage of the HEAD tree. Only d-path is leak-free (+0.016 suite, +0.04 bench F1). Context audit: 44/158 truth folders invisible (11 NOTE_TOKENS cap, 16 non-code assets, 17 absent at HEAD). Decisions 9–11 recorded."
+    },
+    {
+      "at": "2026-10-19T21:45:24.354Z",
+      "message": "p7 findings: (1) The bench HEAD postdates all truth commits, so the sandbox and context leak the solution. (2) truth.json was regenerated at 23:05 after the 20:53 runs, so 5 runs no longer reproduce. (3) Only d-path survives the leak check; the gap of ~0.11 F1 is recall on large-truth cases. Next hypothesis: a navigator with source Grep/Glob/Read plus the context map (agentic, like bare)."
+    },
+    {
+      "at": "2026-10-19T21:54:19.793Z",
+      "phaseId": "p8",
+      "message": "Started phase: Реализация выбранных рычагов: инструменты навигатору (tools в agents/navigator.md и/или детерминированная CLI-команда с тестами), правки scout/context при пробелах покрытия, правки промпта без привязки к проекту. Проверка: unit-тесты, контракт ```files соблюдён."
+    },
+    {
+      "at": "2026-10-19T22:02:26.029Z",
+      "phaseId": "p8",
+      "message": "p9 iter V1 (context-wide Grep + paths only from notes), bench x2, run.mjs stamps 2026-10-19T21-57..22-00: F1 6141 0.116, 3571 0.283, 6404 0.828; mean 0.409. The previous plugin on the same cases averaged 0.419 and bare 0.558, so V1 brings no gain. 6141 run 1 still used the `src/` prefix (F1 0). Cost $0.131/run. The app eval_run without --scaffold scored ~0 and was discarded ($0.34)."
+    },
+    {
+      "at": "2026-10-19T22:09:43.659Z",
+      "phaseId": "p8",
+      "message": "p9 iter V2 (tools Read/Grep/Glob, Stage C: <=6 source Greps for ticket strings + one consumer hop + Glob path check), bench x2, stamps 2026-10-19T22-03..22-07. F1 6141 0.374, 3571 0.608, 6404 0.833, mean 0.605 (V1 0.409, bare 0.558). R 0.511, P 0.756, $0.147/run. Beats bare on all 3 cases, by small margins with 2 runs; the prefix failure is gone."
+    },
+    {
+      "at": "2026-10-20T10:56:02.192Z",
+      "phaseId": "p8",
+      "message": "Completed phase: Реализация выбранных рычагов: инструменты навигатору (tools в agents/navigator.md и/или детерминированная CLI-команда с тестами), правки scout/context при пробелах покрытия, правки промпта без привязки к проекту. Проверка: unit-тесты, контракт ```files соблюдён.. V2 implemented in agents/navigator.md (tag navigator-v2): tools Read/Grep/Glob, Stage C has at most 6 source Greps (ticket strings plus one consumer hop) and a Glob path check. The ```files contract is kept."
+    },
+    {
+      "at": "2026-10-20T10:56:03.933Z",
+      "phaseId": "p9",
+      "message": "Completed phase: Итерации на бенче 6141 + 3571 (плохие) + 6404 (хороший), каждый ×2 (~$0.7 за итерацию): сравнение с bare и прошлой итерацией по этим кейсам. Коммит после каждой итерации. Выход из фазы — подтверждённый рост выше bare на плохих кейсах без регресса 6404, или остановка с отчётом после 3 итераций без роста.. Bench x2. V1: F1 0.409. V2: F1 0.605 (6141 0.374, 3571 0.608, 6404 0.833) against bare 0.558, so V2 beats bare on all 3 cases. The later V3 prompt and S1 scout tuning were tried and rolled back (cost went up, gain was weak), and the user reset the branch to the V2 state. Moving to 10x3."
+    },
+    {
+      "at": "2026-10-20T10:56:04.156Z",
+      "phaseId": "p10",
+      "message": "Started phase: Подтверждение на 10 кейсах ×3 (после подтверждения потолка на бенче): средние R, P и F1 не ниже bare (0.530 / 0.543 / 0.505), F1 строго выше."
+    },
+    {
+      "at": "2026-10-20T11:17:49.117Z",
+      "phaseId": "p10",
+      "message": "p10 V2 10x3 run, stamps 2026-10-20T10-56..11-15. Mean R 0.503, P 0.584, F1 0.518 at $0.135/run; bare is R 0.530, P 0.543, F1 0.505 at $0.144; the old plugin had F1 0.396. F1 and P beat bare, but R is 0.027 below it, so the phase criterion is not met. Against bare by case: 6 wins (3571, 5164, 6086, 6292, 6404 and 5967 roughly even), losses on 6406 (0.160 vs 0.480; runs 0/0.48/0), 438 (0.630 vs 0.738), 5948 (0.454 vs 0.502) and 6141 (0.320 vs 0.339). All 30 runs kept the contract, peak context was 12–19k, and total cost about $4.1."
+    },
+    {
+      "at": "2026-10-20T11:20:42.534Z",
+      "phaseId": "p10",
+      "message": "p10 analysis of 6406 and 438 ($0, traces). 6406 runs 1 and 3 scored F1 0 only because the answer paths were absolute (/private/tmp/.../cwd/main/...). Run 2 used relative paths and got 0.48, the same as bare. 438: in runs 2 and 3 the navigator read employee-select's directive but did not follow its import into dialogs/employee-dialog. Bare found it by grepping the selector. Shared cause: no path-form check in the answer step, and no outgoing-import hop. With a relative-path fix, 6406 goes to about 0.48 and the suite to about R 0.528 and F1 0.550 (arithmetic from run 2, not run)."
+    },
+    {
+      "at": "2026-10-20T11:26:27.479Z",
+      "phaseId": "p10",
+      "message": "V2.1 (one sentence: answer paths are relative to the repo root), bench x2, commit 4c6c84ad. 6406: F1 0.480/0.480 (was 0.000/0.480/0.000), no absolute paths. 6404: F1 0.906 (was 0.889). Cost about $0.12–0.13/run."
+    },
+    {
+      "at": "2026-10-20T11:45:20.475Z",
+      "phaseId": "p10",
+      "message": "V2.1 10x2 run: 8 cases done, stamps 2026-10-20T11-28..11-39. 6404 and 6406 errored on both attempts: the harness limit \"eval directory holds more than 20000 entries\"; results/traces holds 19072 entries. On the 8 cases V2.1 has F1 0.511 against V2 0.516 and bare 0.469 on the same cases, so no change, as expected. Combined with the morning bench runs of 6404/6406: R ~0.514, P ~0.644, F1 ~0.547 (bare 0.530/0.543/0.505). No absolute paths. Cost $2.06."
+    },
+    {
+      "at": "2026-10-20T12:08:20.733Z",
+      "phaseId": "p10",
+      "message": "V2.1 10x2 complete: 6404 at stamp 12-05 (F1 0.833) and 6406 at 12-06 (F1 0.500), no absolute paths. Means over 10 cases: R 0.493, P 0.662, F1 0.542, $0.128/run, against bare 0.530/0.543/0.505 at $0.144 and V2 0.503/0.584/0.518. F1 and P beat bare and cost is lower, but recall is still 0.037 below. Cleanup removed 35 old stamp dirs (2,884 entries) and /tmp scratch; evals/cases holds 17,642 entries, which leaves room for about 4 stamps."
+    },
+    {
+      "at": "2026-10-20T12:27:30.033Z",
+      "phaseId": "p10",
+      "message": "V2.2 (an import/render hop for opened files), bench x2, stamps 12-22..12-25, commit aa781988. 438 F1 0.450 (V2.1 0.500), still missing employee-dialog, with 1–4 more extras. 6406 0.480 (0.500). 6404 0.833 (same). No recall gain and lower precision, so it was reverted to V2.1. Separately, d1ff3911: trace copies no longer include .ambicode/context/, cutting about 580 entries per case run to about 30. The viewer reads evals/results/traces, so the location stays."
+    },
+    {
+      "at": "2026-10-20T12:37:07.709Z",
+      "phaseId": "p10",
+      "message": "Completed phase: Подтверждение на 10 кейсах ×3 (после подтверждения потолка на бенче): средние R, P и F1 не ниже bare (0.530 / 0.543 / 0.505), F1 строго выше.. The user accepted V2.1 (4c6c84ad, repo-relative paths) as the quality result. 10x2: R 0.493, P 0.662, F1 0.542 at $0.128/run, against bare 0.530/0.543/0.505 at $0.144. The recall gap of -0.037 is accepted as known; the V3 and V2.2 attempts to close it failed and were reverted."
+    },
+    {
+      "at": "2026-10-20T12:37:07.976Z",
+      "phaseId": "p11",
+      "message": "Started phase: Снижение стоимости/шагов/контекста при F1 ≥ bare: замерить $/run, turns, max context, выбрать 1–2 рычага, проверить сначала на бенче ×2, затем 10×3."
+    },
+    {
+      "at": "2026-10-20T12:40:50.776Z",
+      "phaseId": "p11",
+      "message": "p11 cost analysis ($0, V2.1 20 runs, mean $0.128/run).\n- Spend by category: index Read 29% (12.5k tokens, mostly cache write), main relay 31% (of which 15% is relay-specific), navigator output 15%, navigator base prompt 13%, greps 6%, notes 3%, source reads 2%.\n- Waste: none. Every note and source read is under an answer path, and there is no Stage A table.\n- The tail: the 6141 runs cost $0.25 and $0.20 and broke the Grep caps.\n- Levers: (1) Haiku for the navigator, about -46% (unverified price ratio, highest quality risk); (2) drop identifier lists from index lines (46% of the index), about -13% $ and -24% peak context; (3) a hard tool-call budget, about -9%."
+    },
+    {
+      "at": "2026-10-20T13:12:29.242Z",
+      "phaseId": "p11",
+      "message": "Lever 1 (Haiku navigator).\n- The first test ran sonnet anyway: the outer shell exports CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 with _FORCE=1. run.mjs now strips both from the child env (c593ab3d, test added, 73 pass).\n- Earlier plugin results are unaffected, since the frontmatter was sonnet.\n- Real Haiku, bench (stamps 13-05..13-10):\n\n  | case | F1 | $/run | V2.1 F1 | V2.1 $/run |\n  |---|---|---|---|---|\n  | 6141 | 0.187 | 0.092 | 0.331 | 0.225 |\n  | 3571 | 0.414 | 0.050 | 0.520 | 0.120 |\n  | 6404 | 0.845 | 0.039 | ~0.87 | 0.13 |\n\n- Bench mean F1 0.482 vs V2.1 0.574 vs bare 0.558, cost -60..70%. The navigator part is only $0.005–0.010 per run; the main sonnet session dominates.\n- Quality falls below bare, so the model is reverted to sonnet."
+    },
+    {
+      "at": "2026-10-20T13:41:46.599Z",
+      "phaseId": "p11",
+      "message": "Lever 2 (index without the \"| key files\" lists; 27.8k → 14.9k chars), simulated on the bench index, sonnet, x2, stamps 13-36..13-39. The index was restored byte-identical.\n\n| case | F1 | V2.1 F1 | $/run | V2.1 $/run |\n|---|---|---|---|---|\n| 6141 | 0.367 | 0.331 | 0.207 | 0.225 |\n| 3571 | 0.543 | 0.520 | 0.116 | 0.120 |\n| 6404 | 0.833 | ~0.87 | 0.089 | ~0.13 |\n\nBench mean F1 0.581 vs 0.574 (noise), $/run 0.137 vs 0.158 (-13%), navigator peak 18.6k vs 23.5k (-21%). No quality loss, so it is a candidate for the scout/index generator."
+    },
+    {
+      "at": "2026-10-20T14:02:42.297Z",
+      "phaseId": "p11",
+      "message": "Haiku with the trimmed index, x2, stamps 13-54..13-59: F1 6141 0.156, 3571 0.433, 6404 0.807 (bench mean 0.465, vs 0.482 for Haiku on the full index and 0.581 for Sonnet on the trimmed index), $/run 0.086 / 0.054 / 0.041. On 3571, 28/30 and 22/29 of the missed truth folders appeared in the navigator's tool results; the substring count may overcount. Haiku reads 8–15 notes and runs 3–6 Greps, while Sonnet reads about 1 note and runs many source Greps. Trimming does not fix Haiku. The failure is selection and strategy, not the index. The index is restored byte-identical; navigator.md is left at model: haiku, uncommitted, for the next experiment."
+    },
+    {
+      "at": "2026-10-20T14:16:46.969Z",
+      "phaseId": "p11",
+      "message": "Haiku with a 3-note cap and a \"do not narrow to one screen\" rule (634cccd3), x2, stamps 14-10..14-14.\n\n| case | F1 | F1 Haiku, full index | $/run |\n|---|---|---|---|\n| 6141 | 0.144 | 0.187 | 0.094 |\n| 3571 | 0.616 | 0.414 | 0.056 |\n| 6404 | 0.744 | 0.845 | 0.039 |\n\n- Bench mean F1 0.501 (Sonnet V2.1 0.574, bare 0.558).\n- 3571: dropped folders fell from 12–16 to 5–7, and F1 beats Sonnet.\n- 6404 lost precision: an extra folder plus services/state missed.\n- 6141 still has 38 missed. Haiku runs only 2–4 source Greps, against Sonnet's 4–19."
+    },
+    {
+      "at": "2026-10-20T14:33:37.377Z",
+      "phaseId": "p11",
+      "message": "Haiku with the full grep budget (1d663d6b), x2, stamps 14-27..14-31. F1: 6141 0.207, 3571 0.468, 6404 0.744. Mean 0.473, against 0.501 for the previous variant, 0.482 for Haiku with the original prompt, 0.574 for Sonnet V2.1 and 0.558 for bare. Cost $0.062/run. The 3571 result moved from 0.616 to 0.468 after a one-sentence change aimed at greps, so at x2 the Haiku variance is about ±0.15 and these comparisons do not separate variants. After three Haiku prompt variants, the best mean is 0.501. The navigator is reverted to V2.1 Sonnet."
+    },
+    {
+      "at": "2026-10-20T15:01:23.330Z",
+      "phaseId": "p11",
+      "message": "Haiku tooling design study ($0, offline).\n- Most misses are \"never reached\" for Haiku and Sonnet alike: on 6141 and 3571 the truth folders do not contain the ticket's words.\n- Haiku reads notes instead of grepping (2–5 greps vs Sonnet's 8), truncates greps with head_limit, and drops 6–25 folders it found.\n- Ticket-term source grep generator (a): ceiling R 0.706, top-20 R 0.435 / P 0.235, about 440 tokens.\n- Haiku answer ∪ top-10 gives R 0.498 / P 0.496; adding 10 import neighbours of Haiku's own folders gives R 0.533 / P 0.415, against bare 0.51 on the same 3 cases.\n- Notes generator (b) and automatic hop (c) are weak.\n- Leakage costs about 0.05 R20, almost all from case 438.\n- Recommendation: extend `map` with --folders, ticket on stdin and --near, and give the navigator Bash (the guard already allows read-only ambicode.mjs)."
+    },
+    {
+      "at": "2026-10-20T15:07:01.254Z",
+      "phaseId": "p11",
+      "message": "Started child plan: haiku navigator + map tool"
+    },
+    {
+      "at": "2026-10-20T18:17:14.168Z",
+      "phaseId": "p11",
+      "message": "Child plan \"haiku navigator + map tool\" completed. Haiku navigator (932b65e4: Read/Grep/Glob, evidence rule, siblings, cap 6 deepest notes) reaches 10x3 F1 .572 R .593 at $0.054/run, above bare (.505, $0.144) and sonnet V2.1 (.542, $0.128). The map-tool/Bash direction was dropped. Open: 6141 naming, 438 precision, 6086."
+    },
+    {
+      "at": "2026-10-20T18:19:07.346Z",
+      "phaseId": "p12",
+      "message": "Started phase: Закрытие: удалить мёртвый learn/seed/navigator-код в src/, npm run verify зелёный, bump версии, STATE.md и итоговый отчёт, коммит."
+    },
+    {
+      "at": "2026-10-20T18:26:16.262Z",
+      "phaseId": "p12",
+      "message": "p12 cleanup: removed navigator learn/seed/structure feature map (05a0a8c7, -737 lines src) and dead exports binary.ts, uniqueFileExhausted, resolveInsideBoundary, 3 unused error codes in outcomes.md (33c2a5b4, -51). src .ts 30,547 -> 29,759. npm run verify green (1236 tests, 0 fail; skill-content test passes, earlier failure not reproduced). Version 0.6.1. Weak list for user: test-only exports (registryGate, REGISTERED_HOOK_*, SPECS), todo test review-route.test.ts:343, ~100 over-exported symbols, evals/scripts unused exports."
+    },
+    {
+      "at": "2026-10-20T18:26:17.156Z",
+      "phaseId": "p12",
+      "message": "Completed phase: Закрытие: удалить мёртвый learn/seed/navigator-код в src/, npm run verify зелёный, bump версии, STATE.md и итоговый отчёт, коммит.. Dead navigator feature-map code and dead exports removed (-788 lines in src), verify green, version 0.6.1, commits 05a0a8c7 and 33c2a5b4. Weak-code list left for the user's decision."
+    },
+    {
+      "at": "2026-10-20T18:37:22.683Z",
+      "message": "Weak-code items 1-2 done (71449eda, 72c446bd): test-only exports removed (registryGate, REGISTERED_HOOK_*, SPECS; hook counts now read from hooks.json); 153 unused exports unexported (0 deletions needed); new guard in architecture.test.ts \"exports only what another file imports\", empty allowlist, ~0.25s, probe-tested. src 29,759 -> 29,815 (+56, the guard). verify green 1237 tests 0 fail. 6141 moved to backlog (user)."
+    },
+    {
+      "at": "2026-10-20T18:38:27.040Z",
+      "message": "Plan completed. Navigator eval done: haiku navigator (agents/navigator.md, 932b65e4) reaches 10x3 F1 .572 R .593 at $0.054/run vs bare .505/$0.144 and sonnet V2.1 .542/$0.128. Dead feature-map code and unused exports removed (0.6.1), architecture guard added. Backlog: 6141 naming/source-search hop, 438 precision, 6086."
+    },
+    {
+      "at": "2026-10-20T18:46:37.383Z",
+      "message": "Made the active plan"
+    }
+  ]
+}

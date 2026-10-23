@@ -23,7 +23,7 @@ From the AMBICODE checkout:
 ```text
 npm ci
 npm run package:candidate
-node install-local.mjs install dist/ambicode-0.3.1
+node tools/install-local.mjs install dist/ambicode-0.6.0
 ```
 
 The default configuration directory is the same one ordinary Claude Code
@@ -38,7 +38,7 @@ Verify with ordinary commands in the same terminal:
 ```text
 claude plugin list
 claude plugin details ambicode@ambicode-team
-node install-local.mjs inspect
+node tools/install-local.mjs inspect
 ```
 
 The plugin appears in Claude's plugin list. It does **not** appear as a plugin
@@ -52,9 +52,36 @@ In the target repository, start or restart Claude Code and run:
 /ambicode:init
 ```
 
-`/ambicode:init` creates the repository-owned `.ambicode/config.yaml`. That
-configuration file is the expected repository-visible result of initialization;
-the installed plugin itself remains in Claude's plugin storage.
+`/ambicode:init` is run by the user once per repository, from the git root:
+
+1. A scaffold script creates `.ambicode/` (`tasks/`, `reviews/`, `context/`),
+   writes `.ambicode/config.yaml` from the template, and adds `.ambicode/` to
+   `.gitignore`. The whole folder is gitignored: config, run ledgers and the
+   learning context stay local.
+2. The `ambicode:scout` agent maps the repository in the background and writes
+   the learning context (overview, navigation, conventions, one file per
+   module) through `ambicode context write`, within `context.maxTotalTokens`
+   `context.maxFileTokens` and, for `index.md`, `context.maxIndexTokens`.
+3. Meanwhile the skill reads the manifests to fill in each project's
+   ecosystem, commands and checks.
+4. It writes `.ambicode/config.yaml` once, naming each project's built-in packs
+   (chosen from `ambicode config packs --list`). `ambicode config packs` then copies
+   the named built-ins to
+   `.ambicode/policies/<folder>/<id>.yaml` (with `replaces: builtin/<id>`, listed in
+   `policyFiles`) so you can read and edit them.
+   An existing copy is never overwritten. `.ambicode/` is gitignored, so the
+   copies are per-user unless the team un-ignores `.ambicode/policies/`. `ambicode config
+   validate` follows; errors get one corrective write.
+5. Candidate rules (the scout's conventions, and unless `--auto` a web search and
+   the user's own) are drafted into `.ambicode/policies/drafts/` and handed to
+   the `/ambicode:rules` route, where the user applies them. Init writes no rule
+   into the config.
+
+Run it again to refresh: the scaffold leaves an existing config untouched, and
+the skill asks whether to refresh or abort (`--auto` refreshes). Edit
+`.ambicode/config.yaml` directly at any time and re-run `config validate`.
+`ambicode context list` shows the context files, their first line and size.
+The installed plugin itself remains in Claude's plugin storage.
 
 ## Windows PowerShell
 
@@ -64,10 +91,10 @@ on the generated `bin/ambicode` shell script:
 ```powershell
 npm ci
 npm run package:candidate
-node .\install-local.mjs install .\dist\ambicode-0.3.1
+node .\tools\install-local.mjs install .\dist\ambicode-0.6.0
 claude plugin list
 claude plugin details ambicode@ambicode-team
-node .\install-local.mjs inspect
+node .\tools\install-local.mjs inspect
 ```
 
 Hooks use Claude's exec-form hook contract: `node` plus an argument array that
@@ -82,13 +109,13 @@ The default is `--scope user`. For a project-specific installation, identify
 the target explicitly:
 
 ```text
-node install-local.mjs install dist/ambicode-0.3.1 --scope project --project-dir /absolute/path/to/product
+node tools/install-local.mjs install dist/ambicode-0.6.0 --scope project --project-dir /absolute/path/to/product
 ```
 
 PowerShell example:
 
 ```powershell
-node .\install-local.mjs install .\dist\ambicode-0.3.1 --scope project --project-dir C:\work\product
+node .\tools\install-local.mjs install .\dist\ambicode-0.6.0 --scope project --project-dir C:\work\product
 ```
 
 `local` scope uses the same explicit `--project-dir` requirement. Claude Code
@@ -101,8 +128,8 @@ Use `--config-dir` only when you deliberately want an isolated Claude
 configuration for testing:
 
 ```text
-node install-local.mjs install dist/ambicode-0.3.1 --config-dir /absolute/path/to/test-config
-node install-local.mjs inspect --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs install dist/ambicode-0.6.0 --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs inspect --config-dir /absolute/path/to/test-config
 ```
 
 An ordinary `claude plugin list` reads the normal Claude configuration and
@@ -156,7 +183,7 @@ For TypeScript/JavaScript:
 
 ```text
 claude plugin install typescript-lsp@claude-plugins-official --scope user
-npm install -g typescript-language-server typescript
+npm install -g typescript-language-server typescript@6
 ```
 
 For Python:
@@ -166,19 +193,11 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode init` and `ambicode
-config` show the recommendation for every project; `ambicode prepare --json`
-deliberately leaves installation guidance out of its per-call payload and
-carries only the search strategy, the evidence requirement, and the boundary
-shortlist when the call asked for one. During `investigate`, `plan`, and
-`task`, the skill must report the LSP operations it actually used or a
-specific targeted-search fallback reason. Installed state alone is not
-evidence that the current session used LSP.
-
-Nothing here is required for the shortlist. `ambicode locate <term>...` needs
-only git, and it is what narrows a repository to candidate files before LSP is
-asked anything; LSP then explains a candidate rather than finding it. A
-session with no LSP plugin installed still gets the shortlist.
+Restart or reload Claude after installing. These plugins are optional and
+independent of AMBICODE: no AMBICODE skill or command requires them, checks for
+them or reports on them. `ambicode map` and `ambicode refs` need only git; they
+narrow a repository to candidate files and name usages, and a language server
+can then explain a candidate.
 
 ## Repository verification
 
@@ -222,14 +241,14 @@ stages and validates the replacement first, preserves the previous source until
 native postconditions pass, and writes state atomically.
 
 ```text
-node install-local.mjs install dist/ambicode-0.3.1
-node install-local.mjs uninstall
+node tools/install-local.mjs install dist/ambicode-0.6.0
+node tools/install-local.mjs uninstall
 ```
 
 For an isolated configuration, repeat the exact named option:
 
 ```text
-node install-local.mjs uninstall --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs uninstall --config-dir /absolute/path/to/test-config
 ```
 
 Uninstall reads the recorded scope and project directory. Conflicting caller
@@ -240,13 +259,13 @@ product repositories' `.ambicode/` directories remain.
 ## Troubleshooting
 
 **Installed, but absent from `claude plugin list`.** Run
-`node install-local.mjs inspect`. If you installed with `--config-dir`, use the
+`node tools/install-local.mjs inspect`. If you installed with `--config-dir`, use the
 same `--config-dir` for inspect or set `CLAUDE_CONFIG_DIR` for every Claude
 command. Otherwise confirm the install command did not inherit an unintended
 `CLAUDE_CONFIG_DIR`.
 
 **Skills are absent in the target repository.** Confirm plugin details report
-the five skills, start Claude with the target repository as its working
+the six skills, start Claude with the target repository as its working
 directory, then run `/reload-plugins`. Project/local installs must use the same
 canonical `--project-dir` recorded during installation.
 

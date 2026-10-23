@@ -1,0 +1,292 @@
+{
+  "id": "d4d08796",
+  "title": "init+scout",
+  "goal": "Навигатор мы настроили, теперь давай по скиллам, начиная с init. просмотри насколько он эффективно работает, познакомься с harness, engine, routes из репозитория.\nДля init создай синтетические eval cases - 5шт\nкаждый кейс - проект на отдельном стеке. Они все должны быть полностью разные.\nнужно откалибровать сборку config.yaml, сбор rules, оптимизация scout (тоже перевести на haiku)\nтк на scout завязан навигатор, его мы оставим на конец, сохранив результат на sonnet и сначала сравнивая с ним. Потом по ним уже сравним навигатора не стало ли хуже\n",
+  "parentId": null,
+  "parentPhaseId": null,
+  "status": "active",
+  "createdAt": "2026-10-20T18:53:04.789Z",
+  "phases": [
+    {
+      "id": "p17",
+      "title": "Init walkthrough: trace the skill steps (skills/init/SKILL.md, scaffold.mjs, config packs/validate CLI, scout agent, hand-off to the rules route through the engine), run init --auto once locally in a sandbox ($0 eval), record in STATE.md where turns and quality are lost.",
+      "status": "done"
+    },
+    {
+      "id": "p18",
+      "title": "Five init eval cases on fully different stacks, built through the existing case generator if it fits (change before add); expected config.yaml and rule drafts stored next to each case; deterministic graders; all cases load.",
+      "status": "done"
+    },
+    {
+      "id": "p19",
+      "title": "Sonnet baseline: run the five init cases x3 (scout on sonnet); save score, cost and turns per case in STATE.md and keep the scout artifacts (context + report) per case as the reference for the haiku-scout phase.",
+      "status": "done"
+    },
+    {
+      "id": "p20",
+      "title": "Calibrate config.yaml assembly: config graders improve over the sonnet baseline with no regression on other cases; targeted tests green.",
+      "status": "done"
+    },
+    {
+      "id": "p21",
+      "title": "Calibrate rules collection (drafts under .ambicode/policies/drafts in --auto): rule graders improve over the sonnet baseline with no regression; the manual/web rules path is logged as not covered by evals.",
+      "status": "done"
+    },
+    {
+      "id": "p22",
+      "title": "Cut init cost apart from scout from the baseline traces (redundant reads, turns): same or better score at lower cost per run.",
+      "status": "done"
+    },
+    {
+      "id": "p23",
+      "title": "Scout on haiku: compare with the saved sonnet scout reference (score, cost, context completeness); keep haiku only within the agreed tolerance, otherwise log the gap and the smallest fix.",
+      "status": "done",
+      "childPlanId": "d4083a5a"
+    },
+    {
+      "id": "p24",
+      "title": "Navigator on haiku-scout context: build the inseer-frontend context in a separate dir (backup .local-docs/context and current .ambicode/context untouched), run bench 6141 + 3571 + 6404 x3, then 10 cases x3, against haiku 932b65e4 (F1 .572); then npm run verify, version bump, STATE.md, commit.",
+      "status": "done"
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-10-20T18:53:04.789Z",
+      "message": "Created"
+    },
+    {
+      "at": "2026-10-20T18:53:04.842Z",
+      "message": "Made the active plan"
+    },
+    {
+      "at": "2026-10-20T18:53:17.800Z",
+      "message": "Phases set (8 total)"
+    },
+    {
+      "at": "2026-10-20T18:55:58.390Z",
+      "message": "Phases set (8 total)"
+    },
+    {
+      "at": "2026-10-20T18:56:06.448Z",
+      "message": "Phases set (8 total)"
+    },
+    {
+      "at": "2026-10-20T18:57:12.130Z",
+      "phaseId": "p17",
+      "message": "Started phase: Init walkthrough: trace the skill steps (skills/init/SKILL.md, scaffold.mjs, config packs/validate CLI, scout agent, hand-off to the rules route through the engine), run init --auto once locally in a sandbox ($0 eval), record in STATE.md where turns and quality are lost."
+    },
+    {
+      "at": "2026-10-20T18:59:25.476Z",
+      "phaseId": "p17",
+      "message": "Completed phase: Init walkthrough: trace the skill steps (skills/init/SKILL.md, scaffold.mjs, config packs/validate CLI, scout agent, hand-off to the rules route through the engine), run init --auto once locally in a sandbox ($0 eval), record in STATE.md where turns and quality are lost.. Walkthrough of init (skill + scripts, scout agent, rules hand-off) with the code steps run by hand on a fixture ($0, all exit 0); findings in STATE.md: scout turn variance 8-56, skills.init.scout is prose-only, config packs overwrites ignored, existing init-auto case fits the generator but needs 4 new-stack fixtures and possibly Agent in allowed_tools."
+    },
+    {
+      "at": "2026-10-20T19:01:15.799Z",
+      "phaseId": "p18",
+      "message": "Started phase: Five init eval cases on fully different stacks, built through the existing case generator if it fits (change before add); expected config.yaml and rule drafts stored next to each case; deterministic graders; all cases load."
+    },
+    {
+      "at": "2026-10-20T19:15:33.298Z",
+      "phaseId": "p18",
+      "message": "Completed phase: Five init eval cases on fully different stacks, built through the existing case generator if it fits (change before add); expected config.yaml and rule drafts stored next to each case; deterministic graders; all cases load.. Five init --auto cases (ts, python, go, jvm/kotlin, rust+ts monorepo) via the existing generator, with expected config, truth.json, planted conventions and 23-31 deterministic graders each; $0 good/bad workspace tests pass (13), typecheck clean, committed 23adeb26. Agent added to the init case allowed_tools; no model run yet."
+    },
+    {
+      "at": "2026-10-20T19:27:11.325Z",
+      "phaseId": "p19",
+      "message": "Started phase: Sonnet baseline: run the five init cases x3 (scout on sonnet); save score, cost and turns per case in STATE.md and keep the scout artifacts (context + report) per case as the reference for the haiku-scout phase."
+    },
+    {
+      "at": "2026-10-20T19:33:37.464Z",
+      "phaseId": "p19",
+      "message": "p19 smoke x1: mean score .854, $0.89 total, scout sonnet ~9 calls. Main gap: --auto writes no rule drafts (model reads step 5 as skipped). Blocker for the scout reference: .ambicode/context is not kept in traces."
+    },
+    {
+      "at": "2026-10-20T19:44:22.392Z",
+      "phaseId": "p19",
+      "message": "Completed phase: Sonnet baseline: run the five init cases x3 (scout on sonnet); save score, cost and turns per case in STATE.md and keep the scout artifacts (context + report) per case as the reference for the haiku-scout phase.. Sonnet baseline x3 on the five init cases: mean .855, $0.172/run (scout ~78%), $2.58 total; scout context now kept in traces (3bd49b83, test updated) as the reference. Main gap: no rule drafts in --auto in all 12 runs of the four cases with conventions."
+    },
+    {
+      "at": "2026-10-20T19:44:22.408Z",
+      "message": "Eval dir at 19,032 of 20,000 after the baseline; each x3 sweep adds ~450 entries. Old results must be pruned (user decision) before further paid runs."
+    },
+    {
+      "at": "2026-10-20T21:13:20.248Z",
+      "phaseId": "p23",
+      "message": "Started phase: Scout on haiku: compare with the saved sonnet scout reference (score, cost, context completeness); keep haiku only within the agreed tolerance, otherwise log the gap and the smallest fix."
+    },
+    {
+      "at": "2026-10-20T21:13:26.171Z",
+      "phaseId": "p23",
+      "message": "Started child plan: scout on haiku"
+    },
+    {
+      "at": "2026-10-21T01:18:56.615Z",
+      "phaseId": "p23",
+      "message": "Child plan \"scout on haiku\" completed. Scout on haiku: CLI levers (all-level tree, CLI-built index, conventions check, type-based doc list, order-free links, index counted once) cut haiku scout turns 14.9 -> 7.1 and lifted score .766 -> .835 (sonnet .841) at ~$0.012 scout/run; large repo 115/115 notes, $0.124 run. Default is haiku (83ba508c). Open: planted conventions 11/20 vs sonnet 18/20; conventions without quotes/paths; navigator regression on haiku context pending in the parent plan. Spend $1.84, 4 launches."
+    },
+    {
+      "at": "2026-10-21T01:47:21.094Z",
+      "phaseId": "p24",
+      "message": "Started phase: Navigator on haiku-scout context: build the inseer-frontend context in a separate dir (backup .local-docs/context and current .ambicode/context untouched), run bench 6141 + 3571 + 6404 x3, then 10 cases x3, against haiku 932b65e4 (F1 .572); then npm run verify, version bump, STATE.md, commit."
+    },
+    {
+      "at": "2026-10-21T01:59:53.006Z",
+      "phaseId": "p24",
+      "message": "p24 bench on haiku-scout context (7cd6ea40 NAV_CONTEXT seam; stamps 2026-10-21T01-50-03 6141, 01-53-50 3571, 01-56-49 6404; $0.59): F1 .161/.452/.752 (mean .455) vs old sonnet context .194/.555/.852 (.534), bare .339/.521/.815. All three lower; 6404 is low-variance (runs .73-.77 vs .85-.87) and misses main/services 3/3 vs 0/3. Mechanism: haiku index/note lines describe the area generically (\"Stateless API and business services\") instead of naming sub-domains/components as sonnet does; 3571 misses report sub-components 2/3. Coverage equal (115 notes); 6141 not context-driven (0 truth notes)."
+    },
+    {
+      "at": "2026-10-21T02:23:31.820Z",
+      "phaseId": "p24",
+      "message": "d5d0a629 scout summaries name contents (+180 B). init-scout-large x1 02-10-17: 115 notes, 0 failed. Bench 3571 .508 (prev haiku ctx .452, sonnet ctx .555), 6404 .760 (.752 / .852); $0.43. Summary-wording hypothesis weak: on 6404 the navigator never opens the services note on either haiku context and greps instead. Next ($0): which read note carries main/services on the sonnet context, and whether the missing index.md.roots in the haiku context matters."
+    },
+    {
+      "at": "2026-10-21T02:25:27.692Z",
+      "phaseId": "p24",
+      "message": "p24 diagnosis: haiku-scout notes have 0 Depends on / 0 Gotchas (sonnet bench ctx 59 sections / 190 bullets); on 6404 only sonnet's upload.md Depends names main/services. scout.md never asked for them (only context-format.md lists them); sonnet v2 init baselines also have 0, so it is the recipe, not the model. No import graph in src/ to reuse. Options: A deterministic import parser (high, per-language, rejected for now); B scout reads a head (limit 40) of each module's main file and fills Depends/Gotchas (one sentence, ~115 extra reads, maybe 2x scout cost). Recommend B; awaiting user."
+    },
+    {
+      "at": "2026-10-21T02:33:02.390Z",
+      "phaseId": "p24",
+      "message": "Option B (dcf402bb, one sentence in scout.md) failed: init-scout-large 02-29-49 wrote 0 Depends / 0 Gotchas in 115 notes, Reads not increased ($0.133). Consistent with earlier finding: haiku skips optional read steps but fixes CLI-reported problems. Bench not run. Next options for the user: numbered step (weak), CLI problem check, or CLI-generated Depends by language-agnostic name matching."
+    },
+    {
+      "at": "2026-10-21T03:39:35.276Z",
+      "phaseId": "p24",
+      "message": "p24 option 3 (1f8d6baf, 7f4fc635; verify green 1271): context write generates `## Depends on` from file-name references (names >=8 chars, unique to one module, cap 8; vs real imports R .90 P .91). init-scout-large 03-28-50: 1.0, $0.136, 103/115 notes with Depends, ~48.1k tok. Navigator bench x3 on that context: 6141 .157, 3571 .456, 6404 .744 (sonnet ctx .194/.555/.852; haiku 02-10 -/.508/.760) — no gain, within noise. 6404 main/services now in a read note but missed 3/3: bullet names a folder, sonnet's named a file (prompt treats a path line as evidence). First init run failed total-too-large (index counted after fill) -> fixed in 7f4fc635 with offline repro only, no unit test. Spend $1.12 (cap $1.0 exceeded by $0.12). Context shasum unchanged, cases restored."
+    },
+    {
+      "at": "2026-10-21T03:59:48.139Z",
+      "phaseId": "p24",
+      "message": "p24 last attempt (c1e8b39b, verify green 1271): Depends bullets name up to 2 most-mentioned files per module. init-scout-large 03-48-22: .906 (scout skipped 1 note), 48.2k tok, $0.138. Bench x3: 6141 .221 / 3571 .489 / 6404 .755 (mean .488; prev module bullets .452; sonnet ctx .534) — within noise. 6404 main/services still missed 3/3: upload note names formatters/breakpoint services, not upload.service.ts (ranking). $0.684. 7f4fc635 still no unit repro."
+    },
+    {
+      "at": "2026-10-21T04:10:44.042Z",
+      "phaseId": "p24",
+      "message": "Completed phase: Navigator on haiku-scout context: build the inseer-frontend context in a separate dir (backup .local-docs/context and current .ambicode/context untouched), run bench 6141 + 3571 + 6404 x3, then 10 cases x3, against haiku 932b65e4 (F1 .572); then npm run verify, version bump, STATE.md, commit.. Navigator on the haiku-scout context: context write now generates Depends on with file bullets (1f8d6baf, 7f4fc635, c1e8b39b). Bench x3 mean F1 .488 vs .534 on the sonnet context, within the user's ±0.1 tolerance; 6404 main/services is still missed. Released 0.6.3 (190af019), verify green 1271/0."
+    },
+    {
+      "at": "2026-10-21T05:34:55.801Z",
+      "phaseId": "p20",
+      "message": "Started phase: Calibrate config.yaml assembly: config graders improve over the sonnet baseline with no regression on other cases; targeted tests green."
+    },
+    {
+      "at": "2026-10-21T05:37:29.671Z",
+      "phaseId": "p20",
+      "message": "p20 $0 analysis (haiku x2 00-25..00-32, sonnet v2 x3): config graders failing at least once: jvm projects-single (h 1/2, s 3/3, model splits Gradle subprojects), jvm root-or-paths (h 2/2, s 2/3, truth too narrow: top-level paths rejected), mono lint-check-engine (h 1/2, s 2/3; clippy only in README/CONTRIBUTING, scout report has no checks field), mono generated-excluded (h 1/2), ts sonnet run 3 no checks (validate says ok on empty checks). Ungraded: wrong paths under a non-. root accepted by validate; go golangci dropped by sonnet 2/3. No CLI detector wrong. config packs ignored rewrite correct. Haiku mono run 1 scout read the plugin's own README (outside workspace), once."
+    },
+    {
+      "at": "2026-10-21T05:56:46.678Z",
+      "phaseId": "p20",
+      "message": "p20 fixes 1+3 (c9c7cdb4, a5ae62f7; verify 1277 pass 0 fail): root-or-paths accepts truth paths or a directory above them (generic, boundary-guarded); config validate warns (exit 0) on empty/missing checks and on paths/include matching no tracked file under root; 5 expected configs still print ok. Re-grade jvm: haiku 2/2 and sonnet 2/3 flip to pass, but haiku r2 `[domain/]` passes while naming 1 of 7 subprojects (grader now lenient). Warnings vs SKILL step 4 \"on problems one corrective Write\": unverified whether the model acts on warnings. All-null checks do not warn. Fixtures materialized to eval-archive/apps/ for the user."
+    },
+    {
+      "at": "2026-10-21T06:01:08.606Z",
+      "phaseId": "p20",
+      "message": "p20 items 2+4 (b8532902, verify 1280 pass 0 fail): SKILL step 3 derives the stack's usual check kinds and reads where it declares/documents them (tool configs, contributor docs, CI; manifests win), no tool/file names; step 4 corrects on warnings too. Body exactly 1536 bytes after tightening (new `ambicode` alias for the node path in steps 4-5: risk the model runs a bare `ambicode` that allowed-tools patterns won't match — watch in the run). validate warns on projects with the same root and identical non-null checks; all-null checks = empty. Scout untouched. Not yet run on a model."
+    },
+    {
+      "at": "2026-10-21T06:19:52.216Z",
+      "phaseId": "p20",
+      "message": "p20 run (stamps 2026-10-21T06-07-47 ts..06-15-19 mono, x2, $1.483): overall .801 vs .835 old; drop = go-1 .558 (haiku scout ran git -C on the plugin repo, deny, 0 notes; mono-1 scout also tried the plugin README). Config graders unchanged 1/2->1/2 (mono lint-check-engine, generated-excluded, jvm projects-single); jvm root-or-paths 0/2 (grader change). Step 3 extra reads only in go (both runs read .golangci.yml + CONTRIBUTING) and jvm-2; ts/python/mono read manifests only. New: validate hard error `checks.<name>: expected object, received null` in 7/10 runs (prompt says \"else null\", schema rejects null); all fixed by a corrective write (+1-2 turns, $/run +15%). Warnings: mono only, both fixed; mono paths now root-relative in both runs. Scout $0.0122, 7.0 turns, unchanged."
+    },
+    {
+      "at": "2026-10-21T06:33:07.334Z",
+      "phaseId": "p20",
+      "message": "p20: null-check fix 7fae040d (schema normalizes bare null to {all:null,file:null}; error was new with the step-3 wording: 0/5 old stamps, 7/10 new; verify 1282/0). Trace analysis: stack decided only in main step 3 after the scout launch; scout plugin-dir confusion 3/20 haiku scouts (anchors on the expanded ${CLAUDE_PLUGIN_ROOT} format-spec path; real-use effect unverified); step 3 globbed root docs in 2/10 runs (model's pattern choice). User proposal implemented next: stack + root *.md before the scout, scout prompt carries repo root/stack/docs read; iterate on go + mono x2 until stable."
+    },
+    {
+      "at": "2026-10-21T06:41:24.637Z",
+      "phaseId": "p20",
+      "message": "p20: 206153b8 stack + root docs before the scout (go x2 on that text, 06-37-16: .865, $0.131/run vs .558/.827 $.153; details not extracted). Step 2 then made layout-based (no manifests wording), verify 1282/0; that edit landed in automatic checkpoint commit 3c40dd9f with an unrelated message. User: no self-started runs; mono and the new step-2 text not run."
+    },
+    {
+      "at": "2026-10-21T06:51:40.083Z",
+      "phaseId": "p20",
+      "message": "p20 run, user's step 3 without prescribed scout prompt (go 06-46-23 .519/.923, mono 06-48-53 .862/.785; $0.578). Config: mono lint-check-engine 2/2 and generated-excluded 2/2 now pass (was 1/2 each); go lint pass. Main read root md before the scout 4/4; mono read README+CONTRIBUTING before the config write 2/2. Scout plugin-dir confusion 0/4. go1 .519: main launched the scout in background and ended without its report (no context, 21/26 graders failed); go2 ran the scout in foreground. Main-composed scout prompts ask for packs/ignored. Other: go2 packs written as common-* (validate fixed), mono2 guard blocked a $A call. drafts fail as before (p21)."
+    },
+    {
+      "at": "2026-10-21T07:02:31.347Z",
+      "phaseId": "p20",
+      "message": "p20: go-1 06-46 cause = composed scout prompt \"Report: ...\" -> scout wrote no context (\"I read only\"); main did not end early (session reopens on the notification, also in real use). Fixes in SKILL.md (f090cf90 + b62a8706 + b89b66fc, verify 1284/0): step 3 \"Whatever the prompt adds, it must still ask the scout to write the context\"; step 5 pack ids exactly as --list prints; line 8 never alias a command to a shell variable. Context quality fixed vs prescribed vs composed prompt: no measurable difference at n=1-4 (separating needs ~8-10 runs/arm, ~$4-8). Export: top losses drafts (0/40 on ts/py/jvm/mono), scout-convention-* (0-.6), missing context go 2/22. Not run on a model."
+    },
+    {
+      "at": "2026-10-21T07:11:05.761Z",
+      "phaseId": "p20",
+      "message": "p20 go+mono x2 on b89b66fc: go .933 (was .519/.923), mono .823 (flat), $0.758 (over $0.70 cap by mono). Scout writes context 4/4, pack ids ok, validate clean, $A alias 1/4. Remaining: drafts (p21), scout-convention misses, mono summary-lists-checks. 20k eval-dir limit = hardcoded in claude CLI; fix = results outside evals/ (awaiting user)."
+    },
+    {
+      "at": "2026-10-21T07:20:18.291Z",
+      "phaseId": "p20",
+      "message": "Completed phase: Calibrate config.yaml assembly: config graders improve over the sonnet baseline with no regression on other cases; targeted tests green.. Config assembly calibrated: stack + root docs read before the scout, stack config/rule files drive checks, validate warns on empty/null checks, unmatched paths and same-root duplicate projects, schema accepts null checks, pack ids as listed. go+mono x2 (b89b66fc): config graders 4/4 (mono clippy/generated now pass), validate clean 4/4, go .933, mono .823."
+    },
+    {
+      "at": "2026-10-21T07:20:18.483Z",
+      "phaseId": "p21",
+      "message": "Started phase: Calibrate rules collection (drafts under .ambicode/policies/drafts in --auto): rule graders improve over the sonnet baseline with no regression; the manual/web rules path is logged as not covered by evals."
+    },
+    {
+      "at": "2026-10-21T07:22:50.283Z",
+      "phaseId": "p21",
+      "message": "p21 $0 analysis (20 init runs 06-07..07-07): drafts written 7/20, exactly the runs that read references/rules.md; 13/20 skipped, summaries say \"--auto skips rule drafting\" (SKILL step 6 \"unless --auto ...\" reads as skip). Grader defect: drafts-written/draft-<id> match only Write input; 2/7 drafting runs used Bash heredoc (mono 07-07-2 drafted but 0/5). Funnel: written conventions that reach the report get drafted; inferred conventions in 0/20 scout reports (scout gap). Proposed: step 6/7 wording + graders on produced files."
+    },
+    {
+      "at": "2026-10-21T07:35:32.524Z",
+      "phaseId": "p21",
+      "message": "p21 032a0368: SKILL step 6 drafts always (also --auto), line 8 clarified; drafts-written = file_exists on drafts/*.y*ml (sandbox diff, tool-agnostic), draft-<id> = trace regex over Write/Edit/Bash to drafts dir. Offline: mono 07-07-2 now passes drafts-written + 2/4 ids (the ones it drafted); no-draft python runs still fail. verify green. Not run on a model."
+    },
+    {
+      "at": "2026-10-21T08:08:36.458Z",
+      "phaseId": "p21",
+      "message": "p21 5x3 on 032a0368 ($2.627): mean .908 (prev x2 .851), excl. draft graders .933 (prev .915). Drafts 15/15 (5 via Bash). Draft misses only on inferred conventions the scout never finds. New issues: summary-reports-validate 7/15, $A aliases 6/15, main turns 14-23 (was 7-9), one invalid draft (jvm r2)."
+    },
+    {
+      "at": "2026-10-21T08:30:29.038Z",
+      "phaseId": "p21",
+      "message": "p21 5be01545 (verify 0 fail): summary-reports-validate was a grader defect (regex widened, 15/15 real summaries pass, failure wording still fails); alias cause = chained CLI calls with long path, line 8 now says a chain repeats the full path (4/15 runs, no guard block); pack-format.md names the `command:` key (3/15 drafts missed it); turn breakdown 14.3 vs 11.8 calls/run recorded for p22. Not run on a model."
+    },
+    {
+      "at": "2026-10-21T08:49:00.054Z",
+      "phaseId": "p21",
+      "message": "p21 5x3 on 5be01545 ($2.659): .896 vs .916 like-for-like. Fixes confirmed (aliases 1/15 vs 4, pack-invalid 0/15 vs 3, fix-ups 0 vs 5, calls 13.5 vs 14.3). Mono regressed .897 -> .821 on index/module-link graders 3/3 and two drafts; cause not analysed. Other cases within ±.03."
+    },
+    {
+      "at": "2026-10-21T09:30:08.912Z",
+      "phaseId": "p21",
+      "message": "p21 62db352c scout one root per project: mono x3 .903 (was .821), project roots 3/3, index 33/33 in 3/3, modules-linked 18/18, $0.60. Draft heredoc grader false negative left as is (user)."
+    },
+    {
+      "at": "2026-10-21T09:32:35.984Z",
+      "phaseId": "p21",
+      "message": "Completed phase: Calibrate rules collection (drafts under .ambicode/policies/drafts in --auto): rule graders improve over the sonnet baseline with no regression; the manual/web rules path is logged as not covered by evals.. Drafts in --auto: step 6 always drafts (15/15 vs 7/20), draft graders tool-agnostic, summary-validate grader fixed, pack-format names `command:`, alias wording, scout one root per project. 5x3 on 5be01545 .896 (like-for-like .916 before, mono noise fixed by 62db352c: mono x3 .903). Remaining gap: inferred conventions the scout never finds; manual/web rules path not covered by evals."
+    },
+    {
+      "at": "2026-10-21T09:32:36.475Z",
+      "phaseId": "p22",
+      "message": "Started phase: Cut init cost apart from scout from the baseline traces (redundant reads, turns): same or better score at lower cost per run."
+    },
+    {
+      "at": "2026-10-21T09:35:36.464Z",
+      "phaseId": "p22",
+      "message": "p22 $0 breakdown: main $0.165/run (90%); cache write 58% (10.6k fixed prefix = 25% of main), output 27%. Prompt-side levers total ~10% ($0.015-0.02/run): prefetch references in the scout-launch turn, one write turn, validate+policy check in one call, avoid retries, summary cap. Prefix composition (plugin share) not analysed."
+    },
+    {
+      "at": "2026-10-21T09:50:07.431Z",
+      "phaseId": "p22",
+      "message": "p22: export analysis — plugin share of the fixed prefix ~2%, floor ~$0.155-0.16/run at current score; further cheapening not reachable from the plugin. Lever 1 f49f59f1 (batch post-scout steps: prefetch refs + --list in launch turn, one Write turn, one check call), verify 1294/0, body 2000 B. Not run on a model."
+    },
+    {
+      "at": "2026-10-21T10:54:55.694Z",
+      "phaseId": "p22",
+      "message": "p22 5x3 on f49f59f1 ($2.81): score .919 vs .912, main turns 10.6 -> 8.0, but $/run .187 vs .180 (noise) — more drafts (38 vs 11 files) and tool calls offset the saved turns. summary-reports-validate drop = case-sensitive grader branch. Verdict: no further cheapening from the plugin side."
+    },
+    {
+      "at": "2026-10-21T11:00:33.528Z",
+      "phaseId": "p22",
+      "message": "Completed phase: Cut init cost apart from scout from the baseline traces (redundant reads, turns): same or better score at lower cost per run.. Init cost: plugin share of the fixed prefix ~2%, floor ~$0.16-0.18/run. Batched post-scout steps (f49f59f1): main turns 10.6 -> 8.0, score .919 vs .912, $/run .187 vs .180 (noise; more drafts offset). Verdict: no further cheapening from the plugin side. summary-reports-validate case-sensitivity logged as a backlog ticket."
+    },
+    {
+      "at": "2026-10-21T11:21:51.415Z",
+      "message": "Navigator 10x3 on haiku-scout context: F1 .528 vs .572 (sonnet ctx), bare .505, $0.054/run. User accepts for now; backlog: assess the drop and improve run time."
+    }
+  ]
+}

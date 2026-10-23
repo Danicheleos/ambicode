@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: parcelhub-team
+authority: team
+description: Rules from the parcelhub contributing guide.
+appliesTo: ["**/*.go"]
+activities: [review, task]
+source:
+  location: CONTRIBUTING.md
+rules:
+  - id: injected-clock
+    category: architecture
+    instruction: "Never call time.Now outside internal/clock: take a core.Clock and call clock.Now(), so tests can fix the time."
+    source:
+      quote: "Never call `time.Now` outside `internal/clock`"
+      location: CONTRIBUTING.md
+    check:
+      kind: reviewer
+      explanation: Look for time.Now or time.Since calls in packages other than internal/clock.

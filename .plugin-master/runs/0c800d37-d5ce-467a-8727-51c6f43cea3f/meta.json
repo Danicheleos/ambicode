@@ -1,0 +1,14 @@
+{
+  "id": "0c800d37-d5ce-467a-8727-51c6f43cea3f",
+  "title": "сори перезагрузил. продолжай",
+  "startedAt": "2026-10-17T07:42:12.836Z",
+  "endedAt": "2026-10-17T13:08:51.416Z",
+  "turns": 131,
+  "costUsd": 12.546302699999995,
+  "models": [
+    "claude-sonnet-5-5",
+    "claude-opus-5-5"
+  ],
+  "claudeVersion": "2.1.301",
+  "commit": "1c4ccb801ab81c0596bcd3cbc23a436081fcd0ca"
+}

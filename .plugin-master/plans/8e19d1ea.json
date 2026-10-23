@@ -1,0 +1,168 @@
+{
+  "id": "8e19d1ea",
+  "title": "Restore metrics after ux improvements",
+  "goal": "",
+  "parentId": null,
+  "parentPhaseId": null,
+  "status": "active",
+  "createdAt": "2026-10-17T07:36:54.758Z",
+  "phases": [
+    {
+      "id": "p1",
+      "title": "Working tree is committed and green: user commits the 9 uncommitted reviewer-Write files, then `npm run verify` passes on the committed state (baseline for all later measurements)",
+      "status": "done"
+    },
+    {
+      "id": "p2",
+      "title": "Reviewer Write flow is confirmed locally at $0: reproduce a review from a fixture (`node fixtures/materialize.mjs`), check that `answer.json` is written by the reviewer, `route next` records it and prints the report, and that the `agent_type` field is actually present in the hook payload (otherwise the guard rule fails open)",
+      "status": "done"
+    },
+    {
+      "id": "p3",
+      "title": "Paid plugin arm is measured: after approval, `npm run build && npm run evals -- --runs 3` (about $6); read aggregate-result.json and report the overall score against the 0.985 pre-ux and 0.879 post-ux scores, with failing graders per case",
+      "status": "done"
+    },
+    {
+      "id": "p4",
+      "title": "Review cost is back to the pre-ux level: review-clean about $0.07–0.08/run and reviewer first-call cache write about 5k tokens; if not, find the cause in the traces and make the smallest fix, re-measured with a targeted `--case` run",
+      "status": "done"
+    },
+    {
+      "id": "p5",
+      "title": "Rewritten plan/task graders are validated against real traces: check that they pass on good runs and fail on bad ones, fix any grader that does not, and check that Part 4 is present (`part4-fenced` 1.0)",
+      "status": "done"
+    },
+    {
+      "id": "p6",
+      "title": "Quality, cost and speed are compared with the bare arm (0.815, $0.0715/run); log the result and any remaining regression in STATE.md, and propose the real run 4 on inseer-frontend from a fresh VS Code",
+      "status": "done"
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-10-17T07:36:54.758Z",
+      "message": "Created"
+    },
+    {
+      "at": "2026-10-17T07:36:54.789Z",
+      "message": "Made the active plan"
+    },
+    {
+      "at": "2026-10-17T07:37:05.770Z",
+      "message": "Phases set (6 total)"
+    },
+    {
+      "at": "2026-10-17T07:38:49.964Z",
+      "phaseId": "p1",
+      "message": "Started phase: Working tree is committed and green: user commits the 9 uncommitted reviewer-Write files, then `npm run verify` passes on the committed state (baseline for all later measurements)"
+    },
+    {
+      "at": "2026-10-17T07:44:30.384Z",
+      "phaseId": "p1",
+      "message": "Completed phase: Working tree is committed and green: user commits the 9 uncommitted reviewer-Write files, then `npm run verify` passes on the committed state (baseline for all later measurements). Reviewer-Write files are committed (1c4ccb80). `npm run verify` exits 0 on the committed tree: 1210 tests, 1208 pass, 0 fail, 1 skip, 1 todo (08-R5, known), guard bundle 24.1 kB, plugin validation passed."
+    },
+    {
+      "at": "2026-10-17T07:50:11.533Z",
+      "phaseId": "p2",
+      "message": "Started phase: Reviewer Write flow is confirmed locally at $0: reproduce a review from a fixture (`node fixtures/materialize.mjs`), check that `answer.json` is written by the reviewer, `route next` records it and prints the report, and that the `agent_type` field is actually present in the hook payload (otherwise the guard rule fails open)"
+    },
+    {
+      "at": "2026-10-17T07:50:57.767Z",
+      "phaseId": "p2",
+      "message": "p2: docs (hooks) confirm agent_type is in PreToolUse input from a subagent, plugin agents as `plugin-name:agent-name` (= `ambicode:reviewer`, matches REVIEWER_AGENT). Not yet observed in a real payload; guard (199 tests) and review route tests pass."
+    },
+    {
+      "at": "2026-10-17T07:53:45.080Z",
+      "phaseId": "p2",
+      "message": "Completed phase: Reviewer Write flow is confirmed locally at $0: reproduce a review from a fixture (`node fixtures/materialize.mjs`), check that `answer.json` is written by the reviewer, `route next` records it and prints the report, and that the `agent_type` field is actually present in the hook payload (otherwise the guard rule fails open). Closed on docs and tests, without a real reviewer run (user chose this). Hooks docs: agent_type is in subagent PreToolUse input, plugin agents report `plugin-name:agent-name` = `ambicode:reviewer`, matching REVIEWER_AGENT; guard and review-route tests pass (199, 0 fail, 1 known todo). Not observed in a real payload: confirm in the p3 paid run."
+    },
+    {
+      "at": "2026-10-17T07:53:45.476Z",
+      "message": "Carry to p3: in the paid run confirm (a) the reviewer writes answer.json and route next records it, (b) agent_type reaches the guard (reviewer denied a non-answer file, no fail-open)."
+    },
+    {
+      "at": "2026-10-17T07:54:00.351Z",
+      "phaseId": "p3",
+      "message": "Started phase: Paid plugin arm is measured: after approval, `npm run build && npm run evals -- --runs 3` (about $6); read aggregate-result.json and report the overall score against the 0.985 pre-ux and 0.879 post-ux scores, with failing graders per case"
+    },
+    {
+      "at": "2026-10-17T08:03:07.312Z",
+      "phaseId": "p3",
+      "message": "Completed phase: Paid plugin arm is measured: after approval, `npm run build && npm run evals -- --runs 3` (about $6); read aggregate-result.json and report the overall score against the 0.985 pre-ux and 0.879 post-ux scores, with failing graders per case. Paid plugin arm, 17 cases x 3 runs, $5.50, 8 min: overall 0.963 (was 0.879 before the reviewer Write flow; 0.985 before ux), pass rate 12/17 cases. Reviewer flow works in real runs (answer.json written, review-record at route next, readback printed); agent_type reaching the guard is still not directly observed. Failing: plan-accept/plan-reuse plan-quality 0.82, review-subtle 0.82, investigate-trace 0.94, init-auto 0.96."
+    },
+    {
+      "at": "2026-10-17T08:03:08.711Z",
+      "message": "p3 failures: plan-accept + plan-reuse plan-quality (llm judge FAIL in 3/3 and 2/3 runs); review-subtle finding-correct (FAIL 3/3) and cites-caller (2/3); investigate-trace answer-correct (1/3); init-auto check-wired (1/3, \"jest\" absent from config.yaml). Review cost fixed: review-clean $0.075-0.087 (was 35-60% higher). agent_type: guard logs nothing, a Write to answer.json succeeds both with the rule and fail-open, so the runs cannot tell them apart."
+    },
+    {
+      "at": "2026-10-17T11:39:30.610Z",
+      "phaseId": "p4",
+      "message": "Started phase: Review cost is back to the pre-ux level: review-clean about $0.07–0.08/run and reviewer first-call cache write about 5k tokens; if not, find the cause in the traces and make the smallest fix, re-measured with a targeted `--case` run"
+    },
+    {
+      "at": "2026-10-17T11:39:38.443Z",
+      "phaseId": "p4",
+      "message": "Completed phase: Review cost is back to the pre-ux level: review-clean about $0.07–0.08/run and reviewer first-call cache write about 5k tokens; if not, find the cause in the traces and make the smallest fix, re-measured with a targeted `--case` run. Review cost is back near the pre-ux level, measured on the p3 traces: review-clean $0.075-0.087 per run (target 0.07-0.08; was 35-60% higher). The reviewer's first call (fresh context, cache read 0) writes 5.6k tokens to cache in run 1, vs about 5k target. No fix needed."
+    },
+    {
+      "at": "2026-10-17T11:40:53.407Z",
+      "phaseId": "p5",
+      "message": "Started phase: Rewritten plan/task graders are validated against real traces: check that they pass on good runs and fail on bad ones, fix any grader that does not, and check that Part 4 is present (`part4-fenced` 1.0)"
+    },
+    {
+      "at": "2026-10-17T11:42:40.647Z",
+      "phaseId": "p5",
+      "message": "p5 finding (plan-quality, plan-accept/plan-reuse): the accepted plans on disk meet the criteria (3 iterations, extend Invoice/service.ts/invoicesRoute, createInvoice new only because no creation code exists). The judge sees only last_message, which no longer carries file paths (names `Invoice`, `invoicesRoute`, service.ts only), so FAIL 3/3 is a grader/evidence mismatch, not a plan defect. The plan's \"Not covered\" names src/legacy/ and src/reports/ files as not changed, which the literal criterion (\"name no file under ...\") would also trip if the judge read the plan file. Judge returns only votes, no reasoning: hypothesis not confirmed by a re-judge."
+    },
+    {
+      "at": "2026-10-17T11:43:59.837Z",
+      "phaseId": "p5",
+      "message": "p5 review-subtle: finding-correct 0/3 (and cites-caller 1/3) on 2026-10-17 07:54, 0/3 also at 06:35. History: 0.33-0.67 from 10-14 to 10-15, 0 after the ux commits (10-16/17), so a persistent reviewer weakness that got worse, not a grader bug. Run 1 named callers with locations (service.js:55, reports/service.js:53) yet the judge FAILed it (borderline). Runs 2-3 did not: run 2's answer.json says \"I did not grep the callers\", though agents/reviewer.md:36-41 (Dependents) already requires it. Also answer.json is written wrapped in a ```json fence (all 3 runs) and still recorded. Hypothesis: the Dependents instruction is a bullet among eight assess items and the brief grew in the ux changes; not tested."
+    },
+    {
+      "at": "2026-10-17T11:46:17.136Z",
+      "phaseId": "p5",
+      "message": "p5 review-subtle experiment: agents/reviewer.md now orders the Dependents step before any finding. Run of 3 (11:44, $0.34): cites-caller 1/3 -> 3/3, answer.json names src/invoices/service.js:55 (tax 100.5: 101 -> 100) in 3/3, but finding-correct still 0/3 because the main model's final message drops that caller from the rounding finding; the judge reads last_message. Grader change: plugin arm judges repo/.ambicode/reviews/rev-money/1/report.txt (bare keeps last_message), case version 3. no-false-defect failed once (run 3, percentOf \"mixes rounding modes\"). Not re-run with the new grader."
+    },
+    {
+      "at": "2026-10-17T11:51:03.539Z",
+      "phaseId": "p5",
+      "message": "p5 changes done, none run in paid evals yet. (1) plan-quality (plan-accept, plan-reuse): plugin arm judged on focus trace (the plan file name has a timestamp, harness resolves no globs), bare keeps last_message; PLAN_QUALITY gets \"as something to change\" for legacy/reports. Versions plan-accept 7, plan-reuse 5. (2) review-subtle: reviewer.md Dependents step first; finding-correct judged on report.txt for the plugin arm; version 3. (3) init-auto check-wired was 0 on 10-14/15, 1.0 at 06:35, 0.67 now: run 1 wrote `commands: {}` (checks derived in step 3 not carried into the step 4 Write); skills/init/SKILL.md step 3 now says \"Hold them for step 4\"; dropped \"(id, purpose)\" and reworded one clause to stay at the 1536-byte limit (test limit not raised); version 4. (4) investigate-trace answer-correct 1/3: the failing answer reads correct, no cause found, left alone. part4-fenced 3/3 in the last run. Bare re-run needed for plan-accept (rubric changed), plan-reuse and review-subtle (version bumps). verify green: 1210 tests, 1208 pass, 1 skip, 1 todo."
+    },
+    {
+      "at": "2026-10-17T11:51:04.736Z",
+      "phaseId": "p5",
+      "message": "Completed phase: Rewritten plan/task graders are validated against real traces: check that they pass on good runs and fail on bad ones, fix any grader that does not, and check that Part 4 is present (`part4-fenced` 1.0). Graders and texts fixed from the p3 traces without paid runs: plan-quality judged on the trace for the plugin arm, review-subtle judged on the printed report with the reviewer's Dependents step moved first, init-auto step 4 carries the checks from step 3. investigate-trace left alone (1/3, no cause). `npm run verify` green (1210 tests, 0 fail). Effects are unconfirmed until the next paid run."
+    },
+    {
+      "at": "2026-10-17T11:58:57.565Z",
+      "phaseId": "p6",
+      "message": "Started phase: Quality, cost and speed are compared with the bare arm (0.815, $0.0715/run); log the result and any remaining regression in STATE.md, and propose the real run 4 on inseer-frontend from a fresh VS Code"
+    },
+    {
+      "at": "2026-10-17T12:09:41.602Z",
+      "phaseId": "p6",
+      "message": "Completed phase: Quality, cost and speed are compared with the bare arm (0.815, $0.0715/run); log the result and any remaining regression in STATE.md, and propose the real run 4 on inseer-frontend from a fresh VS Code. Paid run 2026-10-17 12:01 (plugin x3, $5.56) plus bare x3 for plan-accept, plan-reuse, review-subtle: plugin 0.963 over 17 cases; over the 12 cases with a bare arm plugin 0.954, $0.1065, 34 s vs bare 0.815, $0.0712, 22 s. init-auto and investigate-trace now 1.0. Still failing: plan-quality (plan-accept, plan-reuse) 3/3, review-subtle finding-correct and no-false-defect 1/3 each. STATE.md updated."
+    },
+    {
+      "at": "2026-10-17T12:34:22.759Z",
+      "message": "Judge test (untracked, /tmp/judge-*.json, not in history.jsonl): plan cases with --judge-model claude-sonnet-5-5 and plugin arm focus trace: plan-accept plan-quality 3/3 PASS, plan-reuse 2/3 PASS (was 0/3 and 0/3 with the default haiku judge). The haiku judge was the main cause. But the Sonnet judge on the 36 KB+ trace cost $0.11-0.55 per run (plan-reuse judge more than the session itself); costUsd in the result includes judge cost. Spent $2.90 against the ~$0.5 the user approved: the per-case cap does not stop runs launched together with -j 3."
+    },
+    {
+      "at": "2026-10-17T12:58:46.011Z",
+      "message": "Accepted plan is now promoted to a stable `.ambicode/tasks/<task>/plan.md` (notes.ts promotePlan; most of it was already on disk before the subagent started). plan-quality plugin arm now judges that file with the default haiku judge (PLAN_FILE prefix), trace focus and the llm `focus` option removed; plan-accept v8, plan-reuse v6, bare graders unchanged. verify: 1211 tests, 1209 pass, 0 fail, 1 skip, 1 todo. Not measured in a paid run yet."
+    },
+    {
+      "at": "2026-10-17T13:06:39.292Z",
+      "message": "Paid check of the stable plan.md + haiku judge on the file (2026-10-17 13:04, via npm run evals, cases one by one, $0.93 total): plan-accept 0.82/1.0/1.0 (plan-quality FAIL in 1 run, votes F P F), plan-reuse 1.0/0.82/1.0 (plan-quality FAIL 3/3 in 1 run). Before: plan-quality 0/3 on both. plan.md present in 6/6 runs. Failing plans mention forbidden paths as untouched/contrast (src/legacy/invoice-export.ts, src/reports/monthly.ts; src/payments/installments.js nextDue): subagent's reading, not confirmed from the judge. Judge cost with haiku on the file: $0.001-0.003 per run."
+    },
+    {
+      "at": "2026-10-20T18:47:08.335Z",
+      "message": "Made the active plan"
+    },
+    {
+      "at": "2026-10-20T18:47:17.446Z",
+      "message": "Made the active plan"
+    }
+  ]
+}

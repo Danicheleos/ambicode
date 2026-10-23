@@ -1,0 +1,14 @@
+{
+  "id": "1dcb3f0a-df6f-4e5c-bdc2-8243d4e8742b",
+  "title": "Draft the phases for the active plan \"init+scout\" and set them with plan_set_pha…",
+  "startedAt": "2026-10-20T18:53:06.114Z",
+  "endedAt": "2026-10-21T11:30:04.091Z",
+  "turns": 398,
+  "costUsd": 102.8904938,
+  "models": [
+    "claude-sonnet-5-5",
+    "claude-opus-5-5"
+  ],
+  "claudeVersion": "2.1.301",
+  "commit": "7d35251dea8dda07f5c52f84a76043b60e17940c"
+}

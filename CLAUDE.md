@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Working style
 
 Claude Code loads this file automatically from the repository root. It is
@@ -69,6 +73,13 @@ don't assert** and **Before anything destructive**.
 
 ## Making changes
 
+- Fix the cause. Before writing new code (a function, branch, guard, option or
+  file), even code a plan or spec prescribes: find the existing code that
+  produces today's behaviour, edit it, and check whether the request's outcome
+  now holds. If it holds, keep that edit, skip the prescribed code and report
+  the departure. Judge by what the request asks for, not by the mechanism the
+  spec describes. Change the behaviour in place; an option no caller needs only
+  keeps the old one alive.
 - Extend the seam that already exists rather than adding a parallel one. A new
   option belongs beside the option it is the counterpart of, threaded through
   the same call path, sharing the values that path already computed.
@@ -112,9 +123,86 @@ don't assert** and **Before anything destructive**.
 Drop this section when copying the file elsewhere; replace it with whatever
 makes measurement cheap in that project.
 
-- `npm run verify` is the gate: build, typecheck, 543 tests, plugin validation.
+- `npm run verify` is the gate: build, typecheck, tests, plugin validation.
 - `node fixtures/materialize.mjs <name> <dir>` replays a fixture repository
   into a throwaway directory, which is how a reported failure becomes a
   reproduction rather than a theory.
 - `npm run package:candidate` builds what actually ships; `package:reproducible`
   proves two runs agree. Measure against `dist/`, not against `src/`.
+
+### Commands
+
+- `node --test src/path/to/file.test.ts` runs one test file (about 0.2s). Node
+  24 runs the `.ts` sources directly; there is no compile step for tests.
+- `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
+  `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
+- `test:unit` takes about 110s alone and longer beside other agents, past the
+  default 120s Bash timeout. Run it, and `verify`, in the foreground with
+  `timeout: 600000`. Never poll a backgrounded run with Monitor or sleep
+  timers: each timer that fires after your hand-back re-opens your run.
+- `npm run build` validates the route files, then esbuild bundles
+  `src/cli/main.ts` into `scripts/ambicode.mjs` (with code-split `chunks/`) and
+  `src/hook/guard/guard.ts` into `scripts/guard.mjs`. `scripts/` and
+  `bin/ambicode` are generated and gitignored. Edit `src/`, never `scripts/`.
+- `validate:plugin` (and so `verify`) shells out to the `claude` CLI.
+- `npm run bump` raises the patch version; the `version` lifecycle runs
+  `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
+- `npm run evals` (plugin arm) and `npm run evals:bare` (no plugin, the
+  baseline) cost money and run the bundle, not `src/`. Build first. Defaults:
+  Sonnet 5.5, effort low, 1 run. Cases are generated from
+  `evals/scripts/cases.mjs` (`npm run evals:generate`); results are written to
+  `evals/cases/results/`. `evals/README.md` explains the arms.
+
+CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
+native Windows `cmd`, plus an LF line-endings check. Paths, separators and
+spawned processes must work on all three.
+
+### Architecture
+
+AMBICODE is a Claude Code plugin. The plugin surface is plain files at the root.
+All of their behaviour lives in a single bundled CLI:
+
+- `.claude-plugin/plugin.json` is the manifest. `hooks/hooks.json` sends every
+  hook event to `scripts/ambicode.mjs hook`. The exception is `PreToolUse` on
+  Bash (git, `glab mr`, `ambicode.mjs`, `.ambicode/` paths) and on Write/Edit,
+  which goes to `scripts/guard.mjs`. The guard runs on every tool call, so it is
+  built separately with no chunks shared with the CLI;
+  `src/architecture.test.ts` caps its size (`GUARD_BUNDLE_MAX_BYTES`). Its
+  rules live in `src/hook/guard/rules/`, one file per concern.
+- `skills/<name>/SKILL.md` are the user-facing `/ambicode:<name>` skills
+  (init, investigate, plan, review, rules, task). Each one only starts a route:
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start <skill>`.
+- `routes/<skill>/<skill>.yaml` declares the route's ordered steps. Actors are
+  `code` (CLI handlers), `model` (instruction text from
+  `routes/<skill>/<step>.md`) and `human` (a gate from `routes/gates.yaml`).
+  `routes/README.md` is the full spec of the route language. The build rejects
+  a bad route with `route-invalid: …`.
+- Each step appends to `.ambicode/task/<task>/ledger.jsonl` in the target
+  repository, and the route's position is folded from that ledger
+  (`src/harness/engine/fold.ts`). The ledger is the state; nothing else
+  persists between steps.
+- `policies/*.yaml` are rule packs selected by path glob and activity.
+  `prompts/` holds the reviewer and session contracts.
+
+`src/` layers may only import downward. `src/architecture.test.ts` enforces
+this with an empty allowlist:
+
+```
+types, util  <  platform  <  modules  <  harness  <  skills  <  composition  <  hook  <  cli  <  testing
+```
+
+- `platform/` holds adapters: git, the ledger, GitLab/GitHub providers, Claude
+  transcripts, and `ports/` (filesystem, process runner, clock, ids, stdin).
+- `modules/` holds the domain: checks, config, evidence, policy, requirements,
+  review (including the local review page server), search, workers.
+- `harness/` is the route engine: DSL validation, executing and folding
+  steps, gates, session ownership.
+- `composition/root.ts` `createRuntime()` wires the ports, and every one can be
+  overridden. Tests inject fakes from `src/testing/fakes` this way, not by
+  mocking modules.
+- Imports use the `#area/*` aliases from `package.json` with explicit `.ts`
+  extensions. `tsconfig` sets `erasableSyntaxOnly`, so enums, namespaces and
+  constructor parameter properties are not allowed.
+
+Design documents and migration plans live under `gym/planing/`. User-facing
+docs are in `docs/`: installation, review, policy authoring, release checklist.

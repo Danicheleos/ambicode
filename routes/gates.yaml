@@ -1,0 +1,26 @@
+requirements-not-captured-twice:
+  question: "The requirement was fetched twice and nothing was captured. Continue without it?"
+  options: ["continue without", "stop"]
+  default: "continue without"
+  policy: { review: stop }
+check-only-unauthorized:
+  question: "Run {key} on {files|the whole project}?"
+  options: [approve, decline]
+  default: decline
+  acting: [approve]
+  onAnswer: { approve: "revise $raisedBy" }
+review-again:
+  question: "The fix changed the code after the review. Run the independent review again?"
+  options: [run, skip]
+  default: skip
+  acting: [run]
+  onAnswer: { run: "revise brief" }
+  repeat: 2
+project-ambiguous:
+  question: "Two projects match. Which one?"
+  options: ["{projects…}", "stop"]
+  default: "stop"
+"decision:*":
+  question: "A decision the plan depends on."
+  options: ["keep open"]
+  default: "keep open"

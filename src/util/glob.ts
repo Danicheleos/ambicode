@@ -1,9 +1,8 @@
 import path from 'node:path';
 
 /**
- * Glob matching on `node:path.matchesGlob`, in POSIX form. A leading-dot
- * segment is not matched by `*` or `**`: `.hidden/a.ts` does not match
- * `**\/*.ts`.
+ * POSIX-form glob. A leading-dot segment is not matched by `*` or `**`:
+ * `.hidden/a.ts` does not match `**\/*.ts`.
  */
 export function matchesGlob(relativePath: string, glob: string): boolean {
   return path.matchesGlob(toPosix(relativePath), toPosix(glob));

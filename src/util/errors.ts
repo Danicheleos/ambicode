@@ -1,7 +1,4 @@
-/**
- * One error type for every condition an operator can act on. `details` never
- * carries the offending value: configuration may hold private data (doc 05).
- */
+/** `details` never carries the offending value: configuration may hold private data. */
 export class AmbicodeError extends Error {
   readonly code: string;
   readonly field?: string;
@@ -18,4 +15,8 @@ export class AmbicodeError extends Error {
 
 export function isAmbicodeError(value: unknown): value is AmbicodeError {
   return value instanceof AmbicodeError;
+}
+
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

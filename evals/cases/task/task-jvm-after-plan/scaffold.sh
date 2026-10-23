@@ -1,0 +1,6 @@
+#!/bin/sh
+# Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it.
+set -e
+node "$(cd "$(dirname "$0")/../../../.." && pwd)/fixtures/materialize.mjs" jvm-gradle-seedvault "$PWD/repo" --ambicode-init --context
+mkdir -p "$PWD/repo/.ambicode"
+cp -R "$(dirname "$0")/seed/." "$PWD/repo/.ambicode/"

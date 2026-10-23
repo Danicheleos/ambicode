@@ -1,0 +1,74 @@
+skill: task
+version: 3
+needsRequest: true
+steps:
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: file:routes/investigate/fetch.md
+  - id: start
+    actor: code
+    run: task.start                               # may exit iterations-complete
+  - id: ground
+    actor: code
+    run: [requirements.normalize, checks.runnable, checks.baseline, "search.map(context)", "policy.stage(before-work)", context.list]
+    produces: [baseline, map, policy]
+  - id: change
+    actor: model
+    instruction: file:routes/task/change.md
+    work: file:routes/task/change-work.md
+    payload: [brief, envelope, baseline, map, "policy:before-work", checks.runnable, context.list]
+    produces: ["check{green}"]
+  - id: format
+    actor: code
+    run: [checks.format, checks.approved]         # runs once the green check ends change, before the offer, so a skipped review is still formatted; approved checks run after it
+  - id: review-offer
+    actor: human
+    when: iteration.named                         # no iteration in the request: every iteration runs and its review runs unasked
+    gate:
+      question: "Run the independent review of this change?"
+      options: [run, "skip — verification incomplete"]
+      default: "skip — verification incomplete"
+      acting: [run]
+  - id: brief
+    actor: code
+    when: gate.review-offer.is(run) or iteration.unnamed
+    run: [review.pin, "policy.stage(before-work, review)", script(brief)]
+    repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
+  - id: review-agent
+    actor: model
+    when: gate.review-offer.is(run) or iteration.unnamed
+    instruction: file:routes/review/agent.md
+    work: file:routes/review/agent-work.md
+    payload: ["script:brief"]
+  - id: review-record
+    actor: code
+    when: gate.review-offer.is(run) or iteration.unnamed
+    run: review.record                            # reads the reviewer's answer file; none is a failed review
+    produces: ["review{recorded}"]
+  - id: review-run
+    actor: code
+    when: gate.review-offer.is(run) or iteration.unnamed
+    run: review.evaluate
+    onFail: revise fix                            # review-findings: the first entry to fix
+  - id: fix
+    actor: model
+    when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
+    instruction: file:routes/task/fix.md
+    work: file:routes/task/fix-work.md
+    payload: [brief, envelope, "policy:before-work", checks.runnable]
+    produces: ["check{green}"]
+    repeat: 2
+  - id: report-step
+    actor: code
+    run: [review.evaluate, checks.approved, task.verdict, evidence.report]
+    onFail: revise fix                            # a fix-round review with findings; bounded by fix's repeat
+  - id: next
+    actor: code
+    when: iterations.continue
+    run: task.continue                            # ends this route done and opens the next iteration's route on the same task
+  - id: write
+    actor: model
+    instruction: file:routes/task/write.md
+    final: true
+    payload: [report]

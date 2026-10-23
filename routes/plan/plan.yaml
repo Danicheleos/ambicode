@@ -1,0 +1,36 @@
+skill: plan
+version: 3
+needsRequest: true
+steps:
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: file:routes/investigate/fetch.md
+  - id: ground
+    actor: code
+    run: [requirements.normalize, "search.map(context)", "policy.stage(before-work)", context.list]
+    produces: [envelope, map, policy]
+  - id: design
+    actor: model
+    instruction: file:routes/plan/design.md
+    payload: [map, "policy:before-work", context.list]
+  - id: plan-check
+    actor: code
+    run: ["script(plan-check, resolve)", "evidence.notes.save(plan-draft, from: steps/plan-body.md)", "script(plan-check)"]
+    produces: ["note{plan-draft}", worker]
+    onFail: record                                # a failed anchor is shown at plan-accept and listed as not verified; only a human Revise returns to design
+  - id: plan-accept
+    actor: human
+    gate:
+      question: "Accept this plan?"
+      object: "note{plan-draft}"                  # the latest draft in plan-check's window; the answer carries its hash
+      options: [Accept, Revise, Reject]
+      acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
+      default: Reject                             # non-acting: the draft stays a draft
+      onAnswer: { Revise: revise design }         # a human cycle: resets the design repeats
+  - id: promote
+    actor: code
+    when: gate.plan-accept.is(Accept)             # the latest answer in this step's window
+    run: evidence.notes.promote                   # the bound predicate of v6/13 §3
+    onFail: revise plan-accept                    # plan-not-accepted {object-changed}: re-print the gate for the current draft
+    produces: ["note{plan}"]                      # a note{plan-draft} does not satisfy it
