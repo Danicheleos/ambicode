@@ -8,7 +8,10 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initCases } from './init-cases.mjs';
+import { planCases } from './plan-cases.mjs';
+import { investigateCases } from './investigate-cases.mjs';
 import { reviewCases } from './review-cases.mjs';
+import { taskCases } from './task-cases.mjs';
 import { isNavigatorCase, writeNavigator } from './navigator-cases.mjs';
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
@@ -40,7 +43,13 @@ const DONE = (file) => ledger('route-done', '"kind":"exit"[^\\n]*"reason":"done"
 const REPO = 'The repository is at `repo/`.';
 
 const LIMITS = {
+  // 40 turns: the old task cases ran 25-35 (route steps, implementer, format, report); a tighter cap failed runs for budget, not quality.
+  task: { max_turns: 40, timeout_seconds: 1200, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'Skill', 'Agent'] },
+  // 30 turns, 900 s: the plan route is ground, design, check and gate; the huge cases set their own cap (plan-cases.mjs).
+  plan: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
   review: { max_turns: 20, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
+  // 30 turns: the old investigate-trace failed at 12 on a 6-file answer and needed 20; these chains are 5-7 files in 90-120-file repositories.
+  investigate: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
   rules: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
   // Agent: the scout-invoked grader needs it, and the harness withholds an ungranted tool from the model (cannot-pass check in claude plugin eval 2.1.303).
   init: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill', 'Agent'] },
@@ -60,6 +69,15 @@ export const CASES = [
   // ---------------------------------------------------------------- review
   // Fourteen cases on the init stacks (review-cases.mjs): same scaffold in both arms, graded per issue.
   ...reviewCases(BUILDERS),
+  // ---------------------------------------------------------------- investigate
+  // Ten tricky questions on the init stacks and five in depth on ts-app-medium (investigate-cases.mjs).
+  ...investigateCases(BUILDERS),
+  // ---------------------------------------------------------------- task
+  // Fifteen cases on the init stacks (task-cases.mjs) and five on the app fixtures; seeded ones start after a plan or an investigation.
+  ...taskCases(BUILDERS),
+  // ---------------------------------------------------------------- plan
+  // Ten cases on the init stacks and five on ts-app-medium (plan-cases.mjs): same request in both arms, the plan graded as text.
+  ...planCases(BUILDERS),
   // ---------------------------------------------------------------- rules
   {
     name: 'rules-migrate',
@@ -95,7 +113,10 @@ FAIL otherwise.`),
 // Four levels up: a case sits in <tree>/<suite>/<name>, one deeper than the flat layout it replaced.
 const ROOT_FROM_CASE = '$(cd "$(dirname "$0")/../../../.." && pwd)';
 
-function scaffold(fixture, flags, intoCwd) {
+// A case whose `files` hold seed/... entries starts after an earlier route: its notes and ledger are copied into the gitignored .ambicode/ (task-seeds.mjs).
+const SEED_COPY = 'mkdir -p "$PWD/repo/.ambicode"\ncp -R "$(dirname "$0")/seed/." "$PWD/repo/.ambicode/"\n';
+
+function scaffold(fixture, flags, intoCwd, seeded = false) {
   const materialize = `node "${ROOT_FROM_CASE}/fixtures/materialize.mjs" ${fixture}`;
   if (intoCwd) {
     return `#!/bin/sh
@@ -110,7 +131,7 @@ rmdir "$PWD/fixture"
 # Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it.
 set -e
 ${materialize} "$PWD/repo"${flags === '' ? '' : ` ${flags}`}
-`;
+${seeded ? SEED_COPY : ''}`;
 }
 
 function promptFile(c, body) {
@@ -141,7 +162,7 @@ export function render(cases = CASES) {
     for (const [tree, body, flags, graders] of arms) {
       const dir = caseDir(tree, c.name);
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-      files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, c.intoCwd === true));
+      files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, c.intoCwd === true, tree === 'cases' && Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/'))));
       files.set(`${dir}/prompt.md`, promptFile(c, body));
       for (const grader of graders) files.set(`${dir}/graders/${grader.name}.md`, grader.text);
       if (tree === 'cases') for (const [name, text] of Object.entries(c.files ?? {})) files.set(`${dir}/${name}`, text);

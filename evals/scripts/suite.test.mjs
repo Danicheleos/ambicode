@@ -46,7 +46,7 @@ describe('skill coverage suite', () => {
   });
 
   // Their old cases were removed; delete the skill from this list when its new cases land.
-  const WITHOUT_CASES = ['investigate', 'plan', 'task'];
+  const WITHOUT_CASES = [];
   it('covers every skill with at least one case, except those awaiting new cases, and only skills that exist', () => {
     assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), SKILLS.filter((s) => !WITHOUT_CASES.includes(s)).sort());
     for (const skill of WITHOUT_CASES) assert.ok(SKILLS.includes(skill), `${skill} is a skill`);
