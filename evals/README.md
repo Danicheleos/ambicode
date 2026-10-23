@@ -8,7 +8,7 @@ and are not run any more.
 ```
 evals/
   scripts/cases.mjs       the single source: every case, its prompt per arm, its graders
-  cases/<suite>/<case>/   plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/); the suite is the case name's first word (investigate, plan, task, rules, review, init), `navigator/` and `init-large/` come from their own generators
+  cases/<suite>/<case>/   plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/); the suite is the case name's first word (rules, review, init), `navigator/` and `init-large/` come from their own generators
   bare/<suite>/<case>/    no-plugin arm, generated: same request in plain words, shared graders only
   scripts/run.mjs         runs one arm through `claude plugin eval` and leaves the result in `cases/results/`
   scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
@@ -24,7 +24,7 @@ evals/
 npm run build                       # cases run scripts/ambicode.mjs, not src/
 npm run evals                       # plugin arm: 30 cases
 npm run evals:bare                  # bare arm: 22 cases, no plugin
-npm run evals -- --case 'task-*'    # one skill (a glob; --case is not repeatable)
+npm run evals -- --case 'review-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
 npm run evals:dry                   # print both commands and change nothing
@@ -109,23 +109,12 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Eight cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,
-`task-review-skipped`), policy packs (`rules-migrate`) and the five `init-auto-*` cases.
+Six cases have no bare arm because what they test belongs to the plugin: policy packs (`rules-migrate`) and the five `init-auto-*` cases.
 
 ## Cases
 
 | Case | Fixture | Checks | Bare |
 | --- | --- | --- | --- |
-| investigate-how | ts-feature-boundary | note saved, citations valid, the answer names the service and route, decoys excluded | yes |
-| investigate-files | ts-feature-boundary | the file list is the invoice boundary, not the keyword decoys | yes |
-| investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map, nothing invented | yes |
-| plan-accept | ts-feature-boundary | six-field draft, valid anchors, promoted on Accept, no code touched | yes |
-| investigate-trace | ts-app-medium | a payment flow that reaches notifications only through the event bus; the legacy hook is not part of it | yes |
-| plan-reuse | ts-app-medium | the plan reuses shared validation, money and the reports module and leaves legacy alone | yes |
-| plan-draft | ts-feature-boundary | with no answer the plan stays a draft and is not called accepted | no |
-| task-fix | eval-page-bug | format, reviewer subagent, report sections, fix and test correct | yes |
-| task-multi | ts-app-medium-refund-bug | a fix across payments service and repository with AppError and the test factory | yes |
-| task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so | no |
 | review-<stack>-<topic> (14) | the stack's `*-review-<n>` fixture | see Review cases below | yes |
 | rules-migrate | eval-rules-contributing | drafts checked and applied, the vague line and the embedded `rm -rf` ignored | no |
 | init-auto-ts | ts-service-lendbox (32 modules) | TypeScript service by bounded context with a shared kernel, jest and eslint declared not installed; drafts for importing a context only through `index.ts`, `<context>.<past-tense-verb>` event names, deps-first use-case factories, `createX` returning `Result` |
@@ -178,7 +167,7 @@ Each case directory holds `review-truth.json`: `[{id, category, main, what, loca
 
 1. Edit `evals/scripts/cases.mjs`. Use an existing fixture or add an `eval-*` one to `fixtures/definitions.mjs`.
    Wrap a grader in `shared(...)` when a bare run could pass it too. Pass a second grader when the bare arm reads
-   the artefact somewhere else, like `plan-quality`, which reads the plan file in one arm and the message in the
+   the artefact somewhere else, like a plan quality grader that reads the plan file in one arm and the message in the
    other.
 2. `npm run evals:generate`. It rewrites `evals/cases/` and `evals/bare/`, so never edit those by hand.
    `suite.test.mjs` fails when the trees drift from `cases.mjs`.
