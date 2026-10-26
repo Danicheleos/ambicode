@@ -81,6 +81,22 @@ Run it again to refresh: the scaffold leaves an existing config untouched, and
 the skill asks whether to refresh or abort (`--auto` refreshes). Edit
 `.ambicode/config.yaml` directly at any time and re-run `config validate`.
 `ambicode context list` shows the context files, their first line and size.
+
+### Search index and search map
+
+`ambicode context write` also builds the search index,
+`.ambicode/context/search/folders.jsonl` (one row per module folder), so init
+needs no step for it. `ambicode context index [--root <dir>]` builds it on its
+own. A map over a missing index builds it when `.ambicode/` exists (else the map
+says `search index absent: run context index`), and rebuilds an index from an
+older HEAD when the last build was fast.
+
+The search map (`ambicode search map`, at most 3,584 bytes: a legend and the
+ranked candidates, with limitations) is built by the `investigate`, `plan` and
+`task` routes and arrives in a step the `UserPromptSubmit` hook injects when you
+type `/ambicode:<skill> …`. There is no navigator agent and no generated addon
+script: the map is CLI code over `folders.jsonl`, `git grep` and the notes. Its
+offline bench is described in `evals/README.md`.
 The installed plugin itself remains in Claude's plugin storage.
 
 ## Windows PowerShell

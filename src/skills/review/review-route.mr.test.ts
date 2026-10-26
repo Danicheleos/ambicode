@@ -42,7 +42,7 @@ async function toReadback(t: Fixture, fake: FakeProcessRunner, findings = [findi
   return t.synthetic(findings, { stage: 'recorded' });
 }
 
-describe('review route: --mr through glab', () => {
+describe('review route: --mr through glab', { concurrency: 4 }, () => {
   it('fetch writes the diff and head sha; the route ends at the read-back and posts nothing', async () => {
     const t = await reviewRouteFixture();
     try {
@@ -102,7 +102,7 @@ const runToBrief = async (t: Fixture): Promise<string> => {
   return readFile(path.join(t.bundle, 'brief.md'), 'utf8');
 };
 
-describe('review route: --mr reads the merge request head, not the working tree', () => {
+describe('review route: --mr reads the merge request head, not the working tree', { concurrency: 4 }, () => {
   it('a head commit present locally: the brief relates the file the merge request adds', async () => {
     const t = await reviewRouteFixture();
     const { sha, remote } = await mergeRequestHead(t);
@@ -229,20 +229,20 @@ describe('review route: --mr reads the merge request head, not the working tree'
   });
 });
 
-describe('review route: requirements and discussions named by the merge request', () => {
+describe('review route: requirements and discussions named by the merge request', { concurrency: 4 }, () => {
   const ledgerGaps = async (t: Fixture) => gapsOf(await t.ledger());
 
   it('the key shape in the title is the fallback when GitLab resolved no link: the route fetches it first; an unfetched one is a gap that names the MR', async () => {
     const t = await reviewRouteFixture();
     try {
-      const fake = glabFake(t, glabStubs(mrJson('VS-6876: Support GM RFC wizard', 'no links here')));
+      const fake = glabFake(t, glabStubs(mrJson('ABC-101: Support bulk import wizard', 'no links here')));
       const start = await t.start({ target: { branch: false, base: null, mr: MR } });
       assert.equal(start.position, 'fetch', 'the MR is read before the fetch step is decided');
-      assert.match(start.text, /The merge request names these requirements in its title or description: VS-6876\./);
+      assert.match(start.text, /The merge request names these requirements in its title or description: ABC-101\./);
       assert.equal(fake.calls.length, 4, 'diff, record, discussions, commits');
       assert.equal((await t.next()).position, 'review-agent');
-      assert.deepEqual((await t.kinds('envelope')).map((entry) => entry['missingAsked']), [['VS-6876']]);
-      assert.ok((await ledgerGaps(t)).includes('requirement VS-6876 named by the MR was not fetched: no Jira or Confluence result was captured for it'));
+      assert.deepEqual((await t.kinds('envelope')).map((entry) => entry['missingAsked']), [['ABC-101']]);
+      assert.ok((await ledgerGaps(t)).includes('requirement ABC-101 named by the MR was not fetched: no Jira or Confluence result was captured for it'));
     } finally {
       await t.fx.dispose();
     }
@@ -251,12 +251,12 @@ describe('review route: requirements and discussions named by the merge request'
   it('the tracker link GitLab resolved in the rendered title is the candidate, as a full URL without tracking parameters', async () => {
     const t = await reviewRouteFixture();
     try {
-      const anchor = '<a href="https://x.atlassian.net/browse/VS-6876?atlOrigin=abc" data-reference-type="external_issue" data-external-issue="VS-6876">VS-6876</a>';
-      glabFake(t, glabStubs(mrJson('VS-6876: Support GM RFC wizard', '', { title: `${anchor}: Support GM RFC wizard` })));
+      const anchor = '<a href="https://x.atlassian.net/browse/ABC-101?atlOrigin=abc" data-reference-type="external_issue" data-external-issue="ABC-101">ABC-101</a>';
+      glabFake(t, glabStubs(mrJson('ABC-101: Support bulk import wizard', '', { title: `${anchor}: Support bulk import wizard` })));
       const start = await t.start({ target: { branch: false, base: null, mr: MR } });
       assert.equal(start.position, 'fetch');
-      assert.match(start.text, /: https:\/\/x\.atlassian\.net\/browse\/VS-6876\./);
-      assert.doesNotMatch(start.text, /atlOrigin|, VS-6876/);
+      assert.match(start.text, /: https:\/\/x\.atlassian\.net\/browse\/ABC-101\./);
+      assert.doesNotMatch(start.text, /atlOrigin|, ABC-101/);
     } finally {
       await t.fx.dispose();
     }

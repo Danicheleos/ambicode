@@ -136,8 +136,9 @@ makes measurement cheap in that project.
   24 runs the `.ts` sources directly; there is no compile step for tests.
 - `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
   `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
-- `test:unit` takes about 110s alone and longer beside other agents, past the
-  default 120s Bash timeout. Run it, and `verify`, in the foreground with
+- `test:unit` takes about 70s alone (68s measured, 1904 tests) and longer beside
+  other agents; `verify` adds build and plugin validation, so both can pass the
+  default 120s Bash timeout. Run them in the foreground with
   `timeout: 600000`. Never poll a backgrounded run with Monitor or sleep
   timers: each timer that fires after your hand-back re-opens your run.
 - `npm run build` validates the route files, then esbuild bundles

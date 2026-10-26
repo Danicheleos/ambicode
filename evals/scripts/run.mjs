@@ -6,10 +6,10 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { archiveOf, harvest, reviewRunsOf } from './context.mjs';
+import { archiveOf, deliveryLine, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
 import { metricsOf } from './metrics.mjs';
-import { NAVIGATOR_TAG, isNavigatorCase, navigatorMetrics, navigatorTruth } from './navigator-cases.mjs';
+import { downstreamMetrics, downstreamTruth, isDownstreamCase } from './downstream-cases.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -18,6 +18,22 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 export const RESULTS = path.join(REPO, 'evals', 'cases', 'results');
 // Outside the plugin, because the harness walks the whole target directory; .tmp/ is gitignored.
 export const NAKED = path.join(REPO, '.tmp', 'naked');
+
+const VALUE_FLAGS = ['--case', '--tag', '--runs', '--model', '--effort', '--max-cost-usd', '--series'];
+const SWITCHES = ['--bare', '--dry-run'];
+export const USAGE = `Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>] [--max-cost-usd <usd>] [--series <a,b,...>] [--dry-run] [--help]`;
+
+/** Before anything runs: `--help` prints the usage; an unknown flag, stray word or value flag without a value is an error. An unknown flag once fell through to a full paid run (`--help`, 52 runs, $6.85, 2026-10-23). */
+export function checkArgs(argv) {
+  if (argv.includes('--help') || argv.includes('-h')) return { action: 'help', usage: USAGE };
+  for (let at = 0; at < argv.length; at += 1) {
+    const arg = argv[at];
+    if (SWITCHES.includes(arg)) continue;
+    if (VALUE_FLAGS.includes(arg) && at + 1 < argv.length) { at += 1; continue; }
+    return { action: 'error', message: `${VALUE_FLAGS.includes(arg) ? `${arg} needs a value` : `unknown argument ${arg}`}\n${USAGE}` };
+  }
+  return { action: 'run' };
+}
 
 function option(argv, name) {
   const at = argv.indexOf(name);
@@ -38,8 +54,7 @@ export function plan(argv, defaults = DEFAULTS, results = RESULTS) {
     '--keep-temp',
     // One arm per run: a plugin case's prompt types /ambicode:<skill>, which means nothing with no plugin loaded.
     '--ablation', 'none',
-    // The plugin navigator arm only relays the navigator, which reads with Read and Grep: no shell for the session.
-    ...(arm === 'plugin' && option(argv, '--tag') === NAVIGATOR_TAG ? [] : ['--allow-tools', 'Bash', 'Edit', 'Write']),
+    '--allow-tools', 'Bash', 'Edit', 'Write',
     '--model', model,
     '--runs', option(argv, '--runs') ?? defaults.runs,
     '-j', defaults.concurrency,
@@ -50,7 +65,7 @@ export function plan(argv, defaults = DEFAULTS, results = RESULTS) {
     const value = option(argv, name);
     if (value !== null) out.push(name, value);
   }
-  // The harness has no exclude option: an unfiltered run lists the skill tags, which the navigator cases do not carry.
+  // The harness has no exclude option: an unfiltered run lists every case tag.
   if (option(argv, '--case') === null && option(argv, '--tag') === null) {
     for (const tag of new Set(CASES.flatMap((one) => one.tags))) out.push('--tag', tag);
   }
@@ -73,7 +88,7 @@ export function buildNaked(repo = REPO, naked = NAKED) {
   }
 }
 
-// Either variable overrides every subagent's model, so an inherited one hides the agent's own `model:` (seen 2026-10-20: haiku navigator ran on sonnet).
+// Either variable overrides every subagent's model, so an inherited one hides the agent's own `model:` (seen 2026-10-20: a haiku agent ran on sonnet).
 export function childEnv(base, env) {
   const out = { ...base, ...env };
   delete out.CLAUDE_CODE_SUBAGENT_MODEL;
@@ -84,27 +99,9 @@ export function childEnv(base, env) {
 const REAL = {
   spawn: (cmd, args, env) => spawnSync(cmd, args, { stdio: 'inherit', env: childEnv(process.env, env) }).status,
   harvest,
-  truthOf: navigatorTruth,
+  truthOf: (name) => (isDownstreamCase(name) ? downstreamTruth(name) : null),
   tracesRoot: path.join(RESULTS, 'traces'),
 };
-
-/** Recall of a navigator run as the recall-NN graders scored it: passed / total; undefined when the case has none. */
-export function recallOfGraders(graders) {
-  const recalls = (graders ?? []).filter((grader) => /^recall-\d+-/.test(grader.name));
-  return recalls.length === 0 ? undefined : Number((recalls.filter((grader) => grader.passed).length / recalls.length).toFixed(3));
-}
-
-/**
- * Navigator metrics: precision, F1 and the folder lists from scoreNavigator, recall pinned to the graders. A computed recall that
- * differs is a bug in one of the two, so the grader value is written and `mismatch` is set instead of hiding it.
- */
-export function navigatorRunMetrics(truth, traceText, graders) {
-  const graded = recallOfGraders(graders);
-  if (truth === null || traceText === undefined) return graded === undefined ? {} : { recall: graded };
-  const metrics = navigatorMetrics(truth, traceText);
-  if (graded !== undefined && graded !== metrics.recall) return { ...metrics, recall: graded, mismatch: true };
-  return metrics;
-}
 
 /** One `claude plugin eval` call: harvest, metrics; leaves run.result holding this call's result. */
 export function runCase(run, deps = REAL) {
@@ -118,11 +115,14 @@ export function runCase(run, deps = REAL) {
   const tracesDir = path.join(deps.tracesRoot, run.arm, stamp);
   deps.harvest(result, tracesDir, { archiveDir: archiveOf(tracesDir), reviewRunsDir: reviewRunsOf(run.arm, stamp) });
   for (const evalCase of result.cases ?? []) {
-    const navigator = isNavigatorCase(evalCase.name);
-    const spec = navigator ? undefined : caseOf(evalCase.name)?.metrics;
-    if (!navigator && spec === undefined) continue;
+    Object.values(evalCase.arms ?? {}).forEach((runs) => (runs ?? []).forEach((one, index) => {
+      if (one.delivery) (deps.log ?? console.log)(`${evalCase.name}-${index + 1}: ${deliveryLine(one.delivery)}`);
+    }));
+    const downstream = isDownstreamCase(evalCase.name);
+    const spec = downstream ? undefined : caseOf(evalCase.name)?.metrics;
+    if (!downstream && spec === undefined) continue;
     for (const runs of Object.values(evalCase.arms ?? {})) for (const one of runs ?? []) {
-      if (navigator) one.metrics = navigatorRunMetrics(deps.truthOf?.(evalCase.name) ?? null, one.trace ? readFileSync(one.trace, 'utf8') : undefined, one.graders);
+      if (downstream) one.metrics = downstreamMetrics(deps.truthOf?.(evalCase.name) ?? null, one.trace ? readFileSync(one.trace, 'utf8') : undefined);
       else if (one.trace) one.metrics = metricsOf(spec, readFileSync(one.trace, 'utf8'));
     }
   }
@@ -225,6 +225,9 @@ export function withProgress(run, argv, exec, { file = path.join(path.dirname(ru
 }
 
 function main(argv) {
+  const checked = checkArgs(argv);
+  if (checked.action === 'help') { console.log(checked.usage); return 0; }
+  if (checked.action === 'error') { console.error(checked.message); return 2; }
   const run = plan(argv);
   if (argv.includes('--dry-run')) {
     console.log(`${Object.entries(run.env).map(([k, v]) => `${k}=${v}`).join(' ')} claude ${run.argv.join(' ')}`);

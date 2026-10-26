@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task tw-future --headless iteration 1 A reading stamped in the future (a gauge with a skewed clock) passes require_fresh in src/tidewatch/domain/rules/staleness.py, because only an age above MAX_AGE is checked. Reject a reading more than 5 minutes ahead of now with a new TidewatchError subclass and a new TW code (follow CONTRIBUTING.md), and add a test in tests/test_staleness.py. The repository is at `repo/`.
+/ambicode:task --task tw-future --headless iteration 1 A reading stamped in the future (a gauge with a skewed clock) passes require_fresh in src/tidewatch/domain/rules/staleness.py, because only an age above MAX_AGE is checked. Reject a reading more than 5 minutes ahead of now with a new TidewatchError subclass and a new TW code (follow CONTRIBUTING.md), and add a test in tests/test_staleness.py.

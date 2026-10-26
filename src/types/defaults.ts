@@ -1,6 +1,6 @@
 /** The route's layer lists for each search mode. */
 export const SEARCH_LAYER_DEFAULTS = {
-  prompt: ['shortlist', 'harvest', 'shortlist'],
+  prompt: ['shortlist', 'retrieve', 'harvest', 'shortlist'],
   context: ['grep', 'harvest'],
 } as const;
 

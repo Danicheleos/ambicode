@@ -422,17 +422,17 @@ describe('relative paths in context write and index', () => {
     const mod = (p: string, parent: string | null, children: string[]): TreeModule => ({ path: p, depth: p.split('/').length, parent, children, note: noteOf(p, children.length > 0), subtreeFiles: 9 });
     const names = [{ base: 'x', names: ['Xx'] }];
     const all = [
-      { module: mod('main/features/score-types', null, ['main/features/score-types/reba']), level: 1, files: names },
-      { module: mod('main/features/score-types/reba', 'main/features/score-types', ['main/features/score-types/reba/cards']), level: 2, files: names },
-      { module: mod('main/features/score-types/reba/cards', 'main/features/score-types/reba', []), level: 3, files: names },
+      { module: mod('main/features/orders-kit', null, ['main/features/orders-kit/alpha']), level: 1, files: names },
+      { module: mod('main/features/orders-kit/alpha', 'main/features/orders-kit', ['main/features/orders-kit/alpha/cards']), level: 2, files: names },
+      { module: mod('main/features/orders-kit/alpha/cards', 'main/features/orders-kit/alpha', []), level: 3, files: names },
     ];
     const plan = planIndex(all.map((folder) => folder.module), new Map(), 100000);
-    assert.match(plan.text, /^- \[main\/features\/score-types\]\(modules\/main\/features\/score-types\/overview\.md\)$/m);
-    assert.match(plan.text, /^ {2}- \[reba\]\(modules\/main\/features\/score-types\/reba\/overview\.md\)$/m);
-    assert.match(plan.text, /^ {4}- \[cards\]\(modules\/main\/features\/score-types\/reba\/cards\.md\)$/m);
+    assert.match(plan.text, /^- \[main\/features\/orders-kit\]\(modules\/main\/features\/orders-kit\/overview\.md\)$/m);
+    assert.match(plan.text, /^ {2}- \[alpha\]\(modules\/main\/features\/orders-kit\/alpha\/overview\.md\)$/m);
+    assert.match(plan.text, /^ {4}- \[cards\]\(modules\/main\/features\/orders-kit\/alpha\/cards\.md\)$/m);
     const fullPaths = `# Index\n${[1, 2, 3].flatMap((level) => renderLevel(all.filter((folder) => folder.level === level), level).split('\n').slice(1)).join('\n')}\n`;
     assert.ok(plan.tokens < tokensOf(fullPaths), `${plan.tokens} vs ${tokensOf(fullPaths)}`);
-    assert.match(renderLevel([all[2]!], 3), /\[main\/features\/score-types\/reba\/cards\]/);
+    assert.match(renderLevel([all[2]!], 3), /\[main\/features\/orders-kit\/alpha\/cards\]/);
   });
 
   const mod = (p: string, parent: string | null, children: string[]): TreeModule => ({ path: p, depth: p.split('/').length, parent, children, note: noteOf(p, children.length > 0), subtreeFiles: 9 });

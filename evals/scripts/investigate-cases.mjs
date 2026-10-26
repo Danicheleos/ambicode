@@ -1,4 +1,4 @@
-// The /ambicode:investigate cases: ten broad ones (two per stack fixture, on the base fixtures) and five in depth on ts-app-medium (two of them on its ts-app-medium-deep variant). cases.mjs spreads
+// The /ambicode:investigate cases: five broad ones (one per stack fixture, on the base fixtures) and five in depth on ts-app-medium (two of them on its ts-app-medium-deep variant). cases.mjs spreads
 // `investigateCases`. Every answer below was read off the fixture's own files (fixtures/definitions.mjs); investigate-cases.test.mjs
 // checks each `anchors` line is still there and each `absent` claim still holds, so a fixture edit cannot silently turn a truth false.
 //
@@ -11,8 +11,7 @@ import { finalFiles } from './review-cases.mjs';
 
 const CITE = 'Cite `path:line` for each claim.';
 const FILES = 'End your answer with a `## Files` section: one path per line, only the files that take part in the answer.';
-const REPO = 'The repository is at `repo/`.';
-const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
+const T = (slug) => `.ambicode/tasks/${slug}/ledger.jsonl`;
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 const tail = (file) => file.split('/').slice(-2).join('/');
 
@@ -42,36 +41,6 @@ Equivalent wording counts ("the cap is not applied", "nothing consumes the event
 FAIL if it gives another fee (for example 450 cents from a cap of two extensions, or 350 from the original due date), says the extension limit is enforced, or says the member is invoiced.`],
     anchors: [['src/contexts/lending/application/extend.ts', 'addDays(loan.dueOn, LOAN_DAYS)'], ['src/contexts/lending/domain/policy.ts', 'MAX_EXTENSIONS = 2'], ['src/contexts/lending/domain/fees/late.ts', 'CENTS_PER_LATE_DAY = 50'], ['src/contexts/lending/application/return.ts', 'lateFee(loan.dueOn, now)'], ['src/shared-kernel/time/period.ts', 'Math.floor']],
     absent: [{ find: 'canExtend', except: ['src/contexts/lending/domain/policy.ts'] }, { find: 'MAX_EXTENSIONS', except: ['src/contexts/lending/domain/policy.ts'] }, { find: 'extendLoan', except: ['src/contexts/lending/application/extend.ts'] }, { find: 'waive(', except: ['src/contexts/lending/domain/fees/waiver.ts'] }, { find: 'damageFee', except: ['src/contexts/lending/domain/fees/damage.ts'] }, { find: '.subscribe(' }, { find: 'billing', in: 'src/composition.ts' }],
-  },
-  {
-    name: 'investigate-ts-loan-limit', slug: 'inv-limit', fixture: 'ts-service-lendbox',
-    description: 'Find where a per-member limit is applied on a bounded-context service.',
-    question: 'Where is the limit on how many tools a member may have on loan at once enforced when a loan is started?',
-    relevant: ['src/contexts/members/domain/tier.ts', 'src/contexts/lending/application/borrow.ts'],
-    allowed: ['src/composition.ts', 'src/contexts/lending/domain/loan.ts', 'src/contexts/lending/application/deps.ts', 'src/contexts/members/domain/standing.ts', 'src/contexts/catalog/index.ts', 'test/borrow.test.ts'],
-    decoys: ['src/contexts/lending/domain/policy.ts'],
-    cites: ['src/contexts/members/domain/tier.ts', 'src/contexts/lending/application/borrow.ts'],
-    facts: [],
-    verdict: ['limit-is-not-applied', `
-PASS if the answer states, in any wording, that nothing enforces the per-member loan limit when a loan is started: loanLimit (3 for basic, 5 for plus, in src/contexts/members/domain/tier.ts) is defined, but no code calls it; borrowItem does not check it and no route does. "It is not enforced", "defined but never applied", "no check exists" all count. Naming borrowItem as the place where a check would have to go is fine.
-FAIL if it names borrowItem, a route or any other code as enforcing the limit, or invents a check.`],
-    anchors: [['src/contexts/members/domain/tier.ts', "tier === 'plus' ? 5 : 3"], ['src/contexts/lending/application/borrow.ts', 'isLendable(itemId)'], ['src/composition.ts', 'isLendable: async () => true']],
-    absent: [{ find: 'loanLimit', except: ['src/contexts/members/domain/tier.ts'] }, { find: 'canBorrow', except: ['src/contexts/members/domain/standing.ts'] }],
-  },
-  {
-    name: 'investigate-py-calibrate-ties', slug: 'inv-calib', fixture: 'py-service-tidewatch',
-    description: 'Follow a correction applied to stored readings through the store and the query that reads them back, in a layered service.',
-    question: 'The only reading of the gauge dover, taken a minute ago, is 1000 mm. Then `calibrate(services, "dover", offset_mm=20)` runs. What level does `current_level` report for dover afterwards, and why?',
-    relevant: ['src/tidewatch/app/commands/calibrate.py', 'src/tidewatch/infra/store/memory.py', 'src/tidewatch/app/queries/latest.py', 'src/tidewatch/api/handlers/level.py'],
-    allowed: ['src/tidewatch/app/ports/store.py', 'src/tidewatch/domain/models.py', 'src/tidewatch/domain/rules/staleness.py', 'src/tidewatch/domain/rules/limits.py', 'src/tidewatch/domain/events/readings.py', 'src/tidewatch/domain/events/bus.py', 'src/tidewatch/domain/errors.py', 'src/tidewatch/api/replies.py', 'src/tidewatch/app/services.py', 'src/tidewatch/infra/wiring.py', 'tests/test_handlers.py', 'tests/conftest.py'],
-    decoys: ['src/tidewatch/infra/store/journal.py'],
-    cites: ['src/tidewatch/app/commands/calibrate.py', 'src/tidewatch/app/queries/latest.py'],
-    facts: [],
-    verdict: ['level-unchanged-by-calibration', `
-PASS if the answer states, in any wording, that current_level still reports 1000 mm, the uncorrected value, and why: calibrate adds a corrected copy of each reading to the store (store.add appends, it does not replace the old one) with the same taken_at, and latest_reading takes the newest by taken_at, where max() keeps the first of equal keys, which is the original. "The calibrated 1020 never wins the tie" or "the old row is returned first" count.
-FAIL if it says the level becomes 1020 (or any calibrated value), or says the call fails (unknown gauge, stale reading, window), or explains 1000 by something other than the equal timestamps.`],
-    anchors: [['src/tidewatch/app/commands/calibrate.py', 'replace(reading, level_mm=reading.level_mm + offset_mm)'], ['src/tidewatch/infra/store/memory.py', 'rows.append(reading)'], ['src/tidewatch/app/queries/latest.py', 'max(readings, key=lambda item: item.taken_at)'], ['src/tidewatch/api/handlers/level.py', 'level_mm=reading.level_mm'], ['src/tidewatch/infra/store/journal.py', 'self.journal.append(reading)']],
-    absent: [{ find: 'JournalStore(', except: ['src/tidewatch/infra/store/journal.py'] }, { find: 'GaugeCalibrated', except: ['src/tidewatch/domain/events/readings.py', 'src/tidewatch/app/commands/calibrate.py'] }, { find: '.subscribe(' }],
   },
   {
     name: 'investigate-py-unit-adapters', slug: 'inv-units', fixture: 'py-service-tidewatch',
@@ -105,40 +74,6 @@ FAIL if it says the bay is a number from 1 to 12 worked out by the depot, says t
     absent: [{ find: 'internal/depot"' }, { find: 'internal/routing"' }, { find: 'ZoneFor(', except: ['internal/routing/zones.go'] }, { find: 'Barcode(', except: ['internal/labels/barcode.go'] }],
   },
   {
-    name: 'investigate-go-parceld-lookup', slug: 'inv-lookup', fixture: 'go-module-parcelhub',
-    description: 'Follow a parcel from one binary of a repository to another through the store both use.',
-    question: 'After `parcelctl PH-7 1200 north` has run, what does a request `GET /parcels/PH-7` to a running parceld answer, and why?',
-    relevant: ['cmd/parceld/routes.go', 'cmd/parcelctl/main.go', 'internal/memstore/store.go', 'internal/httpapi/parcels.go', 'internal/tracking/service.go', 'internal/httpapi/render/problem.go'],
-    allowed: ['internal/memstore/seed.go', 'internal/httpapi/server.go', 'internal/core/errors.go', 'internal/core/interfaces.go', 'cmd/parceld/main.go', 'internal/httpapi/server_test.go'],
-    decoys: ['internal/audit/log.go', 'internal/retention/policy.go', 'internal/tagging/check.go'],
-    cites: ['cmd/parceld/routes.go', 'internal/httpapi/parcels.go'],
-    facts: [['status-404', '404']],
-    verdict: ['separate-empty-store', `
-PASS if the answer states, in any wording, that parceld answers 404 "no such parcel", because parceld builds its own in-memory store (memstore.New in buildHandler), nothing seeds it and no route writes to it, while the parcel parcelctl seeded lived in the store of another process that has already exited: no store is shared or persisted between the two.
-FAIL if it says the request returns the parcel (200), says parcelctl and parceld share a store, or explains the 404 by tag validation, retention or expiry.`],
-    anchors: [['cmd/parceld/routes.go', 'store := memstore.New()'], ['cmd/parcelctl/main.go', 'store := memstore.New()'], ['internal/httpapi/parcels.go', 'render.Problem(w, http.StatusNotFound, "no such parcel")'], ['internal/memstore/store.go', 'memstore.Get: %w'], ['internal/retention/policy.go', 'func Expired']],
-    absent: [{ find: 'Seed(', in: 'cmd/parceld/' }, { find: '.Put(', in: 'internal/httpapi/' }, { find: 'internal/retention"' }, { find: 'tagging.Valid', except: ['internal/tagging/check.go'] }],
-  },
-  {
-    name: 'investigate-jvm-sow-mail', slug: 'inv-sow', fixture: 'jvm-gradle-seedvault',
-    description: 'Follow an event from a use case to the message it produces in a hexagonal project.',
-    question: 'When a seed lot is sown, who is notified, and by what path does that message get there?',
-    relevant: ['application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/InProcessEventBus.kt', 'bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/SowingMail.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Recipients.kt'],
-    allowed: ['adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Subscriptions.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Topic.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Templates.kt', 'domain/src/main/kotlin/org/seedvault/domain/events/GerminationEvents.kt', 'application/src/main/kotlin/org/seedvault/application/port/output/EventPublisher.kt', 'bootstrap/src/main/kotlin/org/seedvault/bootstrap/Main.kt'],
-    decoys: ['adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/outbox/Outbox.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/outbox/Drainer.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/outbox/OutboxEntry.kt'],
-    cites: ['bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Recipients.kt'],
-    facts: [['fallback-desk', 'desk@example\\.org']],
-    verdict: ['printed-not-mailed', `
-PASS if the answer states, in any wording, all three:
-- The sowing message is built by the handler that Wiring.kt subscribes to the "lot.sown" topic of the in-process bus (SowLotService publishes LotSown).
-- It is addressed to the fallback desk@example.org, because the recipients map is empty.
-- It is only printed to the console: no mail is sent.
-Saying the outbox classes are not on this path, or that they were not read or not confirmed, is fine.
-FAIL if it routes the message through the outbox or the Drainer, says a real mail is sent, or names another recipient.`],
-    anchors: [['bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'subscriptions.add("lot.sown")'], ['bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt', 'Recipients(emptyMap(), "desk@example.org")'], ['application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt', 'events.publish(LotSown(']],
-    absent: [{ find: 'Outbox()' }, { find: 'Drainer(', except: ['adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/outbox/Drainer.kt'] }],
-  },
-  {
     name: 'investigate-jvm-viability-rule', slug: 'inv-viab', fixture: 'jvm-gradle-seedvault',
     description: 'Find the rule behind a word used in several places of a hexagonal project.',
     question: 'Which code decides that a seed lot is viable, and where is that decision applied?',
@@ -169,25 +104,6 @@ Extra detail (alert rules, tests, paths it did not trace) is fine.
 FAIL if it says the tools enforce the setpoint limit, that the dashboard takes the constant from the engine, or that the limit is enforced in only one project.`],
     anchors: [['engine/crates/safety/src/limits.rs', 'MAX_SETPOINT_DC: i32 = 13_000'], ['engine/crates/schedule/src/plan.rs', 'check_setpoint_dc(segment.target_dc)'], ['dashboard/src/lib/validate/limits.ts', 'MAX_SETPOINT_DC = 13_000'], ['dashboard/src/services/firings.ts', 'checkSegments(segments)'], ['tools/src/kilnlab/config/limits.py', 'MAX_OFFSET_DC = 200']],
     absent: [{ find: 'SETPOINT', in: 'tools/' }],
-  },
-  {
-    name: 'investigate-mono-over-limit-post', slug: 'inv-post', fixture: 'monorepo-rust-ts-kiln',
-    description: 'Follow a rejected request through the validation, the route and the error handling of a web service that sits in front of another project.',
-    question: 'A POST /firings reaches the dashboard with a segment whose targetDc is 13500. What response does the client get, which code produces it, and does the request ever reach the engine?',
-    relevant: ['dashboard/src/routes/firings.routes.ts', 'dashboard/src/services/firings.ts', 'dashboard/src/lib/validate/segments.ts', 'dashboard/src/lib/validate/setpoint.ts', 'dashboard/src/lib/validate/limits.ts', 'dashboard/src/middleware/errors.ts', 'dashboard/src/lib/engine/errors.ts', 'dashboard/package.json'],
-    allowed: ['dashboard/src/app.ts', 'dashboard/src/server.ts', 'dashboard/src/middleware/auth.ts', 'dashboard/src/services/store.ts', 'dashboard/src/lib/engine/types.ts', 'dashboard/test/setpoint.test.ts', 'dashboard/test/routes.test.ts'],
-    decoys: ['engine/crates/safety/src/limits.rs', 'engine/crates/schedule/src/plan.rs', 'dashboard/src/lib/engine/client.ts', 'dashboard/src/services/alerts/rules.ts'],
-    cites: ['dashboard/src/services/firings.ts', 'dashboard/src/lib/validate/segments.ts'],
-    facts: [['names-the-limit', '13[_,]?000|outside the kiln limits']],
-    verdict: ['rejected-before-engine-no-response', `
-PASS if the answer states, in any wording, all three:
-- The dashboard rejects the segment itself: checkSegments (isSetpointDc, limit 13_000 in dashboard/src/lib/validate/limits.ts) throws a SetpointError "setpoint 13500 is outside the kiln limits" inside beginFiring, before startFiring, so the engine is never called.
-- handleErrors would map a SetpointError to a 422 JSON reply, but the route is an async handler on Express 4 (dashboard/package.json), which does not pass a rejected promise to the error middleware.
-- So the client does not get that 422: the request gets no response (it hangs) and the rejection is unhandled.
-Equivalent wording counts ("express 4 does not catch async errors", "the error never reaches handleErrors"). Mentioning that the engine has its own copy of the check is fine.
-FAIL if it says the engine rejects the segment, says the client receives the 422 JSON reply (or any other response) from handleErrors, or says the request reaches the engine.`],
-    anchors: [['dashboard/src/services/firings.ts', 'checkSegments(segments);'], ['dashboard/src/services/firings.ts', 'await startFiring(id, segments);'], ['dashboard/src/lib/validate/segments.ts', 'is outside the kiln limits'], ['dashboard/src/lib/validate/limits.ts', 'MAX_SETPOINT_DC = 13_000'], ['dashboard/src/middleware/errors.ts', 'error instanceof SetpointError'], ['dashboard/src/routes/firings.routes.ts', "app.post('/firings', async (req, res)"], ['dashboard/package.json', '"express": "^4.21.0"'], ['dashboard/src/app.ts', 'app.use(handleErrors)']],
-    absent: [{ find: 'express-async-errors' }, { find: 'asyncHandler' }, { find: 'catch (', in: 'dashboard/src/' }, { find: 'try {', in: 'dashboard/src/' }, { find: 'startFiring', except: ['dashboard/src/services/firings.ts', 'dashboard/src/lib/engine/client.ts'] }],
   },
   // ---------------------------------------------------------------- ts-app-medium, in depth
   {
@@ -284,17 +200,17 @@ export function violations(truth, files) {
 }
 
 // A decoy fails only as an entry of a Files list: a line inside the `## Files…` section (any heading suffix) that opens, after an
-// optional bullet, number, backtick or `repo/`, with the decoy path. The old `## Files[\s\S]*decoy` also failed an answer whose
+// optional bullet, number, backtick, with the decoy path. The old `## Files[\s\S]*decoy` also failed an answer whose
 // heading was "## Files that change" and that explained a ruled-out file in the prose below it (optout-files-2, 2026-10-23).
 export const decoyPattern = (decoys) =>
-  `(?:^|\\n)#{1,6}[ \\t]*Files\\b[^\\n]*(?:\\n(?!#{1,6}[ \\t])[^\\n]*)*?\\n[ \\t]*(?:[-*]|\\d+[.)])?[ \\t]*[\`*]*(?:repo/)?(?:${decoys.map(escape).join('|')})(?![\\w/-])`;
+  `(?:^|\\n)#{1,6}[ \\t]*Files\\b[^\\n]*(?:\\n(?!#{1,6}[ \\t])[^\\n]*)*?\\n[ \\t]*(?:[-*]|\\d+[.)])?[ \\t]*[\`*]*(?:${decoys.map(escape).join('|')})(?![\\w/-])`;
 export const citePattern = (file) => `${escape(tail(file))}:\\d+`;
 
 export function investigateCases(b) {
   const { regex, ledger, llm, shared, noEdits, DONE } = b;
   return INVESTIGATE_TRUTHS.map((t) => {
     const filesRule = t.files === false ? '' : ` ${t.filesRule ?? FILES}`;
-    const ask = `${t.question} ${CITE}${filesRule} ${REPO}`;
+    const ask = `${t.question} ${CITE}${filesRule}`;
     const graders = [
       ledger('note-saved', '"kind":"note","note":"investigation"', T(t.slug)),
       ledger('citations-valid', '"worker":"check-citations"[^\\n]*"failed":false', T(t.slug)),

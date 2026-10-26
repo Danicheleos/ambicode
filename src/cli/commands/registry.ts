@@ -2,7 +2,7 @@ import type { Runtime } from '#types/composition';
 import { configValidateCommand } from './config/validate.ts';
 import { configPacksCommand } from './config/packs.ts';
 import { initRecordCommand } from './init/record.ts';
-import { contextListCommand, contextTreeCommand, contextWriteCommand } from './context/context.ts';
+import { contextIndexCommand, contextListCommand, contextTreeCommand, contextWriteCommand } from './context/context.ts';
 import { rulesApplyCommand } from './policy/rules.ts';
 import { checkCommand } from './checks/check.ts';
 import { policyCheckCommand } from './policy/policy-check.ts';
@@ -30,7 +30,7 @@ const versionCommand: CliCommand = {
 export const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
   configValidateCommand, configPacksCommand, initRecordCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand,
   checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
-  requirementsNormalizeCommand, reviewCommand, reviewPageCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand,
+  requirementsNormalizeCommand, reviewCommand, reviewPageCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand, contextIndexCommand,
 ].map((entry) => [entry.name, entry]));
 
 /** Generated from `COMMANDS`, so a command cannot be registered and missing from the usage text, or the reverse. */

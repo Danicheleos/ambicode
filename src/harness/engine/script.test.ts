@@ -79,6 +79,71 @@ describe('run: script(<name>) (C7)', () => {
     await rm(pluginRoot, { recursive: true, force: true });
   });
 
+  it('a crashing script keeps its error and stack in the failure message, not the last three lines of stderr', async () => {
+    const crash = "function deep(n) { if (n === 0) throw new Error('cause-marker'); deep(n - 1); }\ndeep(6);";
+    const pluginRoot = await scripts({ crash });
+    const fx = await routeFixture({ routes: { inv: ROUTE('crash') }, pluginRoot });
+    try {
+      await fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      const message = String((await fx.kinds(TASK, 'step')).find((entry) => entry['status'] === 'failed')?.['message']);
+      assert.match(message, /Error: cause-marker/);
+      assert.ok((message.match(/at deep/g) ?? []).length >= 5, message);
+      assert.doesNotMatch(message, /\|  \|/, 'blank stderr lines are dropped');
+    } finally {
+      await fx.dispose();
+      await rm(pluginRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('a very long stderr is bounded, keeping its start', async () => {
+    const pluginRoot = await scripts({ noisy: "process.stderr.write('first-line\\n' + 'x'.repeat(50000)); process.exit(2);" });
+    const fx = await routeFixture({ routes: { inv: ROUTE('noisy') }, pluginRoot });
+    try {
+      await fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      const message = String((await fx.kinds(TASK, 'step')).find((entry) => entry['status'] === 'failed')?.['message']);
+      assert.match(message, /exited 2: first-line/);
+      assert.ok(message.length <= 2000, String(message.length));
+    } finally {
+      await fx.dispose();
+      await rm(pluginRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('a crash on a step with onFail revise sends the model back with the reason, leaves no completed entry, and past the repeat limit is released as a recorded gap', async () => {
+    const pluginRoot = await scripts({ crash: "process.stderr.write('Error: cause-marker\\n'); process.exit(1);" });
+    const route = `skill: inv
+version: 3
+steps:
+  - id: draft
+    actor: model
+    instruction: "Draft, then check."
+    repeat: 2
+  - id: verify
+    actor: code
+    run: ["script(crash)"]
+    onFail: revise draft
+  - id: finish
+    actor: model
+    instruction: "Finish."
+`;
+    const fx = await routeFixture({ routes: { inv: route }, pluginRoot });
+    try {
+      await fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      const sent = await fx.engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: fx.scratchpad });
+      assert.equal(sent.position, 'draft');
+      assert.match(sent.text, /## verify\n.*exited 1: Error: cause-marker/s);
+      const verify = async (status: string) => (await fx.kinds(TASK, 'step')).filter((entry) => entry['step'] === 'verify' && entry['status'] === status);
+      assert.equal((await verify('completed')).length, 0, 'a crash is not a result: the step has not completed');
+      const released = await fx.engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: fx.scratchpad });
+      assert.equal(released.position, 'finish', 'past the limit the route goes on');
+      assert.equal((await verify('completed')).length, 1);
+      assert.equal((await verify('failed')).filter((entry) => entry['recorded'] === true).length, 1);
+    } finally {
+      await fx.dispose();
+      await rm(pluginRoot, { recursive: true, force: true });
+    }
+  });
+
   it('a script name outside letters, digits, "_" and "-" is refused before anything runs', async () => {
     const fx = await routeFixture({ routes: { inv: ROUTE('../x') } });
     try {

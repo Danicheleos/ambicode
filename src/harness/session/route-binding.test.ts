@@ -50,7 +50,7 @@ const codeOf = (promise: Promise<unknown>): Promise<string> => promise.then(() =
 const exits = async (t: Fixture, task = CHECK_TASK) => (await t.fx.kinds(task, 'exit')).map((entry) => [entry['route'], entry['reason']]);
 const tasks = async (t: Fixture): Promise<string[]> => (await readdir(path.join(t.fx.repo.root, '.ambicode', 'tasks'))).sort();
 
-describe('a route belongs to the Claude session that started it, from a hook or from Bash', () => {
+describe('a route belongs to the Claude session that started it, from a hook or from Bash', { concurrency: 4 }, () => {
   it('a route the model starts with `route start` takes its gate answers from the hook of the same session', async () => {
     await withTask(async (t) => {
       await launch(t, `/ambicode:task --task ${CHECK_TASK} fix total iteration 1`, CLAUDE_1);
@@ -70,7 +70,7 @@ describe('a route belongs to the Claude session that started it, from a hook or 
   });
 });
 
-describe('a task has one live route', () => {
+describe('a task has one live route', { concurrency: 4 }, () => {
   it('a start from another session ends the live route as interrupted, and route next then addresses the new one', async () => {
     await withTask(async (t) => {
       await launch(t, `/ambicode:task --task ${CHECK_TASK} fix total`, CLAUDE_1);
@@ -105,7 +105,7 @@ describe('a task has one live route', () => {
   });
 });
 
-describe('the task argument names a task', () => {
+describe('the task argument names a task', { concurrency: 4 }, () => {
   const planned = async (t: Fixture): Promise<void> => {
     await t.fx.repo.write(PLAN, '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
     await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
@@ -150,18 +150,18 @@ describe('the task argument names a task', () => {
 
   it('a bare number names the iteration after a Jira key too', async () => {
     await withTask(async (t) => {
-      await launch(t, '/ambicode:task --task vs-6735 add views', CLAUDE_1);
-      await appendLedger(t.fx.runtime.fs, path.join(t.fx.repo.root, '.ambicode', 'tasks', 'vs-6735'), t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+      await launch(t, '/ambicode:task --task abc-123 add views', CLAUDE_1);
+      await appendLedger(t.fx.runtime.fs, path.join(t.fx.repo.root, '.ambicode', 'tasks', 'abc-123'), t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
       await t.fx.repo.write(PLAN, '# Plan\n\n## Iteration 1\nA.\n\n## Iteration 2\nB.\n');
-      await launch(t, '/ambicode:task VS-6735 2', CLAUDE_1);
-      assert.equal((await t.fx.kinds('vs-6735', 'step')).findLast((entry) => entry['step'] === 'start')?.['iteration'], 2);
+      await launch(t, '/ambicode:task ABC-123 2', CLAUDE_1);
+      assert.equal((await t.fx.kinds('abc-123', 'step')).findLast((entry) => entry['step'] === 'start')?.['iteration'], 2);
     });
   });
 
   it('a Jira link names a new task by its issue key', async () => {
     await withTask(async (t) => {
-      await launch(t, '/ambicode:task https://inseer.atlassian.net/browse/VS-6735', CLAUDE_1);
-      assert.deepEqual(await tasks(t), ['vs-6735']);
+      await launch(t, '/ambicode:task https://example.atlassian.net/browse/ABC-123', CLAUDE_1);
+      assert.deepEqual(await tasks(t), ['abc-123']);
     });
   });
 
@@ -206,7 +206,7 @@ describe('the task argument names a task', () => {
   });
 });
 
-describe('parallel sessions on different tasks', () => {
+describe('parallel sessions on different tasks', { concurrency: 4 }, () => {
   it('each session hook answers and advances only its own route', async () => {
     await withTask(async (t) => {
       await launch(t, '/ambicode:task --task one fix total iteration 1', CLAUDE_1);
@@ -225,7 +225,7 @@ describe('parallel sessions on different tasks', () => {
   });
 });
 
-describe('finding the session route without a pointer', () => {
+describe('finding the session route without a pointer', { concurrency: 4 }, () => {
   it('a scan over 50 task ledgers of other sessions is measured', async () => {
     await withTask(async (t) => {
       for (let index = 0; index < 50; index += 1) {

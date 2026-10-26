@@ -14,7 +14,7 @@ export function planBodyRefusal(state: GuardState | undefined, taskDirectory: st
   const refuse = (why: string): string => `AMBICODE: steps/plan-body.md is written only while the task's live route is a plan route; ${why}. ${planBodyReason(slug, pluginRoot)}`;
   if (!isAbsolute(taskDirectory)) return refuse('the hook gave no absolute path for it');
   const entries = state!.ledger(taskDirectory);
-  if (entries === null) return refuse(`the ledger of ${slug} is missing, unreadable or over 1 MiB`);
+  if (entries === null) return refuse(`the ledger of ${slug} is missing, unreadable or over 1 MiB (looked in ${taskDirectory})`);
   const live = liveHeads(entries).at(-1);
   return live?.['skill'] === 'plan' ? null : refuse(live === undefined ? `no route is live on ${slug}` : `its live route is ${String(live['skill'])}, not plan`);
 }

@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task tw-start --headless iteration 1 Make forecast_window honour its start argument, as the investigation found it ignored. Add the test to tests/test_forecast.py, named like the file's other tests. The repository is at `repo/`.
+/ambicode:task --task tw-start --headless iteration 1 Make forecast_window honour its start argument, as the investigation found it ignored. Add the test to tests/test_forecast.py, named like the file's other tests.

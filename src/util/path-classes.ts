@@ -25,6 +25,8 @@ const EXCLUDED_PATH_GLOBS = [
   '**/vendor/**',
   '**/.ambicode/reviews/**',
   '**/.ambicode/tasks/**',
+  // The search index holds every folder's words: listed as a file, it would match every term of every search.
+  '**/.ambicode/context/search/**',
 ];
 
 /**

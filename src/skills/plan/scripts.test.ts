@@ -7,10 +7,10 @@ import { materialized } from '#testing/fixtures/materialized';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 
-async function check(root: string, body: string, params: string[] = []) {
+async function check(root: string, body: string | null, params: string[] = []) {
   const steps = path.join(root, '.ambicode/tasks/t/steps');
   await mkdir(steps, { recursive: true });
-  await writeFile(path.join(steps, 'plan-body.md'), body);
+  if (body !== null) await writeFile(path.join(steps, 'plan-body.md'), body);
   const outcome = await new NodeProcessRunner().run({
     argv: [process.execPath, path.join(REPO_ROOT, 'skills/plan/scripts/plan-check.mjs')],
     cwd: root,
@@ -35,6 +35,21 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
       assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
       assert.equal(bad.failed?.revise?.args['bad anchors']?.length, 3);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a body that was never written fails both modes as plan-body-missing with the path to write, not a crash (a rejected Write once left exit 1 and a lost stack)', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      for (const params of [[], ['resolve']]) {
+        const out = await check(root, null, params);
+        assert.equal(out.failed?.code, 'plan-body-missing');
+        const where = path.join(root, '.ambicode/tasks/t/steps/plan-body.md');
+        assert.ok(out.failed!.message.includes(where), out.failed!.message);
+        assert.deepEqual(out.failed!.revise, { args: { 'plan body': [out.failed!.message] } });
+      }
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

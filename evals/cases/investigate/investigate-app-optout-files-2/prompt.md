@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-/ambicode:investigate --task inv-optout2 Which files would change to let a customer choose which channel gets their payment receipts (email, sms or both) after the account exists, through PATCH /customers/:customerId with { "receiptChannels": ["sms"] }? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files the change edits. The repository is at `repo/`.
+/ambicode:investigate --task inv-optout2 Which files would change to let a customer choose which channel gets their payment receipts (email, sms or both) after the account exists, through PATCH /customers/:customerId with { "receiptChannels": ["sms"] }? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files the change edits.

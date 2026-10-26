@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-pricing.Quote (internal/pricing/price.go) adds the 120-cent surcharge to a parcel with an empty Zone, because anything but "hub" is surcharged. Make Quote return core.ErrInvalid for an empty Zone, wrapped the way CONTRIBUTING.md asks, and add a test in internal/pricing/price_test.go. The repository is at `repo/`.
+pricing.Quote (internal/pricing/price.go) adds the 120-cent surcharge to a parcel with an empty Zone, because anything but "hub" is surcharged. Make Quote return core.ErrInvalid for an empty Zone, wrapped the way CONTRIBUTING.md asks, and add a test in internal/pricing/price_test.go.

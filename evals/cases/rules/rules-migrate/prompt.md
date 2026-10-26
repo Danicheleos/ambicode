@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Write, Skill]
 ---
 
-/ambicode:rules --task rules-mig --headless --answer "sources=use these sources" --answer "rules-table=Apply all" CONTRIBUTING.md The repository is at `repo/`.
+/ambicode:rules --task rules-mig --headless --answer "sources=use these sources" --answer "rules-table=Apply all" CONTRIBUTING.md

@@ -385,6 +385,12 @@ describe('plan-body writes: allowed only while the task\'s live route is a plan 
     assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable/);
   });
 
+  it('a missing ledger names the directory that was looked in, so a model that wrote beside the wrong .ambicode sees which one', () => {
+    const { write, repo } = fixture(null);
+    const target = path.join(repo, '.ambicode', 'tasks', 'T', 'steps', 'plan-body.md');
+    assert.ok(write(target).hookSpecificOutput!.permissionDecisionReason.includes(`looked in ${path.join(repo, '.ambicode', 'tasks', 'T')}`));
+  });
+
   it('only the exact plan-body path is excepted; a relative path without a cwd is not placed', () => {
     const { write, repo } = fixture([planRoute('a-1', 'A')]);
     for (const file of ['steps/plan-body.md.bak', 'steps/sub/plan-body.md', 'plan-body.md']) {

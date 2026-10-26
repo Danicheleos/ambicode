@@ -16,7 +16,7 @@ const REVIEW_CONFIG = checksOf('      unit: { all: null, file: "true {file}" }\n
 /** What the reviewer's Write tool leaves: its answer in the review folder, which the route reads at `route next`. */
 const answer = (folder: string, text: string) => writeFile(path.join(folder, 'answer.json'), text);
 
-describe('review route: route next records the reviewer answer file', () => {
+describe('review route: route next records the reviewer answer file', { concurrency: 4 }, () => {
   it('the work file names the answer file and carries neither a cd line nor the request', async () => {
     const t = await reviewRouteFixture({ config: REVIEW_CONFIG });
     try {
@@ -88,7 +88,7 @@ describe('review route: route next records the reviewer answer file', () => {
   });
 });
 
-describe('task route: route next records the reviewer answer file', () => {
+describe('task route: route next records the reviewer answer file', { concurrency: 4 }, () => {
   async function toReviewer(t: Awaited<ReturnType<typeof taskFixture>>) {
     await t.start();
     await t.edit();

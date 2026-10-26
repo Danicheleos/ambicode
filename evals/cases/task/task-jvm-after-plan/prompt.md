@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task sv-trays --headless iteration 1 Go ahead with the plan. The repository is at `repo/`.
+/ambicode:task --task sv-trays --headless iteration 1 Go ahead with the plan.

@@ -21,9 +21,9 @@ describe('parseMrUrl', () => {
 
 describe('externalIssueLinks', () => {
   it('reads the external_issue anchors of the rendered title and description, without the query string, once each', () => {
-    const anchor = (href: string) => `<a href="${href}" data-reference-type="external_issue" data-external-issue="VS-6876" class="gfm">VS-6876</a>`;
-    const html = `<p>${anchor('https://x.atlassian.net/browse/VS-6876?atlOrigin=abc&amp;x=1')}: wizard</p>\n<p>${anchor('https://x.atlassian.net/browse/VS-6876?atlOrigin=zzz')} <a href="https://example.com/p" class="gfm">plain</a> <a data-reference-type="external_issue" href="https://x.atlassian.net/browse/VS-7">VS-7</a></p>`;
-    assert.deepEqual(externalIssueLinks(html), ['https://x.atlassian.net/browse/VS-6876', 'https://x.atlassian.net/browse/VS-7']);
+    const anchor = (href: string) => `<a href="${href}" data-reference-type="external_issue" data-external-issue="ABC-101" class="gfm">ABC-101</a>`;
+    const html = `<p>${anchor('https://x.atlassian.net/browse/ABC-101?atlOrigin=abc&amp;x=1')}: wizard</p>\n<p>${anchor('https://x.atlassian.net/browse/ABC-101?atlOrigin=zzz')} <a href="https://example.com/p" class="gfm">plain</a> <a data-reference-type="external_issue" href="https://x.atlassian.net/browse/VS-7">VS-7</a></p>`;
+    assert.deepEqual(externalIssueLinks(html), ['https://x.atlassian.net/browse/ABC-101', 'https://x.atlassian.net/browse/VS-7']);
     assert.deepEqual(externalIssueLinks('<p>VS-1 <a href="https://example.com/a">x</a></p>'), []);
   });
 });

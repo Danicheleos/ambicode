@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { answerGates } from '#hook/events/gate-answer';
@@ -13,7 +13,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '4d839a0a1b8e96bf84dcc29e49ac0bae698ed1cce5f2009e7a4514078aca72b5';
+const CONTRACT_SHA256 = '5ce708a5bcaf6f929142b38df5af45f66127b52dc979910443bfa8308942ed8c';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -46,7 +46,7 @@ const hookAnswer = (plan: PlanFixture, question: string, label: string, options:
 });
 const hookDeps = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes });
 
-describe('06-R1/06-R2 the shipped plan route', () => {
+describe('06-R1/06-R2 the shipped plan route', { concurrency: 4 }, () => {
   it('06-R2: with a requirement, fetch is delivered first', async () => {
     const plan = await shipped();
     try {
@@ -76,7 +76,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
       assert.doesNotMatch(text, /route next/, name);
     }
     const write = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'design.md'), 'utf8');
-    assert.match(write, /steps\/plan-body\.md/);
+    assert.match(write, /\{steps\}\/plan-body\.md/);
     assert.match(write, /never a bare name/);
     assert.match(write, /a file read and ruled out goes unnamed here too, even as unaffected|Name only files the plan changes or reuses/i);
     assert.match(write, /fix only those lines with Edit/);
@@ -91,7 +91,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
       const first = await plan.start();
       assert.equal(first.position, 'design');
       assert.ok(first.bytes <= 4096, `start ${first.bytes}`);
-      assert.match(first.text, /Read the notes of the modules the change touches and of modules whose helpers other code reuses/);
+      assert.match(first.text, /Read the notes of the modules that bear on the task, shared ones included/);
       const checked = await planCheck(plan, BAD);
       assert.ok(JSON.stringify(checked).length <= 8000);
     } finally {
@@ -100,7 +100,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
   });
 });
 
-describe('06-P5/06-P6/06-P7 write and check', () => {
+describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
   it('06-P5/D1: one plan check saves once and checks once; a route next at plan-check runs the run list once', async () => {
     const plan = await shipped();
     try {
@@ -169,6 +169,33 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
     }
   });
 
+  it('the design step names the plan body by its absolute path: the task lives under the repository root, which the session directory need not be', async () => {
+    const plan = await shipped();
+    try {
+      const first = await toDesign(plan);
+      assert.ok(first.text.includes(`\`${path.join(await realpath(taskDir(plan)), 'steps', 'plan-body.md')}\``), first.text);
+      assert.doesNotMatch(first.text, /to `\.ambicode\//);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('route next with no plan body saved fails the check as a missing body and tells the model where to write it, instead of crashing the script', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan);
+      const sent = await plan.next();
+      assert.equal(sent.position, 'design');
+      const where = path.join(await realpath(taskDir(plan)), 'steps', 'plan-body.md');
+      assert.ok(sent.text.includes(`## plan body\n`) && sent.text.includes(where), sent.text);
+      const failed = (await steps(plan, 'plan-check', 'failed'))[0]!;
+      assert.equal(failed['code'], 'plan-body-missing');
+      assert.equal((await notes(plan, 'plan-draft')).length, 0, 'nothing is saved as a draft');
+    } finally {
+      await plan.dispose();
+    }
+  });
+
   it('a fix after the first failed check reaches plan-accept with no gap', async () => {
     const plan = await shipped();
     try {
@@ -184,7 +211,7 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
   });
 });
 
-describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
+describe('06-R4/06-R5/06-R6 the plan-accept gate', { concurrency: 4 }, () => {
   it('06-R4/D11: the gate prints the draft, its hash, the marker and the Revise count; the draft precedes any acceptance', async () => {
     const plan = await shipped();
     try {
@@ -294,7 +321,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
   });
 });
 
-describe('06-R8/06-R9/06-H4 acting authority', () => {
+describe('06-R8/06-R9/06-H4 acting authority', { concurrency: 4 }, () => {
   it('S1 06-R1/06-R8: an untrusted headless --answer plan-accept=Accept is declined, no preanswer, Reject by default, nothing promoted', async () => {
     const plan = await shipped();
     try {
@@ -356,7 +383,7 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
 
 });
 
-describe('06-H3 without hook support', () => {
+describe('06-H3 without hook support', { concurrency: 4 }, () => {
   it('06-H3: with AskUserQuestion binding unsupported, a hook Accept binds nothing and a flag Accept stays declined', async () => {
     const plan = await shipped();
     try {
@@ -374,7 +401,7 @@ describe('06-H3 without hook support', () => {
   });
 });
 
-describe('06-R3 decision gates', () => {
+describe('06-R3 decision gates', { concurrency: 4 }, () => {
   it('06-R3: a design AskUserQuestion with the decision marker records gate {class: decision} and acceptance {via: hook}', async () => {
     const plan = await shipped();
     try {
@@ -392,7 +419,7 @@ describe('06-R3 decision gates', () => {
   });
 });
 
-describe('06-P9/D1 interruption', () => {
+describe('06-P9/D1 interruption', { concurrency: 4 }, () => {
   it('S10: route next after a completed check run is idempotent for the draft: a repeated check saves one more draft and no draft is deleted', async () => {
     const plan = await shipped();
     try {
@@ -425,7 +452,7 @@ describe('06-P9/D1 interruption', () => {
   });
 });
 
-describe('06-N2 one live plan route per task', () => {
+describe('06-N2 one live plan route per task', { concurrency: 4 }, () => {
   it('another session starting the task interrupts the route, and the draft is saved for the new one', async () => {
     const plan = await shipped();
     try {
@@ -442,7 +469,7 @@ describe('06-N2 one live plan route per task', () => {
   });
 });
 
-describe('06-R11 launch', () => {
+describe('06-R11 launch', { concurrency: 4 }, () => {
   it('06-R11: a typed /ambicode:plan starts the shipped route on the hook channel and runs no prepare', async () => {
     const plan = await shipped();
     try {
@@ -459,7 +486,7 @@ describe('06-R11 launch', () => {
   });
 });
 
-describe('06-C7 project answers', () => {
+describe('06-C7 project answers', { concurrency: 4 }, () => {
   it('06-C7: the project answered in one task is not asked again by another task of the same session', async () => {
     const config = CONFIG.replace(/  - \{ id: app,.*\}$/, '  - { id: orders, root: "src/orders", paths: [src/orders/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }\n  - { id: invoices, root: "src/invoices", paths: [src/invoices/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }');
     const plan = await planFixture({ shipped: true, config });

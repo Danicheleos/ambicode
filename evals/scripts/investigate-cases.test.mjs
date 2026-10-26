@@ -15,12 +15,12 @@ const BROAD = ['ts-service-lendbox', 'py-service-tidewatch', 'go-module-parcelhu
 const passes = (text, spec) => new RegExp(spec.pattern).test(text) === (spec.match !== 'not_contains');
 
 describe('investigate cases', () => {
-  it('are two per stack fixture, three on ts-app-medium and two on its deep variant, one case per truth', () => {
+  it('are one per stack fixture, three on ts-app-medium and two on its deep variant, one case per truth', () => {
     assert.equal(cases.length, INVESTIGATE_TRUTHS.length);
-    for (const fixture of BROAD) assert.equal(cases.filter((c) => c.fixture === fixture).length, 2, fixture);
+    for (const fixture of BROAD) assert.equal(cases.filter((c) => c.fixture === fixture).length, 1, fixture);
     assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium').length, 3);
     assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium-deep').length, 2);
-    assert.equal(cases.length, 15);
+    assert.equal(cases.length, 10);
     assert.equal(new Set(cases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, cases.length, 'task slugs are unique');
   });
 
@@ -52,7 +52,7 @@ describe('the ledger graders read what the route writes', () => {
   const exit = (reason) => `{"id":"w-11","at":"2026-10-23T00:00:00.000Z","route":"w-1","kind":"exit","reason":"${reason}","complete":true}`;
 
   it('note-saved, citations-valid and route-done match a finished route and refuse a failed check or an early exit', () => {
-    assert.equal(front('note-saved').target.path, `repo/.ambicode/tasks/${slug}/ledger.jsonl`);
+    assert.equal(front('note-saved').target.path, `.ambicode/tasks/${slug}/ledger.jsonl`);
     assert.ok(passes(note, front('note-saved')));
     assert.ok(!passes('{"kind":"note","note":"plan"}', front('note-saved')));
     assert.ok(passes(check(false), front('citations-valid')));
@@ -102,16 +102,17 @@ for (const t of INVESTIGATE_TRUTHS) {
     });
 
     if (t.decoys.length > 0 && t.files !== false) {
-      it('the decoy grader refuses a Files section that lists a decoy, with or without a repo/ prefix, and accepts one that only mentions it above', () => {
+      it('the decoy grader refuses a Files section that lists a decoy and accepts one that only mentions it above', () => {
         const spec = frontmatter(grader(c, 'files-skip-decoys').text);
         assert.equal(spec.match, 'not_contains');
         assert.equal(spec.pattern, decoyPattern(t.decoys));
         for (const decoy of t.decoys) {
           assert.equal(passes(`prose\n## Files\n- ${t.relevant[0]}\n- ${decoy}\n`, spec), false, decoy);
-          assert.equal(passes(`## Files\n- repo/${decoy}\n`, spec), false, decoy);
           assert.equal(passes(`${decoy} is not part of it.\n## Files\n- ${t.relevant[0]}\n`, spec), true, decoy);
         }
         assert.equal(passes(`## Files\n${t.relevant.map((file) => `- ${file}`).join('\n')}\n`, spec), true);
+        assert.equal(passes(`## Files\n\n${t.relevant.map((file) => `- ${file}`).join('\n')}\n`, spec), true, 'a blank line after the heading');
+        for (const decoy of t.decoys) assert.equal(passes(`## Files\n\n- ${t.relevant[0]}\n- ${decoy}\n`, spec), false, `${decoy} below a blank line`);
       });
     }
 
@@ -134,10 +135,7 @@ describe('facts and citations accept the right wording and refuse the plausible 
   const spec = (name, grader_) => frontmatter(pick(name, grader_).text);
   const wrongAndRight = [
     ['investigate-go-label-bay', 'price-7-40', 'price: 7.40', 'price: 3.50'],
-    ['investigate-go-parceld-lookup', 'status-404', 'It answers 404 no such parcel.', 'It answers 200 with the parcel.'],
-    ['investigate-jvm-sow-mail', 'fallback-desk', 'To: desk@example.org', 'To: seeds@example.org'],
     ['investigate-ts-extend-late-fee', 'fee-100-cents', 'two days late is 100 cents', 'nine days late is 450 cents'],
-    ['investigate-mono-over-limit-post', 'names-the-limit', 'setpoint 13500 is outside the kiln limits', 'the engine refuses the schedule'],
     ['investigate-mono-max-setpoint', 'limit-13000', 'MAX_SETPOINT_DC is 13_000', 'the limit is 1300'],
     ['investigate-app-segment-flow-2', 'gold-threshold', 'gold needs 500000 cents', 'gold needs 5000 cents'],
     ['investigate-app-segment-flow-2', 'window-365', 'a 365 day window', 'a 30 day window'],
@@ -193,8 +191,8 @@ describe('the decoy grader reads the entries of the Files list, not the prose ar
     assert.ok(passes(answer(''), g));
   });
 
-  it('fails a decoy that is an entry of the list, whatever the bullet, number, backticks or prefix, and under any heading suffix', () => {
-    for (const entry of ['- src/flags.js', '* `src/flags.js`', '3. src/flags.js: unrelated', 'repo/src/flags.js', '- **src/flags.js**']) {
+  it('fails a decoy that is an entry of the list, whatever the bullet, number or backticks, and under any heading suffix', () => {
+    for (const entry of ['- src/flags.js', '* `src/flags.js`', '3. src/flags.js: unrelated', '- **src/flags.js**']) {
       assert.ok(!passes(`## Files that change\n- src/customers/patch.js\n${entry}\n`, g), entry);
     }
     assert.ok(!passes(answer('\n## Files\nsrc/customers/patch.js\nsrc/flags.js\n'), g));

@@ -36,13 +36,14 @@ describe('an investigation named by path reaches the plan and the task', () => {
     }
   });
 
-  it('the plan route has no map: an investigation path stays in the request text for the model to read', async () => {
+  it('the plan route has a map, and an investigation path stays in the request text for the model to read', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.fx.repo.write(NOTE, 'The limit lives in `src/orders/limit.ts`.\n');
       const first = await plan.start({ text: `add totals, see ${NOTE}` });
-      assert.doesNotMatch(first.text, /## map|Investigation:/);
-      assert.equal((await plan.fx.kinds('ORD-17', 'map')).length, 0);
+      assert.doesNotMatch(first.text, /Investigation:/);
+      assert.match(first.text, /## map/);
+      assert.equal((await plan.fx.kinds('ORD-17', 'map')).length, 1);
     } finally {
       await plan.dispose();
     }

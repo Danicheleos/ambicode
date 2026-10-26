@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
-/ambicode:plan --task plan-mono-degrees --headless --answer plan-accept=Accept On the firing page, show each segment's target temperature in degrees Celsius, not in tenths. The repository is at `repo/`.
+/ambicode:plan --task plan-mono-degrees --headless --answer plan-accept=Accept On the firing page, show each segment's target temperature in degrees Celsius, not in tenths.

@@ -4,6 +4,7 @@
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 import { contextTokens, events } from './trace.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -83,6 +84,55 @@ export function sandboxOf(tracePath) {
   return /^e-[A-Za-z0-9]+$/.test(path.basename(dir)) && path.basename(path.dirname(tracePath)) === 'out' ? dir : null;
 }
 
+/**
+ * The model steps whose message carries the map in the hook text, as `<skill>/<step>`: the route definitions say it (`payload` lists `map`,
+ * and no `work` file takes the payload instead), so a route that delivers the map at another step (plan's `design`) needs no code here.
+ */
+export function mapStepsOf(routesDir = path.join(REPO, 'routes')) {
+  const steps = new Set();
+  for (const skill of existsSync(routesDir) ? readdirSync(routesDir) : []) {
+    const file = path.join(routesDir, skill, `${skill}.yaml`);
+    if (!existsSync(file)) continue;
+    for (const step of parse(readFileSync(file, 'utf8'))?.steps ?? []) {
+      if (step?.actor === 'model' && !step.work && Array.isArray(step.payload) && step.payload.includes('map')) steps.add(`${skill}/${step.id}`);
+    }
+  }
+  return steps;
+}
+
+const STEP_HEADER = /\[ambicode\] (\S+) \u00b7 (?:task \S+ \u00b7 )?step ([\w-]+)/;
+
+/**
+ * What the model received at the route's map step (see `mapStepsOf`), from the session transcripts a run wrote
+ * (`<sandbox>/config/projects/<project>/<session>.jsonl`): the stream trace carries no hook output, so ledger bytes alone cannot say
+ * whether `## map` arrived (2026-10-24, 10 runs, 0 hits; 2026-10-25, all 30 plan runs read `absent` while the transcripts held the map).
+ * `unknown` = no transcript, never a false; `spilled` = Claude Code saved the hook output to a file (a `tool-results/hook-` reference);
+ * `absent` = transcript present, no map step text; else `delivered` with chars, map and candidates read from that text.
+ */
+export function deliveryOf(transcripts, mapSteps = mapStepsOf()) {
+  if (!transcripts || transcripts.length === 0) return { status: 'unknown', chars: null, map: null, candidates: null, spill: null };
+  let step = null;
+  let spill = false;
+  for (const text of transcripts) {
+    for (const line of text.split('\n')) {
+      if (line === '') continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      const attachment = entry?.attachment;
+      if (attachment?.type !== 'hook_additional_context') continue;
+      const body = Array.isArray(attachment.content) ? attachment.content.join('\n') : String(attachment.content ?? '');
+      if (/tool-results\/hook-|additionalContext\.txt/.test(body)) spill = true;
+      const header = STEP_HEADER.exec(body);
+      if (header !== null && mapSteps.has(`${header[1]}/${header[2]}`)) step = body;
+    }
+  }
+  if (step === null) return { status: spill ? 'spilled' : 'absent', chars: null, map: false, candidates: false, spill };
+  return { status: spill ? 'spilled' : 'delivered', chars: step.length, map: step.includes('## map'), candidates: step.includes('"candidates"'), spill };
+}
+
+/** One-line form of a delivery record for the run summary. */
+export const deliveryLine = (delivery) => `delivery=${delivery.status}${delivery.status === 'delivered' || delivery.status === 'spilled' ? ` chars=${delivery.chars} map=${delivery.map} candidates=${delivery.candidates} spill=${delivery.spill}` : ''}`;
+
 /** Copies `<cwd>/.ambicode` and `<cwd>/<dir>/.ambicode` (the case's `repo/`) to `target`; null when there is none. */
 function keepAmbicode(cwd, target) {
   const found = [];
@@ -94,6 +144,30 @@ function keepAmbicode(cwd, target) {
   // excluded (~196 files per run, 17,642 entries against the harness eval-dir limit of 20,000) is checked by the count before each paid run.
   for (const relative of found) cpSync(path.join(cwd, relative), path.join(target, relative), { recursive: true });
   return found.length === 0 ? null : target;
+}
+
+/** Copies every `<projects>/<project>/<session>.jsonl` and `tool-results/hook-*` file to `target`; returns the transcripts' text. */
+function keepTranscripts(projects, target) {
+  const texts = [];
+  if (!existsSync(projects)) return texts;
+  for (const project of readdirSync(projects, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+    const root = path.join(projects, project.name);
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        mkdirSync(target, { recursive: true });
+        copyFileSync(path.join(root, entry.name), path.join(target, entry.name));
+        texts.push(readFileSync(path.join(root, entry.name), 'utf8'));
+      } else if (entry.isDirectory()) {
+        const results = path.join(root, entry.name, 'tool-results');
+        for (const file of existsSync(results) ? readdirSync(results) : []) {
+          if (!file.startsWith('hook-')) continue;
+          mkdirSync(path.join(target, 'tool-results'), { recursive: true });
+          copyFileSync(path.join(results, file), path.join(target, 'tool-results', file));
+        }
+      }
+    }
+  }
+  return texts;
 }
 
 function unseal(dir) {
@@ -131,6 +205,11 @@ export function harvest(result, tracesDir, { remove = true, archiveDir = tracesD
         // The route's own record (ledger, delivered steps and payloads): the trace does not hold what a hook injected.
         const kept = keepAmbicode(path.join(sandbox, 'sealed', 'home', 'cwd'), path.join(archiveDir, path.basename(run.trace).replace(/\.jsonl$/, '.ambicode')));
         if (kept !== null) run.ambicode = kept;
+        // Session transcripts (and Claude Code's hook spill files) live in the harness-set config dir, not in the sealed part.
+        const transcriptDir = path.join(archiveDir, path.basename(run.trace).replace(/\.jsonl$/, '.transcript'));
+        const texts = keepTranscripts(path.join(sandbox, 'config', 'projects'), transcriptDir);
+        run.delivery = deliveryOf(texts);
+        if (texts.length > 0) run.transcript = transcriptDir;
         if (remove) rmSync(sandbox, { recursive: true, force: true });
       });
     }

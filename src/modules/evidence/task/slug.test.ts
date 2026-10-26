@@ -9,7 +9,7 @@ describe('mintTaskSlug names a task from the request alone', () => {
     assert.equal(a, 'how-does-the-order-total-validation-work');
     assert.equal(mintTaskSlug('how does the Order Total validation work'), a);
     assert.equal(mintTaskSlug('which files? ORD-17'), 'ord-17', 'an issue key names the task');
-    assert.equal(mintTaskSlug('https://inseer.atlassian.net/browse/VS-6735'), 'vs-6735');
+    assert.equal(mintTaskSlug('https://example.atlassian.net/browse/ABC-123'), 'abc-123');
   });
 
   it('caps the length and never ends on a hyphen', () => {
@@ -36,7 +36,7 @@ describe('only an uppercase project key names a task, and the requirement check 
   });
 
   it('fetches a ticket exactly when the first word names the task by its key', () => {
-    for (const text of ['ORD-17 add totals', 'ord-17 add totals', 'vs-6735 add totals', 'utf-8 decoding fails']) {
+    for (const text of ['ORD-17 add totals', 'ord-17 add totals', 'abc-123 add totals', 'utf-8 decoding fails']) {
       const named = mintTaskSlug(text) === text.split(' ')[0]!.toLowerCase();
       assert.equal(hasRequirement({ text, requirements: [], headless: false }, { mcpServer: 'jira' }), named, text);
     }
@@ -48,7 +48,7 @@ describe('iterationOf reads the iteration once, from the request and the task it
     assert.equal(iterationOf('fix totals Iteration 2', 'fix-totals'), 2);
     assert.equal(iterationOf('ORD-17 1', 'ord-17'), 1);
     assert.equal(iterationOf('ord-17   2', 'ord-17'), 2);
-    assert.equal(iterationOf('https://x.atlassian.net/browse/VS-6735 3', 'vs-6735'), 3);
+    assert.equal(iterationOf('https://x.atlassian.net/browse/ABC-123 3', 'abc-123'), 3);
     assert.equal(iterationOf('.ambicode/tasks/ord-17 2', 'ord-17'), 2);
   });
 

@@ -44,7 +44,7 @@ const code = (promise: Promise<unknown>): Promise<string | null> => promise.then
 const routeArgs = async (t: Fixture, task: string) => (await t.fx.kinds(task, 'route'))[0]?.['args'] as { target?: unknown; hash: string };
 const cli = (...argv: string[]) => parseArgs('route start', ['review', ...argv], ROUTE_START_OPTIONS);
 
-describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
+describe('review route: shape and start (08-R1, 08-R2, 08-R3)', { concurrency: 4 }, () => {
   it('08-R1: routes/review/review.yaml has the contract steps, the estimate gate, loads with the registry and is packaged with its step files', async () => {
     const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8')) as { skill: string; version: number; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
     assert.deepEqual([route.skill, route.version], ['review', 3]);
@@ -129,7 +129,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
   });
 });
 
-describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
+describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', { concurrency: 4 }, () => {
   it('08-R4: a refused estimate asks; answer skip completes the route without brief, review-agent or readback and reports the skip under Not verified', async () => {
     await withReview(async (t) => {
       assert.equal((await t.start()).position, 'estimate');
@@ -177,7 +177,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
     });
   });
 
-  describe('the route runs the configured file-scoped checks itself', () => {
+  describe('the route runs the configured file-scoped checks itself', { concurrency: 4 }, () => {
     const reviewDir = (t: Fixture) => t.bundle;
     const resultOf = async (t: Fixture) => JSON.parse(await readFile(path.join(reviewDir(t), 'result.json'), 'utf8')) as { checks: { key: string; exit: number }[]; omissions: { text: string }[]; status: string };
 
@@ -340,7 +340,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 
 });
 
-describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B1, 08-R7)', () => {
+describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B1, 08-R7)', { concurrency: 4 }, () => {
   const read = async (name: string): Promise<string> => (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', `node "${REPO_ROOT}/scripts/ambicode.mjs"`).replaceAll('{task}', CHECK_TASK);
 
   it('08-R6/08-B1: each review step text is at most 1,500 characters after inclusion', async () => {
@@ -386,7 +386,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
 
 });
 
-describe('review.pin assembly', () => {
+describe('review.pin assembly', { concurrency: 4 }, () => {
   it('assembles the bundle once: the pin adds one unmerged-paths probe to the estimate\'s', async () => {
     await withReview(async (t) => {
       const real = t.fx.runtime.runner;

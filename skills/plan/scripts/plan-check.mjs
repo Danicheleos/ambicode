@@ -10,7 +10,17 @@ const input = JSON.parse(readFileSync(0, 'utf8'));
 // The line after the last one is an append point: 9 of 14 bad anchors in eval plans were exactly that.
 const inRange = (from, to, count) => from >= 1 && from <= to && to <= count + 1;
 const root = path.resolve(input.repositoryRoot);
-const body = readFileSync(path.join(input.steps, 'plan-body.md'), 'utf8');
+const bodyFile = path.join(input.steps, 'plan-body.md');
+let body;
+try {
+  body = readFileSync(bodyFile, 'utf8');
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+  // A rejected Write leaves no file; an uncaught ENOENT exited 1 and the route sent the model back with nothing to act on.
+  const message = `${bodyFile} does not exist: Write the plan there with the Write tool, then run the Then command.`;
+  process.stdout.write(JSON.stringify({ entries: [], failed: { code: 'plan-body-missing', message, recoverable: true, revise: { args: { 'plan body': [message] } } } }));
+  process.exit(0);
+}
 // The first ten bad anchors are listed, enough for one fix round; the count is exact.
 const LISTED = 10;
 

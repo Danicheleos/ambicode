@@ -176,6 +176,13 @@ names are `PreToolUse`, `UserPromptSubmit`, `UserPromptExpansion`,
 `PostCompact` is a hard validation failure the user sees on every compaction,
 not a silent no-op. So `PostCompact` and `SessionStart` reset and return `{}`, and `UserPromptSubmit` delivers when the current epoch
 has not had it yet — which is what puts the contract back after a compaction.
+The same hook starts a route when the prompt is `/ambicode:<skill> …`
+(`src/hook/events/prompt-launch.ts`): the route's first step is returned as
+context, and for `investigate`, `plan` and `task` the steps that run
+`search.map` carry the search map. The map is therefore delivered by
+`UserPromptSubmit`, within `HOOK_LIMIT` (8,800 characters,
+`src/harness/engine/execute.ts`); only the map section is trimmed to fit. No
+agent builds it.
 The marker dedup means it is sent once per epoch, not once per prompt, but the
 hook process itself does start on every user message (~190ms on the reference
 machine). That cost buys the post-compaction redelivery; dropping the

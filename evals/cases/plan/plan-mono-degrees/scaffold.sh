@@ -1,4 +1,6 @@
 #!/bin/sh
-# Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it.
+# Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it. The session directory becomes the repository.
 set -e
-node "$(cd "$(dirname "$0")/../../../.." && pwd)/fixtures/materialize.mjs" monorepo-rust-ts-kiln "$PWD/repo" --ambicode-init --context
+node "$(cd "$(dirname "$0")/../../../.." && pwd)/fixtures/materialize.mjs" monorepo-rust-ts-kiln "$PWD/fixture" --ambicode-init --context
+for entry in "$PWD/fixture"/* "$PWD/fixture"/.[!.]*; do [ -e "$entry" ] && mv "$entry" "$PWD"/; done
+rmdir "$PWD/fixture"

@@ -27,6 +27,13 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start rules
 4. The user answers the rules table: Apply all, Apply with changes, or Discard
    drafts. Only Apply all writes anything, and only through `rules apply`.
 
+## Drafting well
+
+- Read all chosen sources before writing, in one parallel batch; nested or linked rule files that a source points to count as sources only if the user chose them.
+- Group by scope, not by source: rules that apply to the same files belong in one pack, so a reviewer sees them together.
+- One instruction per rule, in the team's own terms, with its quote. A rule that no diff or check could ever decide is still drafted when the source states it; the table is where the user drops it.
+- Rules that conflict across sources are both drafted with their quotes; say so in the final message instead of choosing one.
+
 ## What this never does
 
 - Edit `.ambicode/config.yaml` or move a draft yourself. `rules apply` does it

@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { archiveOf, contextOf, finalMessageOf, harvest, reviewRunsOf, sandboxOf } from './context.mjs';
+import { archiveOf, contextOf, deliveryLine, deliveryOf, finalMessageOf, harvest, mapStepsOf, reviewRunsOf, sandboxOf } from './context.mjs';
 
 const call = (id, input, created, read, parent = null, content = undefined) =>
   JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { id, content, usage: { input_tokens: input, cache_creation_input_tokens: created, cache_read_input_tokens: read, output_tokens: 9 } } });
@@ -97,5 +97,77 @@ describe('evals context size', () => {
   it('archiveOf mirrors the path relative to the repo under the archive root, overridable by AMBICODE_EVAL_ARCHIVE', () => {
     assert.equal(archiveOf('/r/repo/evals/x', {}, '/r/repo'), path.resolve('/r/eval-archive/evals/x'));
     assert.equal(archiveOf('/r/repo/evals/x', { AMBICODE_EVAL_ARCHIVE: '/a' }, '/r/repo'), path.resolve('/a/evals/x'));
+  });
+});
+
+describe('delivery of the read step', () => {
+  const hook = (body) => `${JSON.stringify({ type: 'attachment', attachment: { type: 'hook_additional_context', content: [body] } })}\n`;
+  const STEP = '[ambicode] investigate \u00b7 task t \u00b7 step read (4/5)\nNow: read\n## map\n{"candidates":[]}';
+
+  it('reports map, candidates and length from the read step text; a spill reference is reported as spilled', () => {
+    const inline = deliveryOf([hook('# contract') + hook(STEP)]);
+    assert.deepEqual(inline, { status: 'delivered', chars: STEP.length, map: true, candidates: true, spill: false });
+    assert.equal(deliveryLine(inline), `delivery=delivered chars=${STEP.length} map=true candidates=true spill=false`);
+    const spilled = deliveryOf([hook('Output saved to /x/tool-results/hook-ab-additionalContext.txt\nPreview: [ambicode] investigate \u00b7 step read')]);
+    assert.equal(spilled.status, 'spilled');
+    assert.equal(spilled.spill, true);
+    assert.equal(deliveryOf([hook('[ambicode] investigate \u00b7 step read\nno map here')]).map, false);
+  });
+
+  it('finds the map at the step the route definition delivers it in: plan reads it at design, a re-delivery without the map does not hide it', () => {
+    assert.ok(mapStepsOf().has('investigate/read') && mapStepsOf().has('plan/design'));
+    assert.ok(!mapStepsOf().has('task/change'), 'a step with a work file carries no map in the hook text');
+    const design = '[ambicode] plan \u00b7 task t \u00b7 step design (3/6)\nNow: design\n## map\n{"candidates":[1]}';
+    assert.deepEqual(deliveryOf([hook('# contract') + hook(design)]), { status: 'delivered', chars: design.length, map: true, candidates: true, spill: false });
+    assert.equal(deliveryOf([hook('[ambicode] plan \u00b7 task t \u00b7 step plan-check\n## map')]).status, 'absent');
+  });
+
+  it('a route with its map at a step of its own is found from the definition alone', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'evals-routes-'));
+    try {
+      mkdirSync(path.join(dir, 'probe'));
+      writeFileSync(path.join(dir, 'probe', 'probe.yaml'), 'skill: probe\nsteps:\n  - { id: look, actor: model, instruction: x, payload: [envelope, map] }\n  - { id: other, actor: model, instruction: y, work: z, payload: [map] }\n');
+      assert.deepEqual([...mapStepsOf(dir)], ['probe/look']);
+      assert.equal(deliveryOf([hook('[ambicode] probe \u00b7 task t \u00b7 step look\n## map')], mapStepsOf(dir)).map, true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('no transcript is unknown, never false; a transcript with no read step is absent', () => {
+    assert.deepEqual(deliveryOf(null), { status: 'unknown', chars: null, map: null, candidates: null, spill: null });
+    assert.deepEqual(deliveryOf([]), deliveryOf(null));
+    assert.equal(deliveryLine(deliveryOf(null)), 'delivery=unknown');
+    assert.equal(deliveryOf(['{"type":"user"}\n']).status, 'absent');
+  });
+
+  it('harvest keeps the sandbox transcripts and hook spill files beside the trace and records delivery per run', () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'evals-delivery-'));
+    const make = (name, transcript, spill) => {
+      const sandbox = path.join(tmp, name);
+      mkdirSync(path.join(sandbox, 'out'), { recursive: true });
+      writeFileSync(path.join(sandbox, 'out', 'trace.jsonl'), TRACE);
+      if (transcript !== null) {
+        const project = path.join(sandbox, 'config', 'projects', '-p');
+        mkdirSync(path.join(project, 'sess', 'tool-results'), { recursive: true });
+        writeFileSync(path.join(project, 'sess.jsonl'), transcript);
+        if (spill) writeFileSync(path.join(project, 'sess', 'tool-results', 'hook-1-additionalContext.txt'), 'full text');
+      }
+      return path.join(sandbox, 'out', 'trace.jsonl');
+    };
+    const result = { cases: [{ name: 'c', arms: { with: [
+      { tracePath: make('e-D1', hook(STEP), false) },
+      { tracePath: make('e-D2', hook('see tool-results/hook-1-additionalContext.txt'), true) },
+      { tracePath: make('e-D3', null, false) },
+    ] } }] };
+    const traces = path.join(tmp, 'traces');
+    const archive = path.join(tmp, 'archive');
+    harvest(result, traces, { archiveDir: archive });
+    const [inline, spilled, none] = result.cases[0].arms.with;
+    assert.deepEqual([inline.delivery.status, inline.delivery.map], ['delivered', true]);
+    assert.equal(spilled.delivery.status, 'spilled');
+    assert.equal(readFileSync(path.join(archive, 'c-2.transcript', 'tool-results', 'hook-1-additionalContext.txt'), 'utf8'), 'full text');
+    assert.equal(existsSync(path.join(archive, 'c-1.transcript', 'sess.jsonl')), true);
+    assert.deepEqual([none.delivery.status, none.delivery.map, none.transcript], ['unknown', null, undefined]);
   });
 });

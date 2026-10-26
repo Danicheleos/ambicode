@@ -28,7 +28,7 @@ const iterationOf = async (t: Fixture, route: number): Promise<unknown> => {
 const gates = async (t: Fixture): Promise<unknown[]> => (await t.kinds('gate')).map((entry) => entry['gate']);
 const stop = (t: Fixture) => t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad }, { repositoryRoot: t.fx.repo.root, where: '.' });
 
-describe('task route: the iteration loop', () => {
+describe('task route: the iteration loop', { concurrency: 4 }, () => {
   it('no iteration in the request: every iteration runs, the review runs unasked, and no gate separates them', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });

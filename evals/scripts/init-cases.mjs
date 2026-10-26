@@ -323,7 +323,7 @@ export function initCases(b) {
     description: `/ambicode:init --auto on an uninitialised repository: ${truth.stack}. Config, packs, context${truth.conventions.length > 0 ? ' and draft rules for four planted conventions' : ''}.`,
     tags: ['init'],
     version: 3,
-    fixture: truth.fixture, flags: truth.flags, intoCwd: true,
+    fixture: truth.fixture, flags: truth.flags,
     prompt: '/ambicode:init --auto',
     bare: null,
     graders: initGraders(b, truth),

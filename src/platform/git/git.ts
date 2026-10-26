@@ -16,6 +16,8 @@ const SAFE_CONFIG = [
 
 const GIT_TIMEOUT_MS = 60_000;
 const GIT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+/** Matching lines read per file when a caller judges the hits itself: a file whose first lines only hold the term inside other words is read as not holding it. */
+const WHOLE_WORD_LINES = 20;
 
 interface GitOptions {
   runner: ProcessRunner;
@@ -211,7 +213,24 @@ export class Git {
    * Fixed-string (`-F`) because a term is not a regular expression the caller
    * wrote; `-I` because a binary hit is not evidence a person can read.
    */
-  async grepFiles(term: string, pathspec: string | null): Promise<string[]> {
+  async grepFiles(term: string, pathspec: string | null, accept?: (line: string) => boolean): Promise<string[]> {
+    if (accept !== undefined) {
+      // A substring hit is only a candidate (`est` sits in `test`): the caller's `accept` judges each matching line, at most WHOLE_WORD_LINES per file. Output too large to read falls back to the substring answer.
+      const lines = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', String(WHOLE_WORD_LINES), '-e', term, '--', ...(pathspec === null ? [] : [pathspec])], true).catch((error: unknown) => {
+        if (error instanceof AmbicodeError && error.code === 'git-output-truncated') return null;
+        throw error;
+      });
+      if (lines !== null) {
+        if (lines.exitCode === 1) return [];
+        if (lines.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(lines.exitCode)}.`);
+        const files = new Set<string>();
+        for (const record of lines.stdout.split('\n')) {
+          const match = /^([^\0]+)\0\d+\0(.*)$/.exec(record);
+          if (match !== null && !files.has(match[1]!) && accept(match[2]!)) files.add(match[1]!);
+        }
+        return [...files];
+      }
+    }
     const outcome = await this.execOutcome(
       [
         'grep',

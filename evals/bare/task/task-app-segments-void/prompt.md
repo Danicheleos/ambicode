@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js. The repository is at `repo/`.
+customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js.

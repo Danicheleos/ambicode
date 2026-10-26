@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task kl-offset --headless iteration 1 In the Python tools, offset_dc (tools/src/kilnlab/calibration/fit.py) raises ZeroDivisionError on an empty list of pairs. Raise ValueError('no calibration pairs') instead, and add a test in tools/tests/test_calibration.py. The repository is at `repo/`.
+/ambicode:task --task kl-offset --headless iteration 1 In the Python tools, offset_dc (tools/src/kilnlab/calibration/fit.py) raises ZeroDivisionError on an empty list of pairs. Raise ValueError('no calibration pairs') instead, and add a test in tools/tests/test_calibration.py.

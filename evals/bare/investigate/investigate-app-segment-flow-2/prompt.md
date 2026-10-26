@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-A customer was gold last year and is silver today. What made their segment change, and what would put them back to gold? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer. The repository is at `repo/`.
+A customer was gold last year and is silver today. What made their segment change, and what would put them back to gold? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer.
