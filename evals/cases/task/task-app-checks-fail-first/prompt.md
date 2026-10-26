@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task aging-bucket --headless iteration 1 Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line. The repository is at `repo/`.
+/ambicode:task --task aging-bucket --headless iteration 1 Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line.

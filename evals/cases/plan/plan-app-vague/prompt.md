@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
-/ambicode:plan --task plan-app-vague --headless --answer plan-accept=Accept Late payers are a mess for us. Make the billing service handle them better. The repository is at `repo/`.
+/ambicode:plan --task plan-app-vague --headless --answer plan-accept=Accept Late payers are a mess for us. Make the billing service handle them better.

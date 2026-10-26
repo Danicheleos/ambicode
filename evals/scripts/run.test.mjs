@@ -3,56 +3,30 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { NAKED, buildNaked, childEnv, plan, recallOfGraders, runCase, withProgress } from './run.mjs';
+import { NAKED, USAGE, buildNaked, checkArgs, childEnv, plan, runCase, withProgress } from './run.mjs';
 
-describe('navigator metrics', () => {
-  const truth = { relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [], ancestorShare: 0.5, ancestors: {} };
+describe('result copy', () => {
+  const truth = { source: 'files-section', relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [] };
   const answer = (text) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
-  const run = (traceText, graders) => {
-    const root = mkdtempSync(path.join(tmpdir(), 'run-metrics-'));
-    const result = path.join(root, 'r.json');
-    const trace = path.join(root, 't.jsonl');
-    writeFileSync(trace, traceText);
-    const deps = { tracesRoot: root, harvest: () => {}, truthOf: () => truth, spawn: () => { writeFileSync(result, JSON.stringify({ cases: [{ name: 'fe-vs-6141-navigator', arms: { with: [{ graders, trace }] } }] })); return 0; } };
-    runCase({ argv: [], env: {}, result, arm: 'plugin' }, deps);
-    return JSON.parse(readFileSync(result, 'utf8')).cases[0].arms.with[0].metrics;
-  };
-  const graders = (...passed) => passed.map((ok, i) => ({ name: `recall-0${i + 1}-f`, passed: ok }));
-
-  it('writes recall, precision, F1 and the folder lists from the answer and truth.json; recall equals the graders', () => {
-    const metrics = run(answer('```files\nm/a/x.ts\nm/z/q.ts\n```'), graders(true, false));
-    assert.deepEqual(metrics, { recall: 0.5, precision: 0.5, f1: 0.5, missed: ['m/b'], extra: ['m/z'], contract: true });
-  });
-
-  it('a computed recall that differs from the graders writes the grader recall and flags the mismatch', () => {
-    const metrics = run(answer('```files\nm/a/x.ts\n```'), graders(true, true));
-    assert.equal(metrics.mismatch, true);
-    assert.equal(metrics.recall, 1);
-    assert.equal(metrics.precision, 1);
-  });
-
   it('each run leaves a copy with the metrics at <results>/<stamp>/aggregate-result.json, the bare arm under <results>/bare/', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'run-own-'));
     const result = path.join(root, 'plugin.json');
     const trace = path.join(root, 't.jsonl');
-    writeFileSync(trace, answer('```files\nm/a/x.ts\n```'));
-    const raw = { startedAt: '2026-10-19T19:36:32.539Z', cases: [{ name: 'fe-vs-6141-navigator', arms: { with: [{ graders: graders(true, false), trace }] } }] };
+    writeFileSync(trace, answer('## Files\n- m/a/x.ts\n- m/b/y.ts\n'));
+    const raw = { startedAt: '2026-10-19T19:36:32.539Z', cases: [{ name: 'fe-vs-6141-downstream', arms: { with: [{ graders: [], trace }] } }] };
     const own = path.join(root, '2026-10-19T19-36-32-539Z', 'aggregate-result.json');
     mkdirSync(path.dirname(own));
     const deps = { tracesRoot: path.join(root, 'traces'), harvest: () => {}, truthOf: () => truth, spawn: () => { writeFileSync(result, JSON.stringify(raw)); writeFileSync(own, JSON.stringify(raw)); return 0; } };
     runCase({ argv: [], env: {}, result, arm: 'plugin' }, deps);
     assert.deepEqual(JSON.parse(readFileSync(own, 'utf8')), JSON.parse(readFileSync(result, 'utf8')));
-    assert.equal(JSON.parse(readFileSync(own, 'utf8')).cases[0].arms.with[0].metrics.recall, 0.5);
+    assert.equal(JSON.parse(readFileSync(own, 'utf8')).cases[0].arms.with[0].metrics.recall, 1);
     rmSync(path.dirname(own), { recursive: true });
     runCase({ argv: [], env: {}, result, arm: 'bare' }, { ...deps, spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } });
     assert.equal(existsSync(own), false, 'the bare copy does not mix with the plugin runs');
     const bare = path.join(root, 'bare', '2026-10-19T19-36-32-539Z', 'aggregate-result.json');
-    assert.equal(JSON.parse(readFileSync(bare, 'utf8')).cases[0].arms.with[0].metrics.recall, 0.5);
+    assert.equal(JSON.parse(readFileSync(bare, 'utf8')).cases[0].arms.with[0].metrics.recall, 1);
   });
 
-  it('without a trace the graders give the recall alone', () => {
-    assert.equal(recallOfGraders([{ name: 'files-block', passed: true }, { name: 'recall-01-a', passed: true }, { name: 'recall-02-b', passed: false }, { name: 'recall-03-c', passed: false }]), 0.333);
-  });
 });
 
 describe('evals runner', () => {
@@ -70,23 +44,18 @@ describe('evals runner', () => {
     assert.ok(!argv.includes('--tag'));
   });
 
-  it('every selection runs one harness call at the parallel default, the navigator cases too (they share no state)', () => {
+  it('every selection runs one harness call at the parallel default', () => {
     const jobs = (args) => plan(args).argv[plan(args).argv.indexOf('-j') + 1];
-    assert.equal(jobs(['--tag', 'navigator']), '4');
-    assert.equal(jobs(['--bare', '--tag', 'navigator']), '4');
     assert.equal(jobs(['--tag', 'gate']), '4');
+    assert.equal(jobs(['--bare', '--tag', 'downstream']), '4');
     assert.equal(jobs([]), '4');
   });
 
-  it('an unfiltered run lists the skill tags and so leaves the navigator cases out; the navigator tag selects only them', () => {
+  it('an unfiltered run lists every case tag; every selection keeps the shell grant', () => {
     const tags = (args) => plan(args).argv.flatMap((arg, at, all) => (all[at - 1] === '--tag' ? [arg] : []));
-    assert.ok(tags([]).length > 0 && !tags([]).includes('navigator'));
-    assert.ok(!tags(['--bare']).includes('navigator'));
-    assert.deepEqual(tags(['--tag', 'navigator']), ['navigator']);
-    const argv = plan(['--tag', 'navigator']).argv;
-    assert.ok(!argv.includes('--allow-tools'), 'the plugin navigator arm only relays: no shell grant');
-    assert.ok(plan(['--bare', '--tag', 'navigator']).argv.includes('--allow-tools'), 'the bare arm keeps its grant');
-    assert.ok(plan([]).argv.includes('--allow-tools'), 'skill cases keep their grant');
+    assert.ok(tags([]).length > 0);
+    assert.deepEqual(tags(['--tag', 'downstream']), ['downstream']);
+    for (const args of [[], ['--tag', 'downstream'], ['--bare', '--tag', 'downstream']]) assert.ok(plan(args).argv.includes('--allow-tools'), args.join(' '));
   });
 
   it('the bare arm runs evals/bare against the empty plugin and writes its own result', () => {
@@ -203,5 +172,54 @@ describe('series progress file', () => {
       console.warn = original;
     }
     assert.equal(warnings.length, 1);
+  });
+});
+
+describe('downstream metrics', () => {
+  it('a downstream case gets recall, precision and F1 from the Files section and truth.json', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-downstream-'));
+    const result = path.join(root, 'r.json');
+    const trace = path.join(root, 't.jsonl');
+    writeFileSync(trace, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '## Files\n- m/a/x.ts\n- m/z/q.ts\n' }] } }));
+    const truth = { source: 'files-section', relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [] };
+    const deps = { tracesRoot: root, harvest: () => {}, truthOf: () => truth, spawn: () => { writeFileSync(result, JSON.stringify({ cases: [{ name: 'fe-vs-6141-downstream', arms: { with: [{ graders: [], trace }] } }] })); return 0; } };
+    runCase({ argv: [], env: {}, result, arm: 'plugin' }, deps);
+    const metrics = JSON.parse(readFileSync(result, 'utf8')).cases[0].arms.with[0].metrics;
+    assert.deepEqual([metrics.recall, metrics.precision, metrics.f1, metrics.contract], [0.5, 0.5, 0.5, true]);
+  });
+
+  it('the downstream tag keeps the shell grant of the plugin arm (the skill runs the CLI through Bash)', () => {
+    assert.ok(plan(['--tag', 'downstream']).argv.includes('--allow-tools'));
+  });
+});
+
+describe('delivery summary', () => {
+  it('prints one delivery line per run, unknown when no transcript was kept', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-delivery-'));
+    const result = path.join(root, 'r.json');
+    const lines = [];
+    const delivery = { status: 'delivered', chars: 8700, map: true, candidates: true, spill: false };
+    const deps = { tracesRoot: root, log: (line) => lines.push(line), harvest: (r) => { r.cases[0].arms.with[0].delivery = delivery; r.cases[0].arms.with[1].delivery = { status: 'unknown' }; }, spawn: () => { writeFileSync(result, JSON.stringify({ cases: [{ name: 'x', arms: { with: [{}, {}] } }] })); return 0; } };
+    runCase({ argv: [], env: {}, result, arm: 'plugin' }, deps);
+    assert.deepEqual(lines, ['x-1: delivery=delivered chars=8700 map=true candidates=true spill=false', 'x-2: delivery=unknown']);
+  });
+});
+
+describe('argument check', () => {
+  it('accepts every documented flag, with values after the value flags', () => {
+    assert.deepEqual(checkArgs(['--bare', '--case', 'a*', '--tag', 't', '--runs', '3', '--model', 'm', '--effort', 'low', '--max-cost-usd', '2', '--series', 'a,b', '--dry-run']), { action: 'run' });
+    assert.deepEqual(checkArgs([]), { action: 'run' });
+  });
+
+  it('--help and -h print the usage and run nothing, even beside other flags', () => {
+    for (const argv of [['--help'], ['-h'], ['--bare', '--help']]) assert.deepEqual(checkArgs(argv), { action: 'help', usage: USAGE });
+  });
+
+  it('an unknown flag, a stray word or a value flag with no value is rejected with the usage (exit 2), never run', () => {
+    for (const argv of [['--hlep'], ['--runs=3'], ['stray'], ['--case'], ['--tag', 'x', '--bogus']]) {
+      const out = checkArgs(argv);
+      assert.equal(out.action, 'error', argv.join(' '));
+      assert.match(out.message, /Usage: run\.mjs/);
+    }
   });
 });

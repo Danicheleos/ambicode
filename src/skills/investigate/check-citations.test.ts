@@ -40,6 +40,20 @@ describe('skills/investigate/scripts/check-citations.mjs', () => {
     }
   });
 
+  it('an answer with no citation passes, and a version or address with a line-like suffix is not a citation', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const none = await check(root, 'Use the library as documented; nothing in the repository decides this.\n');
+      assert.equal(none.failed, undefined);
+      assert.equal(none.entries[0]!.summary.anchorsBad, 0);
+      const tokens = await check(root, 'Pin v1.2:3, see 10.0.0.1:80 and 2.4.1:12, but `src/invoices/service.ts:3` is real and `src/nope.ts:1` is not.\n');
+      assert.equal(tokens.entries[0]!.summary.anchorsBad, 1);
+      assert.deepEqual(tokens.entries[0]!.summary.anchors, ['src/nope.ts:1 missing-file']);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
   it('a bare file name is checked from the repository root: missing-file even when the note cites the file in full', async () => {
     const root = await materialized('ts-feature-boundary');
     try {

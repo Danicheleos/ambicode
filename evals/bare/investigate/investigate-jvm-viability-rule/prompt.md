@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-Which code decides that a seed lot is viable, and where is that decision applied? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer. The repository is at `repo/`.
+Which code decides that a seed lot is viable, and where is that decision applied? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer.

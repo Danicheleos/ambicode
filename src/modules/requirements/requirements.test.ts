@@ -195,7 +195,7 @@ describe('envelope', () => {
 
 describe('titleOf', () => {
   it('takes the issue summary or page title from the captured JSON, else the key', () => {
-    assert.equal(titleOf(JSON.stringify({ issues: { nodes: [{ key: 'VS-1', fields: { summary: 'Support GM RFC', description: 'x' } }] } }), 'VS-1'), 'Support GM RFC');
+    assert.equal(titleOf(JSON.stringify({ issues: { nodes: [{ key: 'VS-1', fields: { summary: 'Support bulk import', description: 'x' } }] } }), 'VS-1'), 'Support bulk import');
     assert.equal(titleOf(JSON.stringify({ results: [{ id: '9', title: 'Orders page' }] }), 'p'), 'Orders page');
     assert.equal(titleOf('plain prose, not JSON', 'ORD-17'), 'ORD-17');
     assert.equal(titleOf('{"fields":{"summary":"  "}}', 'ORD-17'), 'ORD-17');

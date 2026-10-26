@@ -120,7 +120,7 @@ const MAX_DEPENDS = 8;
 const MAX_DEPENDS_FILES = 2;
 
 /** Name (file name without its last extension) to the one module whose own files carry it and the file; names under MIN_REFERENCE_NAME or borne by two modules are left out. */
-function referenceOwners(own: ReadonlyMap<string, readonly string[]>): Map<string, { module: string; file: string }> {
+export function referenceOwners(own: ReadonlyMap<string, readonly string[]>): Map<string, { module: string; file: string }> {
   const owners = new Map<string, { module: string; file: string } | null>();
   for (const [module, files] of own) {
     for (const file of files) {
@@ -389,9 +389,9 @@ const FIXED_NOTES_TOKENS = 3000;
 const NOTE_TOKENS = 400;
 
 /** Machine-written files and stories/mocks, which companion a component without being it (tests, styles and templates are already out through isTestPath and isSearchable); no shared classifier exists, so only the names the tests exercise. A mock, fixture or stub folder is a companion too: 61 of the Key files of a 137-note context sat in mocks/ folders. */
-const GENERATED_PATTERNS: readonly RegExp[] = [/\.(stories|story|mocks?)\.[^/]+$/, /\.min\.[a-z]+$/, /\.generated\.[a-z]+$/, /\.d\.ts$/, /\.pb\.go$/, /_pb2\.py$/, /\.g\.dart$/, /(^|\/)__generated__\//, /(^|\/)(mocks?|__mocks__|fixtures?|__fixtures__|stubs?)\//];
+const GENERATED_PATTERNS: readonly RegExp[] = [/\.(stories|story|mocks?)\.[^/]+$/, /\.min\.[a-z]+$/, /\.generated\.[a-z]+$/, /\.config\.[^/]+$/, /\.d\.ts$/, /\.pb\.go$/, /_pb2\.py$/, /\.g\.dart$/, /(^|\/)__generated__\//, /(^|\/)(mocks?|__mocks__|fixtures?|__fixtures__|stubs?)\//];
 
-const isModuleSource = (file: string): boolean => isSearchable(file) && !isTestPath(file) && !GENERATED_PATTERNS.some((pattern) => pattern.test(file));
+export const isModuleSource = (file: string): boolean => isSearchable(file) && !isTestPath(file) && !GENERATED_PATTERNS.some((pattern) => pattern.test(file));
 
 export const maxModulesFor = (limits: ContextLimits): number => Math.max(1, Math.floor((limits.maxTotalTokens - FIXED_NOTES_TOKENS) / NOTE_TOKENS));
 

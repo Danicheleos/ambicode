@@ -375,9 +375,8 @@ export function planCases({ regex, ledger, tool, never, exists, llm, shared, DON
   // A promoted plan is renamed to plan.md. closeRoute removes steps/ at every route exit (run-context.ts), so a draft nobody
   // accepted survives only as plan-draft_<timestamp>.md: no literal path, hence the draft case checks it by glob and its
   // content on the Write of steps/plan-body.md.
-  const body = (slug) => `repo/.ambicode/tasks/${slug}/plan.md`;
-  const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
-  const REPO = 'The repository is at `repo/`.';
+  const body = (slug) => `.ambicode/tasks/${slug}/plan.md`;
+  const T = (slug) => `.ambicode/tasks/${slug}/ledger.jsonl`;
   // Source and test directories of every fixture; the plan route itself writes only below .ambicode/.
   const WRITE_SOURCE = String.raw`"file_path":"[^"]*/(src|tests?|internal|cmd|engine|dashboard|tools|domain|application|adapters|bootstrap)/`;
   // A plan-check row with no bad anchor: the first check, or the one after the fix round.
@@ -409,10 +408,10 @@ export function planCases({ regex, ledger, tool, never, exists, llm, shared, DON
       return {
         ...base,
         tags: ['plan', 'gate'],
-        prompt: `${asked} ${spec.request} ${REPO}`,
+        prompt: `${asked} ${spec.request}`,
         bare: null,
         graders: [
-          exists('plan-draft-saved', `repo/.ambicode/tasks/${slug}/plan-draft_*.md`),
+          exists('plan-draft-saved', `.ambicode/tasks/${slug}/plan-draft_*.md`),
           ledger('accept-gate-printed', '"kind":"gate","gate":"plan-accept"', T(slug)),
           ledger('not-promoted', '"note":"plan"', T(slug), { match: 'not_contains' }),
           ...checked(slug),
@@ -429,8 +428,8 @@ export function planCases({ regex, ledger, tool, never, exists, llm, shared, DON
     const iterationGraders = spec.iterations ? [regex(`${spec.iterations}-iterations`, ITERATIONS(spec.iterations), { file: at })] : [];
     return {
       ...base,
-      prompt: `${asked} --headless --answer plan-accept=Accept ${request} ${REPO}`,
-      bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone, and give the plan as your answer; do not implement it. If something is unclear, state your assumptions. ${request} ${REPO}`,
+      prompt: `${asked} --headless --answer plan-accept=Accept ${request}`,
+      bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone, and give the plan as your answer; do not implement it. If something is unclear, state your assumptions. ${request}`,
       graders: [
         exists('plan-written', at),
         regex('three-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Checks', { file: at }),

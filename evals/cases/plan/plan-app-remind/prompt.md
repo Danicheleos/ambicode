@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
-/ambicode:plan --task plan-app-remind --headless --answer plan-accept=Accept Send customers an email reminder when an invoice is overdue. A reminder for an invoice goes out at most once a day while it is unpaid and overdue. Customers can switch reminders off and on themselves, separately from receipts. It ships switched off. The repository is at `repo/`.
+/ambicode:plan --task plan-app-remind --headless --answer plan-accept=Accept Send customers an email reminder when an invoice is overdue. A reminder for an invoice goes out at most once a day while it is unpaid and overdue. Customers can switch reminders off and on themselves, separately from receipts. It ships switched off.

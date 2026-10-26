@@ -105,7 +105,50 @@ const BIG = `${HEAD('r')}  - id: work
 `;
 
 describe('E5 delivery overflow', () => {
-  it('03-E5: over 8000 characters on the CLI and 9800 in a hook goes to a file behind a 300-character preview, with the same bytes', async () => {
+  it('a hook step and the session contract that precedes it on the first prompt stay under Claude Code\'s 10,000-character additionalContext cap', async () => {
+    const contract = (await readFile(path.join(import.meta.dirname, '..', '..', '..', 'prompts', 'session-contract.md'), 'utf8')).trimEnd();
+    assert.ok(contract.length + 2 + HOOK_LIMIT <= 10_000, `${contract.length} + ${HOOK_LIMIT}`);
+  });
+
+  it('the map is cut, lowest-ranked rows first, to what remains under the channel limit after a large context.list; below the floor the step goes to a file', async () => {
+    const rows = Array.from({ length: 40 }, (_, index) => [`src/area${index}/file.ts`, 9 - index / 10, [`contains "term${index}"`, `filename matched "word${index}"`]]);
+    const mapText = `layers: shortlist (default)\n${JSON.stringify({ candidates: rows, limitations: ['66 more file(s) in folders already listed'] })}`;
+    const route = `${HEAD('r')}  - id: ground
+    actor: code
+    run: [search.map(prompt), context.list]
+    produces: [map]
+  - id: read
+    actor: model
+    payload: [map, context.list]
+    instruction: "Read it."
+`;
+    for (const [channel, limit] of [['hook', HOOK_LIMIT], ['cli', CLI_LIMIT]] as const) {
+      for (const [listSize, expectFile] of [[0, false], [2500, false], [limit - 2000, false], [limit, true]] as const) {
+        const fx = await routeFixture({ routes: { r: route }, handlers: { 'search.map': async ({ ledger, view }) => { await ledger.append({ kind: 'map', route: view.routeId, bytes: mapText.length }); return { state: 'ok', payload: mapText }; }, 'context.list': async () => ({ state: 'ok', payload: 'c'.repeat(listSize) || null }) } });
+        try {
+          const message = await fx.engine.start({ skill: 'r', text: 'x', requirements: [], task: 't1', cwd: fx.repo.root, session: A, channel });
+          const label = `${channel} list ${listSize}`;
+          if (expectFile) {
+            assert.ok(message.file !== null, label);
+            continue;
+          }
+          assert.equal(message.file, null, label);
+          assert.ok(message.text.length <= limit, `${label}: ${message.text.length}`);
+          const shown = JSON.parse(message.text.split('\n').find((line) => line.startsWith('{"candidates"'))!) as { candidates: unknown[]; limitations: string[] };
+          const cut = 40 - shown.candidates.length;
+          if (listSize === 0 && mapText.length + 400 < limit) assert.equal(cut, 0, label);
+          if (cut > 0) assert.ok(shown.limitations.includes(`${cut} more lower-ranked candidate(s) cut to fit the delivery`), label);
+          assert.deepEqual(shown.candidates, rows.slice(0, shown.candidates.length));
+          const entry = (await fx.kinds('t1', 'step')).find((candidate) => candidate['step'] === 'read' && candidate['status'] === 'delivered')!;
+          assert.equal(entry['mapCut'] ?? 0, cut, label);
+        } finally {
+          await fx.dispose();
+        }
+      }
+    }
+  });
+
+  it('03-E5: over CLI_LIMIT characters on the CLI and HOOK_LIMIT in a hook goes to a file behind a 300-character preview, with the same bytes', async () => {
     for (const [channel, limit] of [['cli', CLI_LIMIT], ['hook', HOOK_LIMIT]] as const) {
       const box = newBox();
       box.payload = 'y'.repeat(limit + 10);

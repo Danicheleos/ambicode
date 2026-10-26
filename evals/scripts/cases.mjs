@@ -12,7 +12,6 @@ import { planCases } from './plan-cases.mjs';
 import { investigateCases } from './investigate-cases.mjs';
 import { reviewCases } from './review-cases.mjs';
 import { taskCases } from './task-cases.mjs';
-import { isNavigatorCase, writeNavigator } from './navigator-cases.mjs';
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
@@ -38,9 +37,8 @@ const shared = (grader, bare = grader) => ({ ...grader, shared: true, bare: { ..
 
 const noEdits = [shared(never('no-edit', 'Edit', '.')), shared(never('no-write-source', 'Write', '"file_path":"[^"]*/(src|tests)/'))];
 
-const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
+const T = (slug) => `.ambicode/tasks/${slug}/ledger.jsonl`;
 const DONE = (file) => ledger('route-done', '"kind":"exit"[^\\n]*"reason":"done"', file);
-const REPO = 'The repository is at `repo/`.';
 
 const LIMITS = {
   // 40 turns: the old task cases ran 25-35 (route steps, implementer, format, report); a tighter cap failed runs for budget, not quality.
@@ -85,7 +83,7 @@ export const CASES = [
     tags: ['rules', 'gate'],
     version: 2,
     fixture: 'eval-rules-contributing', flags: '--ambicode-init',
-    prompt: `/ambicode:rules --task rules-mig --headless --answer "sources=use these sources" --answer "rules-table=Apply all" CONTRIBUTING.md ${REPO}`,
+    prompt: `/ambicode:rules --task rules-mig --headless --answer "sources=use these sources" --answer "rules-table=Apply all" CONTRIBUTING.md`,
     bare: null,
     graders: [
       tool('policy-check-ran', 'Bash', 'policy check --drafts'),
@@ -114,23 +112,19 @@ FAIL otherwise.`),
 const ROOT_FROM_CASE = '$(cd "$(dirname "$0")/../../../.." && pwd)';
 
 // A case whose `files` hold seed/... entries starts after an earlier route: its notes and ledger are copied into the gitignored .ambicode/ (task-seeds.mjs).
-const SEED_COPY = 'mkdir -p "$PWD/repo/.ambicode"\ncp -R "$(dirname "$0")/seed/." "$PWD/repo/.ambicode/"\n';
+const SEED_COPY = 'mkdir -p "$PWD/.ambicode"\ncp -R "$(dirname "$0")/seed/." "$PWD/.ambicode/"\n';
 
-function scaffold(fixture, flags, intoCwd, seeded = false) {
+// The session directory itself becomes the repository, as in real use and as downstream-cases.mjs does since 551c6248: a repo/
+// subdirectory made check-citations fail on `repo/`-prefixed citations (4 of 30 investigate runs, 0.6.22). materialize.mjs wants
+// an empty destination, so the fixture is built beside and moved in, dotfiles (.git, .ambicode) included.
+function scaffold(fixture, flags, seeded = false) {
   const materialize = `node "${ROOT_FROM_CASE}/fixtures/materialize.mjs" ${fixture}`;
-  if (intoCwd) {
-    return `#!/bin/sh
-# The session directory itself becomes the repository: /ambicode:init scaffolds the git root it runs in.
+  return `#!/bin/sh
+# Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it. The session directory becomes the repository.
 set -e
-${materialize} "$PWD/fixture" ${flags}
+${materialize} "$PWD/fixture"${flags === '' ? '' : ` ${flags}`}
 for entry in "$PWD/fixture"/* "$PWD/fixture"/.[!.]*; do [ -e "$entry" ] && mv "$entry" "$PWD"/; done
 rmdir "$PWD/fixture"
-`;
-  }
-  return `#!/bin/sh
-# Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it.
-set -e
-${materialize} "$PWD/repo"${flags === '' ? '' : ` ${flags}`}
 ${seeded ? SEED_COPY : ''}`;
 }
 
@@ -162,7 +156,7 @@ export function render(cases = CASES) {
     for (const [tree, body, flags, graders] of arms) {
       const dir = caseDir(tree, c.name);
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-      files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, c.intoCwd === true, tree === 'cases' && Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/'))));
+      files.set(`${dir}/scaffold.sh`, scaffold(c.fixture, flags, tree === 'cases' && Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/'))));
       files.set(`${dir}/prompt.md`, promptFile(c, body, tree));
       for (const grader of graders) files.set(`${dir}/graders/${grader.name}.md`, grader.text);
       if (tree === 'cases') for (const [name, text] of Object.entries(c.files ?? {})) files.set(`${dir}/${name}`, text);
@@ -171,13 +165,13 @@ export function render(cases = CASES) {
   return files;
 }
 
-/** A case lives in <tree>/<suite>/<name>; the suite is the name's first word (rules, review, init), as navigator/ is for the navigator cases. */
+/** A case lives in <tree>/<suite>/<name>; the suite is the name's first word (rules, review, init). */
 export const suiteOf = (name) => name.split('-')[0];
 export const caseDir = (tree, name) => `${tree}/${suiteOf(name)}/${name}`;
 export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
 export const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** `--case <glob>` rewrites only the matching cases and leaves every other directory, the navigator cases included, alone. */
+/** `--case <glob>` rewrites only the matching cases and leaves every other directory alone. */
 function write(argv = []) {
   const at = argv.indexOf('--case');
   const glob = at >= 0 ? argv[at + 1] : null;
@@ -188,7 +182,7 @@ function write(argv = []) {
     const dir = path.join(EVALS, tree);
     mkdirSync(dir, { recursive: true });
     for (const suite of readdirSync(dir)) {
-      if (suite === 'results' || suite === 'navigator' || suite === 'init-large') continue;
+      if (suite === 'results' || suite === 'init-large') continue;
       if (pattern === null) rmSync(path.join(dir, suite), { recursive: true, force: true });
       else if (selected.some((c) => suiteOf(c.name) === suite)) {
         for (const name of readdirSync(path.join(dir, suite))) if (pattern.test(name)) rmSync(path.join(dir, suite, name), { recursive: true, force: true });
@@ -203,7 +197,6 @@ function write(argv = []) {
     writeFileSync(file, text, relative.endsWith('.sh') ? { mode: 0o755 } : undefined);
   }
   console.log(`${selected.length} cases, ${selected.filter((c) => c.bare !== null).length} with a bare arm, ${files.size} files`);
-  if (pattern === null) writeNavigator(EVALS);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) write(process.argv.slice(2));

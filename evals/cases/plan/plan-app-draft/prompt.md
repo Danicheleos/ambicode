@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
-/ambicode:plan --task plan-app-draft Send the customer an email when a payment is refunded. Today the refund handler only logs it. The repository is at `repo/`.
+/ambicode:plan --task plan-app-draft Send the customer an email when a payment is refunded. Today the refund handler only logs it.

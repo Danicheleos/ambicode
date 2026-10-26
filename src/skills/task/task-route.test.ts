@@ -48,7 +48,7 @@ const section = (text: string, name: string): string => text.split(`## ${name}\n
 const delivered = async (t: Fixture, step: string): Promise<number> => (await t.kinds('step')).filter((entry) => entry['step'] === step && entry['status'] === 'delivered').length;
 const prints = async (t: Fixture, gate?: string) => (await t.kinds('gate')).filter((entry) => gate === undefined || entry['gate'] === gate);
 
-describe('task route (07-R, 07-V, 07-G)', () => {
+describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('07-R1: the shipped route declares its steps in order, the raised registry gates and 5 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
@@ -471,7 +471,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   });
 });
 
-describe('task route: the implementer returns', () => {
+describe('task route: the implementer returns', { concurrency: 4 }, () => {
   const returned = (t: Fixture, toolInput: Record<string, unknown> = { subagent_type: 'ambicode:implementer', prompt: 'Implement it' }) =>
     runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: toolInput, tool_response: { status: 'completed', content: [{ type: 'text', text: 'Changed:\n- src/orders.ts:2 seed the reduce' }] } }), { load: async () => ({ engine: t.fx.engine, routes: t.fx.routes }) });
 
@@ -512,7 +512,7 @@ describe('task route: the implementer returns', () => {
   });
 });
 
-describe('task route: text the model has no use for is not sent', () => {
+describe('task route: text the model has no use for is not sent', { concurrency: 4 }, () => {
   it('an empty map is recorded but not delivered; a map with candidates still is', async () => {
     await withTask(async (t) => {
       const red = await t.start();
@@ -524,7 +524,7 @@ describe('task route: text the model has no use for is not sent', () => {
       await t.fx.repo.commitAll('seeded file');
       await t.fx.repo.write('docs/plan.md', '# Plan\n\n## Iteration 1\nChange `reduceTotals` in src/seeded/reducer.ts:1.\n');
       await t.start({ plan: 'docs/plan.md' });
-      assert.match(await t.work(), /## map\nlayers:[\s\S]*src\/seeded\/reducer\.ts/);
+      assert.match(await t.work(), /## map\nMap: files ranked[\s\S]*src\/seeded\/reducer\.ts/);
     });
   });
 
@@ -536,7 +536,7 @@ describe('task route: text the model has no use for is not sent', () => {
   });
 });
 
-describe('task route: format is a code step', () => {
+describe('task route: format is a code step', { concurrency: 4 }, () => {
   it('the green check that ends change runs the format command on the touched files and lands on the offer; change.md no longer mentions format', async () => {
     await withTask(async (t) => {
       const offer = await toOffer(t);
@@ -578,7 +578,7 @@ describe('task route: format is a code step', () => {
   });
 });
 
-describe('gate hook from a process folder other than the repository root', () => {
+describe('gate hook from a process folder other than the repository root', { concurrency: 4 }, () => {
   it('the AskUserQuestion answer arrives through a hook process outside the repository: the gate advances to review-agent', async () => {
     await withTask(async (t) => {
       await toOffer(t);
@@ -598,7 +598,7 @@ describe('gate hook from a process folder other than the repository root', () =>
   });
 });
 
-describe('step header (round-2 N9)', () => {
+describe('step header (round-2 N9)', { concurrency: 4 }, () => {
   it('prints the Route line last, only when one is given', () => {
     const base = { skill: 'task', task: 't', step: 'change', position: 6, total: 12, now: 'n', then: 'x' };
     assert.equal(stepHeader(base).split('\n').length, 3);
@@ -616,7 +616,7 @@ describe('step header (round-2 N9)', () => {
   });
 });
 
-describe('task route: the implementer invariants', () => {
+describe('task route: the implementer invariants', { concurrency: 4 }, () => {
   const PROPOSE = COMMAND_PACK.replace('{ command: unit, action: run, reason: "unit" }', '{ command: unit, action: propose, reason: "unit" }');
 
   it('route next at a delegated step re-delivers the launch only, and the work file keeps the brief and the runnable checks', async () => {
@@ -723,7 +723,7 @@ describe('task route: the implementer invariants', () => {
   });
 });
 
-describe('task route: the implementer hold, second review', () => {
+describe('task route: the implementer hold, second review', { concurrency: 4 }, () => {
   const atFix = async (t: Fixture): Promise<void> => {
     await t.start();
     await t.edit();

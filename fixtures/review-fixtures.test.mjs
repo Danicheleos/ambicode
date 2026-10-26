@@ -38,7 +38,7 @@ function addedLines(cwd) {
   return { added, text };
 }
 
-describe('review fixtures', () => {
+describe('review fixtures', { concurrency: 4 }, () => {
   for (const truth of REVIEW_TRUTHS) {
     it(`${fixtureOf(truth)}: scaffold files exist and the first location of every issue starts on an added line of the diff`, async () => {
       const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-review-fixture-'));

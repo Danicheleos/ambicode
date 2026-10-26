@@ -1,5 +1,5 @@
 
-export const LAYER_NAMES = ['shortlist', 'harvest', 'grep'] as const;
+export const LAYER_NAMES = ['retrieve', 'shortlist', 'harvest', 'grep'] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
 
 export interface RefsResult {
@@ -13,7 +13,14 @@ export interface RefsResult {
 }
 
 /** `spans`: up to three line ranges (`40-52`) where the terms occur. */
-export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[] }
+export interface MapCandidate {
+  path: string;
+  score: number;
+  reasons: string[];
+  spans?: string[];
+  /** The request terms (lowercased) behind the score, so the pool can tell one repeated word from independent evidence. Not printed. */
+  terms?: string[];
+}
 
 export interface MapSymbol { name: string; kind: string; at: string; declarations: number; collides: boolean }
 

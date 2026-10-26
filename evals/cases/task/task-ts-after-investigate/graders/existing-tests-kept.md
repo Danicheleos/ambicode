@@ -2,6 +2,6 @@
 type: regex
 pattern: 'charges nothing for an early return'
 match: contains
-target: { source: file, path: repo/test/fees.test.ts }
+target: { source: file, path: test/fees.test.ts }
 weight: 1
 ---

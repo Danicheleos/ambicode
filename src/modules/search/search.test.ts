@@ -5,7 +5,7 @@ import { parseArgs } from '#util/args';
 import { runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS } from '#cli/commands/search/search';
 import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
-import { harvest } from './harvest.ts';
+import { declarationsInText, harvest } from './harvest.ts';
 import { buildMap, pathsCitedIn, symbolsCitedIn } from './map.ts';
 import { refs, REFS_LIMIT_BYTES } from './refs.ts';
 
@@ -53,6 +53,21 @@ describe('git word search and harvest', () => {
   });
 });
 
+describe('harvest of prose', () => {
+  it('a declaration keyword inside a comment, a string or a sentence declares nothing; modifiers and decorators still do', () => {
+    const text = [
+      '/** Another report of the same type and task. */',
+      ' * the upload flow with the type and the source preselected.',
+      'it("hides the type and date line", () => {',
+      'The function and the class that holds it are described here.',
+      'export default async function loadReport() {}',
+    ].join('\n');
+    assert.deepEqual(declarationsInText('src/a.ts', text).map((declaration) => declaration.name), ['loadReport']);
+    const java = ['The class that holds it', '@Entity("holders") public final class LegacyHolder {', '  private static async fetchAll(): void {}'].join('\n');
+    assert.deepEqual(declarationsInText('src/B.java', java).map((declaration) => declaration.name), ['LegacyHolder', 'fetchAll']);
+  });
+});
+
 describe('refs', () => {
   it('lists lines per name and flags a name declared in several files', async () => {
     const fx = await repo();
@@ -89,13 +104,13 @@ describe('refs', () => {
 });
 
 describe('map command', () => {
-  it('appends a map entry with the slim fields, prints the layer list first, and refuses --layers whatever its value', async () => {
+  it('appends a map entry with the slim fields, prints the legend first, and refuses --layers whatever its value', async () => {
     const fx = await repo();
     try {
       await fx.runtime.fs.mkdirp(path.join(fx.repo.root, '.ambicode/tasks/T2'));
       await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T2/ledger.jsonl'), '');
       const output = await runMap(fx.runtime, parseArgs('map', ['--task', 'T2', '--term', 'cart'], MAP_OPTIONS));
-      assert.match(output.text, /^layers: shortlist → harvest → shortlist \(default\)/);
+      assert.match(output.text, /^Map: files ranked by/);
       const entry = (await fx.kinds('T2', 'map'))[0]!;
       assert.deepEqual([entry['mode'], entry['layersSource'], entry['index']], ['prompt', 'default', undefined]);
       await assert.rejects(runMap(fx.runtime, parseArgs('map', ['--term', 'cart', '--layers', 'grep'], MAP_OPTIONS)), (error: Error & { code?: string }) => error.code === 'search-layers-not-for-model');

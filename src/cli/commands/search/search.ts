@@ -1,5 +1,5 @@
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
-import { buildMap, resolveLayers } from '#modules/search/map';
+import { buildMap, resolveLayers, MAP_LIMIT_BYTES } from '#modules/search/map';
 import { refs } from '#modules/search/refs';
 import { COMMAND_SPECS } from '#skills/investigate/commands';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
@@ -10,7 +10,7 @@ import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
-export const MAP_OPTIONS = { values: ['task', 'project', 'mode', 'layers'], repeated: ['term', 'symbol'], flags: ['json'], positionals: true } as const;
+export const MAP_OPTIONS = { values: ['task', 'project', 'mode', 'layers', 'request'], repeated: ['term', 'symbol'], flags: ['json'], positionals: true } as const;
 
 export const REFS_OPTIONS = { values: ['project', 'task'], flags: ['json', 'declarations'], positionals: true } as const;
 
@@ -36,13 +36,14 @@ export async function runMap(runtime: Runtime, args: ParsedArgs): Promise<Search
   if (mode !== 'prompt' && mode !== 'context') throw new AmbicodeError('bad-argument', '--mode takes prompt or context.', { field: 'mode' });
   const terms = args.all('term');
   const symbols = args.all('symbol');
-  if (terms.length === 0 && symbols.length === 0 && args.positionals.length === 0) {
-    throw new AmbicodeError('bad-argument', '"map" needs at least one --term, --symbol or path.', { field: 'map' });
+  const request = args.value('request') ?? undefined;
+  if (terms.length === 0 && symbols.length === 0 && args.positionals.length === 0 && request === undefined) {
+    throw new AmbicodeError('bad-argument', '"map" needs at least one --term, --symbol, --request or path.', { field: 'map' });
   }
   const workspace = await openWorkspace(runtime);
   const project = projectForRequest(workspace.config, args.value('project'), args.positionals);
   const { layers, source } = resolveLayers(mode);
-  const map = await buildMap(runtime, { project, mode, layers, layersSource: source, terms, paths: args.positionals, symbols });
+  const map = await buildMap(runtime, { project, mode, layers, layersSource: source, terms, paths: args.positionals, symbols, ...(request === undefined ? {} : { request }) });
   await record(runtime, args, { kind: 'map', ...map.entry });
   return { command: 'map', text: map.text, bytes: map.bytes, data: { layers: map.layers, terms: map.terms, candidates: map.candidates, symbols: map.symbols, collides: map.collisions, limitations: map.limitations, omitted: map.omitted } };
 }
@@ -61,6 +62,6 @@ const searchCommand = (runSearch: typeof runMap): CliCommand['run'] => async (ru
   return { text: output.text, data: output.data, json: 'compact' };
 };
 
-export const mapCommand: CliCommand = { name: 'map', summary: 'Files, symbols and spans a request touches, at most 6 KiB.', options: MAP_OPTIONS, run: searchCommand(runMap) };
+export const mapCommand: CliCommand = { name: 'map', summary: `Files, symbols and spans a request touches, at most ${MAP_LIMIT_BYTES} bytes; --request derives the terms from free text.`, options: MAP_OPTIONS, run: searchCommand(runMap) };
 
 export const refsCommand: CliCommand = { name: 'refs', summary: 'Lines using each whole word, at most 4 KiB; --declarations lists them.', options: REFS_OPTIONS, run: searchCommand(runRefs) };

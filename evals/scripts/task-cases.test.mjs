@@ -29,7 +29,7 @@ const sourceGraders = (c) =>
   c.graders.flatMap((g) => {
     const spec = frontmatter(g.text);
     const target = spec.target;
-    return spec.type === 'regex' && typeof target === 'object' && target.source === 'file' && !target.path.includes('/.ambicode/') ? [{ name: g.name, spec, file: target.path.replace(/^repo\//, '') }] : [];
+    return spec.type === 'regex' && typeof target === 'object' && target.source === 'file' && !target.path.startsWith('.ambicode/') ? [{ name: g.name, spec, file: target.path }] : [];
   });
 const matches = (spec, text) => new RegExp(spec.pattern).test(text) === (spec.match !== 'not_contains');
 
@@ -56,11 +56,11 @@ describe('task cases', () => {
   });
 
   describe('seeds', () => {
-    it('are the ten after-plan and after-investigate cases, copied by the scaffold into repo/.ambicode and absent from the bare arm', () => {
+    it('are the ten after-plan and after-investigate cases, copied by the scaffold into .ambicode and absent from the bare arm', () => {
       assert.deepEqual(seeded.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), Array(5).fill(['after-investigate', 'after-plan']).flat().sort());
       for (const c of seeded) {
         assert.equal(c.bare, null);
-        assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /cp -R "\$\(dirname "\$0"\)\/seed\/\." "\$PWD\/repo\/\.ambicode\/"/);
+        assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /cp -R "\$\(dirname "\$0"\)\/seed\/\." "\$PWD\/\.ambicode\/"/);
       }
       for (const c of taskCases.filter((x) => !seeded.includes(x))) {
         assert.doesNotMatch(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /seed\//);

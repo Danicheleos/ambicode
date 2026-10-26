@@ -8,4 +8,4 @@ timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task refund-mail --headless Mail the customer when a refund is recorded: onPaymentRefunded in src/notifications/handlers.js only logs today. Reuse the existing delivery and template style, respect customers who opted out of receipts, and ship it behind a new flag refundEmails, off by default. Test it in tests/notifications/handlers.test.js. The repository is at `repo/`.
+/ambicode:task --task refund-mail --headless Mail the customer when a refund is recorded: onPaymentRefunded in src/notifications/handlers.js only logs today. Reuse the existing delivery and template style, respect customers who opted out of receipts, and ship it behind a new flag refundEmails, off by default. Test it in tests/notifications/handlers.test.js.

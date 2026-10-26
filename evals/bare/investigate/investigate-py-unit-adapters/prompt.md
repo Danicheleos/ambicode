@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-Which of the gauge feed adapters do not report water levels in millimetres, and how does each of them convert to millimetres? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer. The repository is at `repo/`.
+Which of the gauge feed adapters do not report water levels in millimetres, and how does each of them convert to millimetres? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer.

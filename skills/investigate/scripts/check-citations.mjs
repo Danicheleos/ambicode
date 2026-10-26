@@ -12,7 +12,8 @@ const body = note === undefined ? '' : readFileSync(path.resolve(root, note.path
 // The first ten bad citations are listed in the summary; the count is exact.
 const LISTED = 10;
 
-const PATH = '[\\w@./\\\\-]+\\.[A-Za-z0-9]+';
+// An extension holds a letter: `v1.2:3` and `10.0.0.1:80` are versions and addresses, not files, and failed as missing-file.
+const PATH = '[\\w@./\\\\-]+\\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]+';
 const CITATION = new RegExp(`(?<![\\w./-])(${PATH}):(\\d+(?:\\s*[-–]\\s*\\d+)?)`, 'g');
 // A model cites from the session directory, which can be the parent of the repository: `repo/src/x.ts`.
 const sessionDir = typeof input.cwd === 'string' ? path.resolve(input.cwd) : null;

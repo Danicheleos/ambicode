@@ -11,7 +11,7 @@ import { fixtureByName } from './definitions.mjs';
 
 const IGNORE_LINES = ['.ambicode/'];
 
-describe('fixtures materialize', () => {
+describe('fixtures materialize', { concurrency: 4 }, () => {
   for (const name of ['ts-off-by-one']) {
     it(`09-M4: --ambicode-init commits a config and the ignore lines (${name})`, async () => {
       const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));

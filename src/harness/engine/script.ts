@@ -6,6 +6,9 @@ const NAME = /^[\w-]+$/;
 // A skill script lists files and greps; 60 s is ten times the slowest one measured (plan-check on the FE fixture, 5.8 s).
 const TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
+// A node crash prints about 700 characters (source line, error, six frames); the error leads, the version line trails. 1,800 holds twice that.
+const STDERR_CHARS = 1800;
+const ANSI = /\u001b\[[0-9;]*m/g;
 
 interface ScriptOutput {
   payload?: string | null;
@@ -36,7 +39,7 @@ export const scriptHandler: Handler = async (input): Promise<HandlerResult> => {
   const outcome = await input.runtime.runner.run({ argv: [process.execPath, file], cwd: input.dir.repositoryRoot, timeoutMs: TIMEOUT_MS, maxOutputBytes: MAX_OUTPUT_BYTES, env: { kind: 'inherited' }, stdin });
   const where = path.relative(input.runtime.pluginRoot, file);
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {
-    const detail = outcome.failure ?? outcome.stderr.trim().split('\n').slice(-3).join(' | ');
+    const detail = outcome.failure ?? outcome.stderr.replace(ANSI, '').split('\n').map((line) => line.trimEnd()).filter((line) => line !== '').join(' | ').slice(0, STDERR_CHARS);
     return { state: 'failed', code: 'script-failed', message: `${where} ${outcome.kind === 'exited' ? `exited ${outcome.exitCode}` : outcome.kind}${detail === '' ? '' : `: ${detail}`}`, recoverable: false };
   }
   let output: ScriptOutput;

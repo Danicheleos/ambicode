@@ -1,7 +1,7 @@
 // Retrieval metrics of one run: which files its final answer names, scored against the case's known sets.
 // Two sources, both explicit claims rather than every path the text mentions (answers name decoys to rule them out):
 // - `files-section`: the paths under a `## Files` heading (the case's prompt asks for that section);
-// - `files-block`: the paths in the first ```files block (the navigator cases);
+// - `files-block`: the paths in the first ```files block (the map cases' truth.source label);
 // - `citations`: every `path:line` citation.
 import path from 'node:path';
 import { events } from './trace.mjs';

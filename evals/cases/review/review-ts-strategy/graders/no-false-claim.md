@@ -1,6 +1,6 @@
 ---
 type: llm
-focus: { source: file, path: repo/.ambicode/reviews/rev-2/1/report.txt }
+focus: { source: file, path: .ambicode/reviews/rev-2/1/report.txt }
 weight: 2
 ---
 

@@ -419,10 +419,9 @@ Findings of low risk, questions, suggestions and a plain "None" in the findings 
 export function reviewCases(b) {
   const { regex, ledger, tool, llm, shared, noEdits, DONE } = b;
   const CITE = 'Cite `path:line` for each claim.';
-  const REPO = 'The repository is at `repo/`.';
   return REVIEW_TRUTHS.map((truth, index) => {
     const slug = `rev-${index + 1}`;
-    const R = (file) => `repo/.ambicode/reviews/${slug}/${file}`;
+    const R = (file) => `.ambicode/reviews/${slug}/${file}`;
     const flags = `--ambicode-init --context${truth.policy ? ' --policy' : ''}`;
     const records = truthRecords(truth);
     const files = finalFiles(fixtureOf(truth));
@@ -459,8 +458,8 @@ export function reviewCases(b) {
       fixture: fixtureOf(truth),
       flags,
       bareFlags: flags,
-      prompt: `/ambicode:review --task ${slug} --headless --answer estimate=run ${CITE} ${REPO}`,
-      bare: `Review the uncommitted change in the repository at \`repo/\`. ${CITE}`,
+      prompt: `/ambicode:review --task ${slug} --headless --answer estimate=run ${CITE}`,
+      bare: `Review the uncommitted change in this repository. ${CITE}`,
       graders,
       files: { 'review-truth.json': `${JSON.stringify(records, null, 2)}\n` },
     };

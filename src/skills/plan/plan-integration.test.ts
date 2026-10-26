@@ -80,7 +80,8 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const design = await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
       assert.equal(design.position, 'design');
       assert.ok(design.bytes <= 4096, `start delivery ${design.bytes}`);
-      assert.doesNotMatch(design.text, /## map|## policy/);
+      assert.match(design.text, /## map/);
+      assert.doesNotMatch(design.text, /## policy/);
 
       await hook('Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']);
 

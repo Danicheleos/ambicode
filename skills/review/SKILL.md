@@ -7,8 +7,8 @@ allowed-tools: Read, Grep, Glob, Agent, Bash(node *ambicode.mjs*)
 
 # Review one change
 
-A route runs the pipeline and hands you one step at a time. Do what each step says. The user sees an
-estimate first and decides whether the reviewer runs. The route publishes nothing.
+A route runs the pipeline and hands you one step at a time. Do what each step says. The user is asked only when
+the estimate shows the review cannot run as it stands (narrow or skip). The route publishes nothing.
 
 If no step message appeared, start the route yourself:
 

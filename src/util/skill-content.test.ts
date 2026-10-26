@@ -133,16 +133,19 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /leads, not answers/);
     assert.match(read, /Edit nothing/);
     assert.match(read, /whole request as written/, '03b-N13: a files answer covers the request, not the minimal fix');
-    assert.match(read, /types, schema, DTO, mocks, routes and tests/);
-    assert.match(read, /naming that assumption/);
-    assert.match(read, /similar features the request does not name/);
+    assert.match(read, /Existing tests, mocks and fixtures asserting the changed behaviour are edited too; add new tests, types or routes only if needed/, 'a file list names the existing tests the change breaks');
+    assert.match(read, /inferred ones marked/);
+    assert.match(read, /Cite anything else \(libraries, external facts\) by its source, or mark it an assumption/);
+    assert.match(read, /^Start from the map: open its top rows/, 'the first line, which the header shows as Now:, points at the map');
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
     assert.match(read, /Give the answer once, as your final message: it is saved as the investigation note/);
     assert.doesNotMatch(read, /note save/);
     assert.doesNotMatch(read, /route next|\{cli\} (find|refs)/);
     // 07-I1 adds one Diagnostics sentence. Raised from 700 (693 B) for the full-path citation wording (investigate x5:
     // 15/15 with it, bare-name revisions without it); to be cut back in the optimization phase.
-    assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 780);
+    // 780 -> 860 (file 773 -> 852 B) for the map usage line after cutting 70 B of existing wording; the map legend itself lives in code.
+    // Held at 860 for the any-question rewrite (file 847 B): the longer guidance went to SKILL.md, which sits outside the hook budget.
+    assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 860);
     assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'investigate', 'write.md')), false);
   });
 
@@ -153,7 +156,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(investigate, /route start investigate "<request>"/);
     assert.doesNotMatch(investigate, /route next|note save/);
     assert.doesNotMatch(investigate, /when you stop/);
-    assert.ok(Buffer.byteLength(investigate) <= 900);
+    // 900 -> 3400 B (file 3292 B), sanctioned: the body carries the work-efficiency, answer-shape and evidence guidance; it is delivered in the
+    // user message (transcript fe-vs-6404-downstream-1, 2026-10-25), outside the 8800-char hook budget the read step shares with the map.
+    assert.match(investigate, /Existing tests, mocks and fixtures asserting the changed behaviour are edited too/);
+    assert.ok(Buffer.byteLength(await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')) <= 3400);
   });
 
   it('06-S4: plan leaves the draft and the accepted note to the route, and never names --kind plan', async () => {
@@ -161,9 +167,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.doesNotMatch(plan, /--kind plan\b/);
   });
 
-  it('06-S1/06-S2: plan stays within 2,560 bytes, is user-invoked only and may write only its plan body', async () => {
+  it('06-S1/06-S2: plan stays within 3,200 bytes, is user-invoked only and may write only its plan body', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.ok(Buffer.byteLength(plan) <= 1800, `${Buffer.byteLength(plan)} bytes`);
+    // Raised from 1800 by the user's scope change (2026-10-26): the SKILL.md rides in the user message, outside the hook budget, and now carries the work strategy (3,115 B).
+    assert.ok(Buffer.byteLength(plan) <= 3200, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
     assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(.ambicode/tasks/*/steps/plan-body.md), Write(.ambicode/tasks/*/steps/plan-body.md)');
@@ -290,9 +297,10 @@ describe('P2.3 task skill', () => {
     return readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
   }
 
-  it('07-M1 stays within 1,700 bytes, is user-invoked only and keeps its tool grant', async () => {
+  it('07-M1 stays within 3,000 bytes, is user-invoked only and keeps its tool grant', async () => {
     const raw = await task();
-    assert.ok(Buffer.byteLength(raw) <= 1700, `${Buffer.byteLength(raw)} bytes`);
+    // Raised from 1700 by the user's scope change (2026-10-26) for the orchestrator guidance in "Your part" (2,638 B).
+    assert.ok(Buffer.byteLength(raw) <= 3000, `${Buffer.byteLength(raw)} bytes`);
     const fm = frontmatter(raw, 'task/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
     assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');

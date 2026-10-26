@@ -89,7 +89,7 @@ async function atDraft(w: Awaited<ReturnType<typeof world>>) {
   return { first, draftStep: await w.answer('sources', 'use these sources') };
 }
 
-describe('09-T2: B13 the disposition and the ledger cap', () => {
+describe('09-T2: B13 the disposition and the ledger cap', { concurrency: 4 }, () => {
   it('09-T2: a disposition far over the ledger-entry cap still reaches rules-table', async () => {
     const w = await world();
     try {
@@ -107,7 +107,7 @@ describe('09-T2: B13 the disposition and the ledger cap', () => {
   });
 });
 
-describe('09-T1: the rules route', () => {
+describe('09-T1: the rules route', { concurrency: 4 }, () => {
   it('09-T1: discover lists the candidates at the sources gate, whose default stops the route', async () => {
     const w = await world();
     try {
@@ -183,7 +183,7 @@ describe('09-T1: the rules route', () => {
   });
 });
 
-describe('09-T5: the walk-through on ts-feature-boundary', () => {
+describe('09-T5: the walk-through on ts-feature-boundary', { concurrency: 4 }, () => {
   it('09-T1: 09-T5: 09-T6: discover, a bad quote is shown at the table, Apply with changes reruns the draft, the fix passes, Apply all wires the pack', async () => {
     const w = await world();
     try {
@@ -238,7 +238,7 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
   });
 });
 
-describe('09-T2: a human who does not apply', () => {
+describe('09-T2: a human who does not apply', { concurrency: 4 }, () => {
   it('09-T2: 09-T4: Discard drafts wires nothing, keeps the drafts and rules apply refuses', async () => {
     const w = await world();
     try {
@@ -307,7 +307,7 @@ describe('09-T2: a human who does not apply', () => {
   });
 });
 
-describe('09-T4: the object the answer consented to', () => {
+describe('09-T4: the object the answer consented to', { concurrency: 4 }, () => {
   it('09-T4: a draft edited after Apply all is object-changed and nothing is written', async () => {
     const w = await world();
     try {
@@ -341,7 +341,7 @@ describe('09-T4: the object the answer consented to', () => {
   });
 });
 
-describe('09-T3: a bad quote', () => {
+describe('09-T3: a bad quote', { concurrency: 4 }, () => {
   it('09-T3: the check runs once, the table lists the pack as not migrated, and Apply all wires nothing from it', async () => {
     const w = await world();
     try {
@@ -402,7 +402,7 @@ describe('09-T3: a bad quote', () => {
   });
 });
 
-describe('09-Q5: policy check --drafts and the ledger', () => {
+describe('09-Q5: policy check --drafts and the ledger', { concurrency: 4 }, () => {
   it('09-Q5: without --task nothing is recorded and no tail runs', async () => {
     const w = await world();
     try {
@@ -437,7 +437,7 @@ describe('09-Q5: policy check --drafts and the ledger', () => {
   });
 });
 
-describe('09-T1: route text', () => {
+describe('09-T1: route text', { concurrency: 4 }, () => {
   it('09-T1: the step instructions stay under 1,500 characters and name no ecosystem', async () => {
     for (const name of ['rules/draft', 'rules/apply-run']) {
       const text = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');

@@ -8,12 +8,12 @@ steps:
     instruction: file:routes/investigate/fetch.md
   - id: ground
     actor: code
-    run: [requirements.normalize, context.list]
-    produces: [envelope]
+    run: [requirements.normalize, search.map(prompt), context.list]
+    produces: [envelope, map]
   - id: design
     actor: model
     instruction: file:routes/plan/design.md
-    payload: [context.list]
+    payload: [map, context.list]
     repeat: 2                                     # the first draft and one fix after plan-check
   - id: plan-check
     actor: code

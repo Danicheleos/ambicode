@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task lb-waiver --headless iteration 1 Let returnItem take an optional waiver reason and waive the late fee when one is given, using the waiver rule the investigation found. Cover it in test/return.test.ts. The repository is at `repo/`.
+/ambicode:task --task lb-waiver --headless iteration 1 Let returnItem take an optional waiver reason and waive the late fee when one is given, using the waiver rule the investigation found. Cover it in test/return.test.ts.

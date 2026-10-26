@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill, Agent]
 ---
 
-/ambicode:task --task kl-zero --headless iteration 1 Make Schedule::new in the engine refuse a segment of zero minutes with its own ScheduleError variant, as the investigation found it accepted, and cover it in engine/crates/schedule/tests/firing.rs. The repository is at `repo/`.
+/ambicode:task --task kl-zero --headless iteration 1 Make Schedule::new in the engine refuse a segment of zero minutes with its own ScheduleError variant, as the investigation found it accepted, and cover it in engine/crates/schedule/tests/firing.rs.

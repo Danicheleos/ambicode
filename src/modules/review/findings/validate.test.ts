@@ -58,9 +58,9 @@ describe('validateFindings', () => {
   });
 
   it('a requirement ref that is the key at the tail of a known id resolves to that id', () => {
-    const result = run([candidate(at(2), { requirementRefs: ['VS-6876', 'https://x.example/browse/VS-6876'] })], { knownRequirementIds: new Set(['https://x.example/browse/VS-6876']) });
+    const result = run([candidate(at(2), { requirementRefs: ['ABC-101', 'https://x.example/browse/ABC-101'] })], { knownRequirementIds: new Set(['https://x.example/browse/ABC-101']) });
     assert.ok(result.kind === 'ok');
-    assert.deepEqual(result.findings[0]?.requirementRefs, ['https://x.example/browse/VS-6876']);
+    assert.deepEqual(result.findings[0]?.requirementRefs, ['https://x.example/browse/ABC-101']);
     assert.equal(result.dropped.length, 0);
   });
 
@@ -118,19 +118,19 @@ describe('validateFindings', () => {
     assert.match(result.findings[0]?.evidence ?? '', /export const b = 2;/);
   });
 
-  it('keeps a complete answer whose covered rows carry "finding": null, as the reviewer wrote them on MR 2756', () => {
+  it('keeps a complete answer whose covered rows carry "finding": null, as the reviewer wrote them by a real run', () => {
     // Trimmed from that review's rejected-output.txt: 5 rows, `finding: null` on every row that is not a finding.
     const answer = {
       findings: [{
         risk: 'high', confidence: 'medium', category: 'correctness',
-        location: { oldPath: null, newPath: 'main/features/score-types/hal/services/hal-input-type/hal-input-type.ts', side: 'new', line: 6 },
-        supportingLocations: [], problem: 'isHalOverridden only checks cvOverrides.hal.', impact: 'A legacy-overridden assessment shows AI.', confidenceReason: 'The diff shows only the new hal field being read.',
-        suggestedComment: 'Please also treat legacy originals as overridden.', ruleRefs: [], requirementRefs: ['VS-6745'],
+        location: { oldPath: null, newPath: 'main/features/orders-kit/tax/services/tax-input-type/tax-input-type.ts', side: 'new', line: 6 },
+        supportingLocations: [], problem: 'isTaxOverridden only checks overrides.tax.', impact: 'A legacy-overridden assessment shows AI.', confidenceReason: 'The diff shows only the new tax field being read.',
+        suggestedComment: 'Please also treat legacy originals as overridden.', ruleRefs: [], requirementRefs: ['ABC-103'],
       }],
       requirementCoverage: [
-        { ref: 'VS-6759', point: 'NPF and HAL headings with tooltips in wizard', status: 'covered', note: 'Headings and help buttons added behind the flag.', finding: null },
-        { ref: 'VS-6745', point: 'Legacy handSpeedRMS originals count as overridden', status: 'missed', note: 'Only hal is read.', finding: 1 },
-        { ref: 'VS-6745', point: 'BFF returns the new field', status: 'cannot-verify', note: 'No BFF code in the diff.', finding: null },
+        { ref: 'ABC-102', point: 'Summary and tax headings with tooltips in wizard', status: 'covered', note: 'Headings and help buttons added behind the flag.', finding: null },
+        { ref: 'ABC-103', point: 'Legacy taxRate originals count as overridden', status: 'missed', note: 'Only tax is read.', finding: 1 },
+        { ref: 'ABC-103', point: 'BFF returns the new field', status: 'cannot-verify', note: 'No BFF code in the diff.', finding: null },
       ],
       coverageNotes: [],
     };

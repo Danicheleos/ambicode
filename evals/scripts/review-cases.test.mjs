@@ -193,7 +193,7 @@ for (const t of REVIEW_TRUTHS) {
         const g = grader(c, 'no-high-risk-finding');
         const front = frontmatter(g.text);
         assert.equal(front.match, 'not_contains');
-        assert.equal(front.target.path, `repo/.ambicode/reviews/${c.prompt.match(/--task (\S+)/)[1]}/1/answer.json`);
+        assert.equal(front.target.path, `.ambicode/reviews/${c.prompt.match(/--task (\S+)/)[1]}/1/answer.json`);
         for (const hit of ['"risk": "high"', '"risk":"medium"', '"risk" : "high"']) assert.equal(passes(hit, front), false, hit);
         for (const clean of ['"risk": "low"', '{"findings":[]}', '"risk":"low","confidence":"high"']) assert.equal(passes(clean, front), true, clean);
         assert.equal(grader(c, 'no-defect-claimed').shared, true);

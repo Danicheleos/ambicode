@@ -1,5 +1,5 @@
 ---
 type: file_exists
-path: repo/test/return.test.ts
+path: test/return.test.ts
 weight: 1
 ---

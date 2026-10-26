@@ -137,7 +137,7 @@ async function goodRun(truth, parent) {
   return { repo, trace };
 }
 
-describe('init --auto cases', () => {
+describe('init --auto cases', { concurrency: 4 }, () => {
   it('five cases, each on a different fixture', () => {
     assert.deepEqual(INIT_TRUTHS.map((truth) => truth.slug), ['ts', 'python', 'go', 'jvm', 'monorepo']);
     assert.equal(new Set(INIT_TRUTHS.map((truth) => truth.fixture)).size, 5);
@@ -291,7 +291,7 @@ describe('init --auto cases', () => {
     for (const truth of INIT_TRUTHS) assert.match(FILES.get(`${caseDir('cases', `init-auto-${truth.slug}`)}/prompt.md`), /allowed_tools: \[[^\]]*\bAgent\b/);
   });
 
-  describe('draft graders read the produced files and the call that wrote them, whatever the tool', () => {
+  describe('draft graders read the produced files and the call that wrote them, whatever the tool', { concurrency: 4 }, () => {
     const drafted = (name, truth) => truth.conventions.map((c) => graderTexts(name).find((one) => one.name === `draft-${c.id}`));
     const at = (cmd) => [{ name: 'Bash', input: { command: cmd } }];
 

@@ -11,6 +11,13 @@ The request names one work file: read it first. It holds the brief, the search m
 rules, the runnable checks and the exact `check` command to run. Do what it says, no more.
 The work file is complete: do not read the ledger or any other file under `.ambicode/tasks/`.
 
+## How to work
+
+- Read before editing, in one parallel batch: the files the brief names, their callers and the tests beside them. A map row is a lead, opened to find code to reuse or a caller.
+- Match the code around the edit (naming, error handling, test helpers) over your own taste; a project rule in the work file outranks both.
+- A bug fix starts with a test that fails for it: run it with the `check` command and `--phase red`, then fix and record green. A feature ships with its tests.
+- Stop when the brief's behaviour holds and its check is green. A problem you notice outside the brief goes under `Gaps:`; fix nothing there.
+
 ## Rules
 
 - Make the smallest change the brief needs. Reuse existing code before adding.

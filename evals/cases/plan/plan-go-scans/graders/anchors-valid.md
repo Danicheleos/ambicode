@@ -2,6 +2,6 @@
 type: regex
 pattern: '"worker":"plan-check"[^\n]*"anchorsBad":0'
 match: contains
-target: { source: file, path: repo/.ambicode/tasks/plan-go-scans/ledger.jsonl }
+target: { source: file, path: .ambicode/tasks/plan-go-scans/ledger.jsonl }
 weight: 1
 ---

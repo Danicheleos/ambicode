@@ -2,7 +2,7 @@
 //
 // Broad: three cases on each init stack (fixtures/init-stacks.mjs), one that starts after a plan, one after an investigation and
 // one from a bare request. The first two carry the earlier route's note and ledger line as `seed/...` files (task-seeds.mjs),
-// which the scaffold copies into repo/.ambicode/; they have no bare arm, because the thing under test is the route picking the
+// which the scaffold copies into .ambicode/; they have no bare arm, because the thing under test is the route picking the
 // note up. Narrow: five cases on the app fixtures that exercise one task behaviour each.
 //
 // Every expectation is read from the fixture as materialized (fixtures/definitions.mjs, init-stacks.mjs, app-medium.mjs); the stack
@@ -10,10 +10,9 @@
 // Graders are regexes on the files the change touches and on the ledger, never a model reading a source file.
 import { INVESTIGATIONS, PLANS, seedFiles } from './task-seeds.mjs';
 
-const REPO = 'The repository is at `repo/`.';
-const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
+const T = (slug) => `.ambicode/tasks/${slug}/ledger.jsonl`;
 // "iteration 1" names the iteration, so the review offer is a gate whose headless default skips it; a case that leaves the iteration out has its review run unasked.
-const PROMPT = (slug, request, { iteration = true } = {}) => `/ambicode:task --task ${slug} --headless ${iteration ? 'iteration 1 ' : ''}${request} ${REPO}`;
+const PROMPT = (slug, request, { iteration = true } = {}) => `/ambicode:task --task ${slug} --headless ${iteration ? 'iteration 1 ' : ''}${request}`;
 const GIT = 'git (commit|push|stash|reset|checkout|clean|merge|rebase)';
 const REPORT = 'Task report[\\s\\S]*\\*\\*Done\\*\\*';
 // check entries are written as {kind, key, files, exit, phase} (src/modules/checks/run/check-command.ts)
@@ -23,7 +22,7 @@ const RED_LEFT = '"exit":[1-9][0-9]*,"phase":"green"(?![\\s\\S]*"exit":0,"phase"
 
 export function taskCases(B) {
   const { regex, ledger, never, exists, shared, DONE } = B;
-  const file = (name, pattern, path, options = {}) => regex(name, pattern, { file: `repo/${path}`, ...options });
+  const file = (name, pattern, path, options = {}) => regex(name, pattern, { file: path, ...options });
   const sharedFile = (name, pattern, path, options = {}) => shared(file(name, pattern, path, options));
   const noGit = (isShared) => (isShared ? shared(never('no-git-mutation', 'Bash', GIT)) : never('no-git-mutation', 'Bash', GIT));
   const report = () => regex('report-sections', REPORT);
@@ -59,7 +58,7 @@ export function taskCases(B) {
     fixture,
     flags: '--ambicode-init --context',
     prompt: PROMPT(slug, request),
-    bare: `${request} ${REPO}`,
+    bare: `${request}`,
     graders: [DONE(T(slug)), report(), noGit(true), ...graders],
   });
 
@@ -76,7 +75,7 @@ export function taskCases(B) {
         file('extension-refused-by-rule', 'canExtend\\(', 'src/contexts/lending/application/extend.ts'),
         file('error-code-from-plan', 'extension-limit', 'src/contexts/lending/application/extend.ts'),
         file('loan-counts-extensions', 'extensions', 'src/contexts/lending/domain/loan.ts'),
-        exists('plan-test-written', 'repo/test/extend.test.ts'),
+        exists('plan-test-written', 'test/extend.test.ts'),
       ],
     }),
     afterInvestigation({
@@ -87,7 +86,7 @@ export function taskCases(B) {
         file('waiver-reused', 'waive\\(', 'src/contexts/lending/application/return.ts'),
         file('waiver-imported', 'fees/waiver', 'src/contexts/lending/application/return.ts'),
         file('late-fee-kept', 'lateFee\\(', 'src/contexts/lending/application/return.ts'),
-        exists('return-test-written', 'repo/test/return.test.ts'),
+        exists('return-test-written', 'test/return.test.ts'),
         file('existing-tests-kept', 'charges nothing for an early return', 'test/fees.test.ts'),
       ],
     }),
@@ -98,7 +97,7 @@ export function taskCases(B) {
       graders: [
         sharedFile('already-returned-refused', 'already-returned', 'src/contexts/lending/application/return.ts'),
         sharedFile('checks-returned-on', 'loan\\.returnedOn', 'src/contexts/lending/application/return.ts'),
-        shared(exists('return-test-written', 'repo/test/return.test.ts')),
+        shared(exists('return-test-written', 'test/return.test.ts')),
         sharedFile('test-covers-refusal', 'already-returned', 'test/return.test.ts'),
         sharedFile('existing-tests-kept', 'starts a loan due a week later', 'test/borrow.test.ts'),
       ],
@@ -176,7 +175,7 @@ export function taskCases(B) {
       graders: [
         sharedFile('empty-zone-refused', 'Zone == ""|len\\(parcel\\.Zone\\) == 0', 'internal/pricing/price.go'),
         sharedFile('error-wrapped-as-contributing', 'Errorf\\("pricing\\.Quote: %w", core\\.ErrInvalid\\)', 'internal/pricing/price.go'),
-        shared(exists('price-test-written', 'repo/internal/pricing/price_test.go')),
+        shared(exists('price-test-written', 'internal/pricing/price_test.go')),
         sharedFile('test-checks-the-error', 'ErrInvalid', 'internal/pricing/price_test.go'),
         sharedFile('existing-tests-kept', 'TestCentsForPicksTheFirstBandThatFits', 'internal/rates/rates_test.go'),
       ],
@@ -206,7 +205,7 @@ export function taskCases(B) {
       graders: [
         file('constant-reused', 'VIABILITY_FLOOR_PERCENT', `${reportDir}/ViabilityBands.kt`),
         file('literal-removed', '>= 50', `${reportDir}/ViabilityBands.kt`, { match: 'not_contains' }),
-        exists('bands-test-written', `repo/${testRoot}/report/ViabilityBandsTest.kt`),
+        exists('bands-test-written', `${testRoot}/report/ViabilityBandsTest.kt`),
         file('existing-tests-kept', 'fun rejectsUnknownLot', `${testRoot}/germination/SowLotServiceTest.kt`),
       ],
     }),
@@ -216,7 +215,7 @@ export function taskCases(B) {
       request: `TrayPlanner (${sowing}/TrayPlanner.kt) divides by trayCapacity, so a capacity of 0 throws ArithmeticException from traysFor. Refuse a capacity below 1 when the planner is built (require, with a message), and add TrayPlannerTest.kt next to SowLotServiceTest.kt covering it and one normal plan: capacity 10 and 25 seeds give trays T-001 to T-003.`,
       graders: [
         sharedFile('capacity-required', 'require\\(trayCapacity (> 0|>= 1)', `${sowing}/TrayPlanner.kt`),
-        shared(exists('planner-test-written', `repo/${testRoot}/germination/TrayPlannerTest.kt`)),
+        shared(exists('planner-test-written', `${testRoot}/germination/TrayPlannerTest.kt`)),
         sharedFile('test-covers-names', 'T-003', `${testRoot}/germination/TrayPlannerTest.kt`),
         sharedFile('test-covers-refusal', 'assertFailsWith|assertThrows', `${testRoot}/germination/TrayPlannerTest.kt`),
         sharedFile('existing-tests-kept', 'fun sowsViableLot', `${testRoot}/germination/SowLotServiceTest.kt`),
@@ -234,7 +233,7 @@ export function taskCases(B) {
         file('minutes-checked', 'Number\\.isInteger\\([^)]*minutes', 'dashboard/src/lib/validate/segments.ts'),
         file('same-error-reused', 'SetpointError', 'dashboard/src/lib/validate/segments.ts'),
         file('target-check-kept', 'isSetpointDc', 'dashboard/src/lib/validate/segments.ts'),
-        exists('segments-test-written', 'repo/dashboard/test/segments.test.ts'),
+        exists('segments-test-written', 'dashboard/test/segments.test.ts'),
         ...untouched('generated-client', '__generated__'),
       ],
     }),
@@ -273,7 +272,7 @@ export function taskCases(B) {
       tags: ['task', 'multi-file', 'regression-test'],
       fixture: 'ts-app-medium-refund-bug',
       prompt: PROMPT('fix-refund', 'Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js.'),
-      bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
+      bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js.`,
       graders: [
         DONE(T('fix-refund')),
         ledger('green-check-recorded', GREEN, T('fix-refund')),
@@ -295,7 +294,7 @@ export function taskCases(B) {
       tags: ['task', 'reuse'],
       fixture: 'ts-app-medium',
       prompt: PROMPT('revenue-customer', 'Add revenueByCustomer to src/reports/service.js: the totals of fully paid invoices grouped by customer id, in the same row shape as outstandingByCustomer, and serve it at GET /reports/revenue-by-customer in src/reports/routes.js. Test it in tests/reports/service.test.js.'),
-      bare: `Add revenueByCustomer to src/reports/service.js: the totals of fully paid invoices grouped by customer id, in the same row shape as outstandingByCustomer, and serve it at GET /reports/revenue-by-customer in src/reports/routes.js. Test it in tests/reports/service.test.js. ${REPO}`,
+      bare: `Add revenueByCustomer to src/reports/service.js: the totals of fully paid invoices grouped by customer id, in the same row shape as outstandingByCustomer, and serve it at GET /reports/revenue-by-customer in src/reports/routes.js. Test it in tests/reports/service.test.js.`,
       graders: [
         DONE(T('revenue-customer')),
         ledger('green-check-recorded', GREEN, T('revenue-customer')),
@@ -344,7 +343,7 @@ export function taskCases(B) {
       tags: ['task', 'failing-checks'],
       fixture: 'ts-app-medium',
       prompt: PROMPT('aging-bucket', 'Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line.'),
-      bare: `Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line. ${REPO}`,
+      bare: `Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line.`,
       graders: [
         DONE(T('aging-bucket')),
         ledger('green-check-recorded', GREEN, T('aging-bucket')),
@@ -365,7 +364,7 @@ export function taskCases(B) {
       tags: ['task', 'existing-tests', 'regression-test'],
       fixture: 'ts-app-medium',
       prompt: PROMPT('segments-void', "customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js."),
-      bare: `customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js. ${REPO}`,
+      bare: `customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js.`,
       graders: [
         DONE(T('segments-void')),
         ledger('green-check-recorded', GREEN, T('segments-void')),

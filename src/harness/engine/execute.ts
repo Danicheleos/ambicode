@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { gapsOf } from '#modules/evidence/report/report';
+import { fitMapText } from '#modules/search/map';
 import { shellQuote } from '#modules/checks/run/run';
 import { AmbicodeError } from '#util/errors';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
@@ -176,21 +177,24 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   }
 
   async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>> } }): Promise<Part | null> {
-    // A crash is not a result to record: the step has produced nothing, so it would run again forever.
+    // A crash is not a result to record under `onFail: record`: the step has produced nothing, so it would run again forever.
     const record = step.onFail === 'record' && result.recoverable;
     const onFail = step.onFail === 'record' ? null : step.onFail;
-    const args = onFail === null ? {} : { ...onFail.args, ...result.revise?.args };
-    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), ...(onFail === null ? {} : { revise: args }), ...(record ? { recorded: true } : {}) });
+    // A failure that names no findings still tells the model why it is back: a bare repeat of the step left it with nothing to act on.
+    const args = onFail === null ? {} : { ...onFail.args, ...(result.revise?.args ?? { [step.id]: [result.message.slice(0, FAILURE_MESSAGE_CHARS)] }) };
+    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, FAILURE_MESSAGE_CHARS), ...(onFail === null ? {} : { revise: args }), ...(record ? { recorded: true } : {}) });
     if (record) {
       await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
       return null;
     }
     if (onFail !== null) {
-      // The step ran and its result is on record; the failure is what the route wants redone (S4).
-      await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
+      // A result (recoverable) stands as the step's completed result. A crash does not: the step is only marked completed once the revise is refused,
+      // so the route goes on as a recorded gap instead of re-running the crash on every `route next`.
+      if (result.recoverable) await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
       // A revise past its repeat limit leaves only a bare limit gap; the failure itself stays a Not verified line.
       if (!(await reviseTo(run, { target: onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id }))) {
-        await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), recorded: true });
+        if (!result.recoverable) await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
+        await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, FAILURE_MESSAGE_CHARS), recorded: true });
       }
       return null;
     }
@@ -223,7 +227,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     }
     // The request goes whole into a work file only where its text asks for it: the reviewer judges the code, not the author's goal.
     const request = ((run.head['args'] ?? {}) as RouteArgs).text.trim();
-    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
+    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
     // `Now:` carries the first line whole unless stepHeader clips it (over 160 and no backtick); a heading stays, it is the shape the step asks for.
@@ -256,9 +260,24 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
+    // The map is the one section that can be shorter: cut to what remains under the channel limit once the rest is known; the ledger `map` entry keeps the full stats.
+    let mapCut = 0;
+    const mapAt = step.work === null ? sections.findIndex((section) => section.startsWith('## map\n')) : -1;
+    if (mapAt !== -1) {
+      const notes = run.notes.length === 0 ? 0 : run.notes.join('\n').length + 2;
+      const over = `${header}\n\n${prefix}${sections.join('\n\n')}`.trimEnd().length + notes - limitOf(run.channel);
+      if (over > 0) {
+        const mapText = sections[mapAt]!.slice('## map\n'.length);
+        const fit = fitMapText(mapText, mapText.length - over);
+        if (fit !== null) {
+          sections[mapAt] = `## map\n${fit.text}`;
+          mapCut = fit.cut;
+        }
+      }
+    }
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
     if (!delivered) {
-      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(part.file === null ? {} : { file: part.file }) });
+      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(mapCut === 0 ? {} : { mapCut }), ...(part.file === null ? {} : { file: part.file }) });
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes, ${entry.id}`);
     } else {
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes`);
@@ -342,7 +361,16 @@ function payloadKey(call: Call): string {
 }
 
 export const CLI_LIMIT = 8000;
-export const HOOK_LIMIT = 9800;
+// The ledger keeps a failure whole enough to diagnose: a script crash is ~700 characters of stack (script.ts caps its stderr at 1,800 plus the script path); 300 cut it to its last frames.
+const FAILURE_MESSAGE_CHARS = 2000;
+/**
+ * Claude Code saves hook output over 10,000 characters to a file and injects a 2,000-character preview (changelog: "Changed hook output over 10,000
+ * characters to be saved to disk"). On the first prompt of a session the session contract (1022 characters + 2 separator) precedes the step in the
+ * same additionalContext: real read steps of 9008-9111 bytes spilled and the map never reached the model, one of 8711 did not.
+ * 10,000 - 1024 = 8976, less a margin for the contract growing.
+ */
+export const HOOK_LIMIT = 8800;
+const limitOf = (channel: DeliveryChannel): number => (channel === 'hook' ? HOOK_LIMIT : CLI_LIMIT);
 const PREVIEW_CHARS = 300;
 
 /** The first route of a chain: it stays the same when a later route resumes it. */
@@ -366,7 +394,7 @@ export function stepHeader(input: { skill: string; task: string; step: string; p
 
 function compose(input: { header: string; body: string; channel: DeliveryChannel; dir: TaskDir; step: string }): Composed {
   const full = input.body === '' ? input.header : `${input.header}\n\n${input.body}`;
-  const limit = input.channel === 'hook' ? HOOK_LIMIT : CLI_LIMIT;
+  const limit = limitOf(input.channel);
   if (full.length <= limit) return { text: full, file: null, full, bytes: Buffer.byteLength(full) };
   const file = path.join(input.dir.steps, `step-${safe(input.step)}.md`);
   const bytes = Buffer.byteLength(full);

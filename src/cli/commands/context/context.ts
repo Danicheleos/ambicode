@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { loadConfig } from '#modules/config/load';
 import { allFolders, buildModuleTree, listContext, maxModulesFor, proseFiles, renderFullTree, repoRelativeRoots, renderListing, writeContext } from '#modules/context/context';
+import { writeSearchIndex } from '#modules/context/search-index';
 import { CONTEXT_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { recordInit } from '#modules/evidence/init-entry';
@@ -19,8 +20,11 @@ export const contextWriteCommand: CliCommand = {
     const { config } = await loadConfig(runtime.fs, root);
     const text = await runtime.stdin.read(MAX_HOOK_INPUT_BYTES);
     if (text === null) throw new AmbicodeError('bad-argument', 'bundle on stdin is too large', { field: 'bundle' });
-    const outcome = await writeContext(runtime.fs, root, text, config.context, args.flag('replace'), await git.listFiles(null), repoRelativeRoots(root, args.all('root')));
-    const problems = outcome.check.problems;
+    const roots = repoRelativeRoots(root, args.all('root'));
+    const written = await writeContext(runtime.fs, root, text, config.context, args.flag('replace'), await git.listFiles(null), roots);
+    const problems = written.check.problems;
+    // Notes are written at init, so the search index is built with them and init needs no step of its own.
+    const outcome = written.written.length === 0 ? written : { ...written, index: await writeSearchIndex({ fs: runtime.fs, clock: runtime.clock, git, root }, { roots, maxModules: maxModulesFor(config.context) }) };
     await recordInit(runtime, args.value('task'), 'context write', `${outcome.written.length} files written, ${problems.length} problems`);
     return { text: JSON.stringify(outcome), data: outcome, json: 'compact', ...(problems.length > 0 ? { exitCode: 1 } : {}) };
   },
@@ -50,5 +54,17 @@ export const contextTreeCommand: CliCommand = {
     const folders = await allFolders(runtime.fs, root, result, files);
     const docs = await proseFiles(runtime.fs, root, files);
     return { text: renderFullTree(result, folders, docs), data: { ...result, folders, docs } };
+  },
+};
+
+export const contextIndexCommand: CliCommand = {
+  name: 'context index',
+  summary: 'Build the search index, search/folders.jsonl.',
+  options: { repeated: ['root'], flags: ['json'] },
+  run: async (runtime, args) => {
+    const { repositoryRoot: root, git } = await openRepository(runtime);
+    const { config } = await loadConfig(runtime.fs, root);
+    const meta = await writeSearchIndex({ fs: runtime.fs, clock: runtime.clock, git, root }, { roots: repoRelativeRoots(root, args.all('root')), maxModules: maxModulesFor(config.context) });
+    return { text: JSON.stringify(meta), data: meta, json: 'compact' };
   },
 };

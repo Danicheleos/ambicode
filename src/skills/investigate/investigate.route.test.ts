@@ -126,7 +126,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const first = await start();
       assert.equal(first.position, 'read');
       assert.deepEqual(await rows(), ['fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
-      assert.match(first.text, /Now: Read the code the question is about\./);
+      assert.match(first.text, /Now: Start from the map: open its top rows that fit the question/);
       assert.match(first.text, /Then: write your final message; it is saved as the note/);
       assert.doesNotMatch(first.text, /note save/);
       assert.match(first.text, /never a bare file name/);
@@ -163,7 +163,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
     try {
       const first = await start();
       assert.doesNotMatch(first.text, /## envelope|## ARGS|## policy:before-work|rulesOmitted/);
-      assert.equal(first.text.split('Read the code the question is about.').length - 1, 1, 'the Now: line is not repeated in the body');
+      assert.equal(first.text.split('Start from the map: open its top rows').length - 1, 1, 'the Now: line is not repeated in the body');
       const dir = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart');
       const chain = (await fx.kinds('cart', 'route'))[0]!.id;
       assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, 'envelope'), null, 'envelope: an empty payload leaves no file');

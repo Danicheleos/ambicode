@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-Review the uncommitted change in the repository at `repo/`. Cite `path:line` for each claim.
+Review the uncommitted change in this repository. Cite `path:line` for each claim.

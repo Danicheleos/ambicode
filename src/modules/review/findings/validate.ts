@@ -44,7 +44,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     };
   }
 
-  // A requirement id is often a URL (https://x.atlassian.net/browse/VS-6876) and a reviewer cites its key: the key at the tail of a known id names it.
+  // A requirement id is often a URL (https://x.atlassian.net/browse/ABC-101) and a reviewer cites its key: the key at the tail of a known id names it.
   const requirementId = (ref: string): string | undefined => (options.knownRequirementIds.has(ref) ? ref : [...options.knownRequirementIds].find((id) => ref !== '' && id.endsWith(`/${ref}`)));
   const idOfCandidate = new Map<number, string>();
   for (const [index, candidate] of options.output.findings.entries()) {

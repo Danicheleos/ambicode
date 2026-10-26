@@ -43,7 +43,8 @@ gym/planing/abstract
 gym/planing/new-architecture/implementation-reports
 gym/planing/new-architecture/cutting-down
 
-/evals/cases/navigator/
+/bench/map/
+/evals/cases/downstream/
 /evals/cases/init-large/
-/evals/bare/navigator/
+/evals/bare/downstream/
 .plugin-master

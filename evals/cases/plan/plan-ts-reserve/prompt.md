@@ -8,4 +8,4 @@ timeout_seconds: 1500
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
-/ambicode:plan --task plan-ts-reserve --headless --answer plan-accept=Accept Members should be able to reserve a tool that is out on loan. Reservations queue per tool, first come first served. When the loan comes back the first member in the queue is notified and the tool is held for them for two days; if they do not borrow it by then, the next member is told. A member can cancel a reservation and see their place in the queue. The repository is at `repo/`.
+/ambicode:plan --task plan-ts-reserve --headless --answer plan-accept=Accept Members should be able to reserve a tool that is out on loan. Reservations queue per tool, first come first served. When the loan comes back the first member in the queue is notified and the tool is held for them for two days; if they do not borrow it by then, the next member is told. A member can cancel a reservation and see their place in the queue.

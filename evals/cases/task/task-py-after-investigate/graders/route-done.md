@@ -2,6 +2,6 @@
 type: regex
 pattern: '"kind":"exit"[^\n]*"reason":"done"'
 match: contains
-target: { source: file, path: repo/.ambicode/tasks/tw-start/ledger.jsonl }
+target: { source: file, path: .ambicode/tasks/tw-start/ledger.jsonl }
 weight: 1
 ---
