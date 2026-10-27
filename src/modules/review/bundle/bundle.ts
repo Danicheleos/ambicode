@@ -4,7 +4,6 @@ import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { nextReviewDirectory, resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { reviewName, taskSlugFor } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
-import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { baselineOf } from '#modules/checks/workspace/baseline';
 import { touchedSet } from '#modules/checks/workspace/baseline';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
@@ -17,7 +16,6 @@ import { resolveBranchTarget, resolveCapturedTarget, resolveWorkingTarget } from
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import type { ProjectConfig } from '#types/modules/config';
-import type { ResolvedPolicy } from '#types/modules/policy';
 import type { ChangedPath, CheckDeps, Routed } from '#types/modules/checks';
 import type { Runtime, Workspace } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -26,14 +24,11 @@ import type { RequirementSource } from '#types/modules/requirements';
 import { attention, scope } from '../omission.ts';
 import type { TargetResolution } from '../types/snapshot.ts';
 
-type Policies = { project: ProjectConfig; policy: ResolvedPolicy }[];
-
 /** What a dry run measured; a limit refusal is returned, not thrown. */
 interface DryRunPlan {
   workspace: Workspace;
   target: TargetResolution['target'];
   files: DiffFile[];
-  policies: Policies;
   refusal: AmbicodeError | null;
 }
 
@@ -108,12 +103,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const reviewable = partitionChange(resolution.files, patterns);
   if (reviewable.files.length === 0) throw nothingToReview(resolution.files.length, excludePaths, onlyPaths);
 
-  const policies: Policies = [];
-  for (const { project, changed } of groupByProject(workspace, reviewable.files)) {
-    const paths = changed.map((change) => change.newPath ?? change.oldPath).filter((value): value is string => value !== null);
-    policies.push({ project, policy: await resolvePolicyFor({ workspace, project, activity: 'review', paths }) });
-  }
-  const dry = (refusal: AmbicodeError | null): DryRunPlan => ({ workspace, target: resolution.target, files: reviewable.files, policies, refusal });
+  const dry = (refusal: AmbicodeError | null): DryRunPlan => ({ workspace, target: resolution.target, files: reviewable.files, refusal });
 
   const measured = measureInput(reviewable.files, reviewable.patch, { requirementBytes });
   try {
@@ -143,7 +133,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     inputs: measured,
     reviewer: null,
     brief: null,
-    ruleIds: [...new Set(policies.flatMap(({ policy }) => policy.rules.map((rule) => rule.qualifiedId)))].sort(),
     checks: await recordedChecks(runtime, taskDirectory),
     changedFiles: resolution.files.map((file) => {
       const reason = isExcludedFromReview(file.oldPath, file.newPath, patterns);
@@ -155,8 +144,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       ...[
         ...(preexisting.size === 0 ? [] : [`not covered: pre-existing changes: ${[...preexisting].sort().slice(0, 10).join(', ')}${preexisting.size > 10 ? ` (+${preexisting.size - 10} more)` : ''}`]),
         ...narrowed('only paths', onlyPaths, 'were reviewed. Everything else the change touches is unexamined.'),
-        // An applicable policy error becomes a coverage omission: it keeps the result `partial` without stopping the reviewer.
-        ...policies.flatMap(({ project, policy }) => policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').map((diagnostic) => `project "${project.id}" policy: ${diagnostic.code}: ${diagnostic.message}`)),
       ].map(attention),
       ...[
         ...(resolution.target.diffOnly !== undefined ? ['Diff-only review: the checkout is not the merge request head, so the reviewer had the merge request diff and no file content, and code the diff does not show was not examined.'] : []),
@@ -176,7 +163,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   return {
     workspace, reviewId, reviewDirectory, taskDirectory,
     resultPath: path.join(reviewDirectory, 'result.json'),
-    measured, files: reviewable.files, patch: reviewable.patch, policies, requirements, result,
+    measured, files: reviewable.files, patch: reviewable.patch, requirements, result,
   };
 }
 

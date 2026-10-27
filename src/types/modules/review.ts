@@ -2,9 +2,7 @@ import { z } from 'zod';
 import { Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
 import { RequirementSource } from './requirements.ts';
 import type { Workspace, Runtime } from '../composition.ts';
-import type { ProjectConfig } from './config.ts';
 import type { DiffFile } from '../platform/git.ts';
-import type { ResolvedPolicy } from './policy.ts';
 
 export const REVIEW_SCHEMA_VERSION = 1;
 
@@ -114,8 +112,6 @@ export const ReviewResult = z.strictObject({
   reviewer: ReviewerRun.nullable().default(null),
   /** Repository-relative path of the reviewer's `brief.md`. */
   brief: z.string().nullable().default(null),
-  /** Rule ids of the resolved policy: the only ids a finding may cite. */
-  ruleIds: z.array(z.string()).default([]),
   checks: z.array(RecordedCheck).default([]),
   changedFiles: z
     .array(
@@ -149,7 +145,6 @@ export interface ReviewBundle {
   measured: MeasuredInput;
   files: DiffFile[];
   patch: string;
-  policies: { project: ProjectConfig; policy: ResolvedPolicy }[];
   requirements: readonly RequirementSource[];
   /** Findings are empty and status is `partial` until a reviewer has run. */
   result: ReviewResult;

@@ -142,6 +142,7 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
       'SessionEnd',
       'SessionStart',
       'Stop',
+      'SubagentStop',
       'UserPromptSubmit',
     ]);
     for (const event of events) {

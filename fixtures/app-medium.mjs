@@ -2699,6 +2699,63 @@ describe('string, email, id, cents and required validators', () => {
 };
 
 /**
+ * The sites variant (ts-app-medium-sites; only the task cases that want a real choice use it): invoices/status.js already holds
+ * isBillable, a helper nothing calls, and customers/statement.js is a second reader of a customer's invoices beside segments.js and the
+ * top-customers report. A fix that excludes void invoices can copy the check into each reader or use the helper through one owner.
+ */
+export const APP_SITES = {
+  "src/invoices/status.js": raw`const STATUS = Object.freeze({
+  OPEN: 'open',
+  PARTIALLY_PAID: 'partially_paid',
+  PAID: 'paid',
+  REFUNDED: 'refunded',
+  VOID: 'void',
+});
+
+// netPaidCents is payments minus refunds.
+function statusFor(totalCents, netPaidCents) {
+  if (netPaidCents <= 0) return STATUS.OPEN;
+  if (netPaidCents < totalCents) return STATUS.PARTIALLY_PAID;
+  return STATUS.PAID;
+}
+
+// An invoice the customer is billed for: a void one was cancelled.
+function isBillable(invoice) {
+  return invoice.status !== STATUS.VOID;
+}
+
+module.exports = { STATUS, statusFor, isBillable };
+`,
+  "src/customers/statement.js": raw`const invoices = require('../invoices/service');
+const money = require('../shared/money');
+
+// What a customer has been invoiced so far, for the account statement.
+function statement(customerId) {
+  const mine = invoices.list({ customerId });
+  return { customerId, count: mine.length, billedCents: money.sum(mine.map(invoices.total)) };
+}
+
+module.exports = { statement };
+`,
+  "tests/customers/statement.test.js": raw`const statements = require('../../src/customers/statement');
+const { makeInvoice, makeCustomer, DEFAULT_TOTAL_CENTS } = require('../factory');
+
+describe('customer statement', () => {
+  test('lists what was invoiced', () => {
+    const customer = makeCustomer();
+    makeInvoice({ customerId: customer.id });
+    expect(statements.statement(customer.id)).toEqual({ customerId: customer.id, count: 1, billedCents: DEFAULT_TOTAL_CENTS });
+  });
+
+  test('a customer with no invoices has an empty statement', () => {
+    const customer = makeCustomer();
+    expect(statements.statement(customer.id)).toEqual({ customerId: customer.id, count: 0, billedCents: 0 });
+  });
+});
+`,
+};
+
+/**
  * A refund never updates the invoice status and payments/repository.netPaidCents counts refunds as payments, so a partial
  * refund leaves a paid invoice 'paid'; the over-refund guard throws a bare Error, which http turns into a 500.
  * Both source files must change to fix it. The four tests that cover refunds are left out of the tree.

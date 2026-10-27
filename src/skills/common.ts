@@ -88,11 +88,13 @@ async function reviewedFiles(input: HandlerInput, chain: readonly LedgerEntry[])
   return parsed?.success ? parsed.data.changedFiles.filter((changed) => changed.exclusionReason === null).map((changed) => changed.newPath ?? changed.oldPath ?? '').filter((name) => name !== '') : [];
 }
 
-/** The files the stage's rules are scoped to: the task's touched files once there are any, else the pinned review's, else the map's top candidates; empty means no scoping. */
-async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[]): Promise<string[]> {
+/** The files the stage's rules are scoped to: for review the pinned review's files, else the task's touched files once there are any, else the pinned review's, else the map's top candidates; empty means no scoping. */
+async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[], activity: Activity): Promise<string[]> {
   const baseline = baselineIn(chain);
-  const touched = baseline === null ? [] : (await touchedSet(input.runtime as Runtime, baseline)).touched;
-  const reviewed = touched.length > 0 ? [] : await reviewedFiles(input, chain);
+  const pinned = activity === 'review' ? await reviewedFiles(input, chain) : [];
+  // A task's touched set still holds files the review excludes (a configured `excludePaths`, a narrowing): their rules were staged for files nobody reviewed.
+  const touched = pinned.length > 0 || baseline === null ? [] : (await touchedSet(input.runtime as Runtime, baseline)).touched;
+  const reviewed = touched.length > 0 ? [] : pinned.length > 0 ? pinned : await reviewedFiles(input, chain);
   const mapped = (chain.findLast((entry) => entry.kind === 'map')?.['paths'] as string[] | undefined) ?? [];
   const root = normalizeRelative(project.root);
   return (touched.length > 0 ? touched : reviewed.length > 0 ? reviewed : mapped).filter((file) => toProjectRelative(root, file) !== null);
@@ -187,8 +189,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     // The second param names the activity when the route's own differs: the task route's reviewer brief needs review rules.
     const named = Activity.safeParse(input.params[1] ?? input.view.skill);
     if (input.params[1] !== undefined && !named.success) return { state: 'failed', code: 'internal', message: `policy.stage's activity must be one of ${Activity.options.join(', ')}, not "${input.params[1]}".`, recoverable: false };
+    const activity = named.success ? named.data : 'task';
     try {
-      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: named.success ? named.data : 'task', paths: await stagePaths(input, project, await chainEntries(input)), stage });
+      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity, paths: await stagePaths(input, project, await chainEntries(input), activity), stage });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
       return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
     } catch (error) {

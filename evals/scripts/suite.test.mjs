@@ -18,7 +18,7 @@ function onDisk(tree) {
     for (const name of readdirSync(path.join(EVALS, relative))) {
       const child = `${relative}/${name}`;
       // downstream/ is rendered from NDA assets by downstream-cases.mjs, gitignored, and absent on most machines (it made this test fail locally once the cases existed). The map bench inputs live in bench/, outside evals/.
-      if (name === 'results' || name === 'downstream' || name === 'init-large' || name.startsWith('.')) continue;
+      if (name === 'results' || name === 'downstream' || name === 'task-real' || name === 'init-large' || name.startsWith('.')) continue;
       if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
       else out.push(child);
     }

@@ -14,7 +14,7 @@ const taskCases = CASES.filter((c) => c.name.startsWith('task-') && !c.tags.incl
 const seeded = taskCases.filter((c) => Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/')));
 const frontmatter = (text) => parse(text.split('---')[1]);
 const STACKS = ['ts-service-lendbox', 'py-service-tidewatch', 'go-module-parcelhub', 'jvm-gradle-seedvault', 'monorepo-rust-ts-kiln'];
-const APP = ['ts-app-medium', 'ts-app-medium-refund-bug'];
+const APP = ['ts-app-medium', 'ts-app-medium-sites', 'ts-app-medium-refund-bug', 'ts-app-medium-plan'];
 
 /** The files a fixture holds once its steps ran (writes and deletes; no git, no install). */
 const filesOf = (name) => {
@@ -34,32 +34,39 @@ const sourceGraders = (c) =>
 const matches = (spec, text) => new RegExp(spec.pattern).test(text) === (spec.match !== 'not_contains');
 
 describe('task cases', () => {
-  it('are fifteen on the five stacks (one after a plan, one after an investigation, one bare each) and five on the app fixtures', () => {
-    assert.equal(taskCases.length, 20);
+  it('are fifteen on the five stacks (one after a plan, one after an investigation, one bare each), five on the app fixtures and two after a plan on the app plan fixture', () => {
+    assert.equal(taskCases.length, 22);
     for (const stack of STACKS) {
       const own = taskCases.filter((c) => c.fixture === stack);
       assert.deepEqual(own.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), ['after-investigate', 'after-plan', 'bare']);
     }
     const narrow = taskCases.filter((c) => APP.includes(c.fixture));
-    assert.equal(narrow.length, 5);
+    assert.equal(narrow.length, 7);
     assert.equal(taskCases.filter((c) => !STACKS.includes(c.fixture) && !APP.includes(c.fixture)).length, 0);
   });
 
-  it('keep the budget of the task skill and never name the iteration of the review-loop case', () => {
+  it('keep the budget of the task skill and answer the review offer in the review-loop case', () => {
     const limits = frontmatter(FILES.get(`${caseDir('cases', 'task-app-refund-multi-file')}/prompt.md`));
     assert.equal(limits.max_turns, 40);
     assert.ok(limits.allowed_tools.includes('Agent'), 'the implementer and the reviewer are subagents');
     const loop = taskCases.find((c) => c.name === 'task-app-review-fix-loop');
-    assert.doesNotMatch(loop.prompt, /iteration \d/);
+    assert.match(loop.prompt, / --headless --answer review-offer=run /);
     assert.equal(frontmatter(FILES.get(`${caseDir('cases', loop.name)}/prompt.md`)).max_turns, 60);
     for (const c of taskCases.filter((x) => x !== loop)) assert.match(c.prompt, / --headless iteration 1 /, `${c.name} names its iteration, so no review runs unasked`);
   });
 
   describe('seeds', () => {
-    it('are the ten after-plan and after-investigate cases, copied by the scaffold into .ambicode and absent from the bare arm', () => {
-      assert.deepEqual(seeded.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), Array(5).fill(['after-investigate', 'after-plan']).flat().sort());
+    it('are the ten stack cases and the two app plan cases, copied by the scaffold into .ambicode; the bare arm gets the same note as prompt text and no seed', () => {
+      assert.deepEqual(seeded.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), [...Array(5).fill(['after-investigate', 'after-plan']).flat(), 'csv-after-plan', 'due-after-plan'].sort());
       for (const c of seeded) {
-        assert.equal(c.bare, null);
+        const kind = c.name.endsWith('after-plan') ? 'plan' : 'investigation';
+        const slug = /--task (\S+)/.exec(c.prompt)[1];
+        const note = (kind === 'plan' ? PLANS : INVESTIGATIONS)[slug].trim();
+        assert.ok(c.bare.includes(note), `${c.name}: the bare prompt carries the note text`);
+        assert.doesNotMatch(c.bare, /ambicode|\.ambicode|--task/i);
+        assert.doesNotMatch(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), /seed\/|--ambicode-init|--policy|--stack-packs/);
+        assert.ok(FILES.has(`${caseDir('bare', c.name)}/graders/no-git-mutation.md`));
+        assert.ok(![...FILES.keys()].some((f) => f.startsWith(`${caseDir('bare', c.name)}/graders/`) && /ledger\.jsonl|\.ambicode\//.test(FILES.get(f))), `${c.name}: no bare grader reads the plugin's ledger`);
         assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /cp -R "\$\(dirname "\$0"\)\/seed\/\." "\$PWD\/\.ambicode\/"/);
       }
       for (const c of taskCases.filter((x) => !seeded.includes(x))) {
@@ -124,6 +131,8 @@ describe('task cases', () => {
           }
           const now = matches(spec, files.get(file));
           if (/kept/.test(name)) assert.ok(now, `${name} holds on the untouched ${file}`);
+          // A `no-` guard forbids something the change could add: it must pass before the change, or it fails every run (no-literal-boundaries matched the fixture's own 24 * 60 * 60).
+          else if (spec.match === 'not_contains' && /^no-/.test(name)) assert.ok(now, `${name} fails on the untouched ${file}: it would fail a run that does nothing wrong`);
           else if (!GUARD.test(name)) assert.ok(!now, `${name} already passes on the untouched ${file}: it measures nothing`);
         }
       });
@@ -168,6 +177,73 @@ describe('task cases', () => {
       after.set('tests/payments/payments.test.js', `${fixed.get('tests/payments/payments.test.js')}\ntest('x', () => { payments.refund({ invoiceId: 1, amountCents: 1 }); expect(a.status).toBe('partially_paid'); });\n`);
       for (const { name, spec, file } of sourceGraders(c)) assert.ok(matches(spec, after.get(file)), `${name} accepts the reference`);
     });
+  });
+
+  it('the no-duplication graders accept a shared helper and refuse the same rule written in each leaf', () => {
+    const grader = (caseName, name) => sourceGraders(taskCases.find((x) => x.name === caseName)).find((g) => g.name === name).spec;
+    const once = grader('task-app-segments-void', 'no-void-rule-in-both-readers');
+    const list = grader('task-app-segments-void', 'one-list-call');
+    const helper = "function billable(id) { return invoices.list({ customerId: id }).filter((i) => i.status !== STATUS.VOID); }\nconst a = billable(1); const b = billable(2);";
+    const leaves = "const a = invoices.list({ customerId }).filter((i) => i.status !== STATUS.VOID);\nconst b = invoices.list({ customerId }).filter((i) => i.status !== STATUS.VOID);";
+    assert.ok(matches(once, helper) && matches(list, helper));
+    assert.ok(!matches(once, leaves) && !matches(list, leaves));
+    const copy = grader('task-app-csv-after-plan', 'no-void-rule-copy-in-reports');
+    assert.ok(matches(copy, 'totalCents: invoices.total(invoice)'));
+    assert.ok(!matches(copy, 'totalCents: invoice.status === STATUS.VOID ? 0 : invoices.total(invoice)'));
+    const thin = grader('task-app-csv-after-plan', 'no-fat-route');
+    assert.ok(matches(thin, "const invoicesCsv = handle(() => attachment(reports.invoicesCsv(), { filename: 'invoices.csv' }));"));
+    assert.ok(!matches(thin, 'const invoicesCsv = handle(() => attachment(reports.invoicesCsv().map(row), x));'));
+  });
+
+  it('segments-void on the sites fixture: a fix through the shared helper passes every grader, the rule copied into a leaf fails', () => {
+    const c = taskCases.find((x) => x.name === 'task-app-segments-void');
+    assert.equal(c.fixture, 'ts-app-medium-sites');
+    const base = filesOf(c.fixture);
+    const reference = new Map(base);
+    reference.set('src/customers/segments.js', "const billable = (customerId) => invoices.list({ customerId }).filter(status.isBillable);\nconst a = billable(id).length;");
+    reference.set('src/customers/statement.js', 'const mine = invoices.list({ customerId }).filter(status.isBillable);');
+    reference.set('tests/customers/segments.test.js', `${base.get('tests/customers/segments.test.js')}\ninvoices.voidInvoice(1);\n`);
+    for (const { name, spec, file } of sourceGraders(c)) assert.ok(matches(spec, reference.get(file)), `${name} accepts the shared-helper fix`);
+    const leaf = new Map(reference);
+    leaf.set('src/customers/statement.js', "const mine = invoices.list({ customerId }).filter((i) => i.status !== 'void');");
+    const failing = sourceGraders(c).filter(({ spec, file }) => !matches(spec, leaf.get(file))).map((g) => g.name);
+    assert.deepEqual(failing, ['no-void-literal-in-statement']);
+    leaf.set('src/customers/segments.js', "const a = invoices.list({ customerId }).filter((i) => i.status !== STATUS.VOID);\nconst b = invoices.list({ customerId }).filter((i) => i.status !== STATUS.VOID);");
+    assert.deepEqual(sourceGraders(c).filter(({ spec, file }) => !matches(spec, leaf.get(file))).map((g) => g.name).sort(), ['no-void-literal-in-statement', 'no-void-rule-in-both-readers', 'one-list-call']);
+  });
+
+  it('every task-tune case scores the workspace diff and names the files the change touches', () => {
+    for (const c of taskCases.filter((x) => x.tags.includes('task-tune'))) {
+      assert.equal(c.metrics?.source, 'changed', c.name);
+      assert.ok(c.metrics.relevant.length >= 2, c.name);
+      // reuse-report-helpers allows a service or a route test, so its tests sit in `allowed`.
+      assert.ok([...c.metrics.relevant, ...c.metrics.allowed].some((f) => /test/i.test(f)), `${c.name}: a test file is named`);
+    }
+  });
+
+  it('no-literal-boundaries ignores the explanatory comment of the baseline runs and refuses a literal in code', () => {
+    const spec = sourceGraders(taskCases.find((x) => x.name === 'task-app-checks-fail-first')).find((g) => g.name === 'no-literal-boundaries').spec;
+    assert.ok(matches(spec, "// Labels follow config.agingBucketsDays: with [30, 60, 90] they are 0-30, 31-60, 61-90 and 90+.\nfunction bucketFor(days) {\n  return second + '+';\n}"));
+    assert.ok(matches(spec, 'if (days <= third) return 1; // 90 days'));
+    assert.ok(!matches(spec, '// note\nif (days <= 60) return x;'));
+    assert.ok(!matches(spec, 'const third = 90;'));
+  });
+
+  it('the app plan cases ask the fixture for the express packs, jest and the context, and the policy row they grade is what the route writes', () => {
+    for (const name of ['task-app-due-after-plan', 'task-app-csv-after-plan']) {
+      const c = taskCases.find((x) => x.name === name);
+      assert.match(c.flags, /--install/);
+      assert.match(c.flags, /--stack-packs/);
+      assert.ok(c.tags.includes('task-tune'));
+    }
+    const row = '{"id":"8","route":"2","kind":"policy","stage":"before-work","packs":[],"rules":2,"bytes":9,"activity":"task","ids":["common-design/fix-the-cause","express-errors/classified-errors"]}\n';
+    const ledgerSpec = (name) => frontmatter(taskCases.find((x) => x.name === 'task-app-due-after-plan').graders.find((g) => g.name === name).text);
+    assert.ok(new RegExp(ledgerSpec('policy-delivered-classified-errors').pattern).test(row));
+    assert.ok(!new RegExp(ledgerSpec('policy-delivered-classified-errors').pattern).test(row.replace('"activity":"task"', '"activity":"plan"')));
+  });
+
+  it('exactly ten cases carry the task-tune tag', () => {
+    assert.equal(taskCases.filter((c) => c.tags.includes('task-tune')).length, 10);
   });
 
   it('task-go-after-plan: zero-weight-tested accepts a literal, a loop list and a table row, and refuses a test with no zero weight', () => {

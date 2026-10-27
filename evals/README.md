@@ -1,8 +1,8 @@
 # Evals: skill coverage
 
-Sixty-five synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 47 of them also run with no plugin
+Sixty-eight synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 59 of them also run with no plugin
 loaded, which is the baseline. Two generators outside `cases.mjs` add six more runnable cases (`downstream` 5 and
-`init-large` 1), and two offline map bench suites outside `evals/` (`bench/map`, `bench/map-k12`) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
+`init-large` 1), and two offline map bench suites outside `evals/` (`bench/map`, `evals/local/bench/map-k12`) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
 here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
 and are not run any more.
 
@@ -14,7 +14,7 @@ evals/
   scripts/run.mjs         runs one arm through `claude plugin eval` and leaves the result in `cases/results/`
   scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
   scripts/trace.mjs       trace parsing and `mean`, shared by the scripts below
-  scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`)
+  scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`; source `changed` scores the workspace diff that harvest snapshots, the task-tune cases)
   scripts/breakdown.mjs   where a run's calls, tokens, seconds and injected bytes go (`npm run evals:breakdown -- <trace.jsonl | dir>`)
   cases/results/          raw output of the last run per arm, and traces/<arm>/<stamp>/<case>-<n>.jsonl (gitignored); each run's `.ambicode` workspace copy (ledgers, `context/`) goes to `../eval-archive/` at the same relative path, or `$AMBICODE_EVAL_ARCHIVE` (inside the repo they pushed evals/ past the 20,000-entry limit of `claude plugin eval`)
 ```
@@ -23,8 +23,8 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: the 65 cases of cases.mjs (+ downstream, init-large once generated)
-npm run evals:bare                  # bare arm: 47 cases of cases.mjs (+ downstream), no plugin
+npm run evals                       # plugin arm: the 68 cases of cases.mjs (+ downstream, init-large once generated)
+npm run evals:bare                  # bare arm: 59 cases of cases.mjs (+ downstream), no plugin
 npm run evals -- --case 'review-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
@@ -47,14 +47,14 @@ Read a run in `evals/cases/results/<arm>.json` and its traces under `results/tra
 
 ```
 node evals/scripts/map-bench.mjs --bench <repo>                                  # the ten fe-angular cases, bench/map
-node evals/scripts/map-bench.mjs --bench <repo> --cases bench/map-k12      # a second repository: its own cases directory
+node evals/scripts/map-bench.mjs --bench <repo> --cases evals/local/bench/map-k12      # a second repository: its own cases directory
 node evals/scripts/map-bench.mjs --bench <repo> --case 6141 --top 8              # one case (id or name substring)
 ```
 
 `--bench` defaults to env `NAV_BENCH`; `--cases` is a directory of `<name>/{prompt.md,truth.json}`. The repository needs `.ambicode/` with a config and `context/` (run `/ambicode:init`, or `ambicode context index` for the search index alone). To bench a second repository, write tickets and truths into a new directory under `bench/` (not `evals/`: a directory there holding `prompt.md` counts as a session case) (the bench reads only `prompt.md` and `truth.json`; `truth.json` holds `relevant`, `allowed`, `ancestors`, `ancestorShare`) and pass it with `--cases`. The two generators below show two ways to produce one:
 
 - `map-cases.mjs` (ten tickets of the fe-angular bench): truths come from each ticket's merge request and are corrected against the bench checkout, which cannot hold files the MR created. It drops, and lists in `truth.json` (`dropped`, `bench.head`), files the MR created (`created`), files gone from HEAD (`removed`) and non-code targets (`nonCode`: html/scss/json/md/images, and directories whose source files are all of those), then recomputes `ancestors`. `prompt.md` is the ticket text only. Source: env `MAP_SOURCES` (default `eval-archive/navigator-case-sources`, `fe-vs-<id>-investigate/{prompt.md,truth.json}`; the directory keeps its old name); the numbering is `CASE_ORDER` in `folder-truth.mjs`. `NAV_BENCH=<bench repo> node evals/scripts/map-cases.mjs`.
-- `map-k12-cases.mjs <checkout>`: five synthetic tickets over a Python (FastAPI, SQLAlchemy, Celery) backend, truth from the source folders each first-parent merge touched, tickets in a product person's words.
+- `map-k12-cases.mjs <checkout>`: five synthetic tickets over a Python backend (cases are written to the gitignored `evals/local/bench/map-k12`), truth from the source folders each first-parent merge touched, tickets in a product person's words.
 
 `scripts/folder-truth.mjs` holds what all of them share: `CASE_ORDER`, `folderTruth` (logic files, companion-only directories as directory items), `ancestorShares` and the folder scorer `scoreFolders`. `map-funnel.mjs` is the bench's lost-target accounting. There is no navigator agent any more, so no agent-based map case exists.
 
@@ -63,6 +63,8 @@ Reference means (F1 over the ten fe-angular cases, 2026-10-26, 0.6.27 map): all 
 ## Downstream cases (real bench, end to end)
 
 `scripts/downstream-cases.mjs` turns five corrected map cases (6141, 3571, 6404, 5967, 6292: the first three by choice, then the two with the most reachable targets) into `fe-vs-<id>-downstream`, written to `evals/cases/downstream/` (plugin arm: `/ambicode:investigate <ticket>`, with the bench's `.ambicode/config.yaml` and `context/`) and `evals/bare/downstream/` (bare arm: same request, no skill). Both gitignored.
+
+`scripts/real-cases.mjs` renders `task-real` cases (tag `task-real`: a past merge of a bench repository, the task stated as a user would) to `evals/cases/task-real/` and `evals/bare/task-real/` (gitignored: the scaffold names the local checkouts). The cases are data about those repositories and are never in git: they live in `evals/local/real-cases.json` (gitignored; `REAL_CASES_FILE` points elsewhere), whose shape the header of `real-cases.mjs` documents, and the checkout of each repository comes from the env var that file names: `<ENV>=<checkout> node evals/scripts/real-cases.mjs`. The scaffold is downstream-cases.mjs's, archiving the parent of the merge. The prompt states the outcome only. Each case yields three variants, `<name>-plan`, `<name>-inv` and `<name>` (tag `task-real-raw`: the task prompt alone, nothing seeded, no `plan-picked-up` grader): the plugin arm starts from a seeded accepted plan or investigation note in `.ambicode/tasks/<slug>/` (task-seeds.mjs), the bare arm has the same text in the prompt (the raw variant has none), and both prompts end with a sentence not to run builds, tests, linters or reviews (the plugin arm also has every configured check set to null by `config-checks-off.mjs`, and `--headless iteration 1` skips the review offer). Graders are regexes on fixed workspace files, `diff` graders (diff-graders.mjs: a regex over the added lines of the run's final workspace diff, which harvest saves as `<case>-<n>.diff`; scored by run.mjs after the harness and folded into the run's graders and score) for new files of any name, and one `llm` judge of weight 1 on the final message; measuring ones fail on the parent and pass on the real merge, guards forbid the naive alternative and pass on the parent. `truth.json` (`source: changed`) is scored by run.mjs on the workspace diff. `real-cases.test.mjs` tests the generator on invented cases and, when the local file and the checkouts exist, checks every local case against its repository (read-only git show/diff/ls-tree); without them those tests skip.
 
 The plugin-arm scaffold also runs `ambicode context index` after copying `context/`, so the search index exists at the archived HEAD and the first map does not build it cold.
 
@@ -77,7 +79,7 @@ npm run evals -- --series <the five names> --case fe-vs-6141-downstream --runs 3
 
 ## Init on a large real repository
 
-`init-scout-large` runs `/ambicode:init --auto` on a copy of a real repository (`git archive HEAD` of env `INIT_BENCH`, default the sibling `inseer-frontend`; its `.claude/` comes along, rules included) with its `config.yaml` (scout set to haiku in the copy) and no `.ambicode/context`. Generated by `node evals/scripts/init-large-case.mjs` into `evals/cases/init-large/init-scout-large/` (gitignored; `evals:generate` does not touch it). Run: `npm run evals -- --case init-scout-large --max-cost-usd 1`. Graders: scout invoked with model haiku (Agent input), the four context files exist, `index.md` links every module `context tree` prints for the config paths, conventions are descriptive, no `context write` recorded in the init ledger with problems.
+`init-scout-large` runs `/ambicode:init --auto` on a copy of a real repository (`git archive HEAD` of env `INIT_BENCH`, no default; its `.claude/` comes along, rules included) with its `config.yaml` (scout set to haiku in the copy) and no `.ambicode/context`. Generated by `node evals/scripts/init-large-case.mjs` into `evals/cases/init-large/init-scout-large/` (gitignored; `evals:generate` does not touch it). Run: `npm run evals -- --case init-scout-large --max-cost-usd 1`. Graders: scout invoked with model haiku (Agent input), the four context files exist, `index.md` links every module `context tree` prints for the config paths, conventions are descriptive, no `context write` recorded in the init ledger with problems.
 
 ## Recall, precision, drift
 
@@ -118,7 +120,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Twenty-two cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`), the five `init-auto-*` cases, eleven `task` cases (`task-app-review-fix-loop` and the ten `task-<stack>-after-investigate` and `-after-plan` cases) and one `plan` case (`plan-app-draft`).
+Nine cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`), the five `init-auto-*` cases, one `task` case (`task-app-review-fix-loop`; the after-plan and after-investigate cases have a bare arm that gets the note as prompt text) and one `plan` case (`plan-app-draft`).
 
 ## Suites
 
@@ -129,12 +131,12 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 | review | 14 | 14 | `cases.mjs`, see Review cases |
 | investigate | 15: app 5, other stacks 5 (`investigate-<ts|py|go|jvm|mono>-*`), downstream 5 | 15 | 10 in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs` |
 | plan | 15 | 14 | `cases.mjs`: app 5, other stacks 10 |
-| task | 20 | 9 | `cases.mjs` |
+| task | 22 | 21 | `cases.mjs` |
 | init | 5 | 0 | `cases.mjs` (`init-auto-*`) |
 | rules (tag; the cases sit in the rules and plan suites) | 2 | 0 | `rules-cases.mjs` |
 | init-large | 1 | 0 | `init-large-case.mjs`, real repository |
 | bench/map | 10 | offline | `map-cases.mjs`, scored by `map-bench.mjs` |
-| bench/map-k12 | 5 | offline | `map-k12-cases.mjs`, second stack (Python) |
+| evals/local/bench/map-k12 | 5 | offline | `map-k12-cases.mjs`, second stack (Python) |
 
 `bench/map`, `downstream` and `init-large` are gitignored and regenerated from a bench checkout; `evals:generate` does not touch them.
 

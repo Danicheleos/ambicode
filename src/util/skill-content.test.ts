@@ -330,6 +330,13 @@ describe('P2.3 task skill', () => {
     assert.doesNotMatch(content, /outside the brief is the user's call/i);
   });
 
+  it('07-M1 the implementer moves a rule that already sits inline elsewhere to a shared owner instead of copying it (csv-after-plan copied a void-is-zero ternary from a route into a service, both runs, 2026-10-27)', async () => {
+    const agent = (await readFile(path.join(repositoryRoot, 'agents', 'implementer.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(agent, /already sits inline in another place[^.]*a second copy is the defect: move it to the nearest owner both can call/i);
+    const works = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'change-work.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'task', 'fix-work.md'), 'utf8'));
+    assert.doesNotMatch(works, /second copy/i, 'the judgment lives in the agent only');
+  });
+
   it('07-M1 states the git boundary with its reason', async () => {
     const content = (await task()).replace(/\s+/g, ' ');
     assert.match(content, /never commit, push, create a merge request, publish a comment, merge, deploy, or transition a ticket/i);

@@ -73,7 +73,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       rejectedOutputRef: null,
       at: null,
     },
-    ruleIds: [],
     checks: [{ key: 'web/lint', phase: 'green', exit: 1, files: ['src/orders.ts'] }],
     changedFiles: [],
     requirementCoverage: [],

@@ -1,7 +1,7 @@
 // `init-scout-large`: /ambicode:init --auto on a copy of a real, large repository (HEAD, without .ambicode/context, with its
 // config.yaml and its .claude/), graded on what the scout wrote. Generated into evals/cases/init-large/ (gitignored, skipped by
 // suite.test.mjs and by cases.mjs's clean-up, because the repository is not in git): `node evals/scripts/init-large-case.mjs`, then
-// `npm run evals -- --case init-scout-large --max-cost-usd 1`. Source: env INIT_BENCH, default the sibling inseer-frontend checkout.
+// `npm run evals -- --case init-scout-large --max-cost-usd 1`. Source: env INIT_BENCH, a checkout with .ambicode/config.yaml; no default.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -19,7 +19,7 @@ const LEDGER = '.ambicode/tasks/init/ledger.jsonl';
 const sq = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
-export const initLargeBench = (env = process.env) => path.resolve(env.INIT_BENCH);
+export const initLargeBench = (env = process.env) => (env.INIT_BENCH ? path.resolve(env.INIT_BENCH) : null);
 
 /** The modules `context tree` prints for the config's project paths, by the same function and the config's own limits. */
 export function modulesOfBench(files, config) {
@@ -69,8 +69,8 @@ export function renderInitLarge(bench, files = execFileSync('git', ['-C', bench,
 
 export function writeInitLarge(evalsDir = EVALS, env = process.env) {
   const bench = initLargeBench(env);
-  if (!existsSync(path.join(bench, '.ambicode', 'config.yaml'))) {
-    console.log(`${INIT_LARGE} skipped: no ${path.join(bench, '.ambicode', 'config.yaml')} (set INIT_BENCH)`);
+  if (bench === null || !existsSync(path.join(bench, '.ambicode', 'config.yaml'))) {
+    console.log(`${INIT_LARGE} skipped: ${bench === null ? 'INIT_BENCH is not set' : `no ${path.join(bench, '.ambicode', 'config.yaml')} (set INIT_BENCH)`}`);
     return 0;
   }
   rmSync(path.join(evalsDir, 'cases', 'init-large'), { recursive: true, force: true });

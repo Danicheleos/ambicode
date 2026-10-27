@@ -261,7 +261,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     }
     if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
-    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
+    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id), ...iterationOf(run) });
     // The map is the one section that can be shorter: cut to what remains under the channel limit once the rest is known; the ledger `map` entry keeps the full stats.
     let mapCut = 0;
     const mapAt = step.work === null ? sections.findIndex((section) => section.startsWith('## map\n')) : -1;
@@ -375,6 +375,15 @@ export const HOOK_LIMIT = 8800;
 const limitOf = (channel: DeliveryChannel): number => (channel === 'hook' ? HOOK_LIMIT : CLI_LIMIT);
 const PREVIEW_CHARS = 300;
 
+/**
+ * The task route's start step records which iteration this route is at. Without it in the header a later iteration prints the same line as the one before,
+ * and a headless model read the third identical "change (7/17)" as a stuck route and stopped (a bench run, 11-47-42).
+ */
+const iterationOf = (run: Run): { iteration?: string } => {
+  const start = run.entries.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start' && entry['route'] === run.head.id);
+  return typeof start?.['iteration'] === 'number' && typeof start['iterations'] === 'number' ? { iteration: `${start['iteration']}/${start['iterations']}` } : {};
+};
+
 /** The first route of a chain: it stays the same when a later route resumes it. */
 export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
 
@@ -382,12 +391,12 @@ export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
  * The lines every step message starts with: where we are, what to do now, the command that ends the step, and the
  * route around the step (skipped steps are left out).
  */
-export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string; route?: string }): string {
+export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string; route?: string; iteration?: string }): string {
   const now = input.now.replace(/\s+/g, ' ').trim();
   // A command in backticks is never cut: a cut one cannot be run.
   const clipped = now.length <= 160 || now.includes('`') ? now : `${now.slice(0, 157)}…`;
   return [
-    `[ambicode] ${input.skill} · task ${input.task} · step ${input.step} (${input.position}/${input.total})`,
+    `[ambicode] ${input.skill} · task ${input.task}${input.iteration === undefined ? '' : ` · iteration ${input.iteration}`} · step ${input.step} (${input.position}/${input.total})`,
     `Now: ${clipped}`,
     `Then: ${input.then}`,
     ...(input.route === undefined ? [] : [`Route: ${input.route}`]),

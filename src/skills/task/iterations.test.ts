@@ -51,6 +51,19 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
     });
   });
 
+  it('headless with no iteration in the request: every iteration runs, the review offer takes its default skip, and no review runs', async () => {
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: TEXT, headless: true });
+      await t.edit();
+      const after = await t.check('green', { ran: 1, failed: 0 });
+      assert.notEqual(after.position, 'review-agent');
+      assert.match(after.text.split('\n')[0]!, /· iteration 2\/2 · step change/, 'the header line names the iteration, so the next iteration does not print as the step before');
+      assert.equal((await t.kinds('review')).length, 0);
+      assert.equal((await routes(t)).length, 2, 'iteration 2 opened: the offer did not end the task');
+      assert.equal(await iterationOf(t, 1), 2);
+    });
+  });
+
   it('`iteration 2` in the request: only iteration 2, the review is offered, and declining it ends the task', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });

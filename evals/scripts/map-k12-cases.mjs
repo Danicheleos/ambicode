@@ -1,6 +1,6 @@
 // Second-stack map bench (acceptance A2): five synthetic tickets over k12-backend (Python, FastAPI, SQLAlchemy, Celery).
-//   node evals/scripts/map-k12-cases.mjs <k12-checkout> [--out bench/map-k12]
-//   node evals/scripts/map-bench.mjs --bench <k12-checkout-with-.ambicode> --cases bench/map-k12
+//   node evals/scripts/map-k12-cases.mjs <k12-checkout> [--out evals/local/bench/map-k12]
+//   node evals/scripts/map-bench.mjs --bench <k12-checkout-with-.ambicode> --cases evals/local/bench/map-k12
 // Truth is the source folders each first-parent merge touched (git diff of the merge against its first parent), corrected like map-cases.mjs
 // (files absent at HEAD, non-code files) and without tests, migrations and assets. The tickets were written from the merge titles, commit
 // messages and the behaviour of the diff, in a product person's words; none names a path, a class or a function.
@@ -70,7 +70,7 @@ export function generate({ benchFiles, head, out, touchedOf }) {
 function main(argv) {
   const bench = argv[0];
   const flag = argv.indexOf('--out');
-  const out = flag >= 0 ? path.resolve(argv[flag + 1]) : path.join(REPO, 'bench', 'map-k12');
+  const out = flag >= 0 ? path.resolve(argv[flag + 1]) : path.join(REPO, 'evals', 'local', 'bench', 'map-k12');
   if (!bench) throw new Error('usage: map-k12-cases.mjs <k12-checkout> [--out dir]');
   const git = (...args) => execFileSync('git', args, { cwd: bench, encoding: 'utf8', maxBuffer: 1 << 26 }).trim();
   const touchedOf = (sha) => git('diff', '--name-status', `${sha}^1`, sha).split('\n').filter(Boolean).map((row) => { const [status, file] = row.split('\t'); return [status[0], file]; });

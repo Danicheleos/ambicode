@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { GO_MODULE_FILES, JVM_GRADLE_FILES, MONOREPO_FILES, PY_SERVICE_FILES, TS_SERVICE_FILES } from './init-stacks.mjs';
 import { REVIEW_FIXTURES } from './review-changes.mjs';
 import { POLICY_FIXTURES } from './policy-ledgerly.mjs';
-import { APP_DEEP, APP_FILES, APP_PLAN, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
+import { APP_DEEP, APP_FILES, APP_PLAN, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, APP_SITES, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
@@ -220,6 +220,12 @@ export const FIXTURES = [
     name: 'ts-app-medium',
     ...MATH_PROJECT,
     steps: appSteps(),
+  },
+  // Two readers of a customer's invoices beside segments.js, and an unused isBillable helper (APP_SITES): task-app-segments-void.
+  {
+    name: 'ts-app-medium-sites',
+    ...MATH_PROJECT,
+    steps: appSteps({ overrides: APP_SITES }),
   },
   {
     name: 'ts-app-medium-refund-bug',

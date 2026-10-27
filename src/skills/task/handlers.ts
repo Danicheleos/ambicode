@@ -11,7 +11,7 @@ import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries } from '../common.ts';
 import { planStatusOf } from '#modules/evidence/notes';
-import { briefOf } from '../brief.ts';
+import { briefOf, investigationOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
 import { runnableChecks } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
@@ -52,7 +52,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
       return { state: 'failed', code: 'plan-not-accepted', message: `${planPath} is not status: accepted. Accept it in the plan route, or name the file with --plan to run it as it is.`, recoverable: false };
     }
     if (iteration > iterations) return { state: 'ok', payload: `Every iteration of ${planPath ?? 'the plan'} is done (${iterations}).`, record: { planPath, iterations }, exit: 'iterations-complete' };
-    const record = { planPath, iteration, iterations };
+    const record = { planPath, iteration, iterations, seeded: brief !== null || (await investigationOf(input, read.state === 'ok' ? read.entries : [])) !== null };
     const head = `Task ${input.view.task} · iteration ${iteration} of ${iterations} · plan: ${planPath ?? 'none (the request is the brief)'}`;
     return { state: 'ok', payload: cutTo(brief === null ? head : `${head}\n\n${brief}`, MAX_START_BYTES, `[cut: read ${planPath ?? 'the plan'}]`), record };
   },

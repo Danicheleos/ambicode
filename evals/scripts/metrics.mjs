@@ -66,6 +66,7 @@ const ratio = (a, b) => (b === 0 ? null : Number((a / b).toFixed(3)));
 /**
  * `relevant` are the files a right answer names; `allowed` may be named without being wrong (neither hit nor miss).
  * Recall: share of relevant named. Precision: share of named that are relevant or allowed. Null when undefined.
+ * An `allowed` item ending in `/` allows every file under that directory (a repository's tests tree).
  * `spec.ignore` (optional predicate): matching paths are dropped from the answer before precision, neither hit nor extra.
  * A `relevant` item ending in `/` is a directory item: hit by that directory in the answer (trailing `/`) or by a file directly
  * inside it. An answer directory is correct when it is a directory item or the directory of a relevant file; a file directly in
@@ -77,12 +78,13 @@ export function scoreFiles(spec, named) {
   if (found === null) return { found: null, missed: spec.relevant, extra: [], recall: 0, precision: null, f1: 0, contract: false };
   const relevant = new Set(spec.relevant);
   const allowed = new Set(spec.allowed ?? []);
+  const allowedDirs = [...allowed].filter((item) => item.endsWith('/'));
   const dirOf = (file) => `${path.posix.dirname(file)}/`;
   const dirItems = new Set(spec.relevant.filter((item) => item.endsWith('/')));
   const fileDirs = new Set(spec.relevant.filter((item) => !item.endsWith('/')).map(dirOf));
   const isNamed = (item) => found.includes(item) || (dirItems.has(item) && found.some((file) => !file.endsWith('/') && dirOf(file) === item));
   const hits = spec.relevant.filter(isNamed);
-  const extra = found.filter((file) => (file.endsWith('/') ? !dirItems.has(file) && !fileDirs.has(file) : !relevant.has(file) && !allowed.has(file) && !dirItems.has(dirOf(file))));
+  const extra = found.filter((file) => (file.endsWith('/') ? !dirItems.has(file) && !fileDirs.has(file) : !relevant.has(file) && !allowed.has(file) && !allowedDirs.some((dir) => file.startsWith(dir)) && !dirItems.has(dirOf(file))));
   const recall = ratio(hits.length, relevant.size);
   const precision = ratio(found.length - extra.length, found.length);
   const f1 = recall === null || precision === null || recall + precision === 0 ? (recall === 0 || precision === 0 ? 0 : null) : Number(((2 * recall * precision) / (recall + precision)).toFixed(3));

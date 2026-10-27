@@ -1,7 +1,7 @@
 ---
 name: task-go-after-investigate
 description: 'After an investigation: tracking.Advance accepts any state after Delivered; IsDelivered exists in the package and the clock is injected.'
-tags: ["task", "seeded", "go"]
+tags: ["task", "seeded", "go", "task-tune"]
 runs: 1
 max_turns: 40
 timeout_seconds: 1200

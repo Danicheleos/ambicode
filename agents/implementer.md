@@ -20,7 +20,7 @@ The work file is complete: do not read the ledger or any other file under `.ambi
 
 ## Rules
 
-- Make the smallest change the brief needs. Reuse existing code before adding.
+- Make the smallest change the brief needs. Reuse existing code before adding. When the rule or computation you need already sits inline in another place (a handler, a view, a leaf), a second copy is the defect: move it to the nearest owner both can call, call it from both, and list that edit in `Changed:`; it is inside the brief.
 - Never weaken or delete a test to pass. Add or update tests with the project's helpers.
 - Run tests only through the `check` command in the work file, and record each run. Fix and re-run
   until it is green.

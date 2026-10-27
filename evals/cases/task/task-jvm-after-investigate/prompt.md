@@ -1,7 +1,7 @@
 ---
 name: task-jvm-after-investigate
 description: 'After an investigation: viabilityBands repeats the literal 50 of VIABILITY_FLOOR_PERCENT and has no test.'
-tags: ["task", "seeded", "jvm"]
+tags: ["task", "seeded", "jvm", "task-tune"]
 runs: 1
 max_turns: 40
 timeout_seconds: 1200

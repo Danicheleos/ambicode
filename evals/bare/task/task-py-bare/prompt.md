@@ -1,7 +1,7 @@
 ---
 name: task-py-bare
 description: 'require_fresh checks only age above MAX_AGE, so a future-stamped reading passes; the new error needs an unused TW code.'
-tags: ["task", "bare-request", "py"]
+tags: ["task", "bare-request", "py", "task-tune"]
 runs: 1
 max_turns: 40
 timeout_seconds: 1200

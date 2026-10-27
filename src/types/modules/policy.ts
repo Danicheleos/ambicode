@@ -124,8 +124,8 @@ export interface StagePayload {
   stage: 'before-work';
   text: string;
   bytes: number;
-  /** The `policy` ledger entry's fields. */
-  entry: { stage: 'before-work'; packs: string[]; rules: number; bytes: number; activity: string; ids: string[] };
+  /** The `policy` ledger entry's fields; `problems` are the error diagnostics of the packs that applied, which the review records as omissions. */
+  entry: { stage: 'before-work'; packs: string[]; rules: number; bytes: number; activity: string; ids: string[]; problems: string[] };
 }
 
 export const DRAFTS_DIR = '.ambicode/policies/drafts';

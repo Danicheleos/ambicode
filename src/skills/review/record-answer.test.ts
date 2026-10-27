@@ -16,6 +16,7 @@ import { pinReview } from '#modules/review/bundle/bundle';
 import { pendingReview } from '#modules/review/answer/captured';
 import { recordReviewerAnswer, renderRecord } from './record-answer.ts';
 import type { Runtime } from '#types/composition';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 const TASK = 'src-regression';
 const pin = async (runtime: Runtime) => {
@@ -42,9 +43,9 @@ async function pending() {
   const location = (at: number) => ({ oldPath: file.oldPath, newPath: file.newPath, side: 'new', line: at });
   const finding = (at: number) => ({ risk: 'high', confidence: 'high', category: 'correctness', location: location(at), problem: 'drops the last element', impact: 'i', confidenceReason: 'c', suggestedComment: 'check the slice end' });
   const taskDirectory = path.join(root, '.ambicode', 'tasks', TASK);
-  const record = async (answer: string | null) => {
+  const record = async (answer: string | null, policy?: LedgerEntry) => {
     const entry = pendingReview(await readLedger(nodeFileSystem, taskDirectory), null)!;
-    return recordReviewerAnswer(runtime, { pending: entry, answer, append: async (fields) => (await appendLedger(nodeFileSystem, taskDirectory, new Date(), fields)).entry });
+    return recordReviewerAnswer(runtime, { pending: entry, ...(policy === undefined ? {} : { policy }), answer, append: async (fields) => (await appendLedger(nodeFileSystem, taskDirectory, new Date(), fields)).entry });
   };
   const ledger = () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return { root, reviewed, line, finding, record, ledger };
@@ -120,6 +121,15 @@ describe('recording the reviewer answer', () => {
     assert.match(renderRecord(out), /4\. OMISSIONS[\s\S]*needs attention[\s\S]*cited rule "common-rules\/callers"[\s\S]*the reference was dropped/);
     const entry = (await t.ledger()).findLast((candidate) => candidate.kind === 'review')!;
     assert.equal(entry['omissions'], out.result.omissions.length);
+  });
+
+  it('the ids a finding may cite are the ones the single staging delivered, and its error diagnostics become attention omissions', async () => {
+    const t = await pending();
+    const stage = { id: 'p-1', kind: 'policy', stage: 'before-work', activity: 'review', ids: ['common-rules/callers'], problems: ['project "app" policy: pack-invalid: bad rule'] } as unknown as LedgerEntry;
+    const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [{ ...t.finding(t.line), ruleRefs: ['common-rules/callers', 'common-rules/other'] }], coverageNotes: [] })}\n\`\`\``, stage);
+    assert.deepEqual(out.result.findings[0]!.ruleRefs, ['common-rules/callers']);
+    assert.equal(out.result.omissions.filter((omission) => omission.text.includes('common-rules/other')).length, 1);
+    assert.equal(out.result.omissions.filter((omission) => omission.text.includes('policy: pack-invalid: bad rule')).length, 1);
   });
 
   it('the reviewer\'s coverage notes become attention omissions, and a requirement row with an unknown ref is dropped with one', async () => {

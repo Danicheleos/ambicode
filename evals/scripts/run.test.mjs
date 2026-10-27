@@ -27,6 +27,18 @@ describe('result copy', () => {
     assert.equal(JSON.parse(readFileSync(bare, 'utf8')).cases[0].arms.with[0].metrics.recall, 1);
   });
 
+  it('a case with the changed source is scored on the run\'s workspace diff, not on its trace', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-changed-'));
+    const result = path.join(root, 'plugin.json');
+    const raw = { startedAt: '2026-10-27T10:00:00.000Z', cases: [{ name: 'task-app-segments-void', arms: { with: [{ graders: [], changed: ['src/customers/segments.js', 'src/customers/statement.js', 'tests/customers/segments.test.js', 'src/elsewhere.js'] }, { graders: [], changed: null }] } }] };
+    const deps = { tracesRoot: path.join(root, 'traces'), harvest: () => {}, spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } };
+    runCase({ argv: [], env: {}, result, arm: 'plugin' }, deps);
+    const [full, none] = JSON.parse(readFileSync(result, 'utf8')).cases[0].arms.with.map((one) => one.metrics);
+    assert.equal(full.recall, 1);
+    assert.deepEqual(full.extra, ['src/elsewhere.js']);
+    assert.equal(none.recall, 0, 'no diff at all is a miss, not an absent score');
+  });
+
 });
 
 describe('evals runner', () => {

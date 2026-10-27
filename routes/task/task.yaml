@@ -11,8 +11,22 @@ steps:
     run: task.start                               # may exit iterations-complete
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.runnable, checks.baseline, "search.map(context)", "policy.stage(before-work)", context.list]
-    produces: [baseline, map, policy]
+    run: [requirements.normalize, checks.runnable, checks.baseline]
+    produces: [baseline]
+  - id: map-seeded
+    actor: code
+    when: task.seeded
+    run: "search.map(context)"                    # a plan brief or an investigation seeds the map
+    produces: [map]
+  - id: map-request
+    actor: code
+    when: task.unseeded
+    run: "search.map(prompt)"                     # a raw request: context mode greps identifier-like words only, so prose found nothing
+    produces: [map]
+  - id: rules
+    actor: code
+    run: ["policy.stage(before-work)", context.list]
+    produces: [policy]
   - id: change
     actor: model
     instruction: file:routes/task/change.md
@@ -24,7 +38,7 @@ steps:
     run: [checks.format, checks.approved]         # runs once the green check ends change, before the offer, so a skipped review is still formatted; approved checks run after it
   - id: review-offer
     actor: human
-    when: iteration.named                         # no iteration in the request: every iteration runs and its review runs unasked
+    when: iteration.named                         # no iteration in the request and not headless: every iteration runs and its review runs unasked
     gate:
       question: "Run the independent review of this change?"
       options: [run, "skip — verification incomplete"]

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { launchRoute } from '#hook/events/prompt-launch';
 import { runHook } from '#hook/events/run-hook';
+import { launchRoute } from '#hook/events/prompt-launch';
 import { createRuntime } from '#composition/root';
 import { gapsOf } from '#modules/evidence/report/report';
 import { stepHeader } from '#harness/engine/execute';
@@ -52,7 +52,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('07-R1: the shipped route declares its steps in order, the raised registry gates and 5 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'change', 'format', 'review-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'report-step', 'next', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map-seeded', 'map-request', 'rules', 'change', 'format', 'review-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'report-step', 'next', 'write']);
       assert.equal(def.steps.filter((step) => step.actor === 'model').length, 5);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') != null);
       for (const gone of ['review-checks', 'scope-expanding']) assert.equal(t.fx.routes.gate(gone) ?? null, null, `${gone} is not a gate`);
@@ -110,6 +110,19 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     });
   });
 
+  it('a prose request with no plan or investigation gets a map from the retrieval layers; a seeded one keeps the context map', async () => {
+    await withTask(async (t) => {
+      await t.fx.repo.write('src/billing/invoice-totals.ts', 'export function reduceInvoiceTotals(): number {\n  return 1;\n}\n');
+      await t.fx.repo.commitAll('invoice totals');
+      await t.start({ text: 'Fix the invoice totals so that rounding matches the billing statement' });
+      const map = (await t.kinds('map')).at(-1)!;
+      assert.ok(Number(map['candidates']) > 0, JSON.stringify(map));
+      assert.match(await t.work(), /## map\nMap: [\s\S]*src\/billing\/invoice-totals\.ts/);
+      const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
+      assert.ok(skipped.includes('map-seeded') && !skipped.includes('map-request'), skipped.join(','));
+    });
+  });
+
   it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, under 9 KiB', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/other.ts', 'export function total(): number {\n  return 1;\n}\n');
@@ -117,7 +130,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const red = await t.start();
       const order = (await t.ledger()).map((entry) => (entry.kind === 'policy' ? `policy:${entry['stage']}` : entry.kind === 'step' ? `step:${entry['step']}` : entry.kind));
       const at = (name: string): number => order.indexOf(name);
-      assert.ok(at('baseline') < at('map') && at('map') < at('policy:before-work') && at('policy:before-work') < at('step:ground'), order.join(' '));
+      assert.ok(at('baseline') < at('map') && at('map') < at('policy:before-work') && at('policy:before-work') < at('step:rules'), order.join(' '));
       assert.doesNotMatch(red.text, /git grep|Callers/);
       assert.ok(Buffer.byteLength(red.text) <= 9 * 1024, `${Buffer.byteLength(red.text)} bytes`);
     });
@@ -172,7 +185,8 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const change = await t.start();
       const work = await t.work();
       assert.match(change.text, /Launch the `ambicode:implementer` subagent on .+work-change\.md/);
-      assert.doesNotMatch(change.text, /run_in_background|hook prints/);
+      assert.doesNotMatch(change.text, /hook prints/);
+      assert.match(change.text, /run_in_background: false/, "a background launch ended the turn and the Stop hook closed the route under the implementer");
       const launched = /Implement the work described in (.+work-change\.md)\./.exec(change.text)?.[1] ?? '';
       assert.ok(path.isAbsolute(launched), `the launch names the work file by an absolute path: ${launched}`);
       assert.equal(await realpath(launched), await realpath(path.join(t.dir, 'steps', 'work-change.md')));
@@ -424,6 +438,22 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }
   });
 
+  it('a Stop while a background subagent runs leaves the route and its step files; once it returns the next Stop closes as before', async () => {
+    await withTask(async (t) => {
+      await t.start({ headless: true });
+      const deps = { load: async () => ({ engine: t.fx.engine, routes: t.fx.routes }) };
+      const send = (event: Record<string, unknown>) => runHook(t.fx.runtime, JSON.stringify({ session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, ...event }), deps);
+      const workFile = path.join(t.fx.repo.root, '.ambicode', 'tasks', CHECK_TASK, 'steps', 'work-change.md');
+      await send({ hook_event_name: 'PostToolUse', tool_name: 'Agent', tool_response: { content: [{ type: 'text', text: 'Async agent launched successfully.\nagentId: a8911c6a0944fb72c (internal ID)\nThe agent is working in the background.' }] } });
+      await send({ hook_event_name: 'Stop' });
+      assert.equal((await t.kinds('exit')).length, 0, 'the launching turn ended, the implementer is still running');
+      assert.ok((await readFile(workFile, 'utf8')).length > 0);
+      await send({ hook_event_name: 'SubagentStop', agent_id: 'a8911c6a0944fb72c' });
+      await send({ hook_event_name: 'Stop' });
+      assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['inconclusive']);
+    });
+  });
+
   it('B9: before-work reaches change', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
@@ -515,7 +545,8 @@ describe('task route: the implementer returns', { concurrency: 4 }, () => {
 describe('task route: text the model has no use for is not sent', { concurrency: 4 }, () => {
   it('an empty map is recorded but not delivered; a map with candidates still is', async () => {
     await withTask(async (t) => {
-      const red = await t.start();
+      await t.fx.repo.write('docs/empty-plan.md', '# Plan\n\n## Iteration 1\ntidy the wording.\n');
+      await t.start({ plan: 'docs/empty-plan.md' });
       assert.equal(Number((await t.kinds('map')).at(-1)?.['candidates']), 0);
       assert.doesNotMatch(await t.work(), /## map/);
     });
@@ -693,6 +724,27 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       assert.deepEqual(fix, change, 'fix carries the rules change carried');
       assert.ok(!fix.includes('common-security/no-secret-exposure'), 'a review-only rule is not a coding rule');
     }, WITH_RULES);
+  });
+
+  it('the reviewer brief delivers the rules of the reviewed files only: a touched file the review excludes brings none, and the ids a finding may cite are the delivered ones', async () => {
+    const pack = (applies: string, id: string): string => ['schemaVersion: 1', `id: ${id}`, 'authority: team', `appliesTo: ["${applies}"]`, 'activities: [review]', 'source: { location: "test" }', 'rules:', '  - id: freeze', '    category: security', '    instruction: Freeze this file.', '    check: { kind: reviewer, explanation: x }', ''].join('\n');
+    const config = CHECK_CONFIG.replace('    policyFiles: [.ambicode/policies/cmds.yaml]', '    policyFiles: [.ambicode/policies/cmds.yaml, .ambicode/policies/gen.yaml, .ambicode/policies/src.yaml]').replace('excludePaths: []', "excludePaths: ['gen/**']");
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/policies/gen.yaml', pack('gen/**', 'gen'));
+      await t.fx.repo.write('.ambicode/policies/src.yaml', pack('src/**', 'srcpack'));
+      await t.start();
+      await t.edit();
+      await t.fx.repo.write('gen/out.ts', 'export const generated = 1;\n');
+      await t.check('green', null);
+      await t.hook('review-offer', 'run');
+      const bundle = path.dirname(path.join(t.fx.repo.root, String((await t.kinds('review'))[0]!['result'])));
+      const brief = await readFile(path.join(bundle, 'brief.md'), 'utf8');
+      const result = JSON.parse(await readFile(path.join(bundle, 'result.json'), 'utf8')) as { changedFiles: { newPath: string; exclusionReason: string | null }[] };
+      assert.deepEqual(result.changedFiles.filter((file) => file.exclusionReason === null).map((file) => file.newPath), ['src/orders.ts'], 'the review excludes gen/');
+      const staged = (await t.kinds('policy')).findLast((entry) => entry['activity'] === 'review')!['ids'] as string[];
+      assert.deepEqual(staged, ['srcpack/freeze']);
+      assert.ok(brief.includes('srcpack/freeze') && !brief.includes('gen/freeze'), 'the brief carries the rules of the reviewed files only');
+    }, { config });
   });
 
   it('risk 7/I4: the request has its own section in the work file, whole, with or without a plan', async () => {

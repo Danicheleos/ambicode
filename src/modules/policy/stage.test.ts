@@ -83,7 +83,7 @@ describe('03-P policy stage', () => {
       assert.doesNotMatch(review.text, /\d+ more, in /);
       const payload = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
       assert.ok(payload.bytes <= STAGE_LIMITS['before-work'], `before-work: ${payload.bytes}`);
-      assert.deepEqual(Object.keys(payload.entry).sort(), ['activity', 'bytes', 'ids', 'packs', 'rules', 'stage']);
+      assert.deepEqual(Object.keys(payload.entry).sort(), ['activity', 'bytes', 'ids', 'packs', 'problems', 'rules', 'stage']);
       assert.equal(payload.entry.ids.length, payload.entry.rules);
       assert.equal(payload.entry.bytes, payload.bytes);
       assert.equal(STAGE_LIMITS['before-work'], 4096);

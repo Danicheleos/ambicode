@@ -2,8 +2,8 @@
 //
 // Broad: three cases on each init stack (fixtures/init-stacks.mjs), one that starts after a plan, one after an investigation and
 // one from a bare request. The first two carry the earlier route's note and ledger line as `seed/...` files (task-seeds.mjs),
-// which the scaffold copies into .ambicode/; they have no bare arm, because the thing under test is the route picking the
-// note up. Narrow: five cases on the app fixtures that exercise one task behaviour each.
+// which the scaffold copies into .ambicode/. Their bare arm gets the same note as text in the prompt (a plan to implement, an
+// investigation's findings to build on), so the baseline has the same input and only the route differs. Narrow: five cases on the app fixtures that exercise one task behaviour each.
 //
 // Every expectation is read from the fixture as materialized (fixtures/definitions.mjs, init-stacks.mjs, app-medium.mjs); the stack
 // fixtures are materialized without --install, so their runs have no runnable check and are graded on the code and the test file.
@@ -11,8 +11,8 @@
 import { INVESTIGATIONS, PLANS, seedFiles } from './task-seeds.mjs';
 
 const T = (slug) => `.ambicode/tasks/${slug}/ledger.jsonl`;
-// "iteration 1" names the iteration, so the review offer is a gate whose headless default skips it; a case that leaves the iteration out has its review run unasked.
-const PROMPT = (slug, request, { iteration = true } = {}) => `/ambicode:task --task ${slug} --headless ${iteration ? 'iteration 1 ' : ''}${request}`;
+// A headless request gets the review offer as a gate whose default skips it; a case that wants the review answers the offer with run, as a user would.
+const PROMPT = (slug, request, { review = false } = {}) => `/ambicode:task --task ${slug} --headless ${review ? '--answer review-offer=run ' : 'iteration 1 '}${request}`;
 const GIT = 'git (commit|push|stash|reset|checkout|clean|merge|rebase)';
 const REPORT = 'Task report[\\s\\S]*\\*\\*Done\\*\\*';
 // check entries are written as {kind, key, files, exit, phase} (src/modules/checks/run/check-command.ts)
@@ -27,25 +27,35 @@ export function taskCases(B) {
   const noGit = (isShared) => (isShared ? shared(never('no-git-mutation', 'Bash', GIT)) : never('no-git-mutation', 'Bash', GIT));
   const report = () => regex('report-sections', REPORT);
   const untouched = (name, where) => [never(`${name}-not-edited`, 'Edit', where), never(`${name}-not-written`, 'Write', where)];
+  // The task route's policy row (stage before-work, activity task) lists the rule ids delivered whole; a missing row means the rule never reached the change step.
+  const delivered = (slug, id) => ledger(`policy-delivered-${id.split('/')[1]}`, String.raw`(?:^|\n)(?=[^\n]*"kind":"policy")(?=[^\n]*"activity":"task")(?=[^\n]*"ids":\[[^\]]*"${id}")`, T(slug));
 
-  /** After a plan / an investigation: the plugin arm only, the earlier route's output is the input. */
-  const seeded = ({ name, slug, kind, text, cited, fixture, description, request, graders, tags }) => ({
+  // The bare counterpart of a seeded case: the note's text in the prompt instead of a file the route picks up. Plain words, no AMBICODE names.
+  const bareNote = (kind, text, request) =>
+    kind === 'plan'
+      ? `Implement the accepted plan below in this repository: ${request === 'Go ahead with the plan.' ? 'make the changes it lists and add the tests it asks for.' : request}\n\n${text.trim()}`
+      : `${request}\n\nAn earlier investigation of this code found the following; build on it.\n\n${text.trim()}`;
+  // A grader that reads the ledger or .ambicode/ cannot run without the plugin; the rest judges the code and the boundary in both arms.
+  const sharedIfCode = (g) => (g.shared || g.text.includes('.ambicode/') ? g : shared(g));
+
+  /** After a plan / an investigation: the plugin arm gets the note as files the route picks up, the bare arm as prompt text. */
+  const seeded = ({ name, slug, kind, text, cited, fixture, description, request, graders, tags, flags = '--ambicode-init --context' }) => ({
     name,
     description,
     tags: ['task', 'seeded', ...tags],
     version: 1,
     fixture,
-    flags: '--ambicode-init --context',
+    flags,
     prompt: PROMPT(slug, request),
-    bare: null,
+    bare: bareNote(kind, text, request),
     files: seedFiles(slug, kind, text),
     graders: [
       DONE(T(slug)),
       // task.start records the plan it read (src/skills/task/handlers.ts); the map entry lists the paths an investigation cites, so a file only the note names shows it was read.
       kind === 'plan' ? ledger('plan-picked-up', `"planPath":".ambicode/tasks/${slug}/plan\\.md","iteration":1`, T(slug)) : ledger('investigation-picked-up', `"kind":"map"[^\\n]*${cited}`, T(slug)),
-      noGit(false),
+      noGit(true),
       report(),
-      ...graders,
+      ...graders.map(sharedIfCode),
     ],
   });
 
@@ -158,13 +168,17 @@ export function taskCases(B) {
       ],
     }),
     afterInvestigation({
-      name: 'task-go-after-investigate', slug: 'ph-advance', cited: 'tracking/history\\.go', fixture: 'go-module-parcelhub', tags: ['go'],
+      // --policy: the project pack with the injected-clock rule (fixtures/policies/go-module-parcelhub.yaml, appliesTo **/*.go).
+      name: 'task-go-after-investigate', slug: 'ph-advance', cited: 'tracking/history\\.go', fixture: 'go-module-parcelhub', tags: ['go'], flags: '--ambicode-init --context --policy',
       description: 'tracking.Advance accepts any state after Delivered; IsDelivered exists in the package and the clock is injected.',
       request: 'Make tracking.Advance refuse a parcel that is already delivered, reusing what the investigation found, and test it in internal/tracking/tracking_test.go.',
       graders: [
         file('existing-helper-reused', 'IsDelivered\\(', 'internal/tracking/service.go'),
         file('invalid-error-returned', 'core\\.ErrInvalid', 'internal/tracking/service.go'),
         file('no-wall-clock', 'time\\.Now', 'internal/tracking/service.go', { match: 'not_contains' }),
+        delivered('ph-advance', 'parcelhub-team/injected-clock'),
+        // The refusal reuses IsDelivered or LastState; a hand-written index of the newest scan in service.go is the duplicate this grader catches.
+        file('no-second-state-scan', 'Scans\\[len\\(', 'internal/tracking/service.go', { match: 'not_contains' }),
         file('refusal-tested', 'Delivered', 'internal/tracking/tracking_test.go'),
         file('existing-tests-kept', 'TestAdvanceRecordsTheScanTime', 'internal/tracking/tracking_test.go'),
       ],
@@ -272,8 +286,8 @@ export function taskCases(B) {
       description: 'A refund defect across three files of the payments module (repository sign, invoice status, bare Error), with the regression test in the factory style; the tests that guarded it were dropped from the fixture.',
       tags: ['task', 'multi-file', 'regression-test'],
       fixture: 'ts-app-medium-refund-bug',
-      prompt: PROMPT('fix-refund', 'Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js.'),
-      bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js.`,
+      prompt: PROMPT('fix-refund', 'Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Fix both and cover them with tests.'),
+      bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Fix both and cover them with tests.`,
       graders: [
         DONE(T('fix-refund')),
         ledger('green-check-recorded', GREEN, T('fix-refund')),
@@ -282,7 +296,12 @@ export function taskCases(B) {
         noGit(true),
         sharedFile('repository-subtracts-refunds', "KIND\\.REFUND|'refund'", 'src/payments/repository.js'),
         sharedFile('status-synced-after-refund', 'function refund[\\s\\S]*syncStatus', 'src/payments/service.js'),
-        sharedFile('no-bare-error', 'throw new Error\\(', 'src/payments/service.js', { match: 'not_contains' }),
+        sharedFile('error-classified', 'throw new Error\\(', 'src/payments/service.js', { match: 'not_contains' }),
+        // The net is the repository's to compute (the fix is there); a reduce in the service is the same arithmetic copied into the caller.
+        sharedFile('no-net-recomputed-in-service', '\\.reduce\\(', 'src/payments/service.js', { match: 'not_contains' }),
+        delivered('fix-refund', 'common-design/fix-the-cause'),
+        // The crash is the service throwing a bare Error; catching it in the route or the http layer would fix the symptom in a leaf.
+        shared(never('no-leaf-catch', 'Edit', 'src/(payments/routes|shared/http)')),
         sharedFile('regression-test-added', 'payments\\.refund\\([\\s\\S]{0,300}partially_paid', 'tests/payments/payments.test.js'),
         sharedFile('existing-tests-kept', 'rejects a refund above what was paid[\\s\\S]*a refund is stored beside the payment', 'tests/payments/payments.test.js'),
         shared(never('legacy-not-edited', 'Edit', 'src/legacy')),
@@ -294,8 +313,8 @@ export function taskCases(B) {
       description: 'A new report that must go through the reports service\'s own groupBy and total, not a new grouping loop, with its route and a test.',
       tags: ['task', 'reuse'],
       fixture: 'ts-app-medium',
-      prompt: PROMPT('revenue-customer', 'Add revenueByCustomer to src/reports/service.js: the totals of fully paid invoices grouped by customer id, in the same row shape as outstandingByCustomer, and serve it at GET /reports/revenue-by-customer in src/reports/routes.js. Test it in tests/reports/service.test.js.'),
-      bare: `Add revenueByCustomer to src/reports/service.js: the totals of fully paid invoices grouped by customer id, in the same row shape as outstandingByCustomer, and serve it at GET /reports/revenue-by-customer in src/reports/routes.js. Test it in tests/reports/service.test.js.`,
+      prompt: PROMPT('revenue-customer', 'Add a revenue-by-customer report (revenueByCustomer): the totals of fully paid invoices grouped by customer id, in the same row shape as the other customer report, served at GET /reports/revenue-by-customer, with tests.'),
+      bare: `Add a revenue-by-customer report (revenueByCustomer): the totals of fully paid invoices grouped by customer id, in the same row shape as the other customer report, served at GET /reports/revenue-by-customer, with tests.`,
       graders: [
         DONE(T('revenue-customer')),
         ledger('green-check-recorded', GREEN, T('revenue-customer')),
@@ -303,22 +322,27 @@ export function taskCases(B) {
         noGit(true),
         sharedFile('service-reuses-group-by', 'function revenueByCustomer\\(\\)[\\s\\S]{0,300}groupBy\\(', 'src/reports/service.js'),
         sharedFile('no-second-grouping-loop', 'new Map\\([\\s\\S]*new Map\\(', 'src/reports/service.js', { match: 'not_contains' }),
+        delivered('revenue-customer', 'common-design/reuse-before-reimplementing'),
+        // Other sites that group by customer (top-customers, a new report module) are the tempting copies; the service's groupBy is the owner.
+        shared(never('no-other-grouping-site', 'Edit', 'src/reports/(top-customers|csv|aging)')),
+        shared(never('no-new-report-module', 'Write', '"file_path":"[^"]*/src/reports/(?!service|routes)')),
         sharedFile('service-exports-it', 'module\\.exports = \\{[^}]*revenueByCustomer', 'src/reports/service.js'),
         sharedFile('route-added', '/reports/revenue-by-customer', 'src/reports/routes.js'),
         sharedFile('route-calls-service', 'service\\.revenueByCustomer\\(', 'src/reports/routes.js'),
-        sharedFile('test-added', 'revenueByCustomer', 'tests/reports/service.test.js'),
+        // The harness reads one fixed file per grader; a service-level and a route-level test are equally good (a baseline run chose routes.test.js), so the trace is read: one tool call naming either test file and revenueByCustomer.
+        shared(regex('test-added', String.raw`tests/reports/(?:service|routes)\.test\.js[^\n]*revenueByCustomer`, { trace: true })),
         sharedFile('existing-tests-kept', 'revenue counts only paid invoices, per issue month', 'tests/reports/service.test.js'),
       ],
     },
     {
       ...app,
       name: 'task-app-review-fix-loop',
-      description: 'New behaviour behind a flag in a project with rules (flag, opt-out, templates, factory tests); no iteration is named, so the independent review runs and its findings, if any, go back to the fix step.',
+      description: 'New behaviour behind a flag in a project with rules (flag, opt-out, templates, factory tests); the review offer is answered run, so the independent review runs and its findings, if any, go back to the fix step.',
       tags: ['task', 'review', 'fix-loop'],
       fixture: 'ts-app-medium',
       // Reviews and fixes take more steps than a bare change; 60 turns keeps a second fix round inside the budget.
       limits: { max_turns: 60, timeout_seconds: 1800 },
-      prompt: PROMPT('refund-mail', "Mail the customer when a refund is recorded: onPaymentRefunded in src/notifications/handlers.js only logs today. Reuse the existing delivery and template style, respect customers who opted out of receipts, and ship it behind a new flag refundEmails, off by default. Test it in tests/notifications/handlers.test.js.", { iteration: false }),
+      prompt: PROMPT('refund-mail', "Mail the customer when a refund is recorded: onPaymentRefunded in src/notifications/handlers.js only logs today. Reuse the existing delivery and template style, respect customers who opted out of receipts, and ship it behind a new flag refundEmails, off by default. Test it in tests/notifications/handlers.test.js.", { review: true }),
       bare: null,
       graders: [
         DONE(T('refund-mail')),
@@ -343,8 +367,8 @@ export function taskCases(B) {
       description: 'A third aging bucket makes existing expectations (the 60+ label) obsolete: the first check run of the related tests can fail, and the run must end with those tests updated and green.',
       tags: ['task', 'failing-checks'],
       fixture: 'ts-app-medium',
-      prompt: PROMPT('aging-bucket', 'Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line.'),
-      bare: `Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+. config.agingBucketsDays becomes [30, 60, 90], bucketFor in src/reports/aging.js follows it, and every test that still expects the old 60+ label is brought in line.`,
+      prompt: PROMPT('aging-bucket', 'Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+, so the boundaries are 30, 60 and 90 days. Keep the whole suite green.'),
+      bare: `Add a third aging bucket: invoices 61 to 90 days old are labelled 61-90 and older ones 90+, so the boundaries are 30, 60 and 90 days. Keep the whole suite green.`,
       graders: [
         DONE(T('aging-bucket')),
         ledger('green-check-recorded', GREEN, T('aging-bucket')),
@@ -354,6 +378,8 @@ export function taskCases(B) {
         sharedFile('config-has-third-boundary', 'agingBucketsDays: \\[30, 60, 90\\]', 'src/config.js'),
         sharedFile('old-last-label-replaced', "return second \\+ '\\+'", 'src/reports/aging.js', { match: 'not_contains' }),
         sharedFile('aging-test-covers-new-bucket', '61-90', 'tests/reports/aging.test.js'),
+        // The labels come from config.agingBucketsDays; a literal 60 or 90 in aging.js code copies the config into the function. Lines with a `/` before the number are skipped: the baseline runs kept the fixture's comment `with [30, 60, 90] they are ...` and failed on it.
+        sharedFile('no-literal-boundaries', '(?:^|\\n)[^\\n/*]*\\b(60|90)\\b', 'src/reports/aging.js', { match: 'not_contains' }),
         sharedFile('old-label-gone-from-service-test', "'60\\+'", 'tests/reports/service.test.js', { match: 'not_contains' }),
         sharedFile('existing-tests-kept', 'daysBetween counts calendar days', 'tests/reports/aging.test.js'),
       ],
@@ -363,23 +389,92 @@ export function taskCases(B) {
       name: 'task-app-segments-void',
       description: 'customers/segments.js counts void invoices in the lifetime spend although reports/top-customers.js excludes them; the fix must keep the three existing tests and add one regression test.',
       tags: ['task', 'existing-tests', 'regression-test'],
-      fixture: 'ts-app-medium',
-      prompt: PROMPT('segments-void', "customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js."),
-      bare: `customers/segments.js counts void invoices in lifetimeCents and in describe, so a customer whose large invoice was voided is still gold, while reports/top-customers.js excludes them. Exclude void invoices from both, and add the regression test to tests/customers/segments.test.js.`,
+      fixture: 'ts-app-medium-sites',
+      prompt: PROMPT('segments-void', "A customer whose large invoice was voided is still classed gold, still counted in the description of their segment, and still billed on their account statement. Voided invoices must not count for any of them, as in the top customers report. Add a regression test."),
+      bare: `A customer whose large invoice was voided is still classed gold, still counted in the description of their segment, and still billed on their account statement. Voided invoices must not count for any of them, as in the top customers report. Add a regression test.`,
       graders: [
         DONE(T('segments-void')),
         ledger('green-check-recorded', GREEN, T('segments-void')),
         ledger('format-recorded', '"kind":"format"', T('segments-void')),
         report(),
         noGit(true),
-        sharedFile('void-excluded', "STATUS\\.VOID|'void'", 'src/customers/segments.js'),
+        sharedFile('void-excluded', "STATUS\\.VOID|'void'|illable", 'src/customers/segments.js'),
         sharedFile('regression-test-added', 'voidInvoice', 'tests/customers/segments.test.js'),
+        // Both readers of the invoice list share one filter: two invoices.list calls, or two void checks, in segments.js mean the rule was written in each leaf.
+        sharedFile('one-list-call', 'invoices\\.list\\(\\{ customerId \\}\\)[\\s\\S]*invoices\\.list\\(\\{ customerId \\}\\)', 'src/customers/segments.js', { match: 'not_contains', weight: 2 }),
+        sharedFile('no-void-rule-in-both-readers', "(STATUS\\.VOID|'void')[\\s\\S]*(STATUS\\.VOID|'void')", 'src/customers/segments.js', { match: 'not_contains', weight: 2 }),
+        sharedFile('statement-excludes-void', 'illable|STATUS\\.VOID|\'void\'', 'src/customers/statement.js'),
+        // A void literal in a reader means the rule was copied there instead of shared (invoices/status.js isBillable or the invoice service).
+        sharedFile('no-void-literal-in-statement', "STATUS\\.VOID|'void'", 'src/customers/statement.js', { match: 'not_contains', weight: 2 }),
+        delivered('segments-void', 'common-design/fix-the-cause'),
         sharedFile('existing-tests-kept', 'a customer with no invoices is standard[\\s\\S]*lifetime spend decides the segment[\\s\\S]*describe counts invoices', 'tests/customers/segments.test.js'),
-        shared(never('reports-not-edited', 'Edit', 'src/reports/')),
         shared(never('legacy-not-edited', 'Edit', 'src/legacy')),
       ],
     },
   ];
 
-  return [...lendbox, ...tidewatch, ...parcelhub, ...seedvault, ...kiln, ...appCases];
+  // ---------------------------------------------------------------- ts-app-medium-plan: after an accepted plan, with the express packs and CONTRIBUTING.md rules in force
+  // Seeded plans 'ap-due' and 'ap-csv' (task-seeds.mjs); jest installed so the checks run. Both plans leave the how of reuse and of the single source of a rule to the implementer.
+  const appPlan = { flags: '--ambicode-init --context --install --stack-packs', fixture: 'ts-app-medium-plan', tags: ['app'] };
+  const appPlanCases = [
+    afterPlan({
+      ...appPlan, name: 'task-app-due-after-plan', slug: 'ap-due',
+      description: 'Add a stored dueDate to invoices: the plan names validateRange and dueDateFor; a new validator, a bare Error or a copy of the date rule are the failure modes.',
+      request: 'Go ahead with the plan.',
+      graders: [
+        ledger('green-check-recorded', GREEN, T('ap-due')),
+        file('due-date-stored', 'dueDate', 'src/invoices/model.js'),
+        file('validated-by-shared-range', 'validateRange\\([^)]*dueDate', 'src/invoices/service.js'),
+        file('mail-gets-stored-date', 'sendInvoiceCreated\\([^;]*invoice\\.dueDate', 'src/invoices/service.js'),
+        file('page-shows-due-date', 'dueDate', 'src/invoices/routes.js'),
+        file('test-added', 'dueDate', 'tests/invoices/service.test.js'),
+        file('terms-reused', 'dueDateFor\\(', 'src/invoices/service.js'),
+        file('no-bare-error', 'throw new Error\\(', 'src/invoices/service.js', { match: 'not_contains' }),
+        file('no-own-date-comparison', 'dueDate\\s*[<>]|[<>]\\s*(input\\.)?dueDate|Date\\.parse\\(', 'src/invoices/service.js', { match: 'not_contains' }),
+        file('existing-tests-kept', 'total is subtotal plus rounded tax', 'tests/invoices/service.test.js'),
+        delivered('ap-due', 'express-errors/classified-errors'),
+        ...untouched('legacy', 'src/legacy'),
+        ...untouched('installments', 'payments/installments'),
+      ],
+    }),
+    afterPlan({
+      ...appPlan, name: 'task-app-csv-after-plan', slug: 'ap-csv',
+      description: 'An invoices CSV that must print the invoice page\'s totals: the plan names toDecimal, attachment and the page rule; copying the void-is-zero rule into reports, floating-point money or a fat route are the failure modes.',
+      request: 'Go ahead with the plan.',
+      graders: [
+        ledger('green-check-recorded', GREEN, T('ap-csv')),
+        file('csv-writer-added', 'invoicesToCsv', 'src/reports/csv.js'),
+        file('grand-total-summed-in-cents', 'invoicesToCsv[\\s\\S]*money\\.sum\\(', 'src/reports/csv.js'),
+        file('service-builds-the-file', 'function invoicesCsv\\(', 'src/reports/service.js'),
+        file('route-added', '/invoices\\.csv', 'src/invoices/routes.js'),
+        file('download-helper-reused', 'attachment\\([^)]*invoicesCsv', 'src/invoices/routes.js'),
+        file('no-fat-route', 'invoicesCsv[^\\n]*(\\.map\\(|\\.reduce\\(|toDecimal|money\\.)', 'src/invoices/routes.js', { match: 'not_contains' }),
+        file('test-added', 'invoicesToCsv', 'tests/reports/csv.test.js'),
+        file('no-float-money', 'toFixed|/ 100', 'src/reports/csv.js', { match: 'not_contains' }),
+        file('no-float-money-in-service', 'toFixed|/ 100', 'src/reports/service.js', { match: 'not_contains' }),
+        // The page's void-is-zero rule lives in invoices/routes.js; a ternary on VOID in reports is its copy.
+        file('no-void-rule-copy-in-reports', 'VOID[^\\n]*\\?\\s*0', 'src/reports/service.js', { match: 'not_contains', weight: 2 }),
+        file('existing-tests-kept', 'revenue counts only paid invoices, per issue month', 'tests/reports/service.test.js'),
+        delivered('ap-csv', 'common-design/reuse-before-reimplementing'),
+        ...untouched('legacy', 'src/legacy'),
+      ],
+    }),
+  ];
+
+  const TUNE = new Set(['task-ts-after-plan', 'task-go-after-investigate', 'task-jvm-after-investigate', 'task-py-bare', 'task-app-reuse-report-helpers', 'task-app-segments-void', 'task-app-refund-multi-file', 'task-app-checks-fail-first', 'task-app-due-after-plan', 'task-app-csv-after-plan']);
+  // Files a correct change touches (relevant) and files it may touch without being wrong (allowed), scored on the workspace diff at
+  // harvest (context.mjs changedFilesOf), not on what the answer names: the Evals view then shows R/P/F1 of the change itself.
+  const CHANGED = {
+    'task-ts-after-plan': { relevant: ['src/contexts/lending/application/extend.ts', 'src/contexts/lending/domain/loan.ts', 'test/extend.test.ts'], allowed: ['src/contexts/lending/domain/policy.ts'] },
+    'task-py-bare': { relevant: ['src/tidewatch/domain/rules/staleness.py', 'tests/test_staleness.py'], allowed: ['src/tidewatch/domain/errors.py', 'src/tidewatch/domain/rules/limits.py'] },
+    'task-go-after-investigate': { relevant: ['internal/tracking/service.go', 'internal/tracking/tracking_test.go'], allowed: ['internal/tracking/history.go', 'internal/core/errors.go'] },
+    'task-jvm-after-investigate': { relevant: ['application/src/main/kotlin/org/seedvault/application/usecase/report/ViabilityBands.kt', 'application/src/test/kotlin/org/seedvault/application/usecase/report/ViabilityBandsTest.kt'], allowed: ['application/src/main/kotlin/org/seedvault/domain/lot/Viability.kt'] },
+    'task-app-reuse-report-helpers': { relevant: ['src/reports/service.js', 'src/reports/routes.js'], allowed: ['tests/reports/service.test.js', 'tests/reports/routes.test.js', 'tests/factory.js'] },
+    'task-app-segments-void': { relevant: ['src/customers/segments.js', 'src/customers/statement.js', 'tests/customers/segments.test.js'], allowed: ['src/invoices/status.js', 'src/invoices/service.js', 'src/reports/top-customers.js', 'tests/customers/statement.test.js', 'tests/factory.js'] },
+    'task-app-refund-multi-file': { relevant: ['src/payments/service.js', 'src/payments/repository.js', 'tests/payments/payments.test.js'], allowed: ['tests/factory.js'] },
+    'task-app-checks-fail-first': { relevant: ['src/reports/aging.js', 'src/config.js', 'tests/reports/aging.test.js', 'tests/reports/service.test.js'], allowed: [] },
+    'task-app-due-after-plan': { relevant: ['src/invoices/model.js', 'src/invoices/service.js', 'src/invoices/routes.js', 'tests/invoices/service.test.js'], allowed: ['tests/invoices/routes.test.js', 'tests/factory.js', 'src/invoices/terms.js', 'src/shared/validation/range.js'] },
+    'task-app-csv-after-plan': { relevant: ['src/reports/csv.js', 'src/reports/service.js', 'src/invoices/routes.js', 'tests/reports/csv.test.js'], allowed: ['tests/reports/service.test.js', 'tests/factory.js', 'src/shared/money.js', 'src/shared/http.js', 'src/reports/routes.js', 'src/invoices/service.js', 'tests/reports/routes.test.js', 'tests/invoices/routes.test.js'] },
+  };
+  return [...lendbox, ...tidewatch, ...parcelhub, ...seedvault, ...kiln, ...appCases, ...appPlanCases].map((c) => (TUNE.has(c.name) ? { ...c, tags: [...c.tags, 'task-tune'], metrics: { source: 'changed', ...CHANGED[c.name] } } : c));
 }

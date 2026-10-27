@@ -19,7 +19,7 @@ export const blockingProblem = (check: DraftsCheck, root: string, file: string):
 /** Files Claude Code loads into every session itself. Mirrors `autoLoaded` in skills/rules/scripts/sources.mjs. */
 const autoLoaded = (location: string): boolean => /(^|\/)(CLAUDE|CLAUDE\.local)\.md$/.test(location) || location.startsWith('.claude/rules/');
 
-// Measured on 7,000+ rule pairs (inseer-frontend: 55 drafts, 34 live rules; 47 shipped rules): every pair judged a different
+// Measured on 7,000+ rule pairs (one large frontend repository: 55 drafts, 34 live rules; 47 shipped rules): every pair judged a different
 // requirement scored at most 0.23; the two judged the same requirement in other words scored 0.29 and 0.50. 0.25 sits in that gap.
 // Word overlap cannot decide intent, so a hit is a warning for the drafter and the user to read, never a block.
 const SIMILAR_AT = 0.25;

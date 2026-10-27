@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { initLargeScaffold, modulesOfBench, renderInitLarge, writeInitLarge } from './init-large-case.mjs';
+import { initLargeBench, initLargeScaffold, modulesOfBench, renderInitLarge, writeInitLarge } from './init-large-case.mjs';
 
 const CONFIG = 'context: { maxTotalTokens: 50000, maxFileTokens: 2500, maxIndexTokens: 10000 }\nprojects:\n  - id: x\n    paths: [ main/ ]\n';
 const FILES = ['a', 'b'].flatMap((dir) => [1, 2, 3].map((i) => `main/${dir}/f${i}.ts`));
@@ -35,5 +35,10 @@ describe('init-scout-large case', () => {
 
   it('writes nothing when the bench has no config', () => {
     assert.equal(writeInitLarge(mkdtempSync(path.join(tmpdir(), 'init-large-out-')), { INIT_BENCH: path.join(tmpdir(), 'no-such-bench') }), 0);
+  });
+
+  it('has no default bench: without INIT_BENCH nothing is written', () => {
+    assert.equal(initLargeBench({}), null);
+    assert.equal(writeInitLarge(mkdtempSync(path.join(tmpdir(), 'init-large-out-')), {}), 0);
   });
 });

@@ -59,4 +59,10 @@ describe('evals retrieval metrics', () => {
     assert.deepEqual(foundPaths(text, 'files-block'), ['src/a.ts', 'src/b.ts']);
     assert.equal(foundPaths('src/a.ts only in prose', 'files-block'), null);
   });
+
+  it('an allowed directory item allows every file under it, a sibling directory is still extra', () => {
+    const spec = { relevant: ['src/a.py'], allowed: ['tests/'] };
+    const score = scoreFiles(spec, ['src/a.py', 'tests/unit/test_a.py', 'testsx/b.py']);
+    assert.deepEqual(score.extra, ['testsx/b.py']);
+  });
 });

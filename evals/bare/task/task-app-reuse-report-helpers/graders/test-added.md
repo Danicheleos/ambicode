@@ -1,7 +1,7 @@
 ---
 type: regex
-pattern: 'revenueByCustomer'
+pattern: 'tests/reports/(?:service|routes)\.test\.js[^\n]*revenueByCustomer'
 match: contains
-target: { source: file, path: tests/reports/service.test.js }
+target: trace
 weight: 1
 ---

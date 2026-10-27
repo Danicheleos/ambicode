@@ -101,8 +101,9 @@ A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, n
 | `mr.requirements` | The `mr-fetch` step recorded issue keys or issue/wiki links from the merge request's title or description (so the step must come after `mr-fetch`). |
 | `estimate.asks` / `estimate.run` | `estimate.asks`: the latest `estimate-step` recorded a refusal or no estimate (`asks: true`). `estimate.run`: the opposite, so the review goes on without a question. |
 | `map.empty` | The search map found nothing. |
-| `iteration.named` / `iteration.unnamed` | The request text names `iteration N` / does not (task route). |
+| `iteration.named` / `iteration.unnamed` | The request text names `iteration N` or the session is headless / neither (task route): the review is offered / runs unasked. `iterations.continue` looks at the named iteration only, so a headless request with no iteration still runs every iteration. |
 | `iterations.continue` | The request names no iteration, the `start` step's iteration is below the plan's iteration count, and the route's last check exited 0. |
+| `task.seeded` / `task.unseeded` | The task route's `start` step found a plan brief or an investigation (`brief`, `investigation` of the plan and investigate routes) / found neither, so the request is all there is. |
 | `revised` | The step is entered by a revise (review findings or an approved key), not in the normal walk. |
 | `gate.<id>.is(<option>)` / `gate.<id>.isnt(<option>)` | The gate's answer is that option / is any other answer, free text included. |
 | `<a> or <b>` | Either condition holds. |

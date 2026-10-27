@@ -2,6 +2,7 @@
 // A call's context is input + cache-created + cache-read tokens. Subagent calls (parent_tool_use_id set) are left out:
 // the trace carries only some of them (the task-fix probe of 2026-10-10 shows 1 of the reviewer's several calls).
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
@@ -58,15 +59,19 @@ export function recordReviewRun({ workspace, target, tracePath, meta }) {
 }
 
 /**
- * `{peak, final, calls, tools, session, api, costUsd}`: sizes in tokens, `tools` the distinct main-session tool_use blocks, `session`/`api` the seconds
+ * `{peak, final, calls, tools, subCalls, inputTokens, outputTokens, session, api, costUsd}`: sizes in tokens, `tools` the distinct main-session tool_use blocks,
+ * `subCalls` the model calls of subagents the trace carries and `inputTokens`/`outputTokens` the sums over main and subagent calls (the plugin's implementer does most
+ * of a task run: 3 main calls beside 4 subagent ones, while a bare run makes 10-18 main calls, so `calls` alone understates the plugin arm), `session`/`api` the seconds
  * the session and its model calls took, `costUsd` the trace's total (subagents included, no judge) (the harness's durationSeconds also counts case setup and graders); null when the trace has no main-session call.
  */
 export function contextOf(traceText) {
   const calls = new Map();
+  const everyCall = new Map();
   const tools = new Set();
   let result = null;
   for (const event of events(traceText)) {
     if (event.type === 'result') result = event;
+    if (event.type === 'assistant' && event.message?.usage && event.message.id) everyCall.set(event.message.id, event.message.usage);
     if (event.type !== 'assistant' || event.parent_tool_use_id || !event.message?.usage) continue;
     // One API call streams as several events with the same message id and the same usage.
     const usage = event.message.usage;
@@ -75,7 +80,10 @@ export function contextOf(traceText) {
   }
   const sizes = [...calls.values()];
   const seconds = (ms) => (typeof ms === 'number' ? Math.round(ms / 100) / 10 : null);
-  return sizes.length === 0 ? null : { peak: Math.max(...sizes), final: sizes.at(-1), calls: sizes.length, tools: tools.size, session: seconds(result?.duration_ms), api: seconds(result?.duration_api_ms), costUsd: result?.total_cost_usd ?? null };
+  const usages = [...everyCall.values()];
+  const inputTokens = usages.reduce((total, usage) => total + contextTokens(usage), 0);
+  const outputTokens = usages.reduce((total, usage) => total + (usage.output_tokens ?? 0), 0);
+  return sizes.length === 0 ? null : { peak: Math.max(...sizes), final: sizes.at(-1), calls: sizes.length, tools: tools.size, subCalls: usages.length - sizes.length, inputTokens, outputTokens, session: seconds(result?.duration_ms), api: seconds(result?.duration_api_ms), costUsd: result?.total_cost_usd ?? null };
 }
 
 /** The harness's sandbox of a trace (`<tmp>/e-XXXX/out/trace.jsonl`), or null for any other path: never delete beyond it. */
@@ -108,9 +116,12 @@ const STEP_HEADER = /\[ambicode\] (\S+) \u00b7 (?:task \S+ \u00b7 )?step ([\w-]+
  * whether `## map` arrived (2026-10-24, 10 runs, 0 hits; 2026-10-25, all 30 plan runs read `absent` while the transcripts held the map).
  * `unknown` = no transcript, never a false; `spilled` = Claude Code saved the hook output to a file (a `tool-results/hook-` reference);
  * `absent` = transcript present, no map step text; else `delivered` with chars, map and candidates read from that text.
+ * `none` = the run's skill (`skill`, the case name's first word) has no hook-delivered map step, so there is nothing to find: the task route hands
+ * the map to the implementer in a work file, and every task run read `absent` for it (20 of 20, 2026-10-27), which looked like a delivery failure.
  */
-export function deliveryOf(transcripts, mapSteps = mapStepsOf()) {
+export function deliveryOf(transcripts, mapSteps = mapStepsOf(), skill = null) {
   if (!transcripts || transcripts.length === 0) return { status: 'unknown', chars: null, map: null, candidates: null, spill: null };
+  if (skill !== null && ![...mapSteps].some((step) => step.startsWith(`${skill}/`))) return { status: 'none', chars: null, map: null, candidates: null, spill: null };
   let step = null;
   let spill = false;
   for (const text of transcripts) {
@@ -184,6 +195,41 @@ function unseal(dir) {
  * (one directory per run of the suite: an earlier run's traces are never touched; the `.ambicode` copies go to `archiveDir`),
  * and deletes the sandbox (it holds a whole fixture, node_modules included). A run whose trace is gone keeps no context.
  */
+/**
+ * Files the run changed, read from the workspace itself: 8 of 30 baseline runs edited through Bash with no Edit/Write call, so the
+ * tool trace undercounts. Sorted repo-relative paths (modified, added, deleted, untracked; gitignored files such as .ambicode/ and
+ * node_modules/ are not listed); null when no git repository is found.
+ */
+export function changedFilesOf(cwd) {
+  // The repository is the sandbox cwd itself or its one repo directory (as for .ambicode/, see keepAmbicode).
+  const workspace = [cwd, ...(existsSync(cwd) ? readdirSync(cwd, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => path.join(cwd, e.name)) : [])].find((dir) => existsSync(path.join(dir, '.git')));
+  if (workspace === undefined) return null;
+  const out = spawnSync('git', ['-c', 'core.quotepath=off', 'status', '--porcelain', '-z', '-uall'], { cwd: workspace, encoding: 'utf8' });
+  if (out.status !== 0) return null;
+  const entries = out.stdout.split('\0').filter(Boolean);
+  const files = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    const [x] = entries[i];
+    files.push(entries[i].slice(3));
+    // A rename or copy entry is followed by its source path.
+    if (x === 'R' || x === 'C') i += 1;
+  }
+  return files.sort();
+}
+
+/**
+ * The run's whole change as one unified diff against the scaffold commit, untracked files included (intent-to-add: gitignored files such as
+ * .ambicode/ stay out); null when no git repository is found. Diff graders (diff-graders.mjs) read it because the harness's graders cannot.
+ */
+export function diffOf(cwd) {
+  const workspace = [cwd, ...(existsSync(cwd) ? readdirSync(cwd, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => path.join(cwd, e.name)) : [])].find((dir) => existsSync(path.join(dir, '.git')));
+  if (workspace === undefined) return null;
+  const options = { cwd: workspace, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 };
+  if (spawnSync('git', ['add', '-N', '-A'], options).status !== 0) return null;
+  const out = spawnSync('git', ['-c', 'core.quotepath=off', 'diff', 'HEAD', '--no-color', '--no-ext-diff', '--text'], options);
+  return out.status === 0 ? out.stdout : null;
+}
+
 export function harvest(result, tracesDir, { remove = true, archiveDir = tracesDir, reviewRunsDir = null } = {}) {
   mkdirSync(tracesDir, { recursive: true });
   for (const evalCase of result.cases ?? []) {
@@ -202,13 +248,19 @@ export function harvest(result, tracesDir, { remove = true, archiveDir = tracesD
           recordReviewRun({ workspace: path.join(sandbox, 'sealed', 'home', 'cwd'), target: record, tracePath: run.trace, meta: { case: evalCase.name, run: index + 1, arm: path.basename(path.dirname(reviewRunsDir)), stamp: path.basename(reviewRunsDir) } });
           run.record = record;
         }
+        run.changed = changedFilesOf(path.join(sandbox, 'sealed', 'home', 'cwd'));
+        const diff = diffOf(path.join(sandbox, 'sealed', 'home', 'cwd'));
+        if (diff !== null) {
+          run.diff = run.trace.replace(/\.jsonl$/, '.diff');
+          writeFileSync(run.diff, diff);
+        }
         // The route's own record (ledger, delivered steps and payloads): the trace does not hold what a hook injected.
         const kept = keepAmbicode(path.join(sandbox, 'sealed', 'home', 'cwd'), path.join(archiveDir, path.basename(run.trace).replace(/\.jsonl$/, '.ambicode')));
         if (kept !== null) run.ambicode = kept;
         // Session transcripts (and Claude Code's hook spill files) live in the harness-set config dir, not in the sealed part.
         const transcriptDir = path.join(archiveDir, path.basename(run.trace).replace(/\.jsonl$/, '.transcript'));
         const texts = keepTranscripts(path.join(sandbox, 'config', 'projects'), transcriptDir);
-        run.delivery = deliveryOf(texts);
+        run.delivery = deliveryOf(texts, mapStepsOf(), evalCase.name.split('-')[0]);
         if (texts.length > 0) run.transcript = transcriptDir;
         if (remove) rmSync(sandbox, { recursive: true, force: true });
       });

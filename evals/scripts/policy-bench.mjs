@@ -1,9 +1,9 @@
 // $0 offline bench of the policy stages, on the real code: `policyStage` on a scratch repository holding the bench repo's config and packs.
 // Nothing is written into the bench repository; no model is called.
 //   node evals/scripts/policy-bench.mjs --plan     the plan route's delivery before the draft on real plans (policy-plan-bench.mjs, bench/policy-plan/)
-//   node evals/scripts/policy-bench.mjs --stages   rules and bytes each activity delivers for the change sets of bench/policy/changesets.json
+//   node evals/scripts/policy-bench.mjs --stages   rules and bytes each activity delivers for the change sets of evals/local/bench/policy/changesets.json
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,8 +46,13 @@ export function summarize(rows) {
 }
 
 async function stages() {
-  const sets = JSON.parse(readFileSync(path.join(REPO, 'bench', 'policy', 'changesets.json'), 'utf8')).filter((set) => set.repo === 'inseer-frontend');
+  const file = path.join(REPO, 'evals', 'local', 'bench', 'policy', 'changesets.json');
+  if (!existsSync(file)) {
+    process.stdout.write(`skipped: no ${file} (change sets of a real repository, kept out of git)\n`);
+    return;
+  }
   const source = benchRepo();
+  const sets = JSON.parse(readFileSync(file, 'utf8')).filter((set) => set.repo === path.basename(source));
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'policy-bench-'));
   try {
     execFileSync('git', ['init', '-q'], { cwd: scratch });

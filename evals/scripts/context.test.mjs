@@ -2,8 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { archiveOf, contextOf, deliveryLine, deliveryOf, finalMessageOf, harvest, mapStepsOf, reviewRunsOf, sandboxOf } from './context.mjs';
+import { archiveOf, changedFilesOf, contextOf, deliveryLine, deliveryOf, finalMessageOf, harvest, mapStepsOf, reviewRunsOf, sandboxOf } from './context.mjs';
 
 const call = (id, input, created, read, parent = null, content = undefined) =>
   JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { id, content, usage: { input_tokens: input, cache_creation_input_tokens: created, cache_read_input_tokens: read, output_tokens: 9 } } });
@@ -20,12 +21,12 @@ const TRACE = [
 
 describe('evals context size', () => {
   it('peak and final are the main session context per call (input + cache), each call counted once, subagents left out', () => {
-    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3, session: null, api: null, costUsd: null });
+    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3, subCalls: 1, inputTokens: 100611, outputTokens: 36, session: null, api: null, costUsd: null });
   });
 
   it('session and model time come from the result event; a trace without them reports null, not zero', () => {
     const timed = `${TRACE}\n${JSON.stringify({ type: 'result', duration_ms: 16311, duration_api_ms: 6575, total_cost_usd: 0.1234 })}`;
-    assert.deepEqual(contextOf(timed), { peak: 21502, final: 20101, calls: 3, tools: 3, session: 16.3, api: 6.6, costUsd: 0.1234 });
+    assert.deepEqual(contextOf(timed), { peak: 21502, final: 20101, calls: 3, tools: 3, subCalls: 1, inputTokens: 100611, outputTokens: 36, session: 16.3, api: 6.6, costUsd: 0.1234 });
   });
 
   it('a trace with no main-session call has no context, not a zero one', () => {
@@ -63,6 +64,25 @@ describe('evals context size', () => {
     assert.equal(readFileSync(path.join(archive, 'task-fix-1.ambicode', 'repo', '.ambicode', 'context', 'modules', 'm', 'a.md'), 'utf8'), 'y', 'including modules/**');
     assert.equal(existsSync(path.join(traces, 'task-fix-1.ambicode')), false, 'no workspace copy beside the trace');
     assert.equal(existsSync(sandbox), false);
+  });
+
+  it('changedFilesOf lists what the workspace diff holds, including files a Bash command wrote, and skips gitignored ones', () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'evals-changed-'));
+    const repo = path.join(tmp, 'repo');
+    mkdirSync(path.join(repo, 'src'), { recursive: true });
+    const git = (...args) => spawnSync('git', ['-c', 'user.email=a@b.c', '-c', 'user.name=t', ...args], { cwd: repo });
+    git('init', '-q');
+    writeFileSync(path.join(repo, '.gitignore'), '.ambicode/\nnode_modules/\n');
+    writeFileSync(path.join(repo, 'src', 'a.js'), 'a\n');
+    writeFileSync(path.join(repo, 'src', 'gone.js'), 'g\n');
+    git('add', '-A');
+    git('commit', '-qm', 'base');
+    // What a run does through Bash (sed, python, tee): no Edit or Write call in the trace, only the file on disk.
+    spawnSync('sh', ['-c', "echo changed >> src/a.js && echo new > \"src/new test.js\" && rm src/gone.js && mkdir -p .ambicode node_modules && echo x > .ambicode/ledger.jsonl && echo y > node_modules/m.js"], { cwd: repo });
+    assert.deepEqual(changedFilesOf(tmp), ['src/a.js', 'src/gone.js', 'src/new test.js']);
+    assert.equal(changedFilesOf(path.join(tmp, 'nowhere')), null);
+    assert.equal(changedFilesOf(path.join(tmp, 'repo', 'src')), null);
+    rmSync(tmp, { recursive: true, force: true });
   });
 
   it('a review run leaves a record: final message, trace, and the plugin arm report, answer and brief', () => {
@@ -134,6 +154,14 @@ describe('delivery of the read step', () => {
     }
   });
 
+  it('a skill with no hook-delivered map step (task) reads none, not absent; a skill with one still reads absent when the text is missing', () => {
+    const steps = new Set(['investigate/read', 'plan/draft']);
+    assert.equal(deliveryOf(['{"type":"user"}\n'], steps, 'task').status, 'none');
+    assert.equal(deliveryLine(deliveryOf(['{"type":"user"}\n'], steps, 'task')), 'delivery=none');
+    assert.equal(deliveryOf(['{"type":"user"}\n'], steps, 'investigate').status, 'absent');
+    assert.equal(deliveryOf(null, steps, 'task').status, 'unknown');
+  });
+
   it('no transcript is unknown, never false; a transcript with no read step is absent', () => {
     assert.deepEqual(deliveryOf(null), { status: 'unknown', chars: null, map: null, candidates: null, spill: null });
     assert.deepEqual(deliveryOf([]), deliveryOf(null));
@@ -155,7 +183,7 @@ describe('delivery of the read step', () => {
       }
       return path.join(sandbox, 'out', 'trace.jsonl');
     };
-    const result = { cases: [{ name: 'c', arms: { with: [
+    const result = { cases: [{ name: 'investigate-c', arms: { with: [
       { tracePath: make('e-D1', hook(STEP), false) },
       { tracePath: make('e-D2', hook('see tool-results/hook-1-additionalContext.txt'), true) },
       { tracePath: make('e-D3', null, false) },
@@ -166,8 +194,8 @@ describe('delivery of the read step', () => {
     const [inline, spilled, none] = result.cases[0].arms.with;
     assert.deepEqual([inline.delivery.status, inline.delivery.map], ['delivered', true]);
     assert.equal(spilled.delivery.status, 'spilled');
-    assert.equal(readFileSync(path.join(archive, 'c-2.transcript', 'tool-results', 'hook-1-additionalContext.txt'), 'utf8'), 'full text');
-    assert.equal(existsSync(path.join(archive, 'c-1.transcript', 'sess.jsonl')), true);
+    assert.equal(readFileSync(path.join(archive, 'investigate-c-2.transcript', 'tool-results', 'hook-1-additionalContext.txt'), 'utf8'), 'full text');
+    assert.equal(existsSync(path.join(archive, 'investigate-c-1.transcript', 'sess.jsonl')), true);
     assert.deepEqual([none.delivery.status, none.delivery.map, none.transcript], ['unknown', null, undefined]);
   });
 });

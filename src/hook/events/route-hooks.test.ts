@@ -23,11 +23,11 @@ const context = (output: { hookSpecificOutput?: { additionalContext: string } })
 describe('03-H1/03-H8 the hook matrix', () => {
   it('registers the events and handler entries the docs count', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
-    assert.deepEqual(Object.keys(manifest.hooks), ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd']);
+    assert.deepEqual(Object.keys(manifest.hooks), ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'SubagentStop', 'Stop', 'PostCompact', 'SessionEnd']);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
     const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
     const eventCount = Object.keys(manifest.hooks).length;
-    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Glob']);
+    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Agent|Task', 'Glob']);
     assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {

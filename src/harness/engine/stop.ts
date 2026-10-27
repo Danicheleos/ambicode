@@ -10,7 +10,7 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { saveNote } from '#modules/evidence/notes';
 import { gapsOf } from '#modules/evidence/report/report';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
+import { deliverOnce, hookStateBaseDir, runningBackgroundAgents } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef, RouteRegistry, StepMessage } from '#types/harness';
@@ -59,6 +59,8 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
   if (input.agent_id !== undefined) return null;
   if (typeof found === 'string') return skipped(`no session repository from ${input.cwd ?? runtime.cwd}`);
   const [root, session, scratchpad] = [found.repositoryRoot, input.session_id, input.scratchpad_dir];
+  // A background subagent reads the step files this Stop would delete; its return resumes the session and ends in a later Stop.
+  if ((await runningBackgroundAgents(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), runtime.clock.now())) > 0) return skipped('a background subagent has not returned');
   const latest = async () => (await sessionRoutes(runtime.fs, root, session))[0] ?? null;
   let route = await latest();
   let active = route?.live === true ? route : null;

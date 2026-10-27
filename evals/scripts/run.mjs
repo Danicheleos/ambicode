@@ -8,7 +8,9 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { archiveOf, deliveryLine, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
-import { metricsOf } from './metrics.mjs';
+import { isRealCase, realTruth } from './real-cases.mjs';
+import { metricsOf, scoreFiles } from './metrics.mjs';
+import { applyDiffGraders } from './diff-graders.mjs';
 import { downstreamMetrics, downstreamTruth, isDownstreamCase } from './downstream-cases.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -119,11 +121,18 @@ export function runCase(run, deps = REAL) {
       if (one.delivery) (deps.log ?? console.log)(`${evalCase.name}-${index + 1}: ${deliveryLine(one.delivery)}`);
     }));
     const downstream = isDownstreamCase(evalCase.name);
-    const spec = downstream ? undefined : caseOf(evalCase.name)?.metrics;
+    const spec = downstream ? undefined : (caseOf(evalCase.name)?.metrics ?? (isRealCase(evalCase.name) ? (deps.realTruthOf ?? realTruth)(evalCase.name) ?? undefined : undefined));
     if (!downstream && spec === undefined) continue;
     for (const runs of Object.values(evalCase.arms ?? {})) for (const one of runs ?? []) {
       if (downstream) one.metrics = downstreamMetrics(deps.truthOf?.(evalCase.name) ?? null, one.trace ? readFileSync(one.trace, 'utf8') : undefined);
+      else if (spec.source === 'changed') one.metrics = scoreFiles(spec, one.changed ?? null);
       else if (one.trace) one.metrics = metricsOf(spec, readFileSync(one.trace, 'utf8'));
+      if (!downstream && spec?.diffGraders?.length) applyDiffGraders(one, spec.diffGraders, one.diff ? readFileSync(one.diff, 'utf8') : null);
+    }
+    if (!downstream && spec?.diffGraders?.length) {
+      // The harness's per-case aggregates were taken before the diff graders existed.
+      const all = Object.values(evalCase.arms ?? {}).flatMap((runs) => runs ?? []);
+      evalCase.aggregates = { ...evalCase.aggregates, score: all.reduce((sum, one) => sum + one.score, 0) / all.length, passRate: all.filter((one) => one.passed).length / all.length };
     }
   }
   writeFileSync(run.result, `${JSON.stringify(result, null, 2)}\n`);

@@ -99,11 +99,13 @@ const estimate: Handler = async (input) => {
 
 /** The step after the reviewer: records what it wrote to its answer file (none is a failed review) and hands the report on as this step's payload. A review already recorded is left alone. */
 const record: Handler = async (input) => {
-  const pending = pendingReview(await chainEntries(input), null);
+  const chain = await chainEntries(input);
+  const pending = pendingReview(chain, null);
   if (pending === undefined) return { state: 'ok', payload: null };
+  const policy = chain.findLast((entry) => entry.kind === 'policy' && entry['stage'] === 'before-work' && entry['activity'] === 'review');
   const answerFile = path.join(path.dirname(path.join(input.dir.repositoryRoot, String(pending['result']))), ANSWER_FILE);
   const answer = await input.runtime.fs.readText(answerFile).then((text) => text.slice(0, MAX_EVIDENCE_BYTES), () => null);
-  const recorded = await recordReviewerAnswer(input.runtime, { pending, answer, append: (fields) => input.ledger.append(fields) });
+  const recorded = await recordReviewerAnswer(input.runtime, { pending, ...(policy === undefined ? {} : { policy }), answer, append: (fields) => input.ledger.append(fields) });
   if (input.args.target?.mr != null) await removeMrCheckout(input.runtime, gitOf(input), input.dir.root);
   return { state: 'ok', payload: renderRecord(recorded) };
 };

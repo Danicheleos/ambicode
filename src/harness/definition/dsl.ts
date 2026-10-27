@@ -50,7 +50,7 @@ export function parseOnError(file: string, where: string, text: string): OnError
   return { kind: 'stop', reason: reason as Exit };
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'mr.requirements', 'estimate.asks', 'estimate.run', 'map.empty', 'iteration.named', 'iteration.unnamed', 'iterations.continue', 'revised'];
+const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'mr.requirements', 'estimate.asks', 'estimate.run', 'map.empty', 'iteration.named', 'iteration.unnamed', 'iterations.continue', 'task.seeded', 'task.unseeded', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();

@@ -72,5 +72,5 @@ export async function policyStage(input: {
     text = rest(kept, listIds);
   }
   const bytes = Buffer.byteLength(text);
-  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length, bytes, activity: input.activity, ids: kept.flatMap((line) => (line.rule === undefined ? [] : [line.rule.qualifiedId])) } };
+  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length, bytes, activity: input.activity, problems: policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').map((diagnostic) => `project "${input.project.id}" policy: ${diagnostic.code}: ${diagnostic.message}`), ids: kept.flatMap((line) => (line.rule === undefined ? [] : [line.rule.qualifiedId])) } };
 }

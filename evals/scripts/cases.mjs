@@ -59,7 +59,7 @@ const LIMITS = {
  * as a user would type it to Claude Code with no plugin, or null when the behaviour is the plugin's own (a gate, a
  * policy pack, init) and has no bare counterpart.
  * version: raise it whenever a prompt or grader changes; a lift is computed only between rows of the current version.
- * metrics: recall and precision of the files the answer names (metrics.mjs): `relevant` must be named, `allowed` may be.
+ * metrics: recall and precision of the files the answer names (metrics.mjs), or with source `changed` of the files the workspace diff holds at harvest: `relevant` must be named, `allowed` may be.
  */
 /** The grader builders, for generated cases that live outside this file (init-large-case.mjs, review-cases.mjs). */
 export const BUILDERS = { regex, ledger, tool, never, exists, llm, shared, noEdits, DONE };
@@ -130,7 +130,7 @@ export function render(cases = CASES) {
   for (const c of cases) {
     const arms = [['cases', c.prompt, c.flags, c.graders]];
     // The bare arm gets no config: the fixture as a user without the plugin would have it, unless the case sets `bareFlags` (review cases hold both arms to the same scaffold).
-    if (c.bare !== null) arms.push(['bare', c.bare, c.bareFlags ?? c.flags.replace('--ambicode-init', '').replace('--context', '').replace('--stack-packs', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
+    if (c.bare !== null) arms.push(['bare', c.bare, c.bareFlags ?? c.flags.replace('--ambicode-init', '').replace('--context', '').replace('--stack-packs', '').replace('--policy', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
     for (const [tree, body, flags, graders] of arms) {
       const dir = caseDir(tree, c.name);
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
@@ -160,7 +160,8 @@ function write(argv = []) {
     const dir = path.join(EVALS, tree);
     mkdirSync(dir, { recursive: true });
     for (const suite of readdirSync(dir)) {
-      if (suite === 'results' || suite === 'init-large') continue;
+      // Rendered by their own generators and gitignored: a full regeneration must not delete them.
+      if (['results', 'init-large', 'downstream', 'task-real'].includes(suite)) continue;
       if (pattern === null) rmSync(path.join(dir, suite), { recursive: true, force: true });
       else if (selected.some((c) => suiteOf(c.name) === suite)) {
         for (const name of readdirSync(path.join(dir, suite))) if (pattern.test(name)) rmSync(path.join(dir, suite, name), { recursive: true, force: true });

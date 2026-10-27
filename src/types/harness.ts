@@ -18,7 +18,7 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'iterations.continue' | 'revised' }
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'iterations.continue' | 'task.seeded' | 'task.unseeded' | 'revised' }
   | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string }
   | { predicate: 'any'; of: When[] };
 

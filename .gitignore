@@ -47,4 +47,7 @@ gym/planing/new-architecture/cutting-down
 /evals/cases/downstream/
 /evals/cases/init-large/
 /evals/bare/downstream/
+/evals/local/
+/evals/cases/task-real/
+/evals/bare/task-real/
 .plugin-master

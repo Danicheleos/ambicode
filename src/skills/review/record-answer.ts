@@ -61,7 +61,7 @@ async function checkoutText(runtime: Runtime, result: ReviewResult, output: Revi
 }
 
 /** Everything the recorded review needs: validates the answer against the pinned diff, writes the result files and appends the `recorded` entry. A missing answer is a failed review, never a clean one. */
-export async function recordReviewerAnswer(runtime: Runtime, input: { pending: LedgerEntry; answer: string | null; append: (fields: { kind: string; [field: string]: unknown }) => Promise<LedgerEntry> }): Promise<RecordedReview> {
+export async function recordReviewerAnswer(runtime: Runtime, input: { pending: LedgerEntry; policy?: LedgerEntry; answer: string | null; append: (fields: { kind: string; [field: string]: unknown }) => Promise<LedgerEntry> }): Promise<RecordedReview> {
   const { pending } = input;
   const workspace = await openWorkspace(runtime);
   const resultPath = path.join(workspace.repositoryRoot, String(pending['result']));
@@ -70,6 +70,9 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { pending: L
   const parsedResult = ReviewResult.safeParse(JSON.parse(await runtime.fs.readText(resultPath)));
   if (!parsedResult.success) throw new AmbicodeError('review-unreadable', `${resultPath} is not a review result.`, { details: [parsedResult.error.issues[0]?.message ?? ''] });
   const result = parsedResult.data;
+  // The one staging of the review's rules is both what the brief carries and what a finding may cite; its error diagnostics keep the result partial without stopping the reviewer.
+  const policyIds = (input.policy?.['ids'] as string[] | undefined) ?? [];
+  result.omissions.push(...((input.policy?.['problems'] as string[] | undefined) ?? []).map(attention));
   const config = workspace.config.skills.review;
 
   const run = {
@@ -87,7 +90,7 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { pending: L
     const files = combineDiff(reviewable.map((file) => ({ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' })), await runtime.fs.readText(path.join(reviewDirectory, 'changed.diff')));
     const validated = validateFindings({
       output: answer.output, files, snapshotText: await checkoutText(runtime, result, answer.output), maxFindings: config.maxFindings,
-      knownRuleIds: new Set(result.ruleIds), knownRequirementIds: new Set(result.requirements.map((source) => source.id)),
+      knownRuleIds: new Set(policyIds), knownRequirementIds: new Set(result.requirements.map((source) => source.id)),
     });
     if (validated.kind === 'invalid') {
       ok = false;

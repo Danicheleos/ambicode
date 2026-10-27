@@ -39,7 +39,7 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
   return index + 1;
 }
 
-interface FoldContext { args: { iteration?: number | null; hasRequirement?: boolean; target?: { mr?: string | null } } }
+interface FoldContext { args: { iteration?: number | null; headless?: boolean; hasRequirement?: boolean; target?: { mr?: string | null } } }
 
 const estimateAsks = (all: readonly LedgerEntry[]): boolean =>
   all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'estimate-step' && entry['status'] === 'completed')?.['asks'] === true;
@@ -56,13 +56,17 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    case 'iteration.named': return typeof context.args.iteration === 'number';
-    case 'iteration.unnamed': return typeof context.args.iteration !== 'number';
+    // A headless session has no one to run a review unasked: it gets the offer, whose default is skip, as a named iteration does.
+    case 'iteration.named': return typeof context.args.iteration === 'number' || context.args.headless === true;
+    case 'iteration.unnamed': return typeof context.args.iteration !== 'number' && context.args.headless !== true;
     // The start step recorded which iteration this route is at and how many the plan has.
     case 'iterations.continue': {
       const start = all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start');
       return typeof context.args.iteration !== 'number' && Number(start?.['iteration']) < Number(start?.['iterations']);
     }
+    // The start step recorded whether a plan brief or an investigation exists, by the functions the context map reads them with.
+    case 'task.seeded': return all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['seeded'] === true;
+    case 'task.unseeded': return all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['seeded'] !== true;
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
     case 'any': return when.of.some((part) => evaluate(part, all, context, gateWindow, opener, step));
     case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;

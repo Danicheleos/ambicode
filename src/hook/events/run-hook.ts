@@ -14,7 +14,7 @@ import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { loadConfig } from '#modules/config/load';
 import { dropIgnoredGlobResults, type GlobResponse } from '#modules/search/glob-ignored';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
-import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
+import { cleanupSessionState, clearBackgroundAgent, deliverOnce, hookStateBaseDir, markBackgroundAgent, resetDelivered } from '#platform/claude/hook-state';
 import type { Runtime, SessionRepository } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 
@@ -77,6 +77,10 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
       case 'Stop': {
         const found = await repositoryOf(runtime, input);
         return (await (await loadFor(deps, found)).engine.stopHook(input, found)) ?? EMPTY_HOOK_OUTPUT;
+      }
+      case 'SubagentStop': {
+        if (input.agent_id !== undefined) await clearBackgroundAgent(runtime.fs, stateDir(runtime, input), input.agent_id);
+        return EMPTY_HOOK_OUTPUT;
       }
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
@@ -149,6 +153,12 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
     const found = await repositoryOf(runtime, input);
     const context = await answerGates(runtime, input, await loadFor(deps, found), found);
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
+  }
+  if (input.tool_name === 'Agent' || input.tool_name === 'Task') {
+    // The launch result of a background agent names its id; a foreground launch returns the agent's answer instead.
+    const id = /Async agent launched[\s\S]*?agentId: ([A-Za-z0-9_-]+)/.exec(JSON.stringify(input.tool_response ?? ''))?.[1];
+    if (id !== undefined) await markBackgroundAgent(runtime.fs, stateDir(runtime, input), id, runtime.clock.now());
+    return EMPTY_HOOK_OUTPUT;
   }
   if (input.tool_name === 'Glob') return await filterGlob(runtime, input);
   if (input.tool_name === 'WebFetch' || input.tool_name?.startsWith('mcp__')) {

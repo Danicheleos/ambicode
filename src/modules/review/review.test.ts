@@ -11,6 +11,8 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
 import { validateFindings } from './findings/validate.ts';
+import { policyStage } from '#modules/policy/stage';
+import { openWorkspace } from '#modules/config/workspace';
 import { readLedger } from '#platform/ledger/ledger';
 import type { Runtime } from '#types/composition';
 import type { DiffFile } from '#types/platform/git';
@@ -313,8 +315,11 @@ describe('U17 location validation', () => {
 
 });
 
-describe('B8 an applicable policy diagnostic becomes an explicit coverage omission, not a silent drop', () => {
-  it('surfaces an unreadable applicable review prompt as an omission and keeps the reviewer running, but marks the result partial', async () => {
+/** The review's one rule staging, which carries the pack errors the record step turns into omissions. */
+const stageReview = async (runtime: Runtime) => policyStage({ runtime, project: (await openWorkspace(runtime)).config.projects[0]!, activity: 'review', paths: ['src/orders.ts'], stage: 'before-work' });
+
+describe('B8 an applicable policy diagnostic reaches the review as a staged problem, not a silent drop', () => {
+  it('surfaces an unreadable applicable review prompt as a staged problem and keeps the reviewer running', async () => {
     const context = await fixture();
     try {
       await context.repo.write(
@@ -337,19 +342,17 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
         config.replace(/^(\s+packs: .*)$/m, '$1\n    policyFiles: [".ambicode/policies/broken-review.yaml"]'),
       );
 
-            const output = await review(context.runtime, []);
-
+      const staged = await stageReview(context.runtime);
       assert.ok(
-        output.result.omissions.some((entry) => entry.text.includes('pack-invalid')),
-        `expected an omission naming the invalid pack; got: ${JSON.stringify(output.result.omissions)}`,
+        staged.entry.problems.some((entry) => entry.includes('pack-invalid')),
+        `expected a problem naming the invalid pack; got: ${JSON.stringify(staged.entry.problems)}`,
       );
-      assert.equal(output.result.status, 'partial');
     } finally {
       await context.dispose();
     }
   });
 
-  it('surfaces an error from any loaded pack as an omission, applicable to the review or not (diagnostics carry no pack activity to filter by)', async () => {
+  it('surfaces an error from any loaded pack as a staged problem, applicable to the review or not (diagnostics carry no pack activity to filter by)', async () => {
     const context = await fixture();
     try {
       await context.repo.write(
@@ -371,9 +374,8 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
         config.replace(/^(\s+packs: .*)$/m, '$1\n    policyFiles: [".ambicode/policies/broken-plan-only.yaml"]'),
       );
 
-            const output = await review(context.runtime, []);
-
-      assert.ok(output.result.omissions.some((entry) => entry.text.includes('pack-invalid')), JSON.stringify(output.result.omissions));
+      const staged = await stageReview(context.runtime);
+      assert.ok(staged.entry.problems.some((entry) => entry.includes('pack-invalid')), JSON.stringify(staged.entry.problems));
     } finally {
       await context.dispose();
     }
