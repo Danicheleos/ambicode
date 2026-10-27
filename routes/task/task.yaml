@@ -47,7 +47,7 @@ steps:
   - id: brief
     actor: code
     when: gate.review-offer.is(run) or iteration.unnamed
-    run: [review.pin, "policy.stage(before-work, review)", script(brief)]
+    run: [review.pin, "policy.stage(before-work, review)", "search.map(context, review)", script(brief)]
     repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
   - id: review-agent
     actor: model

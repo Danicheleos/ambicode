@@ -120,6 +120,23 @@ describe('map command', () => {
     }
   });
 
+  it('context grep ranks a file holding several words, rare ones first, never lists an excluded file, and lets a named file\'s folder list two', async () => {
+    const fx = await repo({
+      'src/cart/near-a.ts': 'export const applyDiscount = 1;\n', 'src/cart/near-b.ts': 'export const applyDiscount = 2;\n', 'src/cart/near-c.ts': 'export const applyDiscount = 3;\n',
+      'src/z/rare-and-common.ts': 'export const bundleRate = 1; export const applyDiscount = 2;\n',
+    });
+    try {
+      const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount', 'bundleRate'], paths: ['src/cart/cart.service.ts'], exclude: ['src/cart/cart.service.ts', 'src/cart/discount.ts'] });
+      const listed = map.candidates.map((candidate) => candidate.path);
+      assert.equal(listed[0], 'src/z/rare-and-common.ts', 'both words, one of them rare, outrank files holding only applyDiscount');
+      assert.ok(!listed.includes('src/cart/cart.service.ts') && !listed.includes('src/cart/discount.ts'), 'files the caller already has are not listed, seed or not');
+      assert.equal(listed.filter((file) => file.startsWith('src/cart/')).length, 2, 'the folder of the named file lists 2 of its 3 sharers; any other folder lists 1');
+      assert.match(map.candidates[0]!.reasons[0]!, /^contains "applyDiscount", "bundleRate"$|^contains "bundleRate", "applyDiscount"$/);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('keeps AMBICODE working files out of the agent searches', async () => {
     const fx = await repo();
     try {

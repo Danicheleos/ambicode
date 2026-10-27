@@ -1,10 +1,11 @@
 // brief.md for the reviewer: the diff with the line numbers a finding may name, then policy rules, requirements and checks.
 // A finding that names any other line is dropped, so the ranges come from the hunks, not from the model.
-import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const input = JSON.parse(readFileSync(0, 'utf8'));
+// The engine ends this script after 100 s and quotes the last line written here, so a timeout names the stage it was in instead of only "timed-out".
+const stage = (what) => process.stderr.write(`brief: ${what}\n`);
 const read = (file) => { try { return readFileSync(file, 'utf8'); } catch { return null; } };
 const entries = (read(path.join(input.taskDir, 'ledger.jsonl')) ?? '').split('\n').filter(Boolean).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
 const entry = entries.findLast((candidate) => candidate.kind === 'review' && typeof candidate.result === 'string');
@@ -67,6 +68,7 @@ const files = sections.map((section) => {
 });
 
 // Code the patch does not show: a reviewer given only paths did not open them, so the content is inlined.
+// The files come from the route's `search.map(context, review)` step, saved beside the policy payload, so this script scans no repository.
 // Test files are never inlined: `testPatterns` are the route's own test-path patterns (src/util/path-classes.ts), the same ones that keep them out of the diff of a merge request.
 // Caps: the brief is 5-7 KB without this section; 100 lines per file and 300 in total add about 10-14 KB, so it stays under ~3x.
 // 12 files = 2 same-directory files for each of ~4 changed files + RELATED_SIBLINGS siblings. 64 KB is the largest file read at all (generated and vendored files).
@@ -74,56 +76,34 @@ const RELATED_MAX = 12;
 const RELATED_FILE_LINES = 100;
 const RELATED_TOTAL_LINES = 300;
 const RELATED_FILE_BYTES = 64 * 1024;
-// Extra cross-directory siblings, on top of the reserved same-directory ones: the top 4 of the whole repository by shared names fit a 300-line budget next to them.
+// Extra cross-directory siblings, on top of the reserved same-directory ones: the top 4 of the map fit a 300-line budget next to them.
 const RELATED_SIBLINGS = 4;
-// A name is noise once it is in more than 20% of the files, but never below 8 files: in a 30-file fixture 10% is 3 files and would drop a helper used by 3 callers.
-const COMMON_SHARE = 0.2;
-const COMMON_FLOOR = 8;
-const NAMES_MAX = 300; // one git grep command line: 300 names stay far below the argument limit
-const NAMES_SHOWN = 5;
 const NEAR_PER_FILE = 2; // the old per-file same-directory count
 const MIN_CONTENT_LINES = 3; // a package/doc stub of 1-2 lines beat the file holding the duplicated function for a sibling slot
 const testPatterns = input.testPatterns.map((source) => new RegExp(source));
 const isTest = (file) => testPatterns.some((pattern) => pattern.test(file));
-// Whole-word names of the added and context lines (length >= 4), mapped to the files that contain them, as the shared-name counts of the candidate siblings.
-const sharedNames = (tracked, excluded) => {
-  const names = new Set();
-  for (const line of patch.split('\n')) if ((line.startsWith('+') && !line.startsWith('+++')) || line.startsWith(' ')) for (const name of line.slice(1).match(/[A-Za-z_][A-Za-z0-9_]{3,}/g) ?? []) names.add(name);
-  if (names.size === 0) return new Map();
-  const filesOf = new Map();
-  const list = [...names].slice(0, NAMES_MAX);
-  let out = '';
-  try { out = execFileSync('git', ['grep', '-I', '-o', '-w', '-F', '--null', '--no-color', '--untracked', '--exclude-standard', ...list.flatMap((name) => ['-e', name]), '--', '.'], { cwd: checkoutRoot, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }); } catch (error) { out = String(error?.stdout ?? ''); }
-  for (const row of out.split('\n')) {
-    const [file, name] = row.split('\0');
-    if (name === undefined) continue;
-    if (!filesOf.has(name)) filesOf.set(name, new Set());
-    filesOf.get(name).add(file);
-  }
-  const common = Math.max(COMMON_FLOOR, Math.floor(tracked.length * COMMON_SHARE));
-  const byFile = new Map();
-  for (const [name, set] of filesOf) {
-    if (set.size > common) continue;
-    for (const file of set) { if (excluded(file)) continue; byFile.set(file, [...(byFile.get(file) ?? []), [name, set.size]]); }
-  }
-  return byFile;
+// The map's rows [path, score, reasons, spans?] in rank order; the map text is a legend, then one JSON line. No file means no map: the step had nothing to say.
+const mapRows = () => {
+  const saved = readdirSync(input.steps).filter((name) => name.endsWith('-map-review.md')).sort();
+  const line = (saved.length === 0 ? '' : read(path.join(input.steps, saved.at(-1))) ?? '').split('\n').find((row) => row.startsWith('{"candidates"'));
+  return line === undefined ? [] : JSON.parse(line).candidates;
 };
 const related = () => {
   if (diffOnly) return { blocks: [], names: [], omitted: [] };
-  let tracked = [];
-  try { tracked = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: checkoutRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n').filter(Boolean); } catch { return { blocks: [], names: [], omitted: [] }; }
+  let rows = [];
+  try { rows = mapRows(); } catch { /* no steps directory or an unreadable map: no related files */ }
   const pathsIn = (marker) => sections.flatMap((section) => [...section.matchAll(new RegExp(`^${marker} [ab]/(.+?)\\t?$`, 'gm'))].map((match) => match[1]));
   const inDiff = new Set([...pathsIn('---'), ...pathsIn('\\+\\+\\+')]);
-  const picked = { near: [], sibling: [] };
+  const changed = pathsIn('\\+\\+\\+').filter((candidate) => !isTest(candidate));
   // Same language as the change only: notes and docs share names with code and spent the line budget.
   const extensions = new Set(pathsIn('\\+\\+\\+').map((file) => path.extname(file)));
-  const shared = sharedNames(tracked, (file) => inDiff.has(file) || isTest(file) || !extensions.has(path.extname(file)) || file.startsWith('.ambicode/')); // the review's own diff and brief carry every name of the patch
-  const ranked = [...shared].map(([other, names]) => ({ other, names })).sort((a, b) => b.names.length - a.names.length || (a.other < b.other ? -1 : 1));
-  const sharing = new Map(ranked.map((entry) => [entry.other, entry.names]));
+  const ranked = rows.filter(([other]) => !inDiff.has(other) && !isTest(other) && extensions.has(path.extname(other)) && !other.startsWith('.ambicode/'));
+  const why = new Map(ranked.map(([other, , reasons]) => [other, reasons.join('; ')]));
   // Same-directory slots are reserved per changed file: a convention file ranks low by shared names because the change deviates from it,
   // so a global ranking alone would not reach the files the change should follow.
-  for (const file of pathsIn('\\+\\+\\+').filter((candidate) => !isTest(candidate))) picked.near.push(...ranked.filter((entry) => path.dirname(entry.other) === path.dirname(file)).map((entry) => [entry.other, file]));
-  picked.sibling.push(...ranked.map((entry) => [entry.other, '']));
+  const picked = [];
+  for (const file of changed) picked.push(...ranked.filter(([other]) => path.dirname(other) === path.dirname(file)).map(([other]) => ['near', other, file]));
+  picked.push(...ranked.map(([other]) => ['sibling', other, '']));
   const out = [];
   const seen = new Set();
   let budget = RELATED_TOTAL_LINES;
@@ -132,7 +112,8 @@ const related = () => {
   const names_ = [];
   let siblings = 0;
   const nearCount = new Map();
-  for (const [label, other, changed] of [...picked.near.map((pair) => ['near', ...pair]), ...picked.sibling.map((pair) => ['sibling', ...pair])]) {
+  stage(`reading the ${ranked.length} related files of the search map`);
+  for (const [label, other, changedFile] of picked) {
     if (seen.has(other)) continue;
     seen.add(other);
     let text;
@@ -144,9 +125,9 @@ const related = () => {
     const all = text.replace(/\n$/, '').split('\n');
     if (text === '') continue;
     if (all.filter((line) => line.trim() !== '').length < MIN_CONTENT_LINES) continue;
-    if (label === 'near' ? (nearCount.get(changed) ?? 0) >= NEAR_PER_FILE : label === 'sibling' && siblings >= RELATED_SIBLINGS) { seen.delete(other); continue; } // over the per-file cap, still eligible globally
+    if (label === 'near' ? (nearCount.get(changedFile) ?? 0) >= NEAR_PER_FILE : label === 'sibling' && siblings >= RELATED_SIBLINGS) { seen.delete(other); continue; } // over the per-file cap, still eligible globally
     // The per-kind counts run before the global cap: a file the cap cuts still used its slot, so only selected files are ever reported as cut.
-    if (label === 'near') nearCount.set(changed, (nearCount.get(changed) ?? 0) + 1);
+    if (label === 'near') nearCount.set(changedFile, (nearCount.get(changedFile) ?? 0) + 1);
     else if (label === 'sibling') siblings++;
     if (files >= RELATED_MAX || budget <= 0) { omitted.push(other); continue; }
     files++;
@@ -154,10 +135,8 @@ const related = () => {
     budget -= Math.min(all.length, take);
     const width = String(Math.min(all.length, take)).length;
     const fence = '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((run) => run[0].length + 1)));
-    const names = sharing.get(other) ?? [];
-    const why = names.sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1)).slice(0, NAMES_SHOWN).map(([name]) => name).join(', ');
     names_.push(other);
-    out.push([`### ${other} (related: shares ${names.length} names with the change: ${why})`, fence, ...all.slice(0, take).map((line, at) => `${String(at + 1).padStart(width)} ${line}`), ...(all.length > take ? [`… (first ${take} lines shown; ${all.length - take} more not included)`] : []), fence, '']);
+    out.push([`### ${other} (related: ${label === 'near' ? `next to ${path.basename(changedFile)}` : 'elsewhere in the repository'}; ${why.get(other)})`, fence, ...all.slice(0, take).map((line, at) => `${String(at + 1).padStart(width)} ${line}`), ...(all.length > take ? [`… (first ${take} lines shown; ${all.length - take} more not included)`] : []), fence, '']);
   }
   return { blocks: out, names: names_, omitted };
 };

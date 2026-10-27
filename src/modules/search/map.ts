@@ -1,7 +1,7 @@
 import { openWorkspace } from '#modules/config/workspace';
 import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
 import type { ProjectConfig } from '#types/modules/config';
-import { literalPathspec, type Git } from '#platform/git/git';
+import { Git, literalPathspec } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
@@ -32,6 +32,8 @@ const ELSEWHERE_PATHS = 3;
 const ELSEWHERE_TERMS = 3;
 /** One file per folder: the answer unit is the folder. One 10-case bench on one repository: all-returned F1 .203 -> .227, with the weighting below .253; chosen on all 10 cases. */
 const MAX_PER_DIRECTORY = 1;
+/** A folder holding a named file lists 2: the files beside the change are the ones whose convention it follows or breaks (the review brief's per-file same-folder count). */
+const MAX_PER_SEED_DIRECTORY = 2;
 /** Rows scoring under this share of the best row are not listed (prompt mode). One 10-case bench of a JS/TS repository and 28 cases of three small repositories of other stacks, offline on the one-per-folder list: .12 gave F1 .438 on the first (from .462; 3571 .566 -> .481, 5164 .308 -> .255) and .319 on the others (from .189), printed rows 19.5 -> 17.2 and 21.4 -> 9.7; .10 .456/.290, .15 .439/.338, .20 .433/.392, .30 .384/.461 (offline for .10 and .30). */
 const LIST_FLOOR = 0.12;
 const SPANS = 3;
@@ -42,6 +44,8 @@ const SPAN_GAP = 8;
 const SCORE = { directory: 5, filename: 8, content: 2, named: 10 };
 /** git grep already spreads one search over the cores: four at a time was the fastest on the 29-grep bench (1.45 s against 2.26 s serial). */
 const GREP_CONCURRENCY = 4;
+/** Words a grep row names: the rows share a 3,584-byte cap, and 3 names keep a row near 200 bytes. */
+const GREP_NAMES_SHOWN = 3;
 
 interface MapLayer { name: LayerName; ms: number; hits: number }
 
@@ -80,6 +84,10 @@ interface MapInput {
   terms?: readonly string[];
   paths?: readonly string[];
   symbols?: readonly string[];
+  /** Files the caller already has (the changed files of a review): never listed, and no byte of the cap goes to them. */
+  exclude?: readonly string[];
+  /** A checkout other than the working repository (a merge request head): its files are the ones searched. */
+  checkout?: string;
   /** Request text; the terms come from it when none are given, with a prose retry when that finds nothing. */
   request?: string;
 }
@@ -270,7 +278,9 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const unknown = input.layers.filter((layer) => !(LAYER_NAMES as readonly string[]).includes(layer));
   if (unknown.length > 0) throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}.`] });
   const { project, mode } = input;
-  const { git, repositoryRoot, config } = await openWorkspace(runtime);
+  const workspace = await openWorkspace(runtime);
+  const { config } = workspace;
+  const { git, repositoryRoot } = input.checkout === undefined ? workspace : { git: new Git({ runner: runtime.runner, repositoryRoot: input.checkout }), repositoryRoot: input.checkout };
   const root = normalizeRelative(project.root);
   const pathspec = root === '' ? null : literalPathspec(root);
   const files = (await git.listFiles(pathspec)).filter((file) => {
@@ -337,9 +347,11 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
         const perWord = await inBatches(words, async (word) => (await git.grepWords([word], pathspec)).filter(isSearchable));
         const tooBroadNotes = words.map((word, at) => tooBroad(word, perWord[at]!.length, files.length));
         for (const broad of tooBroadNotes.filter((text) => text !== null)) note(broad);
-        const found = [...new Set(perWord.filter((_, at) => tooBroadNotes[at] === null).flat())];
-        merge(found.map((path) => ({ path, score: SCORE.content, reasons: [`contains the word ${words.length === 1 ? `"${words[0]}"` : 'of the request'}`] })));
-        hits = found.length;
+        // A file holding several of the words outranks one holding a single word, and a word found in few files weighs more than one found in most (framework calls such as `toSignal` ranked every component first, in path order).
+        const holding = new Map<string, { word: string; weight: number }[]>();
+        words.forEach((word, at) => { if (tooBroadNotes[at] === null) for (const path of new Set(perWord[at])) holding.set(path, [...(holding.get(path) ?? []), { word, weight: Math.log(files.length / perWord[at]!.length) }]); });
+        merge([...holding].map(([path, held]) => ({ path, score: SCORE.content * held.reduce((sum, { weight }) => sum + weight, 0), reasons: [`contains ${held.slice(0, GREP_NAMES_SHOWN).map(({ word }) => `"${word}"`).join(', ')}${held.length > GREP_NAMES_SHOWN ? ` and ${held.length - GREP_NAMES_SHOWN} more` : ''}`] })));
+        hits = holding.size;
       }
       layers.push({ name: layer, ms: Math.max(0, Math.round(runtime.clock.elapsed() - started)), hits });
     }
@@ -385,16 +397,18 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
     const target = siblings.find((file) => stem(file) === stem(candidate.path)) ?? siblings[0];
     if (target !== undefined) merge([{ ...candidate, path: target }]);
   }
+  for (const file of input.exclude ?? []) candidates.delete(file);
   const ranked = [...candidates.values()];
   const sorted = ranked.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
   const pool = sorted.map((candidate) => ({ ...candidate, reasons: [...candidate.reasons] }));
   const perDirectory = new Map<string, number>();
   const seeds = new Set(input.paths ?? []);
+  const seedFolders = new Set([...seeds].map(folderOf));
   const spread = sorted.filter((candidate) => {
     if (seeds.has(candidate.path)) return true;
-    const folder = candidate.path.slice(0, candidate.path.lastIndexOf('/') + 1);
+    const folder = folderOf(candidate.path);
     perDirectory.set(folder, (perDirectory.get(folder) ?? 0) + 1);
-    return perDirectory.get(folder)! <= MAX_PER_DIRECTORY;
+    return perDirectory.get(folder)! <= (seedFolders.has(folder) ? MAX_PER_SEED_DIRECTORY : MAX_PER_DIRECTORY);
   });
   if (spread.length < sorted.length) limitations.push(`${sorted.length - spread.length} more file(s) in folders already listed`);
   const scored = spread.map((candidate) => ({ ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2) }));

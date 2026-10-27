@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
@@ -78,6 +78,27 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.match(await readFile(path.join(path.dirname(path.join(t.root, String(entries.at(-1)!['result']))), 'report.txt'), 'utf8'), /4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
       assert.deepEqual([result.reviewer?.status, result.status], ['ok', 'partial']);
       assert.equal(result.checks.length, 0);
+    } finally {
+      await t.dispose();
+    }
+  });
+
+  it('the brief step runs search.map(context, review) on the pinned change: the map lists the files sharing its names, never the changed files, and the brief inlines them as the Related section', async () => {
+    const t = await regression();
+    try {
+      await writeFile(path.join(t.root, 'src', 'other.js'), 'module.exports.lineTotal = (line) => computeLineTotal(line);\nmodule.exports.pad1 = 1;\nmodule.exports.pad2 = 2;\n');
+      execFileSync('git', ['add', 'src/other.js'], { cwd: t.root });
+      execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'other'], { cwd: t.root });
+      await writeFile(path.join(t.root, 'src', 'math.js'), 'const computeLineTotal = (line) => line.price * line.count;\nmodule.exports.add = (a, b) => a - b;\n');
+      await t.start();
+      const steps = path.join(t.root, '.ambicode', 'reviews', TASK, 'steps');
+      const saved = (await readdir(steps)).filter((name) => name.endsWith('-map-review.md'));
+      assert.equal(saved.length, 1, 'the review map has its own payload key: the task map is not overwritten');
+      const rows = (JSON.parse((await readFile(path.join(steps, saved[0]!), 'utf8')).split('\n').find((line) => line.startsWith('{"candidates"'))!) as { candidates: [string][] }).candidates.map((row) => row[0]);
+      assert.deepEqual(rows, ['src/other.js']);
+      assert.equal((await t.ledger()).findLast((entry) => entry.kind === 'map')?.['mode'], 'context');
+      const brief = (await readFile(path.join(steps, 'work-review-agent.md'), 'utf8')).match(/brief: (.*brief\.md)/)![1]!;
+      assert.match(await readFile(brief, 'utf8'), /### src\/other\.js \(related: next to math\.js; contains "computeLineTotal"\)/);
     } finally {
       await t.dispose();
     }

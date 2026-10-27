@@ -74,7 +74,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('keeps init, rules and the route-driven investigate, plan, task and review (08-K2) user-invoked only, and scopes every skill tool grant', async () => {
+  it('keeps init and rules user-invoked only, lets the route-driven investigate, plan, task and review be invoked by name (a subagent runs them for parallel work), and scopes every skill tool grant', async () => {
     for (const dir of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
       const what = `${dir}/SKILL.md`;
       const fm = frontmatter(await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8'), what);
@@ -91,13 +91,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
         // A bare `.ambicode/...` is relative to the session directory; the route writes to the repo-root path, so a session started in a subdirectory was denied (2026-10-26).
         assert.ok(/^(Write|Edit)\((\*\*|\/\/.+)\)$/.test(grant), `${what}: ${grant} must be ** or root-anchored with //`);
       }
-      // Setup-time skills are run by the user, never by the model, so their
-      // descriptions stay out of the always-on skill list.
-      const userOnly = dir === 'init' || dir === 'rules' || dir === 'investigate' || dir === 'plan' || dir === 'task' || dir === 'review';
+      // Setup-time skills are run by the user, never by the model, so their descriptions stay out of the always-on skill list.
+      // The route-driven skills allow model invocation: "run ambicode:review for each MR as a subagent" needs it (a subagent cannot type a slash command), and their descriptions say they fire only when named.
+      const userOnly = dir === 'init' || dir === 'rules';
       assert.equal(
         fm['disable-model-invocation'] === true,
         userOnly,
-        `${what}: exactly the setup-time and route-driven skills disable model invocation`,
+        `${what}: exactly the setup-time skills disable model invocation`,
       );
     }
   });
@@ -169,12 +169,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.doesNotMatch(plan, /--kind plan\b/);
   });
 
-  it('06-S1/06-S2: plan stays within 3,200 bytes, is user-invoked only and may write only its plan body', async () => {
+  it('06-S1/06-S2: plan stays within 3,200 bytes, is invoked by name only and may write only its plan body', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     // Raised from 1800 by the user's scope change (2026-10-26): the SKILL.md rides in the user message, outside the hook budget, and now carries the work strategy (3,115 B).
     assert.ok(Buffer.byteLength(plan) <= 3200, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
-    assert.equal(fm['disable-model-invocation'], true);
+    assert.equal(fm['disable-model-invocation'], false);
+    assert.match(requiredString(fm, 'description', 'plan/SKILL.md'), /Only when named/);
     assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(//**/.ambicode/tasks/*/plan.md), Write(//**/.ambicode/tasks/*/plan.md)');
     // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
     const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'draft.md'), 'utf8');
@@ -299,12 +300,13 @@ describe('P2.3 task skill', () => {
     return readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
   }
 
-  it('07-M1 stays within 3,000 bytes, is user-invoked only and keeps its tool grant', async () => {
+  it('07-M1 stays within 3,000 bytes, is invoked by name only and keeps its tool grant', async () => {
     const raw = await task();
     // Raised from 1700 by the user's scope change (2026-10-26) for the orchestrator guidance in "Your part" (2,638 B).
     assert.ok(Buffer.byteLength(raw) <= 3000, `${Buffer.byteLength(raw)} bytes`);
     const fm = frontmatter(raw, 'task/SKILL.md');
-    assert.equal(fm['disable-model-invocation'], true);
+    assert.equal(fm['disable-model-invocation'], false);
+    assert.match(requiredString(fm, 'description', 'task/SKILL.md'), /Only when named/);
     assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
     requiredString(fm, 'argument-hint', 'task/SKILL.md');
   });

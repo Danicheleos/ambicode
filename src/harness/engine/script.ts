@@ -3,8 +3,9 @@ import { TEST_PATH_PATTERNS } from '#util/path-classes';
 import type { Handler, HandlerResult } from '#types/harness';
 
 const NAME = /^[\w-]+$/;
-// A skill script lists files and greps; 60 s is ten times the slowest one measured (plan-check on the FE fixture, 5.8 s).
-const TIMEOUT_MS = 60_000;
+// `route next` runs inside the model's Bash tool call (default timeout 120 s); the script must time out first so the error with its last stage and Retry/Give up lines reaches the user, with ~20 s left for the rest of the step.
+// 60 s killed the review brief step on Windows (1m0.47s); the in-process related-file scan now takes about 1 s on a 4.9k-file checkout (commit 639109f8).
+const TIMEOUT_MS = 100_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
 // A node crash prints about 700 characters (source line, error, six frames); the error leads, the version line trails. 1,800 holds twice that.
 const STDERR_CHARS = 1800;
@@ -40,7 +41,10 @@ export const scriptHandler: Handler = async (input): Promise<HandlerResult> => {
   const where = path.relative(input.runtime.pluginRoot, file);
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {
     const detail = outcome.failure ?? outcome.stderr.replace(ANSI, '').split('\n').map((line) => line.trimEnd()).filter((line) => line !== '').join(' | ').slice(0, STDERR_CHARS);
-    return { state: 'failed', code: 'script-failed', message: `${where} ${outcome.kind === 'exited' ? `exited ${outcome.exitCode}` : outcome.kind}${detail === '' ? '' : `: ${detail}`}`, recoverable: false };
+    // A killed script cannot say why it was slow: the last line it wrote is the stage it was waiting in.
+    const waiting = outcome.kind === 'timed-out' ? outcome.stderr.replace(ANSI, '').split('\n').map((line) => line.trim()).filter((line) => line !== '').at(-1) : undefined;
+    const kind = outcome.kind === 'exited' ? `exited ${outcome.exitCode}` : outcome.kind === 'timed-out' ? `timed-out after ${Math.round(TIMEOUT_MS / 1000)} s${waiting === undefined ? ' (it wrote no stage line)' : `, last stage: ${waiting}`}` : outcome.kind;
+    return { state: 'failed', code: 'script-failed', message: `${where} ${kind}${detail === '' || waiting !== undefined ? '' : `: ${detail}`}`, recoverable: false };
   }
   let output: ScriptOutput;
   try {

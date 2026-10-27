@@ -202,7 +202,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       await exitRoute(run, error.reason, `${result.code}: ${result.message.slice(0, 200)}`);
       return finish(run);
     }
-    throw new AmbicodeError(result.code, result.message, {});
+    // The step failed and the route stays live: the error is all the user sees, so it names both exits.
+    throw new AmbicodeError(result.code, result.message, { details: [`The route is still open at step ${step.id}. Retry: ${cli} route next --task ${run.task}`, `Give up: ${cli} route stop --task ${run.task} --reason blocked --detail "${step.id}: ${result.code}"`] });
   }
 
   async function runModel(run: Run, step: StepDef, fold: Fold): Promise<Part | null> {
@@ -351,7 +352,8 @@ function reviseArgsOf(entries: readonly LedgerEntry[], start: number, step: Step
 function payloadKey(call: Call): string {
   switch (call.name) {
     case 'script': return `script:${call.params[0] ?? ''}`;
-    case 'search.map': return 'map';
+    // The reviewer brief's map must not replace the task map that `change` reads.
+    case 'search.map': return call.params[1] === 'review' ? 'map:review' : 'map';
     // The activity is part of the key: the reviewer brief's stage must not overwrite the rules the task's own steps read.
     case 'policy.stage': return call.params.length > 1 ? `policy:${call.params.join(':')}` : `policy:${call.params[0] ?? ''}`;
     case 'requirements.normalize': return 'envelope';

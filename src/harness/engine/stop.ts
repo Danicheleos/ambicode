@@ -1,7 +1,7 @@
 import { dirKindFor } from '#types/defaults';
 import type { SessionRepository } from '#types/composition';
 import type { HookInput, StopHookOutput } from '#types/hook';
-import { sessionRoutes } from '../session/active-route.ts';
+import { liveRouteOf, sessionRoutes } from '../session/active-route.ts';
 import { buildChain, currentIn, foldRoute } from './fold.ts';
 import { answersAsNote } from './execute.ts';
 import { writeSummary } from './run-context.ts';
@@ -61,7 +61,11 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
   const [root, session, scratchpad] = [found.repositoryRoot, input.session_id, input.scratchpad_dir];
   // A background subagent reads the step files this Stop would delete; its return resumes the session and ends in a later Stop.
   if ((await runningBackgroundAgents(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), runtime.clock.now())) > 0) return skipped('a background subagent has not returned');
-  const latest = async () => (await sessionRoutes(runtime.fs, root, session))[0] ?? null;
+  // Parallel subagents of this session may drive their own live routes: this Stop closes and checks only a route that is the main session's.
+  const latest = async () => {
+    const all = await sessionRoutes(runtime.fs, root, session);
+    return all.filter((route) => route.live).length > 1 ? liveRouteOf(runtime.fs, root, session, runtime.clock.now()) : (all[0] ?? null);
+  };
   let route = await latest();
   let active = route?.live === true ? route : null;
   let answered = false;

@@ -1,4 +1,5 @@
 import { openRepository } from '#platform/git/open';
+import { Git } from '#platform/git/git';
 import { projectForRequest } from '#modules/config/workspace';
 import { buildMap, resolveLayers } from '#modules/search/map';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
@@ -17,6 +18,7 @@ import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelo
 import { AmbicodeError } from '#util/errors';
 import { baselineIn, touchedSet } from '#modules/checks/workspace/baseline';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
+import { isTestPath } from '#util/path-classes';
 import { latestBound } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { ReviewResult } from '#types/modules/review';
@@ -80,12 +82,29 @@ async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<P
   }
 }
 
+/** The latest pinned review's result and the folder holding its changed.diff, or null when none is pinned or its file is unreadable. */
+async function pinnedReview(input: HandlerInput, chain: readonly LedgerEntry[]): Promise<{ result: ReviewResult; directory: string } | null> {
+  const file = chain.findLast((entry) => entry.kind === 'review')?.['result'];
+  if (typeof file !== 'string') return null;
+  const parsed = await input.runtime.fs.readText(path.join(input.dir.repositoryRoot, file)).then((text) => ReviewResult.safeParse(JSON.parse(text)), () => null).catch(() => null);
+  return parsed?.success ? { result: parsed.data, directory: path.dirname(path.join(input.dir.repositoryRoot, file)) } : null;
+}
+
 /** The files of the latest pinned review: a merge request or branch has no local baseline, so its diff is the only list of what the change touches. */
 async function reviewedFiles(input: HandlerInput, chain: readonly LedgerEntry[]): Promise<string[]> {
-  const file = chain.findLast((entry) => entry.kind === 'review')?.['result'];
-  if (typeof file !== 'string') return [];
-  const parsed = await input.runtime.fs.readText(path.join(input.dir.repositoryRoot, file)).then((text) => ReviewResult.safeParse(JSON.parse(text)), () => null).catch(() => null);
-  return parsed?.success ? parsed.data.changedFiles.filter((changed) => changed.exclusionReason === null).map((changed) => changed.newPath ?? changed.oldPath ?? '').filter((name) => name !== '') : [];
+  const pinned = await pinnedReview(input, chain);
+  return pinned === null ? [] : pinned.result.changedFiles.filter((changed) => changed.exclusionReason === null).map((changed) => changed.newPath ?? changed.oldPath ?? '').filter((name) => name !== '');
+}
+
+/** What a review's map is seeded from: the files of the pinned change and the lines it adds. Null when the head is not checked out (the working tree is not the change) or nothing is pinned. */
+async function reviewSeed(input: HandlerInput, chain: readonly LedgerEntry[]): Promise<{ text: string; files: string[]; checkout: string } | null> {
+  const pinned = await pinnedReview(input, chain);
+  if (pinned === null || (pinned.result.target.kind === 'merge-request' && pinned.result.target.diffOnly != null)) return null;
+  const files = await reviewedFiles(input, chain);
+  const diff = await input.runtime.fs.readText(path.join(pinned.directory, 'changed.diff')).catch(() => '');
+  // A test's lines name matchers and fixtures (`toBe`, `reportId`), not the code under review, and a spec word in the text keeps spec files in the map.
+  const added = diff.split(/^(?=diff --git )/m).filter((section) => !isTestPath(/^\+\+\+ b\/(.+)$/m.exec(section)?.[1] ?? '')).flatMap((section) => section.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++')).map((line) => line.slice(1)));
+  return { text: [...files.filter((file) => !isTestPath(file)), ...added].join('\n'), files, checkout: pinned.result.target.repositoryRoot };
 }
 
 /** The files the stage's rules are scoped to: for review the pinned review's files, else the task's touched files once there are any, else the pinned review's, else the map's top candidates; empty means no scoping. */
@@ -141,21 +160,25 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const mode = input.params[0] === 'context' ? 'context' : 'prompt';
     const stated = input.revise?.args['term'] ?? [];
     const chain = await chainEntries(input);
-    const { git } = await openRepository(input.runtime);
+    // `search.map(context, review)`: the reviewer brief's related files, seeded from the pinned change instead of an iteration brief or an investigation.
+    const reviewing = mode === 'context' && input.params[1] === 'review';
+    const review = reviewing ? await reviewSeed(input, chain) : null;
+    if (reviewing && review === null) return { state: 'ok', payload: null };
+    const git = review === null ? (await openRepository(input.runtime)).git : new Git({ runner: input.runtime.runner, repositoryRoot: review.checkout });
     const envelope = chain.findLast((entry) => entry.kind === 'envelope');
-    const envelopeSourcesOf = envelope === undefined ? [] : await envelopeSources(input, envelope);
+    const envelopeSourcesOf = envelope === undefined || reviewing ? [] : await envelopeSources(input, envelope);
     // The whole ledger, not the route's chain: the plan and the investigation were written by earlier routes of the task.
     const read = await input.ledger.read();
     const all = read.state === 'ok' ? read.entries : [];
-    const investigation = mode === 'context' ? await investigationOf(input, all) : null;
-    const brief = mode === 'context' && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/i, '') : undefined;
-    const seedText = brief ?? investigation?.text ?? null;
+    const investigation = mode === 'context' && !reviewing ? await investigationOf(input, all) : null;
+    const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/i, '') : undefined;
+    const seedText = review?.text ?? brief ?? investigation?.text ?? null;
     const files = seedText === null ? [] : await git.listFiles(null);
     const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];
     const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
     const { layers, source } = resolveLayers(mode);
     try {
-      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText) });
+      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText), ...(review === null ? {} : { exclude: review.files, checkout: review.checkout }) });
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
       // An empty map with nothing to caveat is still recorded, not sent.
       const silent = map.entry['candidates'] === 0 && map.collisions.length === 0 && map.limitations.length === 0;

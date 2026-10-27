@@ -38,7 +38,7 @@ async function gateAnswers(input: HookInput, entries: readonly { kind: string; g
 export async function answerGates(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository, platform: PlatformFlags = PLATFORM): Promise<string | null> {
   if (input.agent_id !== undefined || input.tool_name !== 'AskUserQuestion' || platform.askBinding !== 'supported') return null;
   if (typeof found === 'string') return null;
-  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now());
   if (active === null) return null;
   const answers = await gateAnswers(input, await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill)).root));
   if (answers.length === 0) return null;

@@ -4,6 +4,8 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFixture } from '#testing/fixtures/route-fixture';
+import { scriptHandler } from './script.ts';
+import type { AmbicodeError } from '#util/errors';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'script-task';
@@ -152,6 +154,39 @@ steps:
       assert.equal(failed?.['code'], 'script-name-invalid');
     } finally {
       await fx.dispose();
+    }
+  });
+
+  it('a script the engine had to kill names its stage: the last line it wrote to stderr', async () => {
+    const run = async (stderr: string) => {
+      const input = { params: ['brief'], view: { skill: 'review', task: 't', mode: 'interactive' }, dir: { repositoryRoot: '/r', root: '/r/t', steps: '/r/t/steps' }, args: {}, runtime: { pluginRoot: '/p', cwd: '/r', runner: { run: async () => ({ kind: 'timed-out', stdout: '', stderr, exitCode: null, failure: null }) } } };
+      return scriptHandler(input as never);
+    };
+    const named = await run('brief: listing the checkout files with git ls-files\nbrief: scanning 8000 files for the 300 names the diff shares with them\n');
+    assert.match(String((named as { message: string }).message), /timed-out after 100 s, last stage: brief: scanning 8000 files/);
+    const silent = await run('');
+    assert.match(String((silent as { message: string }).message), /timed-out after 100 s \(it wrote no stage line\)/);
+  });
+  // The user's route stuck at a timed-out brief step: the error was the only output and named no way out; `route start` on the same task is the restart.
+  it('a failing step with no onError leaves the route open and its error prints the retry and the stop command; starting the same task again replaces the stuck route', async () => {
+    const pluginRoot = await scripts({ boom: "process.stderr.write('slow'); process.exit(3);" });
+    const route = ROUTE('boom').replace('    onError: "stop:blocked"\n', '');
+    const fx = await routeFixture({ routes: { inv: route }, pluginRoot });
+    try {
+      const begin = () => fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'cli', scratchpadDir: fx.scratchpad });
+      const stuck = await begin().then(() => null, (error: unknown) => error as AmbicodeError);
+      assert.equal(stuck?.code, 'script-failed');
+      assert.match(stuck?.details.join('\n') ?? '', /Retry: .*route next --task script-task\n.*Give up: .*route stop --task script-task --reason blocked/);
+      assert.deepEqual((await fx.kinds(TASK, 'exit')).map((entry) => entry['reason']), [], 'the route is still open');
+      const again = await fx.engine.advance({ task: TASK, cause: 'route-next' }).then(() => null, (error: unknown) => error as AmbicodeError);
+      assert.equal(again?.code, 'script-failed', 'the retry command re-runs the step');
+      await begin().catch(() => undefined);
+      assert.deepEqual((await fx.kinds(TASK, 'exit')).map((entry) => entry['reason']), ['interrupted'], 'a second start ends the stuck route instead of duplicating it');
+      await fx.engine.stop(TASK, 'blocked', 'gave up');
+      assert.deepEqual((await fx.kinds(TASK, 'exit')).map((entry) => entry['reason']), ['interrupted', 'blocked'], 'the stop command closes what the second start opened');
+    } finally {
+      await fx.dispose();
+      await rm(pluginRoot, { recursive: true, force: true });
     }
   });
 });

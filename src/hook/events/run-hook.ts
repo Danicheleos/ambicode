@@ -125,7 +125,7 @@ async function promptContext(runtime: Runtime, input: HookInput, deps: HookDeps)
   }
   if (input.agent_id !== undefined) return null;
   const found = await repositoryOf(runtime, input);
-  if (typeof found === 'string' || (await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id)) === null) return null;
+  if (typeof found === 'string' || (await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now())) === null) return null;
   return reinjectRoute(runtime, input, await deps.load(found.repositoryRoot), found);
 }
 
@@ -134,7 +134,7 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   if (input.agent_id !== undefined) return;
   const found = await repositoryOf(runtime, input);
   if (typeof found === 'string') return;
-  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now());
   if (active === null) return;
   const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
   const { routes } = await deps.load(found.repositoryRoot);

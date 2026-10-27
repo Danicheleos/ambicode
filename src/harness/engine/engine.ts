@@ -10,7 +10,7 @@ import { openRepository } from '#platform/git/open';
 import { mrUrlIn, parseMrUrl } from '#platform/gitlab/glab';
 import { standaloneReviewName } from '#modules/review/bundle/review-name';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
-import { markHeadless, markStepDelivered, sessionRoutes } from '../session/active-route.ts';
+import { isStale, markHeadless, markStepDelivered, sessionRoutes } from '../session/active-route.ts';
 import { matchOption } from '../gates/gates.ts';
 import { exitRoute, recordFlagAnswer, recordHookAnswer, unknownGate } from '../gates/answers.ts';
 import { commandContext, entriesOf, readEntries, routeNotOpen } from './context.ts';
@@ -203,12 +203,20 @@ export function createEngine(deps: EngineDeps): Engine {
       return { message: messageOf(active, part), run: active, part };
     }, { creates: true });
     await settle(result.run, result.part);
-    for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug)) {
-      const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
-      await withLedgerLock(rt.fs, otherDir.root, now, async (ledger) => {
-        const read = await ledger.read();
-        if (read.state === 'ok') await interrupt(otherDir, ledger, read.entries);
-      });
+    // Only a route the user typed replaces the session's others. A CLI start is what each parallel subagent of one session does,
+    // and ending its siblings (or waiting on a lock they hold through a slow step) made 4 of 5 parallel reviews fail ledger-busy.
+    // A sibling idle past the stale bound is abandoned, not parallel: any start closes it, so dead routes do not pile up.
+    {
+      for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug && (delivery === 'hook' || isStale(route, now())))) {
+        const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
+        await withLedgerLock(rt.fs, otherDir.root, now, async (ledger) => {
+          const read = await ledger.read();
+          if (read.state === 'ok') await interrupt(otherDir, ledger, read.entries);
+        }).catch((error: unknown) => {
+          // A route whose ledger is locked is being driven right now: it is not abandoned.
+          if (!(error instanceof AmbicodeError && error.code === 'ledger-busy')) throw error;
+        });
+      }
     }
     return result.run.restart ? start(restartOf(result.run)) : result.message;
   }

@@ -237,7 +237,7 @@ describe('finding the session route without a pointer', { concurrency: 4 }, () =
       const times: number[] = [];
       for (let run = 0; run < 20; run += 1) {
         const started = performance.now();
-        assert.notEqual(await liveRouteOf(t.fx.runtime.fs, t.fx.repo.root, CLAUDE_1), null);
+        assert.notEqual(await liveRouteOf(t.fx.runtime.fs, t.fx.repo.root, CLAUDE_1, t.fx.runtime.clock.now()), null);
         times.push(performance.now() - started);
       }
       times.sort((left, right) => left - right);

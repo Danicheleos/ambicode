@@ -53,7 +53,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', { concurrency: 4
     assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['narrow', 'skip'], undefined, 'skip']);
     assert.equal(route.steps.find((step) => step.id === 'estimate')!.when, 'estimate.asks');
     const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[] };
-    assert.deepEqual([brief.when, brief.run], ['estimate.run', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)']]);
+    assert.deepEqual([brief.when, brief.run], ['estimate.run', ['review.pin', 'policy.stage(before-work, review)', 'search.map(context, review)', 'script(brief)']]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces?: string[]; instruction: string };

@@ -28,14 +28,14 @@ describe('review skill (08-K)', () => {
     assert.doesNotMatch(await readFile(SKILL, 'utf8'), /is not a clean/i);
   });
 
-  it('08-K2: front matter sets disable-model-invocation: true', async () => {
-    assert.equal(frontmatter(await readFile(SKILL, 'utf8'))['disable-model-invocation'], true);
+  it('08-K2: front matter allows model invocation, so a subagent can run the skill for each of several merge requests', async () => {
+    assert.equal(frontmatter(await readFile(SKILL, 'utf8'))['disable-model-invocation'], false);
   });
 
-  it('08-K3: the description says natural language goes to the built-in review and AMBICODE runs only when typed', async () => {
+  it('08-K3: the description says natural language goes to the built-in review and AMBICODE runs only when named', async () => {
     const description = String(frontmatter(await readFile(SKILL, 'utf8'))['description']);
-    assert.match(description, /natural-language "review my change" goes to Claude Code's built-in review/);
-    assert.match(description, /AMBICODE's review runs only when \/ambicode:review is typed/);
+    assert.match(description, /a plain "review my change" goes to Claude Code's built-in review/);
+    assert.match(description, /Only when AMBICODE's review is named \(\/ambicode:review typed, or "run ambicode:review" asked by the user, also for a subagent\)/);
   });
 
   it('08-K3: the impact reference is deleted and nothing under skills, src or routes names it', async () => {

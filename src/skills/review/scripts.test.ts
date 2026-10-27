@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { REPO_ROOT } from '#testing/paths';
@@ -222,8 +223,7 @@ describe('review scripts (C7)', () => {
       await mkdir(path.join(root, 'src'), { recursive: true });
       for (const file of ['sibling1.ts', 'sibling2.ts', 'sibling3.ts']) await writeFile(path.join(root, 'src', file), `export const sharedThing0 = 1;\nexport const sharedThing1 = 1;\n${body(file.replace(/\W/g, ''))}`);
       await writeFile(path.join(root, 'src', 'a.ts'), 'export const sharedThing = 1;\n');
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A'], { cwd: root });
+      await withMap(input, 'src/sibling1.ts', 'src/sibling2.ts', 'src/sibling3.ts');
       const diff = (count: number) => `diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,${count + 1} @@\n export const sharedThing = 1;\n${Array.from({ length: count }, (_, at) => `+export const sharedThing${at} = ${at}; // ${'z'.repeat(60)}`).join('\n')}\n`;
       await writeFile(path.join(reviewDir, 'changed.diff'), diff(150));
       run('brief', input);
@@ -269,9 +269,12 @@ describe('review scripts (C7)', () => {
 
   const modified = (file: string) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-a\n+b\n`;
 
+  // The route's `search.map(context, review)` step saves its text beside the policy payload; the brief reads the related files from it, in rank order, and scans nothing itself.
+  const withMap = (input: { steps: string }, ...rows: string[]) => writeFile(path.join(input.steps, '1-map-review.md'), `Map: legend\n{"candidates":${JSON.stringify(rows.map((file, at) => [file, 20 - at, ['contains "sharedName"']]))}}\n`);
+
   const added = (file: string, ...lines: string[]) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1,${lines.length} @@\n-a\n${lines.map((line) => `+${line}`).join('\n')}\n`;
 
-  it('brief inlines the same-directory files that share names, then the files that share the most names with the patch from any directory', async () => {
+  it('brief inlines the map\'s files: the same-directory ones first, then the top of the rest from any directory, never a test, a stub, another language or a file of the diff', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {
       const body = (...names: string[]) => names.map((name) => `export const ${name} = 1;`).join('\n') + '\n';
@@ -293,17 +296,17 @@ describe('review scripts (C7)', () => {
       };
       for (const [file, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
       await writeFile(path.join(root, 'pkg/far/doc.md'), '# only a title\n');
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A'], { cwd: root });
+      await withMap(input, 'pkg/far/helper.ts', 'pkg/far/half.ts', 'src/a/near.ts', 'pkg/far/third.ts', 'pkg/far/fourth.ts', 'pkg/far/fifth.ts', 'src/a/stub.ts', 'pkg/far/notes.md', 'src/a/foo.ts', 'src/a/foo.test.ts', 'src/a/lone.ts');
       await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', ...shared.map((name) => `export const ${name} = 2;`), 'export const commonWord = 2;') + added('src/a/lone.ts', 'export const loneChange = 1;'));
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
       assert.match(section, /Related code the patch does not show, for comparison: duplication of an existing helper and a sibling convention the change breaks are findings\./);
       const headers = [...section.matchAll(/^### (\S+) \((.+)\)$/gm)].map((match) => [match[1], match[2]]);
-      assert.deepEqual(headers.map(([name]) => name), ['src/a/near.ts', 'pkg/far/helper.ts', 'pkg/far/half.ts', 'pkg/far/third.ts', 'pkg/far/fourth.ts'], 'tests, then the reserved same-directory file (1 shared name), then the top 4 other files by shared names; the fifth loses the cap');
-      assert.equal(headers[1]?.[1], 'related: shares 6 names with the change: ledgerKey, retryBudget, taxBracket, zoneLabel, normalizeSku', 'the header names the 5 rarest of the 6 shared names');
-      assert.doesNotMatch(section, /commonWord|only-common|stub\.ts|doc\.md|notes\.md/, 'a name in more than 20% of the files, a 2-line file, a 1-line file and a .md file sharing 3 rare names with a .ts change are not chosen');
+      assert.deepEqual(headers.map(([name]) => name), ['src/a/near.ts', 'pkg/far/helper.ts', 'pkg/far/half.ts', 'pkg/far/third.ts', 'pkg/far/fourth.ts'], 'the reserved same-directory file although it ranks third, then the top 4 other files in map order; the fifth loses the cap');
+      assert.equal(headers[0]?.[1], 'related: next to foo.ts; contains "sharedName"', 'the header says where the file sits and why the map listed it');
+      assert.equal(headers[1]?.[1], 'related: elsewhere in the repository; contains "sharedName"');
+      assert.doesNotMatch(section, /stub\.ts|notes\.md/, 'a 2-line file and a .md file the map listed for a .ts change are not chosen');
       assert.doesNotMatch(section, /### src\/a\/(foo|lone)\.ts/, 'a file of the diff is shown by the diff, not as related');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -320,8 +323,7 @@ describe('review scripts (C7)', () => {
         'src/a/lone.ts': body('old2'), 'src/a/near.ts': body(shared[0] ?? ''), 'pkg/far/helper.ts': body(...shared), 'pkg/far/helper.test.ts': body(...shared),
       };
       for (const [file, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A'], { cwd: root });
+      await withMap(input, 'src/a/foo.test.ts', 'src/a/foo.spec.ts', 'src/a/__tests__/helper.ts', 'src/a/foo_test.py', 'src/a/near.ts', 'pkg/far/helper.ts', 'pkg/far/helper.test.ts');
       await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', ...shared.map((name) => `export const ${name} = 2;`)) + added('src/a/lone.ts', 'export const loneChange = 1;') + added('src/a/foo.test.ts', 'export const keptTestHunk = 1;'));
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
@@ -380,14 +382,13 @@ describe('review scripts (C7)', () => {
         'far/p5.ts': body(shared[0] ?? '', shared[3] ?? '', 'y3'),
       };
       for (const [file, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A'], { cwd: root });
+      await withMap(input, 'far/p1.ts', 'far/p2.ts', 'far/p3.ts', 'far/p4.ts', 'far/p5.ts', 'src/a/a1.ts', 'src/a/a2.ts', 'src/a/a3.ts');
       await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', ...shared.map((name) => `export const ${name} = 2;`)));
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
       const names = [...section.matchAll(/^### (\S+) \(related/gm)].map((match) => match[1]);
-      assert.deepEqual(names, ['src/a/a1.ts', 'src/a/a2.ts', 'far/p1.ts', 'far/p2.ts', 'far/p3.ts', 'far/p4.ts'], 'the 2 same-directory files first although each shares 1 name; a third same-directory file and the fifth far file lose');
+      assert.deepEqual(names, ['src/a/a1.ts', 'src/a/a2.ts', 'far/p1.ts', 'far/p2.ts', 'far/p3.ts', 'far/p4.ts'], 'the 2 same-directory files first although the map ranks them last; a third same-directory file and the fifth far file lose');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -398,17 +399,15 @@ describe('review scripts (C7)', () => {
     try {
       const body = (...names: string[]) => [...names.map((name) => `export const ${name} = 1;`), ...Array.from({ length: 150 }, (_, at) => `export const pad${at} = ${at};`)].join('\n') + '\n';
       const files: Record<string, string> = { 'src/a/foo.ts': body('old1'), 'src/a/a1.ts': body('sharedAlpha'), 'src/a/a2.ts': body('sharedAlpha'), ...Object.fromEntries(Array.from({ length: 30 }, (_, at) => [`far/p${String(at).padStart(2, '0')}.ts`, body('sharedAlpha', 'sharedBeta')])),
-        // A name in more than 20% of the files is noise, so the repository needs enough unrelated files for 32 sharers to stay under it.
-        ...Object.fromEntries(Array.from({ length: 200 }, (_, at) => [`fill/f${at}.ts`, `export const fill${at} = 1;\n`])) };
+      };
       for (const [file, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A'], { cwd: root });
+      await withMap(input, 'src/a/a1.ts', 'src/a/a2.ts', ...Array.from({ length: 30 }, (_, at) => `far/p${String(at).padStart(2, '0')}.ts`));
       await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', 'export const sharedAlpha = 2;', 'export const sharedBeta = 2;'));
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const shown = [...brief.matchAll(/^### (\S+) \(related/gm)].map((match) => match[1]);
       assert.deepEqual(shown, ['src/a/a1.ts', 'src/a/a2.ts', 'far/p00.ts'], 'the 300-line total fits three files of 100 lines');
-      assert.match(brief, /… \(3 related files omitted \(size budget\): far\/p01\.ts, far\/p02\.ts, far\/p03\.ts\)/, '2 near + 4 global files were selected; 3 were cut; the other 26 candidates were never selected');
+      assert.match(brief, /… \(3 related files omitted \(size budget\): far\/p01\.ts, far\/p02\.ts, far\/p03\.ts\)/, '2 near + 4 global files were selected; 3 were cut; the other 26 files of the map were never selected');
       const scope = JSON.parse(await readFile(path.join(reviewDir, 'result.json'), 'utf8')).omissions as { kind: string; text: string }[];
       assert.deepEqual(scope, [{ kind: 'scope', text: '3 related files were cut from the brief (size budget) and not read: far/p01.ts, far/p02.ts, far/p03.ts.' }]);
       run('brief', input);
@@ -423,8 +422,7 @@ describe('review scripts (C7)', () => {
     try {
       const body = (...names: string[]) => [...names.map((name) => `export const ${name} = 1;`), ...Array.from({ length: 150 }, (_, at) => `export const pad${at} = ${at};`)].join('\n') + '\n';
       for (const [file, text] of Object.entries({ 'src/a/foo.ts': body('old1'), 'src/a/a1.ts': body('sharedAlpha'), ...Object.fromEntries(Array.from({ length: 200 }, (_, at) => [`fill/f${at}.ts`, `export const fill${at} = 1;\n`])) })) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A'], { cwd: root });
+      await withMap(input, 'src/a/a1.ts');
       const big = Array.from({ length: 600 }, (_, at) => `export const sharedAlpha${at} = '${'x'.repeat(90)}';`);
       await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', 'export const sharedAlpha = 2;', ...big) + added('src/b/bar.ts', ...big));
       run('brief', input);
@@ -436,7 +434,7 @@ describe('review scripts (C7)', () => {
     }
   });
 
-  it('brief caps each related file and the section, marks truncation, skips binary and oversize files, and omits the section outside a git repository', async () => {
+  it('brief caps each related file and the section, marks truncation, skips binary and oversize files, and omits the section when the map step left nothing', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {
       const changed = Array.from({ length: 8 }, (_, at) => `m${at}/f${at}.ts`);
@@ -447,9 +445,8 @@ describe('review scripts (C7)', () => {
       await writeFile(path.join(root, 'm0', 'g0.ts'), 'x'.repeat(70 * 1024));
       await writeFile(path.join(reviewDir, 'changed.diff'), changed.map((file, at) => added(file, `export const uniq${at} = 2;`)).join(''));
       run('brief', input);
-      assert.doesNotMatch(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /## Related files/, 'no git: no section, not an empty one');
-      execFileSync('git', ['init', '-q'], { cwd: root });
-      execFileSync('git', ['add', '-A', '--', ...files], { cwd: root });
+      assert.doesNotMatch(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /## Related files/, 'no map: no section, not an empty one');
+      await withMap(input, ...files.filter((file) => !/\/f\d+\.ts$/.test(file)));
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
@@ -461,6 +458,25 @@ describe('review scripts (C7)', () => {
       assert.doesNotMatch(section, /line 100\n/);
       assert.equal(section.split('\n').filter((line) => /^ *\d+ (line \d+|export const uniq\d+ = 1;)$/.test(line)).length, 300);
       assert.match(section, /… \(\d+ related files omitted \(size budget\): m\d\//, 'the cut is announced with names, not silent');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  // `git grep -F -w -o` with 300 names took 45-52 s on a 4,891-file checkout (macOS, 171 s of CPU) and 60 s+ on the user's Windows machine; the in-process scan that replaced it read 4,891 files in 0.9 s.
+  // The map step does the finding now, so the brief spawns no process at all: its cost no longer grows with the repository.
+  it('brief spawns no process and scans no repository: the related files are the map step\'s', async () => {
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' } });
+    try {
+      for (let at = 0; at < 30; at++) { await mkdir(path.join(root, 'pkg'), { recursive: true }); await writeFile(path.join(root, 'pkg', `f${at}.ts`), `export const a${at} = 1;\nexport const sharedName${at} = 2;\nexport const b${at} = 3;\n`); }
+      await withMap(input, 'pkg/f0.ts');
+      await writeFile(path.join(reviewDir, 'changed.diff'), `diff --git a/src/x.ts b/src/x.ts\n--- /dev/null\n+++ b/src/x.ts\n@@ -0,0 +1 @@\n+export const sharedName0 = 1;\n`);
+      const log = path.join(root, 'spawns.log');
+      const preload = path.join(root, 'count-spawns.mjs');
+      await writeFile(preload, `import cp from 'node:child_process'; import { appendFileSync, writeFileSync } from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';\nwriteFileSync(${JSON.stringify(log)}, '');\nconst real = cp.execFileSync;\ncp.execFileSync = (file, args, ...rest) => { appendFileSync(${JSON.stringify(log)}, [file, ...(args ?? [])].join(' ') + '\\n'); return real(file, args, ...rest); };\nsyncBuiltinESMExports();\n`);
+      const out = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, path.join(REPO_ROOT, 'skills', 'review', 'scripts', 'brief.mjs')], { input: JSON.stringify({ testPatterns: TEST_PATH_PATTERNS.map((pattern) => pattern.source), ...input }), encoding: 'utf8' });
+      assert.equal(out.status, 0, out.stderr);
+      assert.deepEqual((await readFile(log, 'utf8')).split('\n').filter(Boolean), []);
+      assert.match(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /### pkg\/f0\.ts \(related: elsewhere in the repository; contains "sharedName"\)/, 'the map\'s file is inlined');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

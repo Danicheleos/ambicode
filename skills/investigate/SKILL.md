@@ -1,7 +1,7 @@
 ---
 name: investigate
-description: "Answer any question about the code with evidence, editing nothing: how something works, why it happens, whether something holds everywhere, which library or approach to choose, which files a change would touch. Use when the user asks such a question, or hands over a Jira/Confluence URL to look into."
-disable-model-invocation: true
+description: "Answer any question about the code with evidence, editing nothing: how something works, why it happens, whether something holds everywhere, which library or approach to choose, which files a change would touch. Only when named: /ambicode:investigate, also run by a subagent."
+disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
