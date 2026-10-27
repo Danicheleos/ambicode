@@ -50,8 +50,6 @@ export interface IdSource {
   /** URL-safe capability with at least 128 bits of entropy. */
   capability(): string;
   csrfToken(): string;
-  /** 8 lowercase hex characters naming a writer that has no session. */
-  writerId(): string;
 }
 
 /** Every request states one explicitly, so a caller cannot acquire the operator's environment by saying nothing. */

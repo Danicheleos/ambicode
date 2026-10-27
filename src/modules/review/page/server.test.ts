@@ -11,7 +11,7 @@ const TOKEN = 'capability-token-0123456789';
 const HOST = '127.0.0.1:4321';
 const SECRET = 'server-secret-0123456789';
 /** Fresh per server: the first link is TOKEN, later ones TOKEN-<n>. */
-const makeIds = (): IdSource => { let links = 0; let sessions = 0; return { reviewId: () => 'r', sessionId: () => `session-${++sessions}`, capability: () => (links++ === 0 ? TOKEN : `${TOKEN}-${links}`), csrfToken: () => 'csrf-1', writerId: () => 'w' }; };
+const makeIds = (): IdSource => { let links = 0; let sessions = 0; return { reviewId: () => 'r', sessionId: () => `session-${++sessions}`, capability: () => (links++ === 0 ? TOKEN : `${TOKEN}-${links}`), csrfToken: () => 'csrf-1' }; };
 
 /** The handler without a socket: requests go straight in, so a refusal is the server's, not the network's. */
 function fakeHost(): HttpHost & { send(request: Partial<HttpRequest> & { url: string }): Promise<HttpResponse>; closed: number } {

@@ -45,7 +45,8 @@ export interface TaskDir {
   where: string;
   ledger: string;
   steps: string;
-  planBody: string;
+  /** The task's one plan file: written as a draft, accepted in place. */
+  plan: string;
   requirements: string;
   workers: string;
   answerBlocked: string;
@@ -53,18 +54,17 @@ export interface TaskDir {
 
 export const NOTE_KINDS = {
   investigation: { stem: 'investigation', stamped: true },
-  'plan-draft': { stem: 'plan-draft', stamped: true },
-  plan: { stem: 'plan', stamped: true },
+  plan: { stem: 'plan', stamped: false },
   notes: { stem: 'notes', stamped: false },
   result: { stem: 'result', stamped: true },
 } as const;
 
 export type NoteKind = keyof typeof NOTE_KINDS;
 
-/** A `plan` note is written only by promotion; legacy ones stay readable. */
+/** A `plan` note is recorded only when the plan route accepts the plan file. */
 export type SaveKind = Exclude<NoteKind, 'plan'>;
 
-export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes', 'result'];
+export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'notes', 'result'];
 
 export const LEDGER_FILE = 'ledger.jsonl';
 

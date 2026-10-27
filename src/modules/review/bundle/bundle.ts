@@ -184,7 +184,7 @@ type AppendEntry = (fields: Record<string, unknown> & { kind: string }) => Promi
 
 /** Appends under the task ledger's own lock: for callers that do not already hold it. */
 const lockedAppend = (runtime: Runtime, taskDirectory: string): AppendEntry => async (fields) =>
-  (await appendLedger(runtime.fs, taskDirectory, runtime.clock.now(), runtime.ids.writerId(), fields)).entry;
+  (await appendLedger(runtime.fs, taskDirectory, runtime.clock.now(), fields)).entry;
 
 /** `ledger` adds fields to the `review` entry (route, session, baseline, preexisting); a route step already holding the lock passes its own `append`. */
 export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}, append?: AppendEntry): Promise<LedgerEntry | null> {

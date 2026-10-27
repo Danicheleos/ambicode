@@ -97,6 +97,20 @@ has one is refused. Rules that init drafts go through `/ambicode:rules`, and
 `policy check --drafts` rejects a draft rule whose `id` or instruction (case,
 spacing and final punctuation ignored) equals a rule already in force.
 
+## Where a rule applies
+
+Choose a rule's `activities` by what it decides. A rule about where code goes or who owns it
+(layers, boundaries, reuse, state ownership) shapes the plan before any code exists, so it carries
+`plan` with `task` and `review`. A rule about how code is written (naming, style, error text)
+carries `task` and `review`; a plan has no code to apply it to.
+
+A pack's `appliesTo` says which files the pack concerns, and its `activities` which stages
+carry it; a rule narrows only by its own `activities`. Every rule of a pack applies to every
+file the pack matches, so `appliesTo` is the project or language scope and one concern per pack
+is the way to scope narrower. With touched files known, a pack whose `appliesTo` matches none of
+them is left out; with none known every pack of the activity contributes. The plan route has no
+touched files before the draft, so it gets the packs the search map's files match, whole.
+
 ## Choosing built-in packs
 
 Packs are chosen, not detected: init picks each project's `packs: [builtin/<id>]` from
@@ -112,8 +126,7 @@ The copy is yours to edit. A later run never overwrites an existing copy; when t
 built-in's `source.externalVersion` differs from the copy's it prints
 `builtin/<id> is <new>, your copy is <old>` and leaves the merge to you. A
 `packs: [builtin/<id>]` reference still loads, and next to a copy of the same pack
-the copy wins. `.ambicode/` is gitignored by init, so copies are per-user unless
-the team un-ignores `.ambicode/policies/`.
+the copy wins. `.ambicode/` is gitignored by init, so copies are per-user.
 
 ## Checks run unless a pack narrows them
 

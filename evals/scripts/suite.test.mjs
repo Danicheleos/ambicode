@@ -56,7 +56,8 @@ describe('skill coverage suite', () => {
     const skill = c.name.split('-')[0];
     it(`${c.name}: the prompt types the skill with a fixed --task slug, graders read literal paths, the fixture exists`, () => {
       assert.ok(c.prompt.startsWith(`/ambicode:${skill}`));
-      const slug = /--task (\S+)/.exec(c.prompt)?.[1] ?? null;
+      // init has no --task in its prompt: its skill text always scaffolds and records under the slug `init`.
+      const slug = /--task (\S+)/.exec(c.prompt)?.[1] ?? (skill === 'init' ? 'init' : null);
       if (skill !== 'init') assert.ok(slug !== null, 'a route case fixes its task slug so graders can name the ledger');
       assert.ok(c.graders.length >= 4, 'at least four graders');
       assert.equal(new Set(c.graders.map((g) => g.name)).size, c.graders.length, 'grader names are unique');
@@ -81,4 +82,25 @@ describe('skill coverage suite', () => {
       else assert.equal(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`));
     });
   }
+});
+
+describe('scaffold commands', () => {
+  // materialize.mjs finds fixtures/contexts/<name>.md (or <base>-<variant>) and fixtures/policies/<name>.yaml; a miss threw only inside a paid run.
+  const has = (folder, extension, fixture) => readdirSync(path.join(ROOT, 'fixtures', folder)).filter((file) => file.endsWith(extension)).map((file) => file.slice(0, -extension.length)).some((name) => fixture === name || fixture.startsWith(`${name}-`));
+
+  it('every scaffold names a known fixture and finds the context and policy files its flags ask for', () => {
+    const known = new Set(FIXTURES.map((fixture) => fixture.name));
+    let seen = 0;
+    for (const [file, text] of FILES) {
+      if (!file.endsWith('/scaffold.sh')) continue;
+      const command = /materialize\.mjs" (\S+) "[^"]*"([^\n]*)/.exec(text);
+      if (command === null) continue;
+      seen += 1;
+      const [, fixture, flags] = command;
+      assert.ok(known.has(fixture), `${file}: unknown fixture ${fixture}`);
+      if (flags.includes('--context')) assert.ok(has('contexts', '.md', fixture), `${file}: no fixtures/contexts file for ${fixture}`);
+      if (flags.includes('--policy')) assert.ok(has('policies', '.yaml', fixture), `${file}: no fixtures/policies file for ${fixture}`);
+    }
+    assert.ok(seen > 40, `only ${seen} scaffolds were checked`);
+  });
 });

@@ -48,7 +48,7 @@ async function shipped(options: { requirements?: string[]; headless?: boolean; s
   const dir = await resolveTaskDir(fx.runtime, TASK);
   const args = ((await fx.kinds(TASK, 'route'))[0]!['args']) as RouteArgs;
   const under = <T>(body: (deps: Omit<CaptureDeps, 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
-    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
+    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), async (ledger) => {
       const view = (await openRouteView(fx.runtime, fx.routes, TASK, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });

@@ -114,11 +114,11 @@ describe('delivery of the read step', () => {
     assert.equal(deliveryOf([hook('[ambicode] investigate \u00b7 step read\nno map here')]).map, false);
   });
 
-  it('finds the map at the step the route definition delivers it in: plan reads it at design, a re-delivery without the map does not hide it', () => {
-    assert.ok(mapStepsOf().has('investigate/read') && mapStepsOf().has('plan/design'));
+  it('finds the map at the step the route definition delivers it in: plan reads it at draft, a re-delivery without the map does not hide it', () => {
+    assert.ok(mapStepsOf().has('investigate/read') && mapStepsOf().has('plan/draft'));
     assert.ok(!mapStepsOf().has('task/change'), 'a step with a work file carries no map in the hook text');
-    const design = '[ambicode] plan \u00b7 task t \u00b7 step design (3/6)\nNow: design\n## map\n{"candidates":[1]}';
-    assert.deepEqual(deliveryOf([hook('# contract') + hook(design)]), { status: 'delivered', chars: design.length, map: true, candidates: true, spill: false });
+    const draft = '[ambicode] plan \u00b7 task t \u00b7 step draft (3/6)\nNow: draft\n## map\n{"candidates":[1]}';
+    assert.deepEqual(deliveryOf([hook('# contract') + hook(draft)]), { status: 'delivered', chars: draft.length, map: true, candidates: true, spill: false });
     assert.equal(deliveryOf([hook('[ambicode] plan \u00b7 task t \u00b7 step plan-check\n## map')]).status, 'absent');
   });
 

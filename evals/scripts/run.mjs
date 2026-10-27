@@ -158,6 +158,22 @@ const runsOfCase = (result, name) => {
   return (own.length > 0 ? own : all).flatMap((one) => Object.values(one.arms ?? {}).flat());
 };
 
+/** Folds the earlier cases of a series into this command's result, keeping their order; the same case rerun replaces its entry. Totals are recomputed from the merged cases. */
+export function mergeSeries(previous, result) {
+  const fresh = new Set((result.cases ?? []).map((one) => one.name));
+  const cases = [...(previous.cases ?? []).filter((one) => !fresh.has(one.name)), ...(result.cases ?? [])];
+  const mean = (key) => (cases.length === 0 ? 0 : Number((cases.reduce((sum, one) => sum + (one.aggregates?.[key] ?? 0), 0) / cases.length).toFixed(3)));
+  return {
+    ...result,
+    startedAt: previous.startedAt ?? result.startedAt,
+    durationSeconds: (previous.durationSeconds ?? 0) + (result.durationSeconds ?? 0),
+    costUsd: Number(((previous.costUsd ?? 0) + (result.costUsd ?? 0)).toFixed(6)),
+    partial: Boolean(previous.partial || result.partial),
+    cases,
+    aggregates: { ...result.aggregates, casesTotal: cases.length, casesPassed: cases.filter((one) => one.aggregates?.passRate === 1).length, overallScore: mean('score'), overallPassRate: mean('passRate') },
+  };
+}
+
 /** Runs `exec` (one command's harness call) around updates of the progress file; a failure to write it only warns, once. */
 export function withProgress(run, argv, exec, { file = path.join(path.dirname(run.result), 'running.json'), now = () => new Date() } = {}) {
   const list = seriesOf(argv);
@@ -198,6 +214,17 @@ export function withProgress(run, argv, exec, { file = path.join(path.dirname(ru
     if (found === undefined) state.cases.push((found = { name, state: 'queued', score: null, costUsd: null }));
     return found;
   };
+  // The harness overwrites run.result on every command, so the series so far is read before it runs.
+  const earlier = list === null ? null : guard(() => {
+    try {
+      const state = JSON.parse(readFileSync(file, 'utf8'));
+      if (state.series !== id || state.finishedAt !== null) return null;
+      return JSON.parse(readFileSync(run.result, 'utf8'));
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }) ?? null;
   if (list !== null && name !== null) guard(() => {
     const state = load();
     entry(state).state = 'running';
@@ -219,6 +246,10 @@ export function withProgress(run, argv, exec, { file = path.join(path.dirname(ru
     one.costUsd = outcome.result === null ? null : cost(runs);
     state.current = null;
     save(state);
+  });
+  if (earlier !== null && outcome.result !== null) guard(() => {
+    outcome.result = mergeSeries(earlier, outcome.result);
+    writeFileSync(run.result, `${JSON.stringify(outcome.result, null, 2)}\n`);
   });
   if (outcome.error) throw outcome.error;
   return outcome;

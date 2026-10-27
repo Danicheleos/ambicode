@@ -43,6 +43,29 @@ async function drafted(files: Record<string, string>) {
 
 const codes = (check: Awaited<ReturnType<Awaited<ReturnType<typeof drafted>>['check']>>): string[] => check.diagnostics.map((diagnostic) => diagnostic.code);
 
+describe('a draft is not cut from a file Claude Code loads itself', () => {
+  it('a rule quoting CLAUDE.md, .claude/rules or a nested CLAUDE.md is an error, a CONTRIBUTING.md quote is not', async () => {
+    const d = await drafted({
+      'a.yaml': pack([
+        rule('from-root', 'Keep services apart from transport.', QUOTE, 'CLAUDE.md'),
+        rule('from-rules', 'Keep tests beside the code always.', QUOTE, '.claude/rules/tests.md:3'),
+        rule('from-nested', 'Keep layers apart in this folder.', QUOTE, 'src/users/CLAUDE.md'),
+        rule('from-guide', 'Keep the transport layer behind services.', QUOTE),
+      ]),
+    });
+    try {
+      await d.repo.write('CLAUDE.md', GUIDE);
+      const check = await d.check();
+      const flagged = check.diagnostics.filter((diagnostic) => diagnostic.code === 'pack-source-autoloaded').map((diagnostic) => diagnostic.message);
+      assert.equal(flagged.length, 3);
+      assert.ok(flagged.some((message) => message.includes('from-root')) && !flagged.some((message) => message.includes('from-guide')));
+      assert.equal(check.ok, false);
+    } finally {
+      await d.repo.dispose();
+    }
+  });
+});
+
 describe('09-Q1: drafts carry a source', () => {
   it('09-Q1: a draft rule without source is pack-invalid', async () => {
     const d = await drafted({ 'a.yaml': pack([rule('no-source', 'Keep services apart from transport.', null)]) });
@@ -124,6 +147,33 @@ describe('one rule is stated once', () => {
     const d = await drafted({ 'a.yaml': pack([rule(preset.id, 'Something this project states in its own words.', QUOTE)]) });
     try {
       assert.ok(codes(await d.check()).includes('pack-rule-duplicate'));
+    } finally {
+      await d.repo.dispose();
+    }
+  });
+
+  it('a draft that paraphrases an enabled rule, or an earlier draft, warns with the rule it resembles and does not block', async () => {
+    const half = preset.instruction.split(/(?<=\.)\s/)[0]!.replace(/\.$/, '');
+    const d = await drafted({
+      'a.yaml': pack([rule('my-own-need', `In this project, ${half.toLowerCase()} and nothing more.`, QUOTE), rule('layers', 'Keep the transport layer behind the services always.', QUOTE)]),
+      'b.yaml': pack([rule('layers-again', 'Always keep transport layer behind services.', QUOTE)]).replace('id: team-a', 'id: team-b'),
+    });
+    try {
+      const check = await d.check();
+      const similar = check.diagnostics.filter((diagnostic) => diagnostic.code === 'pack-rule-similar');
+      assert.equal(similar.length, 2, JSON.stringify(similar.map((entry) => entry.message)));
+      assert.ok(similar.some((entry) => entry.severity === 'warning' && entry.message.includes('my-own-need') && entry.message.includes(`common-design/${preset.id}`)));
+      assert.ok(similar.some((entry) => entry.message.includes('team-b') && entry.message.includes('team-a/layers')));
+      assert.equal(check.ok, true, JSON.stringify(check.diagnostics));
+    } finally {
+      await d.repo.dispose();
+    }
+  });
+
+  it('unrelated rules do not warn as similar', async () => {
+    const d = await drafted({ 'a.yaml': pack([rule('one', 'Keep the transport layer behind the services.', QUOTE), rule('two', 'Tests live beside the code they cover.', 'Tests live beside the code.')]) });
+    try {
+      assert.ok(!codes(await d.check()).includes('pack-rule-similar'));
     } finally {
       await d.repo.dispose();
     }

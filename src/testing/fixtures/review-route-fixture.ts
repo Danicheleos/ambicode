@@ -46,7 +46,7 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   };
   const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
-    (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: SESSION_A, ...fields })).entry;
+    (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), { route: await routeId(), session: SESSION_A, ...fields })).entry;
   /** What the pin step leaves: the result file and the `review` entry, then the tail. */
   const synthetic = async (findings: Finding[], extra: { stage?: 'pending' | 'recorded'; requirements?: RequirementRows } = {}): Promise<StepMessage> => {
     const stage = extra.stage ?? 'recorded';

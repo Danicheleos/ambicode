@@ -12,10 +12,12 @@ The field-by-field reference for `.ambicode/policies/<id>.yaml`. The worked exam
   wrong changes review output. **When in doubt, `observed` — and say so.**
 - **`source`** — required on the pack (not only on rules): `location`, one line saying where the pack's
   rules come from, e.g. `CONTRIBUTING.md`.
-- **`appliesTo`** — globs derived from the real file layout.
+- **`appliesTo`** — globs for the project or language scope, from the real file layout. Never an
+  element: one concern per pack is how a rule gets a narrower scope.
 - **`activities`** — which of `review`, `task`, `plan`, `investigate` the rule
-  is content for. How code should be written is `review` and `task`; how work
-  is planned is `plan`.
+  is content for. How code should be written (naming, style, error text) is
+  `task` and `review`. A boundary, layering, ownership or reuse rule decides where a change
+  goes, so it carries `plan` too: `[plan, task, review]`.
 - **Per-rule `activities`** — optional on a rule; it narrows the pack's value
   for that rule (a rule cannot list an activity its pack does not carry), and
   an absent one means the pack's.
@@ -34,7 +36,7 @@ The field-by-field reference for `.ambicode/policies/<id>.yaml`. The worked exam
 
 Pack level: `schemaVersion: 1`, `id`, `authority`, `appliesTo`, `activities`, `source`, `rules`
 (optional `description`, `replaces`). Rule level: only `id`, `category`, `instruction`, `check`,
-`source` and an optional `activities`. A key on the wrong level is an error that skips the pack.
+`source` and optional `activities`. A key on the wrong level is an error that skips the pack.
 
 Double-quote every `quote` and `instruction` value: a source line with `: ` in it breaks unquoted YAML.
 

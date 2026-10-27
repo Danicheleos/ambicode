@@ -53,7 +53,7 @@ async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<Polic
     output.diagnostics.push({ severity: 'notice', code: 'drafts-not-recorded', message: `Task ${task} has no live rules route of this session, so nothing was recorded.` });
     return output;
   }
-  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, (ledger) =>
+  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), (ledger) =>
     ledger.append({ kind: 'policy', route: view.routeId, stage: 'drafts', path: DRAFTS_DIR, contentHash: check.aggregateHash, drafts: check.files, errors: check.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length }),
   );
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'policy check --drafts' });

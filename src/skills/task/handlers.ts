@@ -10,6 +10,7 @@ import { openRepository } from '#platform/git/open';
 import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries } from '../common.ts';
+import { planStatusOf } from '#modules/evidence/notes';
 import { briefOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
 import { runnableChecks } from '#modules/checks/run/check-command';
@@ -45,6 +46,11 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'task.start': async (input) => {
     const read = await input.ledger.read();
     const { planPath, iteration, iterations, brief } = await briefOf(input, read.state === 'ok' ? read.entries : []);
+    // A plan the user took back to draft by hand is not run; a file named with --plan is the user's own choice and is read as is.
+    const planText = input.args.plan === null && planPath !== null ? await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null) : null;
+    if (planText !== null && planStatusOf(planText) !== 'accepted') {
+      return { state: 'failed', code: 'plan-not-accepted', message: `${planPath} is not status: accepted. Accept it in the plan route, or name the file with --plan to run it as it is.`, recoverable: false };
+    }
     if (iteration > iterations) return { state: 'ok', payload: `Every iteration of ${planPath ?? 'the plan'} is done (${iterations}).`, record: { planPath, iterations }, exit: 'iterations-complete' };
     const record = { planPath, iteration, iterations };
     const head = `Task ${input.view.task} · iteration ${iteration} of ${iterations} · plan: ${planPath ?? 'none (the request is the brief)'}`;
@@ -113,8 +119,8 @@ onGatePrint('review-offer', async ({ runtime, task, chain }) => {
     const baseline = baselineIn(chain);
     const preexisting = baseline === null ? [] : (await touchedSet(runtime, baseline)).preexisting;
     const estimate = await estimateReview(runtime, { runtime, target: { kind: 'working' }, requirements: [], task, preexisting, baseTree: baselineTree(chain) });
-    return { line: renderEstimate(estimate) };
+    return { details: renderEstimate(estimate) };
   } catch (error) {
-    return { line: `Review estimate unavailable: ${isAmbicodeError(error) ? error.code : 'an unexpected error'}.` };
+    return { details: `Review estimate unavailable: ${isAmbicodeError(error) ? error.code : 'an unexpected error'}.` };
   }
 });

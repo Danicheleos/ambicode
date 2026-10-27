@@ -223,3 +223,65 @@ describe('argument check', () => {
     }
   });
 });
+
+describe('series results file', () => {
+  const setup = () => {
+    const results = mkdtempSync(path.join(tmpdir(), 'run-merge-'));
+    return { results, file: path.join(results, 'plugin.json') };
+  };
+  const raw = (name, score) => ({
+    schemaVersion: 1, startedAt: `s-${name}`, durationSeconds: 10, costUsd: 0.5, partial: false, suite: { caseFilter: name },
+    cases: [{ name, arms: { with: [{ score }] }, aggregates: { score, passRate: score === 1 ? 1 : 0 } }],
+    aggregates: { casesTotal: 1, casesPassed: score === 1 ? 1 : 0, overallScore: score, overallPassRate: score === 1 ? 1 : 0 },
+  });
+  const command = (results, args, name, score) => {
+    const argv = args.split(' ');
+    const run = plan(argv, undefined, results);
+    return withProgress(run, argv, () => {
+      const result = raw(name, score);
+      writeFileSync(run.result, JSON.stringify(result));
+      return { status: 0, result };
+    });
+  };
+  const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
+
+  it('a series of two commands ends with both cases and consistent totals', () => {
+    const { results, file } = setup();
+    command(results, '--series a,b --case a', 'a', 1);
+    command(results, '--series a,b --case b', 'b', 0.5);
+    const merged = read(file);
+    assert.deepEqual(merged.cases.map((c) => c.name), ['a', 'b']);
+    assert.deepEqual(merged.aggregates, { casesTotal: 2, casesPassed: 1, overallScore: 0.75, overallPassRate: 0.5 });
+    assert.equal(merged.costUsd, 1);
+    assert.equal(merged.durationSeconds, 20);
+    assert.equal(merged.startedAt, 's-a');
+    assert.equal(merged.schemaVersion, 1);
+  });
+
+  it('a different series starts fresh, and so does a command with no --series', () => {
+    const { results, file } = setup();
+    command(results, '--series a,b --case a', 'a', 1);
+    command(results, '--series c,d --case c', 'c', 1);
+    assert.deepEqual(read(file).cases.map((c) => c.name), ['c']);
+    command(results, '--series c,d --case d', 'd', 1);
+    command(results, '--case e', 'e', 1);
+    assert.deepEqual(read(file).cases.map((c) => c.name), ['e']);
+  });
+
+  it('a rerun of the same case replaces its entry', () => {
+    const { results, file } = setup();
+    command(results, '--series a,b --case a', 'a', 0.5);
+    command(results, '--series a,b --case a', 'a', 1);
+    const merged = read(file);
+    assert.deepEqual(merged.cases.map((c) => c.aggregates.score), [1]);
+    assert.equal(merged.aggregates.casesTotal, 1);
+  });
+
+  it('a series that finished does not leak into the next run of the same list', () => {
+    const { results, file } = setup();
+    command(results, '--series a,b --case a', 'a', 1);
+    command(results, '--series a,b --case b', 'b', 1);
+    command(results, '--series a,b --case a', 'a', 1);
+    assert.deepEqual(read(file).cases.map((c) => c.name), ['a']);
+  });
+});

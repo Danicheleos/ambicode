@@ -172,7 +172,7 @@ export function createEngine(deps: EngineDeps): Engine {
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
 
-    const result = await withLedgerLock(rt.fs, dir.root, now, input.session, async (ledger): Promise<{ message: StepMessage; run: Run; part: Part }> => {
+    const result = await withLedgerLock(rt.fs, dir.root, now, async (ledger): Promise<{ message: StepMessage; run: Run; part: Part }> => {
       const entries = entriesOf(slug, await ledger.read());
       await interrupt(dir, ledger, entries);
 
@@ -205,7 +205,7 @@ export function createEngine(deps: EngineDeps): Engine {
     await settle(result.run, result.part);
     for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug)) {
       const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
-      await withLedgerLock(rt.fs, otherDir.root, now, input.session, async (ledger) => {
+      await withLedgerLock(rt.fs, otherDir.root, now, async (ledger) => {
         const read = await ledger.read();
         if (read.state === 'ok') await interrupt(otherDir, ledger, read.entries);
       });
@@ -217,7 +217,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   async function advance(input: AdvanceInput): Promise<StepMessage> {
     const dir = await resolveTaskDir(runtime, input.task);
-    const result = await withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
+    const result = await withLedgerLock(runtime.fs, dir.root, now, async (ledger) => {
       const entries = entriesOf(input.task, await ledger.read());
       const head = liveHeads(entries).at(-1);
       const def = head === undefined ? null : routes.route(String(head['skill']));
@@ -249,7 +249,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   async function deliver(task: string, scratchpadDir?: string): Promise<StepMessage | null> {
     const dir = await resolveTaskDir(runtime, task);
-    return withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
+    return withLedgerLock(runtime.fs, dir.root, now, async (ledger) => {
       const entries = entriesOf(task, await ledger.read());
       const head = liveHeads(entries).at(-1);
       const def = head === undefined ? null : routes.route(String(head['skill']));
@@ -261,7 +261,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   async function stop(task: string, reason: Exit, detail: string | undefined, scratchpadDir?: string): Promise<void> {
     const dir = await resolveTaskDir(runtime, task);
-    const head = await withLedgerLock(runtime.fs, dir.root, now, runtime.ids.writerId(), async (ledger) => {
+    const head = await withLedgerLock(runtime.fs, dir.root, now, async (ledger) => {
       const route = liveHeads(entriesOf(task, await ledger.read())).at(-1);
       if (route === undefined) throw routeNotOpen(task);
       await closeRoute(runtime, routes, dir, ledger, { route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
@@ -272,7 +272,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   async function closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean> {
     const dir = await resolveTaskDir(runtime, task);
-    return withLedgerLock(runtime.fs, dir.root, now, routeId, async (ledger) => {
+    return withLedgerLock(runtime.fs, dir.root, now, async (ledger) => {
       const entries = entriesOf(task, await ledger.read());
       const head = liveHeads(entries).find((entry) => entry.id === routeId);
       const def = head === undefined ? null : routes.route(String(head['skill']));
@@ -297,7 +297,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   /** What `note save --kind investigation` then its command tail do, for a final message the Stop hook was handed. */
   async function answerNote(task: string, session: string, routeId: string, body: string, scratchpadDir?: string): Promise<StepMessage> {
-    await saveNote({ runtime, session, context }, { task, kind: 'investigation', body, from: null, route: routeId });
+    await saveNote({ runtime, session, context }, { task, kind: 'investigation', body, route: routeId });
     return advance({ task, cause: 'note save', ...(scratchpadDir === undefined ? {} : { scratchpadDir }) });
   }
 

@@ -78,7 +78,12 @@ export function gatePrintText(input: PrintInput): string {
   const platform = input.platform ?? PLATFORM;
   const run = input.runner ?? 'ambicode';
   const offered = Array.isArray(entry['options']) ? (entry['options'] as string[]) : gate.options;
-  const lines = [String(entry['question'] ?? gate.question), 'Options:'];
+  const details = typeof entry['details'] === 'string' ? entry['details'] : '';
+  const lines = [
+    ...(details === '' ? [] : ['First write this to the chat as a normal message; the question window cannot show or select text:', details, '']),
+    `Then ask: ${String(entry['question'] ?? gate.question)}`,
+    'Options:',
+  ];
   for (const option of offered) {
     const notes: string[] = [];
     if (option === gate.default) notes.push('default if nobody answers');
@@ -91,6 +96,7 @@ export function gatePrintText(input: PrintInput): string {
     lines.push(`  - ${option}${notes.length === 0 ? '' : ` (${notes.join('; ')})`}`);
   }
   if (object !== null) lines.push(`Object: ${object.path} ${hash12(object.contentHash)}`);
+  if (typeof entry['note'] === 'string') lines.push(entry['note']);
   lines.push(gateMarker(gate.id, entry.id));
   const flagged = offered.filter((option) => !gate.acting.includes(option));
   if (platform.askBinding === 'supported') {
@@ -165,20 +171,29 @@ export const matchOption = (options: readonly string[], answer: string): string 
   return exact ?? (byLabel.length === 1 ? byLabel[0]! : null);
 };
 
-/** Print-time text and offered options a module adds to a gate's question (09-G1). */
-interface PrintShape { line: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }
+/**
+ * Print-time text for a gate. The question window cannot show selectable text or click a path, so `details` is written to
+ * the chat before the question and the recorded question stays the declared one. `note` is an instruction to the model only.
+ */
+interface PrintShape { details?: string; note?: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }
 type PrintShaper = (input: { runtime: Runtime; dir: TaskDir; task: string; chain: readonly LedgerEntry[]; gate: GateDef }) => Promise<PrintShape | null>;
 const PRINT_SHAPERS = new Map<string, PrintShaper>();
 
 export const onGatePrint = (gate: string, shaper: PrintShaper): void => void PRINT_SHAPERS.set(gate, shaper);
 
-/** The question and options one print records; `offered` stays within the declared options and keeps the default. */
-export async function shapePrint(gate: GateDef, input: Omit<Parameters<PrintShaper>[0], 'gate'>): Promise<{ question: string; options: readonly string[]; values?: Readonly<Record<string, unknown>> }> {
+/** The details, note and options one print records; `offered` stays within the declared options and keeps the default. */
+export async function shapePrint(gate: GateDef, input: Omit<Parameters<PrintShaper>[0], 'gate'>): Promise<{ question: string; details?: string; note?: string; options: readonly string[]; values?: Readonly<Record<string, unknown>> }> {
   const shape = (await PRINT_SHAPERS.get(gate.id)?.({ ...input, gate })) ?? null;
   if (shape === null) return { question: gate.question, options: gate.options };
   const offered = shape.offered ?? gate.options;
   if (offered.some((option) => !gate.options.includes(option)) || !offered.includes(gate.default)) {
     throw new AmbicodeError('internal', `gate ${gate.id}: a print offered options outside the declared ones or without the default.`);
   }
-  return { question: shape.line === '' ? gate.question : `${gate.question}\n${shape.line}`, options: [...offered], ...(shape.values === undefined ? {} : { values: shape.values }) };
+  return {
+    question: gate.question,
+    ...(shape.details === undefined || shape.details.trim() === '' ? {} : { details: shape.details }),
+    ...(shape.note === undefined || shape.note.trim() === '' ? {} : { note: shape.note }),
+    options: [...offered],
+    ...(shape.values === undefined ? {} : { values: shape.values }),
+  };
 }

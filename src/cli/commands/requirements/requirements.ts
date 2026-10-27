@@ -19,7 +19,7 @@ async function runRequirementsNormalize(runtime: Runtime, args: ParsedArgs): Pro
   const { view } = await tools.engine.command(COMMAND_SPECS.requirementsNormalize, { task }, async (scope) => scope);
   if (view === null) throw new AmbicodeError('route-not-open', `Session has no open route on task ${task}.`, { details: [`Start one: route start <skill> --task ${task}`] });
   const dir = await resolveTaskDir(runtime, task);
-  const result = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, async (ledger) => {
+  const result = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), async (ledger) => {
     const route = (await ledger.read());
     const head = route.state === 'ok' ? route.entries.find((entry) => entry.id === view.routeId) : undefined;
     return normalizeEnvelope({ runtime, dir, ledger, view, args: (head?.['args'] ?? {}) as RouteArgs });

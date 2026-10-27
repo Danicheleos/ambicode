@@ -50,10 +50,10 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   format: { valid: { key: 'web/format', files: [], exit: 0, outcome: 'formatted' }, invalid: { key: 'web/format', files: [], exit: null, outcome: 'skipped' } },
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
   worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
-  note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', promotedFrom: 'a1b2c3d4-3' }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
+  note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', anchorsBad: 0 }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
   init: { valid: { what: 'config validate', outcome: 'ok' }, invalid: { what: 'config validate' } },
 };
-const common = { id: 'a1b2c3d4-9', at: '2026-10-05T10:00:00.000Z' };
+const common = { id: '9', at: '2026-10-05T10:00:00.000Z' };
 
 describe('the 22 ledger kinds', () => {
   it('02-K1: the table covers every kind', () => {
@@ -69,8 +69,17 @@ describe('the 22 ledger kinds', () => {
     });
   }
 
-  it('02-K1: an id of neither shape is rejected, and an unknown kind is skipped, not rejected', () => {
+  it('a policy entry of stage required carries its ids and nothing else', () => {
+    assert.equal(parseEntry({ ...common, kind: 'policy', stage: 'required', ids: ['common-design/need'] }).ok, true);
+    assert.equal(parseEntry({ ...common, kind: 'policy', stage: 'required' }).ok, false);
+  });
+
+  it('02-K1: an id that is not a plain count is rejected (the old L<n> and writer-prefixed forms included), and an unknown kind is skipped, not rejected', () => {
     assert.equal(parseEntry({ ...common, id: 'nope', kind: 'exit', route: 'r', reason: 'x' }).ok, false);
+    assert.equal(parseEntry({ ...common, id: 'L3', kind: 'exit', route: 'r', reason: 'x' }).ok, false);
+    assert.equal(parseEntry({ ...common, id: 'a1b2c3d4-3', kind: 'exit', route: 'r', reason: 'x' }).ok, false);
+    assert.equal(parseEntry({ ...common, id: '0', kind: 'exit', route: 'r', reason: 'x' }).ok, false);
+    assert.equal(parseEntry({ ...common, id: '03', kind: 'exit', route: 'r', reason: 'x' }).ok, false);
     assert.deepEqual(parseEntry({ ...common, kind: 'from-the-future' }), { ok: false, unknownKind: true });
     assert.deepEqual(parseEntry([1]), { ok: false, unknownKind: false, reason: 'not a JSON object' });
   });
@@ -81,11 +90,11 @@ describe('the 22 ledger kinds', () => {
     assert.equal(parseEntry({ ...common, kind: 'acceptance', ...routeless, unbound: true }).ok, true);
   });
 
-  it('02-K2: legacy note and review records still parse, and old and new ids share a ledger', () => {
+  it('02-K2: older-shaped note and review records still parse', () => {
     for (const note of ['plan', 'investigation', 'notes']) {
-      assert.equal(parseEntry({ id: 'L3', at: 't', kind: 'note', note, path: 'p', contentHash: 'h' }).ok, true);
+      assert.equal(parseEntry({ id: '3', at: 't', kind: 'note', note, path: 'p', contentHash: 'h' }).ok, true);
     }
-    const legacyReview = { id: 'L4', at: 't', kind: 'review', reviewId: 'r', status: 'complete', statusReason: 's', reviewerRan: true, findings: 1, omissions: 0, checks: [], waiting: [] };
+    const legacyReview = { id: '4', at: 't', kind: 'review', reviewId: 'r', status: 'complete', statusReason: 's', reviewerRan: true, findings: 1, omissions: 0, checks: [], waiting: [] };
     assert.equal(parseEntry(legacyReview).ok, true);
     assert.equal(parseEntry({ ...legacyReview, statusReason: null }).ok, true, 'the review writer records a null statusReason');
     assert.equal(parseEntry({ ...common, kind: 'note', ...TABLE.note.valid }).ok, true);
@@ -110,8 +119,8 @@ describe('the 22 ledger kinds', () => {
   });
 
   it('03: ledgers written before the new fields and kinds still parse', () => {
-    assert.equal(parseEntry({ id: 'L1', at: 't', kind: 'exit', route: 'r', reason: 'done' }).ok, true);
-    assert.equal(parseEntry({ id: 'L2', at: 't', kind: 'step', route: 'r', step: 's', actor: 'code', status: 'completed', cause: 'c' }).ok, true);
-    assert.equal(parseEntry({ id: 'L3', at: 't', kind: 'limit', route: 'r', which: 'repeat', count: 1 }).ok, true);
+    assert.equal(parseEntry({ id: '1', at: 't', kind: 'exit', route: 'r', reason: 'done' }).ok, true);
+    assert.equal(parseEntry({ id: '2', at: 't', kind: 'step', route: 'r', step: 's', actor: 'code', status: 'completed', cause: 'c' }).ok, true);
+    assert.equal(parseEntry({ id: '3', at: 't', kind: 'limit', route: 'r', which: 'repeat', count: 1 }).ok, true);
   });
 });

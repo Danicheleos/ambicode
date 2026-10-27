@@ -1,6 +1,6 @@
 {
   "name": "ambicode",
-  "version": "0.6.28",
+  "version": "0.6.30",
   "private": true,
   "description": "AMBICODE Claude Code plugin helpers: scoped policy, evidence checks, independent review, human-selected publication.",
   "license": "UNLICENSED",

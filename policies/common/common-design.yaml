@@ -16,14 +16,18 @@ rules:
     category: architecture
     activities: [plan, review]
     instruction: >-
-      Build what the accepted requirement or an inherited obligation calls for.
-      Speculative branches, options, and migration hooks with no current caller
-      are unnecessary work until a requirement asks for them.
+      Build what the accepted requirement or an inherited obligation calls for,
+      in the smallest clear solution. Speculative branches, options, migration
+      hooks, generic machinery, configuration surfaces, and optimizations are
+      unnecessary work until a requirement asks for them or a measurement shows
+      the need.
     check:
       kind: reviewer
       explanation: >-
         Assess against the stated requirement and the callers present in the
         change. Absence of a caller is evidence; it is not proof on its own.
+        Cite the specific complexity and what it costs a reader or caller; a
+        preference for a different structure is not a defect.
 
   - id: fix-the-cause
     category: architecture
@@ -67,19 +71,6 @@ rules:
       explanation: >-
         Requires finding the existing implementation in the snapshot. Report a
         suspected duplicate as a question when the original cannot be located.
-
-  - id: unjustified-complexity
-    category: architecture
-    activities: [plan]
-    instruction: >-
-      Prefer the smallest clear solution for the case at hand. Generic
-      machinery, configuration surfaces, and optimizations need a demonstrated
-      need, measured or stated in the requirement.
-    check:
-      kind: reviewer
-      explanation: >-
-        Cite the specific complexity and what it costs a reader or caller. A
-        preference for a different structure is not a defect.
 
   - id: explicit-surface
     category: architecture

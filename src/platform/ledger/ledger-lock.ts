@@ -38,7 +38,6 @@ export async function withLedgerLock<T>(
   fs: FileSystem,
   taskDirectory: string,
   now: () => Date,
-  writer: string,
   body: (ledger: LockedLedger) => Promise<T>,
   options: LockOptions = {},
 ): Promise<T> {
@@ -63,7 +62,7 @@ export async function withLedgerLock<T>(
     try {
       return await heldHere.run(new Set([...outer, lockFile]), () =>
         body({
-          append: (entry) => appendLocked(fs, taskDirectory, now(), writer, entry),
+          append: (entry) => appendLocked(fs, taskDirectory, now(), entry),
           read: () => readLedgerStrict(fs, taskDirectory),
         }),
       );

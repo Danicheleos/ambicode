@@ -11,6 +11,19 @@ const review = (reviewId: string, findings: number, fields: object = {}): Ledger
 const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
 
 describe('gapsOf: checks never claim more than the ledger says', () => {
+  it('a plan accepted with bad anchors is not verified; one accepted with none is not listed', () => {
+    const plan = (anchorsBad: number) => entry('note', { note: 'plan', path: 'p.md', contentHash: 'h', anchorsBad });
+    assert.deepEqual(gapsOf([plan(2)]), ['plan accepted with 2 bad anchors']);
+    assert.deepEqual(gapsOf([plan(0)]), []);
+  });
+
+  it('a plan accepted with uncited policy rules says how many', () => {
+    const plan = (fields: object) => entry('note', { note: 'plan', path: 'p.md', contentHash: 'h', anchorsBad: 0, ...fields });
+    assert.deepEqual(gapsOf([plan({ policyMissing: 3 })]), ['plan accepted without 3 policy citations']);
+    assert.deepEqual(gapsOf([plan({})]), []);
+  });
+
+
   it('a nonzero last exit and a declined key are not verified', () => {
     const gaps = gapsOf([
       check({ key: 'web/e2e', phase: 'red', exit: 2 }),

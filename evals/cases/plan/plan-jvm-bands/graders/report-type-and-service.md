@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: 'StockReport'
+pattern: '(?<!## Policies[\s\S]*)(?:StockReport)'
 match: contains
 target: { source: file, path: .ambicode/tasks/plan-jvm-bands/plan.md }
 weight: 1

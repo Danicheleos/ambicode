@@ -44,7 +44,7 @@ async function pending() {
   const taskDirectory = path.join(root, '.ambicode', 'tasks', TASK);
   const record = async (answer: string | null) => {
     const entry = pendingReview(await readLedger(nodeFileSystem, taskDirectory), null)!;
-    return recordReviewerAnswer(runtime, { pending: entry, answer, append: async (fields) => (await appendLedger(nodeFileSystem, taskDirectory, new Date(), 'test-writer', fields)).entry });
+    return recordReviewerAnswer(runtime, { pending: entry, answer, append: async (fields) => (await appendLedger(nodeFileSystem, taskDirectory, new Date(), fields)).entry });
   };
   const ledger = () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return { root, reviewed, line, finding, record, ledger };

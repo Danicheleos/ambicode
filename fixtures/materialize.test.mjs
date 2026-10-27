@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { parse as parseYaml } from 'yaml';
 import { checkContext } from '../src/modules/context/context.ts';
 import { SUPPORTED_SCHEMA_VERSION } from '../src/types/modules/config.ts';
 import { materialize } from './materialize.mjs';
@@ -31,6 +32,25 @@ describe('fixtures materialize', { concurrency: 4 }, () => {
       }
     });
   }
+
+  it('--stack-packs adds the packs the fixture declares to the config; a fixture that declares none refuses it', async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));
+    try {
+      const plain = path.join(parent, 'plain');
+      const stacked = path.join(parent, 'stacked');
+      await materialize(fixtureByName('ts-app-medium-plan'), plain, { ambicodeInit: true });
+      await materialize(fixtureByName('ts-app-medium-plan'), stacked, { ambicodeInit: true, stackPacks: true });
+      const packsOf = async (dir) => parseYaml(await readFile(path.join(dir, '.ambicode', 'config.yaml'), 'utf8')).projects[0].packs;
+      const base = await packsOf(plain);
+      assert.deepEqual((await packsOf(stacked)).slice(0, base.length), base);
+      assert.deepEqual((await packsOf(stacked)).slice(base.length), fixtureByName('ts-app-medium-plan').stackPacks);
+      assert.ok(fixtureByName('ts-app-medium-plan').stackPacks.every((ref) => ref.startsWith('builtin/')));
+      await assert.rejects(materialize(fixtureByName('ts-off-by-one'), path.join(parent, 'none'), { ambicodeInit: true, stackPacks: true }), /declares no stackPacks/);
+      await assert.rejects(materialize(fixtureByName('ts-app-medium-plan'), path.join(parent, 'noinit'), { stackPacks: true }), /need --ambicode-init/);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
 
   it('a materialized repo is not repacked in the background: the eval harness lists the run dir once and fails when .git/objects changes', async () => {
     const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));

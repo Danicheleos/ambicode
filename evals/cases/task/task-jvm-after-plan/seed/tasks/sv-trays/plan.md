@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Refuse a sowing of no trays
 
 | requirement | section | code |

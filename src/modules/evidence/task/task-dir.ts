@@ -24,7 +24,7 @@ export function taskDirFor(repositoryRoot: string, slug: string, where = '.', ki
     where,
     ledger: path.join(root, LEDGER_FILE),
     steps,
-    planBody: path.join(steps, 'plan-body.md'),
+    plan: path.join(root, 'plan.md'),
     requirements: path.join(root, 'requirements'),
     workers: path.join(root, 'workers'),
     answerBlocked: path.join(root, 'answer-blocked.md'),
@@ -79,21 +79,4 @@ export async function taskWorkingDirectory(runtime: Runtime, slug: string): Prom
   const real = (value: string) => runtime.fs.realpath(value).catch(() => value);
   const relative = path.relative(await real(dir.repositoryRoot), await real(runtime.cwd));
   return relative.startsWith('..') || path.isAbsolute(relative) ? dir.repositoryRoot : runtime.cwd;
-}
-
-/** `--from` names the task's own plan body and nothing else: not another file, another task or a link to one. */
-export async function resolveFrom(fs: FileSystem, dir: TaskDir, from: string): Promise<string> {
-  const refuse = (why: string): AmbicodeError =>
-    new AmbicodeError('bad-argument', `--from must be steps/plan-body.md of this task; ${why}.`, { field: 'from' });
-  const realRoot = await fs.realpath(dir.root).catch(() => dir.root);
-  const expected = path.join(realRoot, 'steps', 'plan-body.md');
-  if (path.isAbsolute(from)) {
-    if ((await fs.realpath(from).catch(() => null)) !== expected) throw refuse('that path is something else');
-  } else if (path.resolve(dir.root, from) !== dir.planBody) {
-    throw refuse('that path is something else');
-  }
-  const stats = await fs.lstat(path.isAbsolute(from) ? from : dir.planBody).catch(() => null);
-  if (stats === null) throw refuse('the file does not exist');
-  if (stats.isSymbolicLink() || (await fs.realpath(dir.planBody)) !== expected) throw refuse('it is a symbolic link');
-  return dir.planBody;
 }

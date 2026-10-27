@@ -25,7 +25,7 @@ export const INIT_TRUTHS = [
     flags: '',
     projects: [{
       id: 'lendbox', root: '.', paths: ['src/'], languages: ['typescript'], frameworks: [], packageManager: 'npm',
-      include: ['src/**'], exclude: ['test/**'], packs: COMMON,
+      testGlobs: ['test/**'], include: ['src/**'], exclude: ['test/**'], packs: COMMON,
       checks: { test: { all: 'npm test', file: 'npx jest --findRelatedTests {file}' }, lint: { all: 'npm run lint', file: 'npx eslint {file}' } },
       checkPatterns: { test: 'jest|npm (run )?test', lint: 'eslint|npm run lint' },
       filePatterns: ['jest', 'eslint'],
@@ -46,7 +46,7 @@ export const INIT_TRUTHS = [
     flags: '',
     projects: [{
       id: 'tidewatch', root: '.', paths: ['src/'], languages: ['python'], frameworks: [], packageManager: 'uv',
-      include: ['src/**'], exclude: ['tests/**'], packs: [...COMMON, 'builtin/python-quality'],
+      testGlobs: ['tests/**'], include: ['src/**'], exclude: ['tests/**'], packs: [...COMMON, 'builtin/python-quality'],
       checks: { test: { all: 'uv run pytest', file: 'uv run pytest {file}' }, lint: { all: 'uv run ruff check src tests', file: 'uv run ruff check {file}' } },
       checkPatterns: { test: 'pytest', lint: 'ruff' },
       filePatterns: ['pytest', 'ruff'],
@@ -67,7 +67,7 @@ export const INIT_TRUTHS = [
     flags: '',
     projects: [{
       id: 'parcelhub', root: '.', paths: ['cmd/', 'internal/'], languages: ['go'], frameworks: [], packageManager: 'go',
-      include: ['cmd/**', 'internal/**'], exclude: ['**/*_test.go'], packs: COMMON,
+      testGlobs: ['**/*_test.go'], include: ['cmd/**', 'internal/**'], exclude: ['**/*_test.go'], packs: COMMON,
       checks: { test: { all: 'go test ./...', file: null }, vet: { all: 'go vet ./...', file: null }, lint: { all: 'golangci-lint run', file: 'golangci-lint run {file}' } },
       checkPatterns: { test: 'go test', lint: 'golangci-lint|go vet' },
       filePatterns: [],
@@ -88,7 +88,7 @@ export const INIT_TRUTHS = [
     flags: '',
     projects: [{
       id: 'seedvault', root: '.', paths: ['domain/src/main/', 'application/src/main/', 'adapters/persistence/src/main/', 'adapters/rest/src/main/', 'adapters/messaging/src/main/', 'adapters/cli/src/main/', 'bootstrap/src/main/'], languages: ['kotlin'], frameworks: [], packageManager: 'gradle',
-      include: ['**/src/main/**'], exclude: ['**/src/test/**'], packs: COMMON,
+      testGlobs: ['**/src/test/**'], include: ['**/src/main/**'], exclude: ['**/src/test/**'], packs: COMMON,
       checks: { test: { all: './gradlew test', file: './gradlew test --tests {file}' }, lint: { all: './gradlew ktlintCheck', file: null } },
       checkPatterns: { test: String.raw`gradlew?\s+test|gradle(w)? .*test`, lint: 'ktlint' },
       filePatterns: [],
@@ -113,21 +113,21 @@ export const INIT_TRUTHS = [
     projects: [
       {
         id: 'engine', root: 'engine', paths: ['crates/'], languages: ['rust'], frameworks: [], packageManager: 'cargo',
-        include: ['crates/**'], exclude: ['crates/*/tests/**'], packs: COMMON,
+        testGlobs: ['crates/*/tests/**'], include: ['crates/**'], exclude: ['crates/*/tests/**'], packs: COMMON,
         checks: { test: { all: 'cargo test', file: null }, lint: { all: 'cargo clippy --all-targets', file: null }, format: { all: 'cargo fmt --check', file: 'rustfmt --check {file}' } },
         checkPatterns: { test: 'cargo test', lint: 'cargo clippy' },
         filePatterns: [],
       },
       {
         id: 'dashboard', root: 'dashboard', paths: ['src/'], languages: ['typescript'], frameworks: ['express'], packageManager: 'npm',
-        include: ['src/**'], exclude: ['test/**', 'src/__generated__/**'], packs: [...COMMON, 'builtin/express-http', 'builtin/express-errors'],
+        testGlobs: ['test/**'], include: ['src/**'], exclude: ['test/**', 'src/__generated__/**'], packs: [...COMMON, 'builtin/express-http', 'builtin/express-errors'],
         checks: { test: { all: 'npm test', file: 'npx vitest run {file}' }, lint: { all: 'npm run lint', file: 'npx eslint {file}' } },
         checkPatterns: { test: 'vitest|npm (run )?test', lint: 'eslint|npm run lint' },
         filePatterns: ['vitest', 'eslint'],
       },
       {
         id: 'tools', root: 'tools', paths: ['src/'], languages: ['python'], frameworks: [], packageManager: 'uv',
-        include: ['src/**'], exclude: ['tests/**'], packs: [...COMMON, 'builtin/python-quality'],
+        testGlobs: ['tests/**'], include: ['src/**'], exclude: ['tests/**'], packs: [...COMMON, 'builtin/python-quality'],
         checks: { test: { all: 'uv run pytest', file: 'uv run pytest {file}' }, lint: { all: 'uv run ruff check src tests', file: 'uv run ruff check {file}' } },
         checkPatterns: { test: 'pytest', lint: 'ruff' },
         filePatterns: ['pytest', 'ruff'],

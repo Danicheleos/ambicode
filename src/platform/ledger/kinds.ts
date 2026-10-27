@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { KINDS, type ArtifactRef } from '#types/modules/evidence';
 export type Kind = (typeof KINDS)[number];
 
-/** Legacy `L<n>`, or `<writer8>-<n>`. */
-const ID = /^(?:L\d+|[0-9a-z]{8}-\d+)$/;
+/** The entry's 1-based position in its ledger, as a decimal string. */
+const ID = /^[1-9]\d*$/;
 
 const text = z.string();
 const count = z.number().int().nonnegative();
@@ -58,10 +58,10 @@ const schemas = [
   }),
   entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
   entry('policy', {
-    stage: z.enum(['before-work', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
+    stage: z.enum(['before-work', 'drafts', 'apply', 'required']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(), activity: text.optional(), ids: optionalList,
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
   }).superRefine((value, context) => {
-    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
+    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'], required: ['ids'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })), runnable: count.optional(), tree: text.optional() }),
@@ -82,8 +82,8 @@ const schemas = [
   }),
   entry('init', { what: text, outcome: text }),
   entry('note', {
-    note: z.enum(['investigation', 'plan-draft', 'plan', 'notes', 'result']), path: text, contentHash: text,
-    iteration: z.number().int().min(1).optional(), promotedFrom: text.optional(), from: text.optional(),
+    note: z.enum(['investigation', 'plan', 'notes', 'result']), path: text, contentHash: text,
+    iteration: z.number().int().min(1).optional(), anchorsBad: count.optional(), policyMissing: count.optional(),
   }),
 ] as const;
 

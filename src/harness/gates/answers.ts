@@ -177,6 +177,8 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
       gate: gate.id,
       class: declaredStep === undefined ? (gate.class === 'decision' ? 'decision' : 'raised') : 'declared',
       question: shaped.question,
+      ...(shaped.details === undefined ? {} : { details: shaped.details }),
+      ...(shaped.note === undefined ? {} : { note: shaped.note }),
       print: prints + 1,
       cause: run.cause,
       options: shaped.options,

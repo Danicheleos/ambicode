@@ -9,7 +9,7 @@ describe('09-M1: the skill', () => {
     const text = await readFile(path.join(REPO_ROOT, 'skills', 'rules', 'SKILL.md'), 'utf8');
     const body = text.split('---\n').slice(2).join('---\n');
     assert.ok(Buffer.byteLength(body) <= 2_560, `${Buffer.byteLength(body)} bytes`);
-    assert.match(text, /allowed-tools: .*Write\(\.ambicode\/policies\/drafts\/\*\*\)/);
+    assert.match(text, /allowed-tools: .*Write\(\/\/\*\*\/\.ambicode\/policies\/drafts\/\*\*\)/);
     assert.doesNotMatch(text, /Edit\(\.ambicode\/config\.yaml\)/);
     assert.match(text, /disable-model-invocation: true/);
   });

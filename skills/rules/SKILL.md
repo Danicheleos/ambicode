@@ -3,7 +3,7 @@ name: rules
 description: "Turn a team's written rules (CLAUDE.md, CONTRIBUTING.md, docs, .cursor/rules, a Confluence page) into scoped AMBICODE policy packs, once, at setup. Use when the user asks to migrate or import their coding rules or conventions, or when the rules changed."
 argument-hint: <rule-source-paths-or-url>...
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Write(.ambicode/policies/drafts/**), Bash(node *ambicode.mjs*)
+allowed-tools: Read, Grep, Glob, Write(//**/.ambicode/policies/drafts/**), Bash(node *ambicode.mjs*)
 ---
 
 # Migrate written rules into policy packs
@@ -21,7 +21,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start rules
 
 ## What you do
 
-1. The route lists the rule sources it found (`CLAUDE.md`, `.claude/`, nested `CLAUDE.md`, `.cursor/rules`, `docs/`). The user uses them, names others in their own words, or stops; that one answer is the choice.
+1. The route lists the rule sources it found (`AGENTS.md`, `CONTRIBUTING.md`, `.cursor/rules`, `docs/`; never `CLAUDE.md` or `.claude/`, which Claude Code loads itself). The user uses them, names others in their own words, or stops; that one answer is the choice.
 2. The draft step says how to write the drafts to `.ambicode/policies/drafts/<id>.yaml`. Nothing in `drafts/` is in force.
 3. `policy check --drafts` runs once and confirms each quote is in its source; what it reports goes to the user at the table, not into a fix loop.
 4. The user answers the rules table: Apply all, Apply with changes, or Discard

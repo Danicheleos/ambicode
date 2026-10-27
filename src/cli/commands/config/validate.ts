@@ -48,7 +48,8 @@ export const configValidateCommand: CliCommand = {
     try {
       const config = parseConfig(await runtime.fs.readText(path.join(repositoryRoot, CONFIG_FILE)));
       scout = { model: config.skills.init.scout.model, effort: config.skills.init.scout.effort };
-      warnings = configWarnings(config, await git.listFiles(null));
+      const tracked = await git.listFiles(null);
+      warnings = configWarnings(config, tracked);
     } catch (error) {
       if (!isAmbicodeError(error) && !(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
       issues = isAmbicodeError(error) ? (error.details.length > 0 ? error.details : [error.message]) : [`${CONFIG_FILE}: missing`];

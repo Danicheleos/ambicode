@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Validate segment minutes in the dashboard
 
 | requirement | section | code |

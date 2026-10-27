@@ -4,6 +4,10 @@ import { createRuntime } from '#composition/root';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '#util/args';
+import { FIXTURE_CONFIG } from '#testing/fixtures/init-config';
+import { DRAFTS_DIR } from '#types/modules/policy';
+import path from 'node:path';
+import { readLedger } from '#platform/ledger/ledger';
 import { configValidateCommand } from './validate.ts';
 
 const project = (lines: string[], id = 'app') => [`  - id: ${id}`, ...lines, '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', '    commands: {}'];

@@ -8,7 +8,7 @@ import { CASES, caseDir, render } from './cases.mjs';
 import { REVIEW_TRUTHS, anchorPattern, finalFiles, fixtureOf, issuePattern, locationPattern, tailOf, truthRecords } from './review-cases.mjs';
 
 const FILES = render();
-const reviewCases = CASES.filter((c) => c.name.startsWith('review-'));
+const reviewCases = CASES.filter((c) => c.name.startsWith('review-') && !c.tags.includes('rules'));
 const frontmatter = (text) => parse(text.split('---')[1]);
 const grader = (c, name) => c.graders.find((g) => g.name === name);
 const CATEGORIES = ['team-rule', 'collected', 'arch-style', 'bloat', 'naming-comments', 'dead-dup', 'correctness', 'tests', 'error-security'];

@@ -6,5 +6,4 @@ export const systemIds: IdSource = {
   sessionId: () => randomUUID(),
   capability: () => randomBytes(32).toString('base64url'),
   csrfToken: () => randomBytes(32).toString('base64url'),
-  writerId: () => randomBytes(4).toString('hex'),
 };

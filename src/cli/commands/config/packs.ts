@@ -7,7 +7,7 @@ import { listBuiltinPackFiles } from '#modules/policy/packs/builtin';
 import { openRepository } from '#platform/git/open';
 import { recordInit } from '#modules/evidence/init-entry';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
-import { messageOf } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { mostSpecificRoot, normalizeRelative } from '#util/paths';
 import type { FileSystem } from '#types/platform/ports';
 import type { ProjectConfig } from '#types/modules/config';
@@ -80,7 +80,10 @@ export const configPacksCommand: CliCommand = {
     const builtinDirectory = builtinPoliciesDirectory(runtime.pluginRoot);
     const builtins = await listBuiltinPackFiles(runtime.fs, builtinDirectory);
     if (args.flag('list')) {
-      const packs = await Promise.all(builtins.map(async (file) => ({ pack: `builtin/${file.id}`, description: PolicyPack.safeParse(parseYaml(await runtime.fs.readText(file.filePath))).data?.description ?? '' })));
+      const packs = await Promise.all(builtins.map(async (file) => {
+        const pack = PolicyPack.safeParse(parseYaml(await runtime.fs.readText(file.filePath))).data;
+        return { pack: `builtin/${file.id}`, description: pack?.description ?? '' };
+      }));
       return { text: packs.map((entry) => `${entry.pack} - ${entry.description}`).join('\n'), data: { packs } };
     }
     // One listing at the repository root: a project root that does not exist yet has no directory to run git in.

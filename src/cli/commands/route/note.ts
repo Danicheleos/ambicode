@@ -36,7 +36,7 @@ export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<N
   const body = (await runtime.stdin.read(MAX_NOTE_BYTES)) ?? null;
   const tools = await routeTools(runtime);
   const { saved } = await tools.engine.command(COMMAND_SPECS.noteSave, { task }, async ({ session, context, view }) => ({
-    saved: await saveNote({ runtime, session, context }, { task, kind: kind as SaveKind, body, from: null, route: view?.routeId ?? null }),
+    saved: await saveNote({ runtime, session, context }, { task, kind: kind as SaveKind, body, route: view?.routeId ?? null }),
   }));
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'note save' });
   const warnings = saved.warning === null ? [] : [saved.warning];
@@ -49,7 +49,7 @@ function renderNoteSave(output: NoteSaveOutput): string {
 
 export const noteSaveCommand: CliCommand = {
   name: 'note save',
-  summary: "Save a skill's note from stdin (--kind investigation|plan-draft|notes|result).",
+  summary: "Save a skill's note from stdin (--kind investigation|notes|result).",
   options: NOTE_SAVE_OPTIONS,
   run: async (runtime, args) => {
     const output = await runNoteSave(runtime, args);

@@ -378,7 +378,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     await withReview(async (t) => {
       const start = await t.start();
       assert.ok(Buffer.byteLength(start.text) <= 3072, `${Buffer.byteLength(start.text)}`);
-      const estimate = start.text.split('\nThe review cannot run on this change as it stands. Narrow it, or skip the review?\n')[1]!.split('\nOptions:')[0]!;
+      const estimate = start.text.split('select text:\n')[1]!.split('\n\nThen ask: The review cannot run on this change as it stands. Narrow it, or skip the review?')[0]!;
       assert.match(estimate, /Review estimate: /);
       assert.ok(Buffer.byteLength(estimate) <= 2048, `${Buffer.byteLength(estimate)}`);
     }, { refuse: true });

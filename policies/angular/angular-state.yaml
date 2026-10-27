@@ -3,10 +3,7 @@ id: angular-state
 authority: inherited
 description: "Angular state and data flow: single state owner, representation conversions."
 appliesTo:
-  - "**/*.facade.ts"
-  - "**/*.service.ts"
-  - "**/*.store.ts"
-  - "**/*.component.ts"
+  - "**/*.ts"
 activities: [review, task, plan]
 
 source:

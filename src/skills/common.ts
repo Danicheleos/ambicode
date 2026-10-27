@@ -7,9 +7,10 @@ import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
-import { listContext, renderListing } from '#modules/context/context';
+import { listContext, proseFiles, renderListing } from '#modules/context/context';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
+import { changesPaths, requiredPlanRules } from '#modules/policy/required';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
@@ -27,7 +28,7 @@ import type { EnvelopeSource } from '#types/modules/requirements';
 onGatePrint('project-ambiguous', async ({ task, chain }) => {
   const head = chain.findLast((entry) => entry.kind === 'route');
   if (head?.['channel'] !== 'cli') return null;
-  return { line: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
+  return { note: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
 });
 
 const MAX_SOURCE_CHARS = 2500;
@@ -111,7 +112,15 @@ function renderSources(sources: readonly EnvelopeSource[]): string {
 }
 
 export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
-  'context.list': async (input) => ({ state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead the notes of the modules that bear on the task, shared ones included.` }),
+  'context.list': async (input) => {
+    const { git } = await openRepository(input.runtime);
+    const docs = await proseFiles(input.runtime.fs, input.dir.repositoryRoot, (await git.listFiles(null)).filter((file) => !file.startsWith('.ambicode/')));
+    // Docs are named because no map row reaches a file that shares no word with the request, and the model otherwise has no path to open.
+    const docLine = docs.length === 0 ? '' : `\nDocumentation files (path, bytes): ${docs.map((doc) => `${doc.path} ${doc.bytes}`).join(', ')}`;
+    // plan works from the map, which already retrieves through the notes: listing them again sent the model to read and cite untracked files.
+    if (input.params[0] === 'docs') return { state: 'ok', payload: docLine.trim() === '' ? null : docLine.trim() };
+    return { state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead the notes of the modules that bear on the task, shared ones included.${docLine}` };
+  },
 
   'requirements.normalize': async (input) => {
     const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args });
@@ -182,6 +191,22 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
       const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: named.success ? named.data : 'task', paths: await stagePaths(input, project, await chainEntries(input)), stage });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
       return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
+    } catch (error) {
+      return failed(error);
+    }
+  },
+
+  /** Records which delivered plan rules the draft's Changes paths reach; plan-check then asks for a citation of each. */
+  'policy.required': async (input) => {
+    const config = await configOf(input);
+    const project = await projectOf(input, config);
+    if (isResult(project)) return project;
+    try {
+      const delivered = (await chainEntries(input)).findLast((entry) => entry.kind === 'policy' && entry['stage'] === 'before-work' && entry['activity'] === 'plan')?.['ids'];
+      const plan = await input.runtime.fs.readText(input.dir.plan).catch(() => '');
+      const ids = await requiredPlanRules({ runtime: input.runtime as Runtime, project, paths: changesPaths(plan), delivered: Array.isArray(delivered) ? delivered.map(String) : [] });
+      await input.ledger.append({ kind: 'policy', stage: 'required', route: input.view.routeId, ids });
+      return { state: 'ok', payload: null };
     } catch (error) {
       return failed(error);
     }

@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: 'file/LotCodec\.kt'
+pattern: '(?<!## Policies[\s\S]*)(?:file/LotCodec\.kt)'
 match: contains
 target: { source: file, path: .ambicode/tasks/plan-jvm-chill/plan.md }
 weight: 1

@@ -60,7 +60,7 @@ function runDirOf(root: string, task: string): string {
 /** Ends the session's open route as the removed `route stop` did: an `exit` entry, . */
 export async function stopRoute(fx: Pick<RouteFixture, 'runtime'>, task: string, session: string, reason: string, detail?: string): Promise<void> {
   const root = runDirOf(fx.runtime.cwd, task);
-  await withLedgerLock(fx.runtime.fs, root, () => fx.runtime.clock.now(), session, async (ledger) => {
+  await withLedgerLock(fx.runtime.fs, root, () => fx.runtime.clock.now(), async (ledger) => {
     const read = await ledger.read();
     const route = read.state === 'ok' ? latestRouteOf(read.entries, session) : null;
     if (route === null) throw new Error(`no route of ${session} on ${task}`);

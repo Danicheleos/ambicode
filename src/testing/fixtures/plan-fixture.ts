@@ -3,7 +3,7 @@ import path from 'node:path';
 import { skillHandlers } from '#skills/handlers';
 import { EVIDENCE_HANDLERS } from '#skills/evidence';
 import { commandContext } from '#harness/engine/context';
-import { promotePlan, saveNote } from '#modules/evidence/notes';
+import { acceptPlan } from '#modules/evidence/notes';
 import { routeFixture, type RouteFixture } from './route-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -15,7 +15,7 @@ export const PLAN_TASK = 'ORD-17';
 export const PLAN = `skill: plan
 version: 3
 steps:
-  - id: design
+  - id: draft
     actor: model
     instruction: "Design the plan."
     repeat: 2
@@ -25,26 +25,25 @@ steps:
     produces: ["policy{before-work}"]
   - id: plan-write
     actor: model
-    instruction: "Write steps/plan-body.md once."
+    instruction: "Write plan.md once."
     repeat: 3
   - id: plan-check
     actor: code
-    run: ["evidence.notes.save(plan-draft, from: steps/plan-body.md)", t.check]
-    produces: ["note{plan-draft}", worker]
+    run: [t.check]
+    produces: [worker]
     onFail: revise plan-write
   - id: plan-accept
     actor: human
     gate:
       question: "Accept this plan?"
-      object: "note{plan-draft}"
       options: [Accept, Revise, Reject]
       default: Reject
       acting: [Accept, Revise]
-      onAnswer: { Revise: revise design }
+      onAnswer: { Revise: revise draft }
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)
-    run: [evidence.notes.promote]
+    run: [evidence.plan.accept]
     onFail: revise plan-accept
     produces: ["note{plan}"]
 `;
@@ -74,9 +73,8 @@ export interface PlanFixture {
   next(input?: Partial<AdvanceInput>): Promise<StepMessage>;
   hook(gate: string, option: string, instance: string | undefined, input?: Partial<AdvanceInput>): Promise<StepMessage>;
   body(text: string, task?: string): Promise<void>;
-  /** The plan-check save and the promote step, as run by `session`. */
-  saveDraft(text: string, session?: string): Promise<unknown>;
-  promote(session?: string): ReturnType<typeof promotePlan>;
+  /** The accept step, as run by `session`. */
+  accept(session?: string): ReturnType<typeof acceptPlan>;
   /** Walks a fresh plan route to the plan-accept print. */
   toGate(input?: Partial<StartInput>): Promise<StepMessage>;
   prints(task?: string): Promise<LedgerEntry[]>;
@@ -86,7 +84,7 @@ export interface PlanFixture {
 /** The shipped `routes/plan/plan.yaml` with its step texts and the real handlers; `state` is then left untouched. */
 async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
   const step: Record<string, string> = {};
-  for (const name of ['investigate/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['investigate/fetch', 'plan/draft']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   return { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8'), step, handlers: skillHandlers() };
 }
 
@@ -107,7 +105,7 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: PLAN_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const body = async (text: string, task = PLAN_TASK): Promise<void> => {
-    const file = path.join(fx.repo.root, '.ambicode', 'tasks', task, 'steps', 'plan-body.md');
+    const file = path.join(fx.repo.root, '.ambicode', 'tasks', task, 'plan.md');
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, text);
   };
@@ -119,11 +117,7 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     hook: (gate, option, instance, input = {}) =>
       next({ cause: 'gate-hook', answers: [{ gate, option, ...(instance === undefined ? {} : { instance }) }], ...input }),
     body,
-    async saveDraft(text, session = SESSION_A) {
-      await body(text);
-      return saveNote({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: PLAN_TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md' });
-    },
-    promote: (session = SESSION_A) => promotePlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
+    accept: (session = SESSION_A) => acceptPlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK, 0),
     async toGate(input = {}) {
       await start(input);
       await body('# Plan\n\n1. Do it.\n');

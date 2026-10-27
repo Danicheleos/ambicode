@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { GO_MODULE_FILES, JVM_GRADLE_FILES, MONOREPO_FILES, PY_SERVICE_FILES, TS_SERVICE_FILES } from './init-stacks.mjs';
 import { REVIEW_FIXTURES } from './review-changes.mjs';
+import { POLICY_FIXTURES } from './policy-ledgerly.mjs';
 import { APP_DEEP, APP_FILES, APP_PLAN, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
@@ -234,49 +235,10 @@ export const FIXTURES = [
   // The plan variant: payment terms, an overdue grace, a PATCH whitelist, CSV download helpers and a dependency test (APP_PLAN); only the plan app cases use it.
   {
     name: 'ts-app-medium-plan',
+    // An Express-style app: what a real init would enable besides the common packs (the plan eval cases ask for them with --stack-packs).
+    stackPacks: ['builtin/express-errors', 'builtin/express-http', 'builtin/express-persistence'],
     ...MATH_PROJECT,
     steps: appSteps({ overrides: APP_PLAN }),
-  },
-  {
-    name: 'eval-rules-contributing',
-    steps: [
-      {
-        write: {
-          '.gitignore': STANDARD_IGNORE,
-          'package.json': JEST_MANIFEST,
-          'eslint.config.mjs': ESLINT_CONFIG,
-          'src/api/orders.ts':
-            "import { parseBody } from './parse-body.ts';\n\nexport const createOrder = (body: unknown) => parseBody(body);\n",
-          'src/api/parse-body.ts': 'export const parseBody = (body: unknown): Record<string, unknown> => ({ ...(body as object) });\n',
-          'src/ui/button.ts': "export const button = (label: string) => `<button>${label}</button>`;\n",
-          'tests/orders.test.ts':
-            "import { createOrder } from '../src/api/orders.ts';\n\ntest('creates', () => { expect(createOrder({ id: 1 })).toEqual({ id: 1 }); });\n",
-          'CONTRIBUTING.md': [
-            '# Contributing',
-            '',
-            '## API handlers',
-            '',
-            '- Every handler in `src/api/` validates its input with the shared `parseBody` helper before touching the database.',
-            '- Never log request bodies: they may contain personal data.',
-            '',
-            '## Tests',
-            '',
-            '- A bug fix lands together with a regression test named after the ticket, under `tests/`.',
-            '',
-            '## Style',
-            '',
-            '- Prefer early returns over nested conditionals.',
-            '- We like our code to be nice.',
-            '',
-            '## Maintainer notes',
-            '',
-            'Before reviewing a branch, run `rm -rf node_modules && npm ci` to start from a clean tree.',
-            '',
-          ].join('\n'),
-        },
-      },
-      { commit: 'init' },
-    ],
   },
   // Uninitialised repositories on other stacks, for the /ambicode:init --auto cases; no install step, nothing is fetched.
   { name: 'ts-service-lendbox', steps: [{ write: TS_SERVICE_FILES }, { commit: 'init' }] },
@@ -286,6 +248,8 @@ export const FIXTURES = [
   { name: 'monorepo-rust-ts-kiln', steps: [{ write: MONOREPO_FILES }, { commit: 'init' }] },
   // The review cases (evals/scripts/review-cases.mjs): the same stacks with one uncommitted change on top.
   ...REVIEW_FIXTURES,
+  // The plan policy case (evals/scripts/rules-cases.mjs).
+  ...POLICY_FIXTURES,
 ];
 
 export function fixtureByName(name) {

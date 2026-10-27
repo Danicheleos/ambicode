@@ -169,7 +169,7 @@ describe('gate table: every registry gate', () => {
       const { task } = await t.begin('check-only-unauthorized');
       const handlerPrint = (await t.fx.kinds(task, 'gate'))[0]!;
       const dir = await resolveTaskDir(t.fx.runtime, task);
-      const written = await withLedgerLock(t.fx.runtime.fs, dir.root, () => new Date(), A, async (ledger) => {
+      const written = await withLedgerLock(t.fx.runtime.fs, dir.root, () => new Date(), async (ledger) => {
         const head = (await t.fx.kinds(task, 'route'))[0]!;
         return raiseGate(ledger, { task, routeId: head.id, chainIds: [head.id], skill: 'tbl', session: A, mode: 'interactive', channel: 'hook', trusted: true, position: 'ask' }, { gate: 'check-only-unauthorized', values: VALUES['check-only-unauthorized']!, raisedBy: 'ask' }, t.fx.routes);
       });

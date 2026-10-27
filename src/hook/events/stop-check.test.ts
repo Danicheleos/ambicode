@@ -45,7 +45,7 @@ const LEDGER = (s: Stopper): string => path.join(s.fx.repo.root, '.ambicode', 't
 let serial = 0;
 const append = async (s: Stopper, entries: Record<string, unknown>[]): Promise<void> => {
   const route = (await s.fx.kinds(TASK, 'route'))[0]!.id;
-  const lines = entries.map((fields) => `${JSON.stringify({ id: `zzzzzzzz-${(serial += 1)}`, at: '2026-10-05T10:00:00.000Z', route, ...fields })}\n`);
+  const lines = entries.map((fields) => `${JSON.stringify({ id: String(1000 + (serial += 1)), at: '2026-10-05T10:00:00.000Z', route, ...fields })}\n`);
   await writeFile(LEDGER(s), (await readFile(LEDGER(s), 'utf8')) + lines.join(''));
 };
 async function withStop(body: (s: Stopper) => Promise<void>): Promise<void> {

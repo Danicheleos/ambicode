@@ -23,7 +23,7 @@ async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string;
   const dir = await resolveTaskDir(runtime, slug);
   const tools = await routeTools(runtime);
   const { session, view } = await tools.engine.command(COMMAND_SPECS.search, { task: slug }, async (scope) => scope);
-  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session ?? runtime.ids.writerId(), async (ledger) => {
+  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), async (ledger) => {
     await ledger.append({ ...(view === null ? {} : { route: view.routeId }), ...entry });
   });
 }

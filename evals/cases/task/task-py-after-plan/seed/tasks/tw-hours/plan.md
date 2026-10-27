@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Reject a forecast window of less than one hour
 
 | requirement | section | code |

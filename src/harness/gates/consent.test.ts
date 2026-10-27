@@ -53,17 +53,15 @@ describe('S2 trusted preanswer', () => {
 });
 
 describe('S13 instance binding', () => {
-  it('answering an old instance after a new draft refuses promote and reprints for the new draft', async () => {
+  it('answering an old instance after the plan file was edited accepts the file as it is', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
       const instanceA = await printOf(plan);
-      await plan.saveDraft('# Plan\n\n1. B.\n');
-      const reprint = await plan.hook('plan-accept', 'Accept', instanceA.id);
-      assert.equal(reprint.position, 'plan-accept');
-      assert.equal((await notes(plan, 'plan')).length, 0);
-      const instanceB = await printOf(plan);
-      assert.notEqual(instanceB.id, instanceA.id);
+      await plan.body('# Plan\n\n1. B.\n');
+      const done = await plan.hook('plan-accept', 'Accept', instanceA.id);
+      assert.equal(done.position, 'complete');
+      assert.equal((await notes(plan, 'plan')).length, 1);
     } finally {
       await plan.dispose();
     }

@@ -86,7 +86,7 @@ export function sandboxOf(tracePath) {
 
 /**
  * The model steps whose message carries the map in the hook text, as `<skill>/<step>`: the route definitions say it (`payload` lists `map`,
- * and no `work` file takes the payload instead), so a route that delivers the map at another step (plan's `design`) needs no code here.
+ * and no `work` file takes the payload instead), so a route that delivers the map at another step (plan's `draft`) needs no code here.
  */
 export function mapStepsOf(routesDir = path.join(REPO, 'routes')) {
   const steps = new Set();

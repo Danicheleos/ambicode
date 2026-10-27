@@ -24,8 +24,7 @@ Run `/ambicode:rules`. It is a setup-time skill: it runs once when you adopt
 AMBICODE, and again when the team's rules change. Nothing on a per-call path
 ever reads a Markdown rule source or infers a scope.
 
-It reads the sources you point it at — `CLAUDE.md` and nested ones,
-`CONTRIBUTING.md`, `docs/**`, `.cursor/rules/**`, `.github/instructions/**`, or
+It reads the sources you point it at — `CONTRIBUTING.md`, `docs/**`, `.cursor/rules/**`, `.github/instructions/**`, or
 a Confluence page through the bound MCP server — and then, with you:
 
 1. classifies each rule as global or scoped to a path pattern, deriving the glob
@@ -101,7 +100,7 @@ responsibility, ownership, error semantics, and boundary typing.
 
 | Old file | Retained as | Disposition |
 |---|---|---|
-| `common-quality-foundation.md` | `common-design/need`, `/cohesion`, `/unjustified-complexity` | Retained. The unconditional ban on single-use abstractions is **gone**: `unjustified-complexity` asks for evidence that the complexity is unnecessary, because a boundary adapter with one caller can be correct. |
+| `common-quality-foundation.md` | `common-design/need`, `/cohesion` | Retained. The unconditional ban on single-use abstractions is **gone**: `need` asks for evidence that the complexity is unnecessary, because a boundary adapter with one caller can be correct. |
 | `common-quality-code-craft.md` | `common-code/naming`, `/effects`, `/comment-reasons`, `/dead-surface`, and `common-design/explicit-surface` | Retained as behaviour guidance. Formatting preferences dropped: style belongs to the project's configured linter, not to a reviewer's opinion. |
 | `common-quality-architecture.md` | `common-design/ownership-and-direction`, `common-security/data-boundary` | Retained as questions about ownership and direction. The prescribed layer structure is **gone**; one layering scheme is not a defect in a project that chose another. |
 | `common-quality-verification-and-reliability.md` | `common-verification/test-behavior`, `/test-determinism`, `/honest-gaps`, and `common-errors/error-honesty` | Retained. Affected-test selection moved out of prose and into the check adapters, where it is executable rather than advisory. |
@@ -117,7 +116,7 @@ the project's own configured checks may run — and nothing else.
 
 | Pack | Rules | Disposition |
 |---|---|---|
-| `angular-components` | `component-responsibility`, `component-size`, `template-duplication` | Responsibility and size guidance retained. Component API conventions dropped: version-sensitive. |
+| `angular-components` | `component-responsibility` (size folded in), `template-duplication` | Responsibility and size guidance retained. Component API conventions dropped: version-sensitive. |
 | `angular-architecture` | `follow-declared-structure`, `shared-code-placement` | Reframed around what the project already declares. The unrequested-migration concern is now `common-design/scope`. |
 | `angular-state` | `state-owner`, `representation-conversions` | Retained. Named state libraries dropped: a project's choice is not a defect. Subscription lifetime is covered by `common-code/effects`. |
 | `angular-http` | `duplicate-requests`, `cross-cutting-http-concerns` | Retained as transport concerns that hold across versions. Specific `HttpClient` API expectations dropped. Response validation and error semantics are covered by `common-security/data-boundary` and `common-errors/error-honesty`. |
@@ -152,7 +151,7 @@ counterpart; they exist because the language makes those mistakes easy.
 instructions, so a rule ref such as `common-quality/need` is now
 `common-design/need`. Exceptions: `ownership-and-direction` lost its last sentence,
 and `investigate` is dropped everywhere. Rules narrowed to `plan` and `review`
-(`need`, `cohesion`, `unjustified-complexity`, `explicit-surface`,
+(`need`, `cohesion`, `explicit-surface`,
 `ownership-and-direction`) or to `review` (`honest-gaps`) no longer reach `task`;
 `data-boundary` no longer reaches `task`, and the `common-code`, `common-errors`
 and `common-verification` rules no longer reach `plan`. Eight rules are new:
@@ -164,7 +163,7 @@ mirrors the folder: `.ambicode/policies/common/common-design.yaml`.
 
 | New pack | Rules (formerly `common-quality/<rule>`) |
 |---|---|
-| `common-design` | `need`, `fix-the-cause`, `cohesion`, `reuse-before-reimplementing`, `unjustified-complexity`, `explicit-surface`, `ownership-and-direction`, `scope` |
+| `common-design` | `need`, `fix-the-cause`, `cohesion`, `reuse-before-reimplementing`, `explicit-surface`, `ownership-and-direction`, `scope` |
 | `common-code` | `dead-surface`, `naming`, `effects`, `comment-reasons`, `callers` |
 | `common-errors` | `error-honesty`, `unobserved-async`, `outbound-timeouts`, `configured-logger` |
 | `common-security` | `data-boundary`, `no-secret-exposure`, `untrusted-input-allowlist` |

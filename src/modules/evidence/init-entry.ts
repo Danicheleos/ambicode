@@ -6,5 +6,5 @@ import type { Runtime } from '#types/composition';
 export async function recordInit(runtime: Runtime, task: string | null, what: string, outcome: string): Promise<void> {
   if (task === null) return;
   const dir = await resolveTaskDir(runtime, task);
-  await appendLedger(runtime.fs, dir.root, runtime.clock.now(), runtime.ids.writerId(), { kind: 'init', what, outcome });
+  await appendLedger(runtime.fs, dir.root, runtime.clock.now(), { kind: 'init', what, outcome });
 }

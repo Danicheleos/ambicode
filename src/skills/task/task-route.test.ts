@@ -66,8 +66,8 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     const plan = '.ambicode/tasks/ord-7/plan.md';
     const finished = async (t: Fixture, iteration: number): Promise<void> => {
       await t.fx.runtime.fs.mkdirp(t.dir);
-      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'step', route: `done-${iteration}`, step: 'start', actor: 'code', status: 'completed', cause: 'start', iteration });
-      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'exit', route: `done-${iteration}`, reason: 'done' });
+      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'step', route: `done-${iteration}`, step: 'start', actor: 'code', status: 'completed', cause: 'start', iteration });
+      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'exit', route: `done-${iteration}`, reason: 'done' });
     };
     await withTask(async (t) => {
       await t.fx.repo.write(plan, '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');

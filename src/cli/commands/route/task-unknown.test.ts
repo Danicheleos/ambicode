@@ -40,7 +40,7 @@ describe('--task names a task that exists', () => {
       for (let n = 1; n <= 6; n += 1) {
         const dir = path.join(repo.root, '.ambicode/tasks', `ORD-${n}`);
         await runtime.fs.mkdirp(dir);
-        await appendLedger(runtime.fs, dir, new Date(), 'aaaaaaaa', { kind: 'init', what: 'seed', outcome: 'ok' });
+        await appendLedger(runtime.fs, dir, new Date(), { kind: 'init', what: 'seed', outcome: 'ok' });
         await runtime.fs.setTimes(path.join(dir, 'ledger.jsonl'), new Date(Date.UTC(2026, 9, n)));
       }
       const error = await next(repo, 'ghost');
@@ -74,7 +74,7 @@ describe('a task is a folder with a ledger', () => {
       const runtime = await createRuntime({ cwd: repo.root });
       const dir = path.join(repo.root, '.ambicode/tasks/ord-17');
       await runtime.fs.mkdirp(dir);
-      await appendLedger(runtime.fs, dir, new Date(), 'aaaaaaaa', { kind: 'init', what: 'seed', outcome: 'ok' });
+      await appendLedger(runtime.fs, dir, new Date(), { kind: 'init', what: 'seed', outcome: 'ok' });
       assert.equal(await taskNameFor(runtime, 'task', 'ord-17 add totals'), 'ord-17');
     });
   });

@@ -23,6 +23,12 @@ async function started(root: string) {
 }
 
 describe('skills/rules/scripts', () => {
+  it('the draft step tells the model to skip a statement no check could decide, within 1500 characters', async () => {
+    const text = await readFile(path.join(REPO_ROOT, 'routes/rules/draft.md'), 'utf8');
+    assert.match(text, /vague wish no check could decide/);
+    assert.ok(text.length < 1500, String(text.length));
+  });
+
   it('discover.mjs names candidate files, the file the request names and the url to fetch', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
@@ -37,7 +43,7 @@ describe('skills/rules/scripts', () => {
     }
   });
 
-  it('discover.mjs lists .claude files and nested CLAUDE.md files', async () => {
+  it('discover.mjs does not offer the files Claude Code loads itself, and lists the other guideline docs', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       await mkdir(path.join(root, '.claude/rules'), { recursive: true });
@@ -45,11 +51,12 @@ describe('skills/rules/scripts', () => {
       await writeFile(path.join(root, '.claude/CLAUDE.md'), '# Rules\n');
       await writeFile(path.join(root, '.claude/rules/security.md'), '# Security\n');
       await writeFile(path.join(root, 'src/users/CLAUDE.md'), '# Users\n');
+      await writeFile(path.join(root, 'CLAUDE.local.md'), '# Mine\n');
       await new Promise((resolve) => execFile('git', ['add', '-A'], { cwd: root }, resolve));
       const { first } = await started(root);
-      assert.match(first.text, /\.claude\/CLAUDE\.md/);
-      assert.match(first.text, /\.claude\/rules\/security\.md/);
-      assert.match(first.text, /src\/users\/CLAUDE\.md/);
+      assert.match(first.text, /Rule sources found: /);
+      assert.doesNotMatch(first.text, /CLAUDE/);
+      assert.doesNotMatch(first.text, /\.claude\/rules/);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

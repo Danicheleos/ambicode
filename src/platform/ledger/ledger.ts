@@ -7,19 +7,11 @@ import type { FileSystem } from '#types/platform/ports';
 export const MAX_ENTRY_BYTES = 16 * 1024;
 export const WARN_LEDGER_BYTES = 1024 * 1024;
 
-/** The 8 `[0-9a-z]` characters an id carries for its writer; a session id is lowercased first. */
-function writerPrefix(writer: string): string {
-  const prefix = writer.toLowerCase().replace(/[^0-9a-z]/g, '').slice(0, 8);
-  if (prefix.length !== 8) throw new AmbicodeError('internal', `A ledger writer id needs 8 letters or digits; got "${writer}".`);
-  return prefix;
-}
-
 /**
  * Written only by the CLI: the guard denies the agent a write to `.ambicode/tasks/**`, which is what makes an
  * entry evidence rather than a claim. Append-only. Callers hold the ledger lock (`withLedgerLock`).
  */
-export async function appendLocked(fs: FileSystem, taskDirectory: string, now: Date, writer: string, entry: NewEntry): Promise<LedgerEntry> {
-  const prefix = writerPrefix(writer);
+export async function appendLocked(fs: FileSystem, taskDirectory: string, now: Date, entry: NewEntry): Promise<LedgerEntry> {
   const file = path.join(taskDirectory, LEDGER_FILE);
   let highest = 0;
   if (await fs.exists(file)) {
@@ -27,14 +19,13 @@ export async function appendLocked(fs: FileSystem, taskDirectory: string, now: D
       if (line === '') continue;
       try {
         const id = (JSON.parse(line) as { id?: unknown } | null)?.id;
-        const match = typeof id === 'string' && id.startsWith(`${prefix}-`) ? /^\d+$/.exec(id.slice(prefix.length + 1)) : null;
-        if (match !== null) highest = Math.max(highest, Number(match[0]));
+        if (typeof id === 'string' && /^\d+$/.test(id)) highest = Math.max(highest, Number(id));
       } catch {
         // A torn line has no id to count.
       }
     }
   }
-  const id = `${prefix}-${highest + 1}`;
+  const id = String(highest + 1);
   const at = now.toISOString();
   // An entry never chooses its own identity.
   const next: LedgerEntry = { id, at, ...entry };
@@ -62,10 +53,9 @@ export async function appendLedger(
   fs: FileSystem,
   taskDirectory: string,
   now: Date,
-  writer: string,
   entry: NewEntry,
 ): Promise<{ entry: LedgerEntry; ledgerBytes: number; warning: string | null }> {
-  return withLedgerLock(fs, taskDirectory, () => now, writer, async (ledger) => {
+  return withLedgerLock(fs, taskDirectory, () => now, async (ledger) => {
     const appended = await ledger.append(entry);
     return {
       entry: appended,

@@ -190,6 +190,6 @@ export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.pin'
 
 onGatePrint('estimate', async ({ runtime, dir, chain }) => {
   const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.estimate');
-  return text === null || text === '' ? null : { line: text };
+  return text === null || text === '' ? null : { details: text };
 });
 

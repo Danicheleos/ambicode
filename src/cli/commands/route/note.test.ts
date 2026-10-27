@@ -116,7 +116,7 @@ describe('note save owns the name and the time of a task note', () => {
       await save(repo, ['--task', 'ORD-17', '--kind', 'notes'], 'two');
       const lines = (await readFile(path.join(repo.root, '.ambicode/tasks/ORD-17/ledger.jsonl'), 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
       assert.deepEqual(lines.map((line) => [line.kind, line.note]), [['note', 'investigation'], ['note', 'notes']]);
-      for (const line of lines) assert.match(line.id, /^[0-9a-f]{8}-1$/);
+      assert.deepEqual(lines.map((line) => line.id), ['1', '2']);
       assert.equal(lines[0].path, out.path);
       assert.equal(lines[0].contentHash, contentHash(await readFile(path.join(repo.root, out.path), 'utf8')));
     });
@@ -142,17 +142,17 @@ function cli(repo: TempRepo, argv: string[], input = ''): { status: number | nul
 }
 
 describe('the note and report commands', () => {
-  it('02-D2/5.1: a plan-draft save on a task with a live plan route is the owner of that route, found by --task', async () => {
+  it('02-D2/5.1: an investigation save on a task with a live plan route is the owner of that route, found by --task', async () => {
     await inRepo(async (repo) => {
       const dir = path.join(repo.root, '.ambicode/tasks/ORD-17');
       await mkdir(dir, { recursive: true });
       await repo.write('.ambicode/config.yaml', CONFIG);
-      const route = { id: 'aaaaaaaa-1', at: 't', kind: 'route', skill: 'plan', args: { text: 'x', requirements: [] }, mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
+      const route = { id: '1', at: 't', kind: 'route', skill: 'plan', args: { text: 'x', requirements: [] }, mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
       await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify(route)}\n`);
-      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan-draft', '--json'], '# Plan');
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation', '--json'], '# Finding');
       assert.equal(out.status, 0, out.stderr);
       const saved = (await readFile(path.join(dir, 'ledger.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry['kind'] === 'note');
-      assert.deepEqual(saved.map((entry) => [entry['note'], entry['route']]), [['plan-draft', 'aaaaaaaa-1']]);
+      assert.deepEqual(saved.map((entry) => [entry['note'], entry['route']]), [['investigation', '1']]);
     });
   });
 
@@ -161,7 +161,7 @@ describe('the note and report commands', () => {
       const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan', '--json'], '# Plan');
       assert.equal(out.status, 2);
       assert.match(out.stderr, /bad-argument/);
-      assert.match(out.stderr, /investigation, plan-draft, notes, result/);
+      assert.match(out.stderr, /investigation, notes, result/);
       await assert.rejects(readdir(path.join(repo.root, '.ambicode/tasks/ORD-17')));
     });
   });

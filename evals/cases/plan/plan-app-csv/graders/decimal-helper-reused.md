@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: 'toDecimal'
+pattern: '(?<!## Policies[\s\S]*)(?:toDecimal)'
 match: contains
 target: { source: file, path: .ambicode/tasks/plan-app-csv/plan.md }
 weight: 2

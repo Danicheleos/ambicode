@@ -43,7 +43,7 @@ const toOffer = async (t: Fixture, task: string): Promise<void> => {
   await t.edit();
   const route = (await t.fx.kinds(task, 'route')).at(-1)!;
   const dir = path.join(t.fx.repo.root, '.ambicode', 'tasks', task);
-  const { entry } = await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), 'test-writer', { route: route.id, session: route['session'], kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit: 0, phase: 'green', ms: 3 });
+  const { entry } = await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), { route: route.id, session: route['session'], kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit: 0, phase: 'green', ms: 3 });
   await t.fx.engine.advance({ task, cause: 'check', produced: [entry.id], scratchpadDir: t.fx.scratchpad });
 };
 const codeOf = (promise: Promise<unknown>): Promise<string> => promise.then(() => 'ok', (error: { code?: string }) => error.code ?? 'unknown');
@@ -107,8 +107,8 @@ describe('a task has one live route', { concurrency: 4 }, () => {
 
 describe('the task argument names a task', { concurrency: 4 }, () => {
   const planned = async (t: Fixture): Promise<void> => {
-    await t.fx.repo.write(PLAN, '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
-    await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+    await t.fx.repo.write(PLAN, '---\nstatus: accepted\n---\n# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
+    await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
   };
   const started = async (t: Fixture, text: string) => {
     await launch(t, `/ambicode:task ${text}`, CLAUDE_1);
@@ -151,8 +151,8 @@ describe('the task argument names a task', { concurrency: 4 }, () => {
   it('a bare number names the iteration after a Jira key too', async () => {
     await withTask(async (t) => {
       await launch(t, '/ambicode:task --task abc-123 add views', CLAUDE_1);
-      await appendLedger(t.fx.runtime.fs, path.join(t.fx.repo.root, '.ambicode', 'tasks', 'abc-123'), t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
-      await t.fx.repo.write(PLAN, '# Plan\n\n## Iteration 1\nA.\n\n## Iteration 2\nB.\n');
+      await appendLedger(t.fx.runtime.fs, path.join(t.fx.repo.root, '.ambicode', 'tasks', 'abc-123'), t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+      await t.fx.repo.write(PLAN, '---\nstatus: accepted\n---\n# Plan\n\n## Iteration 1\nA.\n\n## Iteration 2\nB.\n');
       await launch(t, '/ambicode:task ABC-123 2', CLAUDE_1);
       assert.equal((await t.fx.kinds('abc-123', 'step')).findLast((entry) => entry['step'] === 'start')?.['iteration'], 2);
     });
@@ -183,7 +183,7 @@ describe('the task argument names a task', { concurrency: 4 }, () => {
       for (const [task, entry] of [['init', { kind: 'init', what: 'scaffold', outcome: 'ok' }], ['rules', { kind: 'route', skill: 'rules', args: {}, mode: 'interactive', channel: 'cli', trusted: true, session: CLAUDE_1, epoch: 1 }]] as const) {
         const dir = path.join(t.fx.repo.root, '.ambicode', 'tasks', task);
         await mkdir(dir, { recursive: true });
-        await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), 'test-writer', entry);
+        await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), entry);
       }
       const error = await cliStart(t, CLAUDE_2, ['task']).then(() => null, (thrown: { code?: string; details?: string[] }) => thrown);
       assert.equal(error?.code, 'task-needed');

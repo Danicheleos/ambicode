@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: 'bootstrap/[\w/.-]+\.kt:\d'
+pattern: '(?<!## Policies[\s\S]*)(?:(^|\n|\\n)(?!(?:(?!\\n)[^\n])*(\b([Nn]ot?|[Nn]ever|[Nn]one|[Nn]othing|[Ww]ithout|[Ii]nstead|[Rr]ather|[Aa]void\w*|[Uu]nrelated|[Dd]ecoy|[Ff]rozen|[Ll]egacy|[Ii]gnor\w*|[Ff]orbid\w*|[Uu]nchanged|[Uu]ntouched|[Cc]annot)\b|n''t\b))(?:(?!\\n)[^\n])*(bootstrap/[\w/.-]+\.kt:\d))'
 match: not_contains
 target: { source: file, path: .ambicode/tasks/plan-jvm-bands/plan.md }
 weight: 1

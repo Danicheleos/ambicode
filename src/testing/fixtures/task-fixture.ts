@@ -37,7 +37,7 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   };
   const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
-    (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: SESSION_A, ...fields })).entry;
+    (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), { route: await routeId(), session: SESSION_A, ...fields })).entry;
 
   /** What `check --only` leaves for the tail, then the tail itself. */
   const check = async (phase: 'red' | 'green', _summary: { ran: number; failed: number } | null, exit = phase === 'red' ? 1 : 0): Promise<StepMessage> => {

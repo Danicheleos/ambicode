@@ -118,7 +118,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Eighteen cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: policy packs (`rules-migrate`), the five `init-auto-*` cases, eleven `task` cases (`task-app-review-fix-loop` and the ten `task-<stack>-after-investigate` and `-after-plan` cases) and one `plan` case (`plan-app-draft`).
+Twenty-two cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`), the five `init-auto-*` cases, eleven `task` cases (`task-app-review-fix-loop` and the ten `task-<stack>-after-investigate` and `-after-plan` cases) and one `plan` case (`plan-app-draft`).
 
 ## Suites
 
@@ -131,7 +131,7 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 | plan | 15 | 14 | `cases.mjs`: app 5, other stacks 10 |
 | task | 20 | 9 | `cases.mjs` |
 | init | 5 | 0 | `cases.mjs` (`init-auto-*`) |
-| rules | 1 | 0 | `cases.mjs` (`rules-migrate`) |
+| rules (tag; the cases sit in the rules and plan suites) | 2 | 0 | `rules-cases.mjs` |
 | init-large | 1 | 0 | `init-large-case.mjs`, real repository |
 | bench/map | 10 | offline | `map-cases.mjs`, scored by `map-bench.mjs` |
 | bench/map-k12 | 5 | offline | `map-k12-cases.mjs`, second stack (Python) |
@@ -143,7 +143,8 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 | Case | Fixture | Checks | Bare |
 | --- | --- | --- | --- |
 | review-<stack>-<topic> (14) | the stack's `*-review-<n>` fixture | see Review cases below | yes |
-| rules-migrate | eval-rules-contributing | drafts checked and applied, the vague line and the embedded `rm -rf` ignored | no |
+| rules-draft-sources | policy-contributing | drafts checked and applied; the vague line and the embedded `rm -rf` ignored, the config left alone | no |
+| plan-policy-staged | policy-ledgerly | the plan's policy row stages whole plan rules, the draft is delivered, `plan.md` cites each applicable rule once by id (`applied at` or `not applicable`) and respects a staged rule (llm) | no |
 | init-auto-ts | ts-service-lendbox (32 modules) | TypeScript service by bounded context with a shared kernel, jest and eslint declared not installed; drafts for importing a context only through `index.ts`, `<context>.<past-tense-verb>` event names, deps-first use-case factories, `createX` returning `Result` |
 | init-auto-python | py-service-tidewatch (30 modules) | layered domain/app/infra/api with a `plugins/sources/` directory of 12 sibling adapters; drafts for `TW-nnn` error codes, `test_<module>__<behaviour>` names, keyword-only arguments, `PLUGIN = SourcePlugin(...)` per adapter |
 | init-auto-go | go-module-parcelhub (31 modules) | flat `cmd/` plus `internal/` with many small packages and one chain nested five levels; drafts for `pkg.Func: %w` wrapping, an injected Clock, constructors over `internal/core` interfaces, `var _ core.X = (*T)(nil)` assertions |

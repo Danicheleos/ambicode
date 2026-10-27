@@ -70,7 +70,7 @@ In the target repository, start or restart Claude Code and run:
    `.ambicode/policies/<folder>/<id>.yaml` (with `replaces: builtin/<id>`, listed in
    `policyFiles`) so you can read and edit them.
    An existing copy is never overwritten. `.ambicode/` is gitignored, so the
-   copies are per-user unless the team un-ignores `.ambicode/policies/`. `ambicode config
+   copies are per-user. `ambicode config
    validate` follows; errors get one corrective write.
 5. Candidate rules (the scout's conventions, and unless `--auto` a web search and
    the user's own) are drafted into `.ambicode/policies/drafts/` and handed to

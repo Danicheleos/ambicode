@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { PLAN, PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 
@@ -9,16 +9,16 @@ const planFiles = async (plan: Awaited<ReturnType<typeof planFixture>>, prefix: 
   (await readdir(path.join(plan.fx.repo.root, '.ambicode', 'tasks', PLAN_TASK))).filter((name) => name.startsWith(prefix));
 
 describe('plan-shaped route: reaching the gate', () => {
-  it('prints plan-accept for the draft the check saved, with its identity and the marker', async () => {
+  it('prints plan-accept with the marker and no object: Accept takes the file as it is', async () => {
     const plan = await planFixture();
     try {
       const gate = await plan.toGate();
       assert.equal(gate.position, 'plan-accept');
       const print = await lastPrint(plan);
-      assert.equal((print['object'] as { value: string }).value, 'plan-draft');
+      assert.equal(print['object'], undefined);
       assert.match(gate.text, new RegExp(`\\[ambicode gate plan-accept ${print.id}\\]`));
-      assert.match(gate.text, /Object: .*plan-draft_.*\.md [0-9a-f]{12}/);
-      assert.match(gate.text, /Revise \(3 left\): goes back to design/);
+      assert.doesNotMatch(gate.text, /Object:/);
+      assert.match(gate.text, /Revise \(3 left\): goes back to draft/);
       assert.match(gate.text, /Accept \(acts: only your own answer here counts\)/);
     } finally {
       await plan.dispose();
@@ -38,7 +38,7 @@ describe('S1 untrusted model flag cannot accept', () => {
       assert.equal(declined.at(-1)!['reason'], 'acting-needs-human');
       assert.equal(declined.at(-1)!['via'], 'flag');
       assert.equal(gate.position, 'plan-accept');
-      assert.equal((await planFiles(plan, 'plan.md')).length, 0);
+      assert.doesNotMatch(await readFile(path.join(plan.fx.repo.root, '.ambicode', 'tasks', PLAN_TASK, 'plan.md'), 'utf8'), /status: accepted/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
     } finally {
       await plan.dispose();
@@ -46,24 +46,19 @@ describe('S1 untrusted model flag cannot accept', () => {
   });
 });
 
-describe('S3 re-accept after a new draft', () => {
-  it('refuses promote for the changed object, reasks without new write or check, and promotes B exactly once', async () => {
+describe('S3 accept after the user edited the plan file', () => {
+  it('accepts the file as it is with no new write or check and one plan note', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
       const printA = await lastPrint(plan);
-      await plan.saveDraft('# Plan\n\n1. Different.\n');
+      await plan.body('# Plan\n\n1. Different.\n');
       const [writes, checks] = [plan.state.steps, plan.state.checks];
-      const reask = await plan.hook('plan-accept', 'Accept', printA.id);
-      assert.equal(reask.position, 'plan-accept');
-      const printB = await lastPrint(plan);
-      assert.notEqual(printB.id, printA.id);
-      assert.notEqual((printB['object'] as { contentHash: string }).contentHash, (printA['object'] as { contentHash: string }).contentHash);
+      assert.equal((await plan.hook('plan-accept', 'Accept', printA.id)).position, 'complete');
       assert.equal(plan.state.checks, checks);
       assert.equal(plan.state.steps, writes);
-      assert.equal((await plan.hook('plan-accept', 'Accept', printB.id)).position, 'complete');
       assert.equal((await planFiles(plan, 'plan.md')).length, 1);
-      await assert.rejects(plan.promote(), { code: 'plan-not-accepted' });
+      await assert.rejects(plan.accept(), { code: 'plan-not-accepted' });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {
       await plan.dispose();
@@ -103,7 +98,7 @@ describe('S5 model revise vs human Revise', () => {
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
       await plan.hook('plan-accept', 'Revise', print.id);
       const human = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
-      assert.deepEqual([human['via'], human['from']], ['gate', 'design']);
+      assert.deepEqual([human['via'], human['from']], ['gate', 'draft']);
     } finally {
       await plan.dispose();
     }

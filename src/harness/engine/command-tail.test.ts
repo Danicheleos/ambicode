@@ -73,7 +73,7 @@ describe('command tail', () => {
     try {
       await plan.start();
       const before = await plan.fx.ledger(PLAN_TASK);
-      await assert.rejects(plan.saveDraft('   \n'));
+      await assert.rejects(plan.accept());
       assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();

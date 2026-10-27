@@ -125,7 +125,7 @@ export interface StagePayload {
   text: string;
   bytes: number;
   /** The `policy` ledger entry's fields. */
-  entry: { stage: 'before-work'; packs: string[]; rules: number; bytes: number };
+  entry: { stage: 'before-work'; packs: string[]; rules: number; bytes: number; activity: string; ids: string[] };
 }
 
 export const DRAFTS_DIR = '.ambicode/policies/drafts';

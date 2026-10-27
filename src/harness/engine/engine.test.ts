@@ -182,7 +182,7 @@ describe('engine: templates, scope revises and re-entry (S9)', () => {
       const gate = await next({ task: 'ORD-17' });
       assert.equal(gate.position, 'scope');
       assert.match(gate.text, /Nothing matched\. Where should I look\?\n.*search anyway.*default if nobody answers/s);
-      assert.match(gate.text, /\[ambicode gate scope [0-9a-f]{8}-\d+\]/);
+      assert.match(gate.text, /\[ambicode gate scope \d+\]/);
       assert.equal(counts.ground, 1);
       await next({ task: 'ORD-17' });
       assert.equal(counts.template, 1);

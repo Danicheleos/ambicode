@@ -26,7 +26,8 @@ async function materialized(): Promise<string> {
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
   await mkdir(path.join(destination, '.ambicode'), { recursive: true });
-  await writeFile(path.join(destination, '.ambicode', 'config.yaml'), `${CONFIG}\n`);
+  // A pack that carries plan: the plan route stages policies like task and review.
+  await writeFile(path.join(destination, '.ambicode', 'config.yaml'), `${CONFIG.replace('packageManager: null }', 'packageManager: null }, packs: [builtin/common-design]')}\n`);
   return destination;
 }
 
@@ -40,7 +41,9 @@ const answered = (root: string, scratchpad: string, question: string, label: str
   tool_response: { answers: { [question]: label } },
 });
 
-const body = (anchor: string): string =>
+const RULES = ['cohesion', 'explicit-surface', 'fix-the-cause', 'need', 'ownership-and-direction', 'reuse-before-reimplementing', 'scope'];
+
+const body = (anchor: string, cited = false): string =>
   [
     '# Plan: invoice discount',
     '',
@@ -52,14 +55,15 @@ const body = (anchor: string): string =>
     '- *Checks*: invoices.',
     '- *Leaves out*: reports.',
     '',
+    ...(cited ? ['## Policies', ...RULES.map((id, at) => `common-design/${id}: ${at === 0 ? 'applied at src/invoices/service.ts:3' : 'not applicable: a one-term change'}`), ''] : []),
   ].join('\n');
 
 describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
-  it('06-H2/06-P10: under the real ledger lock, start → design → decision → failing check sends it back with the anchors → fixed check → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
+  it('06-H2/06-P10: under the real ledger lock, start → draft → decision → failing check sends it back with the anchors → fixed check → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
-      for (const name of ['investigate/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      for (const name of ['investigate/fetch', 'plan/draft']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
       const engine = assembled.build(skillHandlers());
       const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
@@ -72,23 +76,30 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       };
       const check = async (text: string) => {
         work += 1;
-        await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', 'plan-body.md'), text);
+        await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'plan.md'), text);
         return engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: scratchpad });
       };
 
       ceremony += 1;
-      const design = await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
-      assert.equal(design.position, 'design');
-      assert.ok(design.bytes <= 4096, `start delivery ${design.bytes}`);
-      assert.match(design.text, /## map/);
-      assert.doesNotMatch(design.text, /## policy/);
+      const draft = await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
+      assert.equal(draft.position, 'draft');
+      assert.ok(draft.bytes <= 4096, `start delivery ${draft.bytes}`);
+      assert.match(draft.text, /## map/);
+      // The rules are a file the draft reads, not text in the hook: the message carries a pointer to it.
+      const rulesFile = path.join(root, '.ambicode', 'tasks', TASK, 'steps', '1-policy-before-work.md');
+      assert.match(draft.text, /## policy:before-work\nRead .*1-policy-before-work\.md \(\d+ bytes\) with your first reads\./);
+      assert.doesNotMatch(draft.text, /^common-design\/need: /m);
+      assert.match(await assembled.runtime.fs.readText(rulesFile), /^common-design\/need: /m);
+      const ledgerText = await assembled.runtime.fs.readText(path.join(root, '.ambicode', 'tasks', TASK, 'ledger.jsonl'));
+      assert.equal(ledgerText.split('\n').filter((row) => row.includes('"kind":"policy"') && row.includes('"stage":"before-work"')).length, 1);
 
       await hook('Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']);
 
       const failing = await check(body('src/invoices/service.ts:30'));
-      assert.equal(failing.position, 'design');
+      assert.equal(failing.position, 'draft');
       assert.match(failing.text, /## bad anchors\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
-      const passing = await check(body('src/invoices/service.ts:3-6'));
+      assert.match(failing.text, /## policy citations\n.*\ncommon-design\/cohesion\ncommon-design\/explicit-surface\n/);
+      const passing = await check(body('src/invoices/service.ts:3-6', true));
       assert.equal(passing.position, 'plan-accept');
       assert.doesNotMatch(passing.text, /Plan check FAILED/);
       for (const output of [failing, passing]) assert.ok(output.bytes <= 4096, `${output.bytes}`);
@@ -100,7 +111,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const entries = await ledger();
       console.log(entries.map((entry) => `${entry.kind}${entry.kind === 'step' ? ` ${entry['step']}:${entry['status']}` : ''}${typeof entry['gate'] === 'string' ? ` ${entry['gate']}` : ''}${typeof entry['via'] === 'string' ? ` via:${entry['via']}` : ''}`).join('\n'));
       const plan = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan');
-      assert.ok(plan !== undefined && typeof plan['promotedFrom'] === 'string');
+      assert.ok(plan !== undefined && plan['anchorsBad'] === 0);
       assert.equal((await readdir(path.join(root, '.ambicode', 'tasks', TASK))).filter((name) => name === 'plan.md').length, 1);
       const decision = entries.find((entry) => entry.kind === 'acceptance' && entry['gate'] === 'decision:discount-order');
       assert.equal(decision?.['via'], 'hook');
@@ -109,7 +120,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const writes = 2;
       assert.equal(ceremony, 1 + decisions + 1);
       assert.equal(work, writes);
-      assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes);
+      assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes + 1, 'one check per write, one more when Accept re-checks the file');
       await rm(scratchpad, { recursive: true, force: true });
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });

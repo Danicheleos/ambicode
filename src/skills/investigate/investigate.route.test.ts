@@ -39,7 +39,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
     try {
       const first = await start();
       const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
-      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/missing.ts:3\n', from: null, route: first.routeId });
+      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/missing.ts:3\n', route: first.routeId });
       const done = await next({ cause: 'note save' });
       assert.equal(done.position, 'complete');
       assert.match(done.text, /\nNot verified\b[\s\S]*check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/, 'a count alone left the model unable to name the gap');
@@ -111,7 +111,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.deepEqual(await stopAt(t, '- src/cart.ts:2', { agent_id: 'sub' }), {});
       assert.deepEqual((await shape(t)).notes, []);
       const context = commandContext({ runtime: t.fx.runtime, routes: t.fx.routes });
-      await saveNote({ runtime: t.fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '- src/cart.ts:2\n', from: null, route: (await t.fx.kinds('cart', 'route')).at(-1)!.id });
+      await saveNote({ runtime: t.fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '- src/cart.ts:2\n', route: (await t.fx.kinds('cart', 'route')).at(-1)!.id });
       await t.next({ cause: 'note save' });
       assert.deepEqual(await stopAt(t, 'the same answer again'), {});
       assert.deepEqual((await shape(t)).notes, ['investigation'], 'a manual note save still works and the final message adds no second note');
@@ -222,7 +222,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.match(again.text, /Not done yet: note\{investigation\} is not on record/);
       assert.ok((await rows()).includes('read:repeated'));
       const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
-      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', from: null, route: first.routeId });
+      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', route: first.routeId });
       const done = await next({ cause: 'note save' });
       assert.equal(done.position, 'complete');
       assert.match(done.text, /The route is complete/);
@@ -238,7 +238,7 @@ describe('reopen: typing the skill again continues a finished route', () => {
   type Fixture = Awaited<ReturnType<typeof investigation>>;
   const finish = async (t: Fixture, first: { task: string; routeId: string }, session = A) => {
     const context = commandContext({ runtime: t.fx.runtime, routes: t.fx.routes });
-    await saveNote({ runtime: t.fx.runtime, session, context }, { task: first.task, kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', from: null, route: first.routeId });
+    await saveNote({ runtime: t.fx.runtime, session, context }, { task: first.task, kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', route: first.routeId });
     return t.fx.engine.advance({ task: first.task, cause: 'note save', scratchpadDir: t.fx.scratchpad });
   };
   const bare = (t: Fixture, input: Partial<StartInput> = {}) =>
@@ -319,7 +319,7 @@ describe('investigate route: a synthetic walk on ts-feature-boundary (03-I1, 03-
         texts.push(message.text);
         if (message.position === 'read') {
           const context = commandContext({ runtime: assembled.runtime, routes: assembled.routes });
-          await saveNote({ runtime: assembled.runtime, session: A, context }, { task: 'invoices', kind: 'investigation', body: '## Confirmed facts\n- none\n', from: null, route: message.routeId });
+          await saveNote({ runtime: assembled.runtime, session: A, context }, { task: 'invoices', kind: 'investigation', body: '## Confirmed facts\n- none\n', route: message.routeId });
         }
         message = await engine.advance({ task: 'invoices', cause: message.position === 'read' ? 'note save' : 'route-next', scratchpadDir });
       }

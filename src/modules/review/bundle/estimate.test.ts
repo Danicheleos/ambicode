@@ -69,15 +69,15 @@ describe('review estimate (07-E)', () => {
     }, { config: CHECK_CONFIG.replace('maxChangedFiles: 50', 'maxChangedFiles: 1') });
   });
 
-  it('07-E4: the review-offer question carries the rendered estimate', async () => {
+  it('07-E4: the review-offer print carries the rendered estimate as details, and its question stays plain', async () => {
     const t = await taskFixture();
     try {
       await t.start();
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
       const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'review-offer');
-      const question = String((print?.['question'] ?? (print?.['values'] as { question?: unknown } | undefined)?.question) ?? '');
-      assert.match(question, /Review estimate:/);
+      assert.match(String(print?.['details']), /Review estimate:/);
+      assert.doesNotMatch(String(print?.['question']), /Review estimate:/);
     } finally {
       await t.fx.dispose();
     }

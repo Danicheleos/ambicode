@@ -90,7 +90,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     for (const entry of entries) if (entry.kind === 'acceptance' && entry['unbound'] !== true) answers.set(String(entry['gate']), String(entry['answer']));
     const notes = new Map<string, string>();
     for (const entry of entries) if (entry.kind === 'note') notes.set(String(entry['note']), String(entry['path']));
-    if (notes.has('plan')) notes.delete('plan-draft');
     const parts = [...[...answers].map(([gate, answer]) => `${gate}: ${answer}`), ...[...notes].map(([kind, file]) => `${kind} saved at ${file}`)];
     return parts.length === 0 ? '' : ` Recorded: ${parts.join('; ')}.`;
   }
@@ -227,7 +226,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     }
     // The request goes whole into a work file only where its text asks for it: the reviewer judges the code, not the author's goal.
     const request = ((run.head['args'] ?? {}) as RouteArgs).text.trim();
-    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
+    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{plan}', run.dir.plan).replaceAll('{policy}', payloadFile(run.dir, chainKey([...chainOf(run).ids]), 'policy:before-work')).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
     // `Now:` carries the first line whole unless stepHeader clips it (over 160 and no backtick); a heading stays, it is the shape the step asks for.
@@ -245,12 +244,15 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     // A code revise re-asks for the same inputs: the model has them, so only the revise text is new.
     const resent = step.work === null && reviseEntry?.kind === 'revise' && reviseEntry['via'] === 'code' && fold.chain.entries.slice(0, start).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
     const unchanged: string[] = [];
-    for (const key of step.payload) {
+    for (const entry of step.payload) {
+      // `file:<key>` delivers a pointer to the saved payload, not its text: the rules of a plan can outgrow the hook.
+      const pointer = entry.startsWith('file:');
+      const key = pointer ? entry.slice('file:'.length) : entry;
       const chain = chainKey([...chainOf(run).ids]);
       const payload = await loadPayload(run.runtime.fs, run.dir, chain, key);
       if (payload === null || payload.trim() === '') continue;
       if (resent) unchanged.push(path.relative(run.dir.repositoryRoot, payloadFile(run.dir, chain, key)));
-      else sections.push(`## ${key}\n${payload}`);
+      else sections.push(pointer ? `## ${key}\nRead ${payloadFile(run.dir, chain, key)} (${Buffer.byteLength(payload)} bytes) with your first reads.` : `## ${key}\n${payload}`);
     }
     if (step.work !== null) {
       await run.runtime.fs.mkdirp(run.dir.steps);

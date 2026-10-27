@@ -137,7 +137,7 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   const view = await openRouteView(routeRuntime, routes, active.task, input.session_id);
   if (view === null) return;
   const dir = taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill));
-  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), input.session_id, async (ledger) => {
+  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), async (ledger) => {
     const read = await ledger.read();
     const head = read.state === 'ok' ? read.entries.find((entry) => entry.id === view.routeId) : undefined;
     await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>, read.state === 'ok' ? read.entries.filter((entry) => entry['route'] === view.routeId) : []) });

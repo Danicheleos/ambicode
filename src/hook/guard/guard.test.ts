@@ -128,14 +128,14 @@ describe('the task-directory guard sends notes through note save', () => {
     ['Write', { file_path: '/repo/.ambicode/./tasks/x/notes.md' }],
     ['Write', { file_path: '/repo/src/../.ambicode/tasks/x/notes.md' }],
     ['Write', { file_path: '/repo/.ambicode/tasks/x/steps/other.md' }],
-    ['Bash', { command: 'echo x > .ambicode/tasks/T/plan.md' }],
+    ['Bash', { command: 'echo x > .ambicode/tasks/T/result.md' }],
     ['Bash', { command: 'tee .ambicode/tasks/T/notes.md' }],
     ['Bash', { command: "sed -i 's/a/b/' .ambicode/tasks/T/notes.md" }],
     ['Bash', { command: 'cp a.md .ambicode/tasks/T/b.md' }],
     ['Bash', { command: 'mkdir -p .ambicode/tasks/X && cat > .ambicode/tasks/X/inv.md <<EOF\nnote\nEOF' }],
     ['Bash', { command: 'echo hi | tee .ambicode/tasks/X/n.md' }],
-    ['Bash', { command: 'rm .ambicode/tasks/X/plan.md' }],
-    ['Bash', { command: 'mv .ambicode/tasks/X/plan.md /tmp/' }],
+    ['Bash', { command: 'rm .ambicode/tasks/X/result.md' }],
+    ['Bash', { command: 'mv .ambicode/tasks/X/result.md /tmp/' }],
     ['Write', { file_path: '/repo/.ambicode/tasks/X/ledger.jsonl' }],
     ['Bash', { command: 'echo \'{"id":"L9","kind":"acceptance"}\' >> .ambicode/tasks/X/ledger.jsonl' }],
     ['Bash', { command: 'git push && echo x > .ambicode/tasks/X/n.md' }],
@@ -233,7 +233,7 @@ describe('the task-directory guard sends notes through note save', () => {
     });
   }
   it('the plan-body message wins over the note-save message within one command', () => {
-    const out = decide('Bash', { command: 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/steps/plan-body.md <<EOF\nx\nEOF' });
+    const out = decide('Bash', { command: 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/plan.md <<EOF\nx\nEOF' });
     assert.equal(decisionOf(out), 'deny');
     assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written with the Write tool \(no shell\)/);
   });
@@ -261,13 +261,13 @@ describe('the task-directory guard sends notes through note save', () => {
 describe('note save and promote pass in any segment, with any prefix and quoting (M12)', () => {
   // Synthetic B3 (real-run §6): the denied save had `cd <repo> &&` before node and `=>`/`.ambicode/tasks/` in its body.
   const b3 =
-    'cd /work/repo && node "/plugins/ambicode/scripts/ambicode.mjs" note save --task T --kind plan-draft <<\'EOF\'\n' +
+    'cd /work/repo && node "/plugins/ambicode/scripts/ambicode.mjs" note save --task T --kind notes <<\'EOF\'\n' +
     '## Plan\nconst f = () => 1; // .ambicode/tasks/\nif (a > b) x >> y; echo x > .ambicode/tasks/T/plan.md\ngit push\n$(rm -rf .)\nEOF';
   for (const command of [
-    'cd X && node "…/ambicode.mjs" note save --task T --kind plan-draft <<\'EOF\'\nconst f = () => 1; // .ambicode/tasks/\nEOF',
+    'cd X && node "…/ambicode.mjs" note save --task T --kind notes <<\'EOF\'\nconst f = () => 1; // .ambicode/tasks/\nEOF',
     b3,
     "env A=1 node '/p q/scripts/ambicode.mjs' note save --task T --kind notes <<-EOF\n\tx > .ambicode/tasks/T/a\n\tEOF",
-    'npx node "/p/scripts/ambicode.mjs" note save --task T --kind plan-draft --from .ambicode/tasks/T/steps/plan-body.md',
+    'npx node "/p/scripts/ambicode.mjs" note save --task T --kind notes --from .ambicode/tasks/T/plan.md',
   ]) {
     it(`no decision: ${JSON.stringify(command).slice(0, 70)}`, () => assert.deepEqual(bash(command), {}));
   }
@@ -285,7 +285,7 @@ describe('the task-directory message names a command that runs as written', () =
   });
   it('02-G1: names the kinds note save accepts', () => {
     const out = bash('echo x > .ambicode/tasks/T/n.md');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan-draft\|notes\|result`/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|notes\|result`/);
   });
 });
 const roots: string[] = [];
@@ -307,13 +307,13 @@ function fixture(ledger: LedgerEntry[] | string | null, headless: string[] = [])
   const scratch = path.join(root, 'scratch');
   mkdirSync(path.join(scratch, HOOK_STATE_DIR_NAME), { recursive: true });
   for (const session of headless) writeFileSync(path.join(scratch, HOOK_STATE_DIR_NAME, HEADLESS_FILE), '');
-  const write = (file = path.join(repo, '.ambicode', 'tasks', 'T', 'steps', 'plan-body.md'), tool = 'Write') =>
+  const write = (file = path.join(repo, '.ambicode', 'tasks', 'T', 'plan.md'), tool = 'Write') =>
     guardDecision({ hook_event_name: 'PreToolUse', tool_name: tool, session_id: 'A', scratchpad_dir: scratch, tool_input: { file_path: file } }, '/p', fsGuardState) as Output;
   return { repo, scratch, write };
 }
 
 describe('plan-body writes: allowed only while the task\'s live route is a plan route', () => {
-  it('Write and Edit of steps/plan-body.md pass; MultiEdit and NotebookEdit are denied with the next command', () => {
+  it('Write and Edit of plan.md pass; MultiEdit and NotebookEdit are denied with the next command', () => {
     const { write } = fixture([planRoute('a-1', 'A')]);
     assert.deepEqual(write(undefined, 'Write'), {});
     assert.deepEqual(write(undefined, 'Edit'), {});
@@ -342,7 +342,7 @@ describe('plan-body writes: allowed only while the task\'s live route is a plan 
   ] as [string, LedgerEntry[] | string | null, string | undefined, RegExp][]) {
     it(`denies for ${label}`, () => {
       const { write, repo } = fixture(ledger);
-      const out = write(file === undefined ? undefined : path.join(repo, '.ambicode', 'tasks', file, 'steps', 'plan-body.md'));
+      const out = write(file === undefined ? undefined : path.join(repo, '.ambicode', 'tasks', file, 'plan.md'));
       assert.equal(decisionOf(out), 'deny');
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, why);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /route next/);
@@ -387,22 +387,22 @@ describe('plan-body writes: allowed only while the task\'s live route is a plan 
 
   it('a missing ledger names the directory that was looked in, so a model that wrote beside the wrong .ambicode sees which one', () => {
     const { write, repo } = fixture(null);
-    const target = path.join(repo, '.ambicode', 'tasks', 'T', 'steps', 'plan-body.md');
+    const target = path.join(repo, '.ambicode', 'tasks', 'T', 'plan.md');
     assert.ok(write(target).hookSpecificOutput!.permissionDecisionReason.includes(`looked in ${path.join(repo, '.ambicode', 'tasks', 'T')}`));
   });
 
   it('only the exact plan-body path is excepted; a relative path without a cwd is not placed', () => {
     const { write, repo } = fixture([planRoute('a-1', 'A')]);
-    for (const file of ['steps/plan-body.md.bak', 'steps/sub/plan-body.md', 'plan-body.md']) {
+    for (const file of ['plan.md.bak', 'steps/sub/plan-body.md', 'plan-body.md']) {
       assert.equal(decisionOf(write(path.join(repo, '.ambicode', 'tasks', 'T', file))), 'deny', file);
     }
-    assert.match(write('.ambicode/tasks/T/steps/plan-body.md').hookSpecificOutput!.permissionDecisionReason, /no absolute path/);
+    assert.match(write('.ambicode/tasks/T/plan.md').hookSpecificOutput!.permissionDecisionReason, /no absolute path/);
   });
 
   it('a Bash write to the plan body is still denied while the plan route is live', () => {
     const { repo, scratch } = fixture([planRoute('a-1', 'A')]);
     const out = guardDecision(
-      { hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Bash', tool_input: { command: `echo x > ${repo}/.ambicode/tasks/T/steps/plan-body.md` } },
+      { hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Bash', tool_input: { command: `echo x > ${repo}/.ambicode/tasks/T/plan.md` } },
       '/p',
       fsGuardState,
     ) as Output;
@@ -455,7 +455,7 @@ describe('the built guard entry', () => {
 
   it('reads the ledger for the plan-body exception', { skip: !existsSync(built) }, () => {
     const input = (repo: string, scratch: string) =>
-      JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } });
+      JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/plan.md') } });
     const live = fixture([planRoute('a-1', 'A')]);
     assert.deepEqual(JSON.parse(run(input(live.repo, live.scratch)).stdout), {});
     const other = fixture([{ id: 'r-1', at, kind: 'route', skill: 'review', session: 'A' }]);
@@ -468,7 +468,7 @@ describe('the built guard entry', () => {
     const file = path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE);
     rmSync(file);
     execFileSync('mkfifo', [file]);
-    const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/steps/plan-body.md') } });
+    const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/plan.md') } });
     const result = spawnSync('node', [built.pathname], { input, encoding: 'utf8', timeout: 5000 });
     assert.equal(result.error, undefined, String(result.error));
     assert.equal(result.status, 0);

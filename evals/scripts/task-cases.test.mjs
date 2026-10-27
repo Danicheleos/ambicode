@@ -10,7 +10,7 @@ import { CASES, caseDir, render } from './cases.mjs';
 import { INVESTIGATIONS, PLANS } from './task-seeds.mjs';
 
 const FILES = render();
-const taskCases = CASES.filter((c) => c.name.startsWith('task-'));
+const taskCases = CASES.filter((c) => c.name.startsWith('task-') && !c.tags.includes('rules'));
 const seeded = taskCases.filter((c) => Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/')));
 const frontmatter = (text) => parse(text.split('---')[1]);
 const STACKS = ['ts-service-lendbox', 'py-service-tidewatch', 'go-module-parcelhub', 'jvm-gradle-seedvault', 'monorepo-rust-ts-kiln'];
@@ -83,7 +83,8 @@ describe('task cases', () => {
         const text = c.files[`seed/${parsed.entry.path.replace(/^\.ambicode\//, '')}`];
         assert.equal(parsed.entry.contentHash, contentHash(text));
         assert.deepEqual(Object.keys(c.files).sort(), [`seed/tasks/${slug}/ledger.jsonl`, `seed/${parsed.entry.path.replace(/^\.ambicode\//, '')}`].sort());
-        assert.equal(text.trim(), (kind === 'plan' ? PLANS : INVESTIGATIONS)[slug].trim());
+        if (kind === 'plan') assert.match(text, /^---\nstatus: accepted\n---\n\n/);
+        assert.equal(text.replace(/^---\nstatus: accepted\n---\n\n/, '').trim(), (kind === 'plan' ? PLANS : INVESTIGATIONS)[slug].trim());
       });
 
       it(`${c.name}: every path:line citation of the note names a line the fixture has`, () => {
@@ -100,7 +101,7 @@ describe('task cases', () => {
       });
     }
 
-    it('the plans give Iteration 1 the five fields routes/plan/design.md asks for', () => {
+    it('the plans give Iteration 1 the five fields routes/plan/draft.md asks for', () => {
       for (const [slug, plan] of Object.entries(PLANS)) {
         assert.match(plan, /\| requirement \| section \| code \|/, slug);
         assert.match(plan, /## Iteration 1\b[\s\S]*\*Goal\*[\s\S]*\*Changes\*[\s\S]*\*Accept\*[\s\S]*\*Checks\*[\s\S]*\*Leaves out\*/, slug);
@@ -167,6 +168,21 @@ describe('task cases', () => {
       after.set('tests/payments/payments.test.js', `${fixed.get('tests/payments/payments.test.js')}\ntest('x', () => { payments.refund({ invoiceId: 1, amountCents: 1 }); expect(a.status).toBe('partially_paid'); });\n`);
       for (const { name, spec, file } of sourceGraders(c)) assert.ok(matches(spec, after.get(file)), `${name} accepts the reference`);
     });
+  });
+
+  it('task-go-after-plan: zero-weight-tested accepts a literal, a loop list and a table row, and refuses a test with no zero weight', () => {
+    const spec = sourceGraders(taskCases.find((c) => c.name === 'task-go-after-plan')).find((g) => g.name === 'zero-weight-tested').spec;
+    for (const text of [
+      'if _, err := CentsFor(0); err == nil {}',
+      'for _, grams := range []int{0, -5} {\n\t\tCentsFor(grams)\n\t}',
+      'cases := []struct{ grams, want int }{\n\t{grams: 0, want: 0},\n}',
+      'cases := []struct{ grams int }{\n\t{0},\n}',
+    ]) assert.ok(matches(spec, text), text);
+    for (const text of [
+      'CentsFor(5)',
+      'for _, grams := range []int{5, 10, 100} { CentsFor(grams) }',
+      'cases := []struct{ grams, want int }{\n\t{grams: 10, want: 0},\n\t{grams: 100, want: 20},\n}',
+    ]) assert.ok(!matches(spec, text), text);
   });
 
   it('every case reads its ledger by the prompt slug and the flags install jest only where the checks must run', () => {

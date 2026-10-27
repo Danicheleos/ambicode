@@ -3,8 +3,7 @@ id: angular-http
 authority: inherited
 description: "Angular HTTP access: duplicate requests, cross-cutting concerns such as interceptors."
 appliesTo:
-  - "**/*.service.ts"
-  - "**/*.interceptor.ts"
+  - "**/*.ts"
 activities: [review, task, plan]
 
 source:

@@ -78,7 +78,7 @@ A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `not
 or `glab mr` state change and a
 write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
 decides, so do not rephrase the command to avoid the question.
-`steps/plan-body.md` is writable only while the task's live route is a plan
+`plan.md` of a task is writable only while the task's live route is a plan
 route; no live route, another skill's route, or an unreadable ledger is denied.
 
 **Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
@@ -89,8 +89,7 @@ another AMBICODE process is writing the ledger; retry. If it keeps failing,
 make sure no ambicode process is running, then delete `ledger.lock` in the task
 directory. `session-unbound`: `check` found no live route on the task; start one with
 `route start <skill> --task <slug>`. `plan-draft-missing`:
-no plan draft exists to promote; the route's `plan-check` step saves it, so continue the
-plan route to that step.
+the task has no `plan.md` to accept; write it, continue the plan route to `plan-check`.
 
 **Routes.** `route-invalid`: a route, gate registry or step file is malformed; the
 message names the file, the step or gate and the field (build and load): fix that
@@ -106,13 +105,10 @@ payload yet; fetch it with the call the message names, then `route next`.
 `requirements-missing`: some requested sources are not captured; fetch them and run
 `route next`, or start again without that `--requirement`.
 
-**`plan-not-accepted`.** The draft was not promoted; its `reason` says why:
-`no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human`,
-`not-accepted` (the latest answer is not an Accept from the user) or
-`object-changed` (the accepted draft is not the latest one, or its bytes
-changed). Ask the user `plan-accept` again for the current draft; do not
-rewrite or re-check the plan. `plan-already-promoted` is not an error: the plan
-exists and its path is printed.
+**`plan-not-accepted`.** The plan was not accepted; its `reason` says why:
+`no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human` or
+`not-accepted` (the latest answer is not an Accept from the user). Ask the user
+`plan-accept` again; do not rewrite or re-check the plan.
 
 **`rules-no-sources`.** `/ambicode:rules` ended because the user chose no rule source (*none — stop*).
 Nothing was drafted; start again and name a source.

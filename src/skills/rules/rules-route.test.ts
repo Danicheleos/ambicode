@@ -107,6 +107,23 @@ describe('09-T2: B13 the disposition and the ledger cap', { concurrency: 4 }, ()
   });
 });
 
+describe('near-duplicate drafts', { concurrency: 4 }, () => {
+  it('the rules table names the rule a draft reads like, and the draft is still applicable', async () => {
+    const w = await world();
+    try {
+      await atDraft(w);
+      await w.draft('team-a.yaml', pack('team-a', [rule('layers', 'Keep the transport layer behind the services always.', QUOTE)]));
+      await w.draft('team-b.yaml', pack('team-b', [rule('layers-again', 'Always keep transport layer behind services.', QUOTE)]));
+      const checked = await w.check();
+      assert.equal(checked.ok, true, JSON.stringify(checked.diagnostics));
+      assert.match(checked.next ?? '', /team-a\/layers: applied\n/);
+      assert.match(checked.next ?? '', /team-b\/layers-again: applied; reads like team-a\/layers \(another draft, word overlap 1\.00\)/);
+    } finally {
+      await w.dispose();
+    }
+  });
+});
+
 describe('09-T1: the rules route', { concurrency: 4 }, () => {
   it('09-T1: discover lists the candidates at the sources gate, whose default stops the route', async () => {
     const w = await world();
@@ -166,15 +183,17 @@ describe('09-T1: the rules route', { concurrency: 4 }, () => {
     }
   });
 
-  it('a free-text answer at sources names the files the drafter reads, with no second print', async () => {
+  it('a free-text answer at sources names the files the drafter reads, with no second print; an auto-loaded file it names is not read', async () => {
     const w = await world({ text: '' });
     try {
       await mkdir(path.join(w.root, '.claude'), { recursive: true });
       await writeFile(path.join(w.root, '.claude/CLAUDE.md'), '# Rules\n');
+      await writeFile(path.join(w.root, 'GUIDE.md'), '# Guide\n');
       await w.start();
-      const next = await w.answer('sources', '.claude/CLAUDE.md');
+      const next = await w.answer('sources', '.claude/CLAUDE.md GUIDE.md');
       assert.equal(next.position, 'draft');
-      assert.match(next.text, /Named in the request: \.claude\/CLAUDE\.md/);
+      assert.match(next.text, /Named in the request: GUIDE\.md(?!,)/);
+      assert.doesNotMatch(next.text, /CLAUDE/);
       assert.equal((await w.kinds('revise')).length, 0);
       assert.equal((await w.kinds('gate')).filter((entry) => entry['gate'] === 'sources').length, 1);
     } finally {

@@ -45,8 +45,10 @@ describe('03-P policy stage', () => {
   });
 
   it('a plan stage carries only plan rules and a task stage only task rules, each smaller than the all-rules review stage', async () => {
-    const { temp, runtime, project } = await repo();
+    const fixture = await repo();
+    const { temp, runtime } = fixture;
     try {
+      const project = fixture.project;
       const plan = await policyStage({ runtime, project, activity: 'plan', paths: ['src/a.ts'], stage: 'before-work' });
       const task = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
       assert.match(plan.text, /common-design\/need: /);
@@ -55,8 +57,8 @@ describe('03-P policy stage', () => {
       assert.doesNotMatch(task.text, /common-(design|security)\/(need|cohesion|data-boundary): /);
       const review = await policyStage({ runtime, project, activity: 'review', paths: ['src/a.ts'], stage: 'before-work' });
       // Deliberate: the reviewer agent's own checklist covers five rules, so they no longer reach review.
-      const planTaskOnly = ['unjustified-complexity', 'dead-surface', 'callers', 'error-honesty'];
-      assert.equal(review.entry.rules, plan.entry.rules + task.entry.rules - 2 - planTaskOnly.length + 5, 'review carries 20 of 24: fix-the-cause and reuse sit in plan and task (-2), four plan/task rules skip review, five rules are review-only');
+      const planTaskOnly = ['dead-surface', 'callers', 'error-honesty'];
+      assert.equal(review.entry.rules, plan.entry.rules + task.entry.rules - 2 - planTaskOnly.length + 5, 'review carries 20 of 23: fix-the-cause and reuse sit in plan and task (-2), three plan/task rules skip review, five rules are review-only');
       for (const id of planTaskOnly) assert.doesNotMatch(review.text, new RegExp(`common-[a-z]+/${id}: `), `${id} must not reach review`);
       for (const id of ['honest-gaps', 'scope', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger']) assert.match(review.text, new RegExp(`common-[a-z]+/${id}: `), id);
       assert.doesNotMatch(plan.text + task.text, /honest-gaps|no-secret-exposure|untrusted-input-allowlist|outbound-timeouts|configured-logger/);
@@ -81,7 +83,8 @@ describe('03-P policy stage', () => {
       assert.doesNotMatch(review.text, /\d+ more, in /);
       const payload = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
       assert.ok(payload.bytes <= STAGE_LIMITS['before-work'], `before-work: ${payload.bytes}`);
-      assert.deepEqual(Object.keys(payload.entry).sort(), ['bytes', 'packs', 'rules', 'stage']);
+      assert.deepEqual(Object.keys(payload.entry).sort(), ['activity', 'bytes', 'ids', 'packs', 'rules', 'stage']);
+      assert.equal(payload.entry.ids.length, payload.entry.rules);
       assert.equal(payload.entry.bytes, payload.bytes);
       assert.equal(STAGE_LIMITS['before-work'], 4096);
     } finally {
@@ -189,6 +192,50 @@ describe('rules are grouped under one header per authority', () => {
       }
     } finally {
       await fx.temp.dispose();
+    }
+  });
+});
+
+describe('plan gets every rule whole', () => {
+  it('60 long rules arrive whole and uncut, with no pointer line and every id listed', async () => {
+    const filler = ` ${'Because the reason runs long. '.repeat(10)}`;
+    const fx = await styleRepo(60, filler);
+    try {
+      const plan = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'plan', paths: ['src/a.ts'], stage: 'before-work' });
+      assert.ok(plan.text.includes(`team/style-0: Style rule 0.${filler}`), 'the whole instruction');
+      assert.ok(plan.text.includes(`team/style-59: Style rule 59.${filler}`), 'no alphabetical cut');
+      assert.doesNotMatch(plan.text, /\d+ more, in /);
+      assert.ok(plan.bytes > 4096, `${plan.bytes}: over the task cap, and not cut`);
+      assert.equal(plan.entry.ids.length, plan.entry.rules);
+      assert.ok(plan.entry.ids.includes('team/style-59'));
+    } finally {
+      await fx.temp.dispose();
+    }
+  });
+
+  it('a pack scoped to **/*.py still follows the map paths for plan', async () => {
+    const fx = await styleRepo(0);
+    try {
+      await fx.temp.write('.ambicode/policies/team.yaml', ['schemaVersion: 1', 'id: team', 'authority: team', 'appliesTo: ["**/*.py"]', 'activities: [plan]', 'source: { location: "fixture" }', 'rules:', '  - id: py-only', '    category: correctness', '    instruction: Close files you open.', '    check: { kind: reviewer, explanation: x }', ''].join('\n'));
+      const at = async (paths: string[]) => (await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'plan', paths, stage: 'before-work' })).text;
+      assert.doesNotMatch(await at(['src/a.ts']), /team\/py-only/);
+      assert.match(await at(['tools/x.py']), /team\/py-only/);
+    } finally {
+      await fx.temp.dispose();
+    }
+  });
+
+  it('built-in plan rules arrive as whole instructions, none cut to a first sentence', async () => {
+    const { temp, runtime, project } = await repo();
+    try {
+      const plan = await policyStage({ runtime, project, activity: 'plan', paths: [], stage: 'before-work' });
+      const lines = plan.text.split('\n').filter((line) => /^[\w-]+\/[\w-]+: /.test(line));
+      assert.ok(lines.length > 3);
+      assert.ok(lines.every((line) => !line.endsWith('…')));
+      assert.ok(lines.some((line) => line.replace(/^[^:]+: /, '').length > 110), 'a rule longer than the old 110-character line');
+      assert.equal('before-work:plan' in STAGE_LIMITS, false);
+    } finally {
+      await temp.dispose();
     }
   });
 });

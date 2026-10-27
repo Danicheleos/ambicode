@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -343,16 +343,6 @@ test('two built-in packs with one id are refused', async (t) => {
   await assert.rejects(listBuiltinPackFiles(nodeFileSystem, directory), (error: { code?: string }) => error.code === 'builtin-pack-duplicate');
 });
 
-test('express packs match JavaScript files and feature-folder layouts, not only .ts suffixes', async () => {
-  const api = project({ id: 'api', root: 'services/api', packs: ['builtin/express-http', 'builtin/express-persistence', 'builtin/express-errors'] });
-  const { packs } = await loadPacksForProject({ fs: nodeFileSystem, project: api, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/nowhere' });
-  const ids = (file: string) => resolvePolicy({ activity: 'review', project: api, packs, paths: [`services/api/${file}`] }).rules.map((rule) => rule.qualifiedId);
-  for (const file of ['src/orders.routes.js', 'src/invoices/routes.js', 'src/routes/orders.mjs', 'src/orders/controller.ts']) assert.ok(ids(file).includes('express-http/single-response'), file);
-  for (const file of ['src/orders/service.ts', 'src/orders/orders.repository.ts', 'src/orders/repository.js', 'src/orders.service.cjs']) assert.ok(ids(file).includes('express-persistence/bounded-reads'), file);
-  assert.ok(ids('src/orders/handler.js').includes('express-errors/classified-errors'));
-  assert.ok(!ids('src/util/strings.js').some((id) => id.startsWith('express-http/')));
-});
-
 test('U06 framework packs stay in their own scope', async () => {
   const angular = project({
     id: 'web',
@@ -482,23 +472,23 @@ test('a rule that lists an activity its pack does not carry is a pack error', as
   assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'pack-invalid' && /plan-only/.test(diagnostic.message)), JSON.stringify(diagnostics));
 });
 
-test('the 24 common rules each name their activities; review carries 20: the reviewer agent covers four of the other rules (deliberate) and reuse-before-reimplementing is cited by its findings; only fix-the-cause and reuse-before-reimplementing sit in both plan and task, the review-only rules never reach plan or task', async () => {
+test('the 23 common rules each name their activities; review carries 20: the reviewer agent covers three of the other rules (deliberate) and reuse-before-reimplementing is cited by its findings; only fix-the-cause and reuse-before-reimplementing sit in both plan and task, the review-only rules never reach plan or task', async () => {
   const config = project({ packs: COMMON_REFERENCES });
   const { packs } = await loadPacksForProject({ fs: nodeFileSystem, project: config, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/nowhere' });
   const ruleIds = (activity: 'plan' | 'task' | 'review') => resolvePolicy({ activity, project: config, packs, paths: ['apps/web/src/a.ts'] }).rules.map((rule) => rule.qualifiedId.split('/')[1]!);
   const plan = ruleIds('plan');
   const task = ruleIds('task');
   const review = ruleIds('review');
-  assert.equal(packs.flatMap((loaded) => loaded.pack.rules).length, 24);
-  assert.equal(review.length, 20, 'deliberate: 24 rules minus the four the reviewer agent restates');
-  for (const id of ['unjustified-complexity', 'dead-surface', 'callers', 'error-honesty']) assert.ok(!review.includes(id), `${id} is absent from review`);
+  assert.equal(packs.flatMap((loaded) => loaded.pack.rules).length, 23);
+  assert.equal(review.length, 20, 'deliberate: 23 rules minus the three the reviewer agent restates');
+  for (const id of ['dead-surface', 'callers', 'error-honesty']) assert.ok(!review.includes(id), `${id} is absent from review`);
   assert.ok(review.includes('reuse-before-reimplementing'), 'a duplication finding can cite the rule');
   const reviewOnly = ['honest-gaps', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger'];
   for (const id of reviewOnly) assert.ok(!plan.includes(id) && !task.includes(id), id);
   assert.deepEqual(plan.filter((id) => task.includes(id)).sort(), ['fix-the-cause', 'reuse-before-reimplementing']);
   assert.ok(plan.includes('scope') && !task.includes('scope'));
   for (const id of ['callers', 'no-check-evasion', 'unobserved-async']) assert.ok(task.includes(id) && !plan.includes(id), id);
-  assert.equal(plan.length + task.length, 21);
+  assert.equal(plan.length + task.length, 20);
 });
 
 test('two built-in files with one id, in different folders, are refused', async (t) => {
@@ -530,4 +520,20 @@ test('U03 a project declaring no commands still loads the command-naming built-i
   const { packs, diagnostics } = await loadPacksForProject({ fs: nodeFileSystem, project: { ...bare, packs: [...COMMON_REFERENCES, 'builtin/common-checks'] }, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
   assert.deepEqual(diagnostics, []);
   assert.equal(packs.length, COMMON_PACKS.length + 1);
+});
+
+test('a rule is cut by pack appliesTo and activities only; a rule with kinds is refused, not ignored', () => {
+  const rule = (id: string, extra: object = {}) => ({ id, category: 'architecture', instruction: 'x', check: { kind: 'reviewer', explanation: 'x' }, ...extra });
+  const pack = PolicyPack.parse({
+    schemaVersion: 1, id: 'scoped', authority: 'team', appliesTo: ['src/**'], activities: ['task', 'plan'], source: { location: 't' },
+    rules: [rule('everywhere'), rule('review-only', { activities: ['review'] })],
+  });
+  const packs = [{ pack, reference: 'p.yaml', origin: 'project' as const, filePath: '/p.yaml' }];
+  const ids = (activity: 'task' | 'plan' | 'review', paths: string[]) => resolvePolicy({ activity, project: project({ root: '.' }), packs, paths }).rules.map((entry) => entry.qualifiedId.split('/')[1]);
+  assert.deepEqual(ids('task', ['src/a.component.ts']), ['everywhere']);
+  assert.deepEqual(ids('task', ['src/a.html']), ['everywhere'], 'no file type narrows a rule');
+  assert.deepEqual(ids('task', ['lib/a.ts']), [], 'outside the pack appliesTo nothing is staged');
+  assert.deepEqual(ids('task', []), ['everywhere'], 'no paths: every pack of the activity contributes');
+  assert.deepEqual(ids('review', []), [], 'the pack is not a review pack');
+  assert.equal(PolicyPack.safeParse({ ...pack, rules: [rule('bound', { kinds: ['component'] })] }).success, false);
 });

@@ -405,7 +405,7 @@ describe('a review with no reviewer yet', () => {
     try {
       const dir = path.join(context.repo.root, '.ambicode', 'tasks', 'ORD-17');
       await nodeFileSystem.mkdirp(dir);
-      await nodeFileSystem.writeText(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: 'L1', at: '2026-09-20T09:00:00.000Z', kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'], tail: '', ms: 5 })}\n`);
+      await nodeFileSystem.writeText(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: '1', at: '2026-09-20T09:00:00.000Z', kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'], tail: '', ms: 5 })}\n`);
       const inTask = await pinnedIn(context.runtime, 'ORD-17');
       assert.deepEqual(inTask.result.checks, [{ key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'] }]);
       assert.deepEqual((await review(context.runtime, [])).result.checks, []);

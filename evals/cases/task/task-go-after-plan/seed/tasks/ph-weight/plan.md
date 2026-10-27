@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Refuse a parcel weight of zero or less
 
 | requirement | section | code |

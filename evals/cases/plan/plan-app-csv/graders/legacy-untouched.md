@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: 'src/legacy/[\w.-]+:\d|new:\s*src/legacy'
+pattern: '(?<!## Policies[\s\S]*)(?:src/legacy/[\w.-]+:\d|new:\s*src/legacy)'
 match: not_contains
 target: { source: file, path: .ambicode/tasks/plan-app-csv/plan.md }
 weight: 1

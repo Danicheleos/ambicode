@@ -9,13 +9,20 @@ import type { DraftsCheck } from '#types/modules/policy';
 /** Under the 16 KiB ledger-entry cap once the gate's own envelope (question, options, values) is added. */
 const DISPOSITION_GATE_BYTES = 8_000;
 
+/** The rule a draft reads like, so the user sees which existing rule it may repeat before applying it. */
+const similar = (check: DraftsCheck, rule: string): string => {
+  const found = check.diagnostics.find((diagnostic) => diagnostic.code === 'pack-rule-similar' && diagnostic.message.includes(`rule "${rule}" reads like `));
+  const like = found === undefined ? null : /reads like (\S+) \(([^)]*)\)/.exec(found.message);
+  return like === null ? '' : `; reads like ${like[1]!} (${like[2]!})`;
+};
+
 /** One row per rule: applied, or not migrated with the reason. */
 function disposition(check: DraftsCheck, root: string): string {
   const rows = check.rules.map((rule) => {
     const file = check.files.find((candidate) => candidate.packId === rule.split('/')[0]);
     const blocked = file === undefined ? undefined : blockingProblem(check, root, file.path);
     const failed = check.notMigrated.find((entry) => entry.rule === rule);
-    return `- ${rule}: ${blocked !== undefined ? `not migrated: pack skipped (${blocked.code})` : failed !== undefined ? `not migrated: ${failed.reason}` : 'applied'}`;
+    return `- ${rule}: ${blocked !== undefined ? `not migrated: pack skipped (${blocked.code})` : failed !== undefined ? `not migrated: ${failed.reason}` : `applied${similar(check, rule)}`}`;
   });
   const unusable = check.files.filter((file) => file.packId === null).map((file) => `- ${file.path}: not migrated: unusable pack`);
   const text = ['Disposition if you choose Apply all:', ...rows, ...unusable].join('\n');
@@ -24,7 +31,7 @@ function disposition(check: DraftsCheck, root: string): string {
 
 onGatePrint('sources', async ({ runtime, dir, chain }) => {
   const found = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'script:discover');
-  return found === null || found.trim() === '' ? null : { line: found };
+  return found === null || found.trim() === '' ? null : { details: found };
 });
 
 onGatePrint('rules-table', async ({ runtime, dir, chain }) => {
@@ -32,7 +39,7 @@ onGatePrint('rules-table', async ({ runtime, dir, chain }) => {
   try {
     const workspace = await openWorkspace({ ...runtime, cwd: dir.repositoryRoot });
     const check = await checkDrafts(runtime, workspace, { project: (head?.['args'] as RouteArgs | undefined)?.project ?? null });
-    return { line: disposition(check, workspace.repositoryRoot) };
+    return { details: disposition(check, workspace.repositoryRoot) };
   } catch (error) {
     if (error instanceof AmbicodeError) return null;
     throw error;

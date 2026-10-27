@@ -35,7 +35,7 @@ describe('review route: an estimate the engine refuses', () => {
     await withRefused(async (t) => {
       const started = await t.start();
       assert.equal(started.position, 'estimate');
-      assert.match(String((await t.kinds('gate'))[0]!['question']), /refused before the reviewer: input-too-large/);
+      assert.match(String((await t.kinds('gate'))[0]!['details']), /refused before the reviewer: input-too-large/);
       assert.deepEqual((await t.kinds('exit')).length, 0);
     });
   });

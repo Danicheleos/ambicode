@@ -66,6 +66,9 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
     if (entry.gate === 'review-again' && entry.answer === 'skip') gaps.push('fix not re-reviewed');
     if (entry.gate === 'review-offer' && String(entry.answer).startsWith('skip') && isBoundAnswer(entry)) gaps.push('independent review skipped — verification incomplete');
   }
+  // Accept re-checks the file as the user left it and accepts it either way, so the count it carries is the only trace of a bad anchor an edit added.
+  for (const entry of of('note').filter((note) => note.note === 'plan' && Number(note.anchorsBad) > 0)) gaps.push(`plan accepted with ${entry.anchorsBad} bad anchors`);
+  for (const entry of of('note').filter((note) => note.note === 'plan' && Number(note.policyMissing) > 0)) gaps.push(`plan accepted without ${entry.policyMissing} policy citations`);
   for (const entry of of('format')) if (entry.outcome !== 'formatted' && entry.outcome !== 'unconfigured') gaps.push(`not formatted: ${clip(entry.key)} (${clip(entry.outcome)})`);
 
   // stop-block is the Stop hook's own bookkeeping, not something left unverified.

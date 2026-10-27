@@ -38,7 +38,7 @@ export async function routedOf(deps: CheckDeps, task: string): Promise<Routed | 
 }
 
 export const withLedger = <T>(deps: NoteDeps, dir: TaskDir, body: (ledger: LockedLedger) => Promise<T>): Promise<T> =>
-  deps.ledger !== undefined ? body(deps.ledger) : withLedgerLock(deps.runtime.fs, dir.root, () => deps.runtime.clock.now(), deps.session ?? deps.runtime.ids.writerId(), body);
+  deps.ledger !== undefined ? body(deps.ledger) : withLedgerLock(deps.runtime.fs, dir.root, () => deps.runtime.clock.now(), body);
 
 /** Commands run in the project root; a repository-relative path names the same file from there. */
 export const projectRelative = (project: ProjectConfig, file: string): string =>

@@ -72,7 +72,7 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
     if (await runtime.fs.exists(path.join(root, pack.live))) throw new AmbicodeError('bad-argument', `${pack.live} already exists; a live pack is never overwritten. Rename the draft or remove the live pack first.`, { field: 'rules apply' });
   }
 
-  return withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, async (ledger) => {
+  return withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), async (ledger) => {
     await verify();
     for (const pack of plan) {
       await runtime.fs.writeText(path.join(root, pack.live), pack.text);

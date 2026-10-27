@@ -10,20 +10,21 @@ import { contentHash } from '../../src/util/hash.ts';
 const AT = '2026-03-01T09:00:00.000Z';
 const STAMP = '2026-03-01T09-00';
 
-/** The note's file name below .ambicode/tasks/<slug>/: `plan.md` is the stable name a promoted plan gets, investigations are stamped. */
+/** The note's file name below .ambicode/tasks/<slug>/: `plan.md` is the task's one plan file, investigations are stamped. */
 export const noteFile = (kind) => (kind === 'plan' ? 'plan.md' : `investigation_${STAMP}.md`);
 
 /** `{ 'seed/tasks/<slug>/<note file>': text, 'seed/tasks/<slug>/ledger.jsonl': line }` for one note. */
 export function seedFiles(slug, kind, text) {
-  const body = `${text.trim()}\n`;
-  const entry = { id: 'seedseed-1', at: AT, kind: 'note', note: kind, path: `.ambicode/tasks/${slug}/${noteFile(kind)}`, contentHash: contentHash(body) };
+  // The task route runs only a plan whose frontmatter says `status: accepted`.
+  const body = `${kind === 'plan' ? '---\nstatus: accepted\n---\n\n' : ''}${text.trim()}\n`;
+  const entry = { id: '1', at: AT, kind: 'note', note: kind, path: `.ambicode/tasks/${slug}/${noteFile(kind)}`, contentHash: contentHash(body) };
   return {
     [`seed/tasks/${slug}/${noteFile(kind)}`]: body,
     [`seed/tasks/${slug}/ledger.jsonl`]: `${JSON.stringify(entry)}\n`,
   };
 }
 
-// ---------------------------------------------------------------- plans (the shape routes/plan/design.md asks for)
+// ---------------------------------------------------------------- plans (the shape routes/plan/draft.md asks for)
 export const PLANS = {
   'lb-extend': `
 # Limit loan extensions

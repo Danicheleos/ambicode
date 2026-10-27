@@ -56,9 +56,9 @@ describe('the task route reuses the requirements captured into the task (A2, A8)
     const rawHash = contentHash(BODY);
     await t.fx.runtime.fs.mkdirp(dir.requirements);
     await t.fx.runtime.fs.writeText(fileOf(dir, KEY), JSON.stringify({ key: KEY, url: '', tool: 'mcp__x', retrievedAt: '2026-10-05T10:00:00.000Z', rawHash, content: BODY }));
-    const append = (fields: Record<string, unknown> & { kind: string }) => appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'testwrit', fields);
+    const append = (fields: Record<string, unknown> & { kind: string }) => appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), fields);
     await append({ kind: 'requirement', route: 'investigate-1', key: KEY, via: 'mcp__x', rawHash, bytes: BODY.length, relation: 'asked', capture: 'full' });
-    await t.fx.repo.write(PLAN, '## Iteration 1: guard\nReturn zero for an empty list.\n\n## Iteration 2: other\nUnrelated step.\n');
+    await t.fx.repo.write(PLAN, '---\nstatus: accepted\n---\n## Iteration 1: guard\nReturn zero for an empty list.\n\n## Iteration 2: other\nUnrelated step.\n');
     await append({ kind: 'note', route: 'plan-1', note: 'plan', path: PLAN, contentHash: 'sha256:x' });
   }
 

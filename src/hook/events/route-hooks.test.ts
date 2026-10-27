@@ -43,7 +43,7 @@ describe('03-H3 launch', () => {
     const plan = await planFixture();
     try {
       const launched = await prompt(plan, '/ambicode:plan add a limit to the cart --task ORD-17');
-      assert.match(context(launched), /\[ambicode\] plan · task ORD-17 · step design/);
+      assert.match(context(launched), /\[ambicode\] plan · task ORD-17 · step draft/);
       assert.match(context(launched), /^# AMBICODE operating contract/, 'the contract arrives with the launch');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 1);
       const plain = await prompt(plan, 'which files handle the cart?');
@@ -103,7 +103,7 @@ describe('03-H4 re-injection', () => {
       await hook(plan, { hook_event_name: 'PostCompact' });
       const before = await plan.fx.ledger(PLAN_TASK);
       const again = await prompt(plan, 'continue');
-      assert.match(context(again), /\[ambicode\] plan · task ORD-17 · step design/);
+      assert.match(context(again), /\[ambicode\] plan · task ORD-17 · step draft/);
       assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
       assert.doesNotMatch(context(await prompt(plan, 'continue')), /\[ambicode\] plan/);
     } finally {
@@ -258,7 +258,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
       const run = (event: object) => answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, { engine: plan.fx.engine, routes: plan.fx.routes }, { repositoryRoot: plan.fx.repo.root, where: '.' }, platform);
       await run(answered('Which database?', 'postgres'));
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).length, 0);
-      await run(answered('Accept this plan?', 'Accept'));
+      await run(answered(String((await plan.prints()).at(-1)!['question']), 'Accept'));
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'no-instance');
       const print = (await plan.prints()).at(-1)!;
       await run(answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'maybe later'));

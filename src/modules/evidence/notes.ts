@@ -1,11 +1,10 @@
 import path from 'node:path';
-import { liveHeads } from './ledger-chain.ts';
 import { AmbicodeError } from '#util/errors';
 import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
-import { contentHash, hash12 } from '#util/hash';
+import { contentHash } from '#util/hash';
 import { ledgerSizeWarning } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { resolveFrom, resolveTaskDir } from './task/task-dir.ts';
+import { resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteKind, type SaveKind } from '#types/modules/evidence';
 
@@ -22,24 +21,12 @@ const badArgument = (message: string, field: string): AmbicodeError => new Ambic
 const relativeTo = (dir: TaskDir, file: string): string => path.relative(dir.repositoryRoot, file).split(path.sep).join('/');
 const shown = (dir: TaskDir, relative: string): string => (dir.where === '.' ? relative : `${dir.where}/${relative}`);
 
-const unreadable = (task: string, reason: string): AmbicodeError =>
-  new AmbicodeError('ledger-unreadable', `The ledger of task ${task} cannot be read: ${reason}. Nothing was written.`, {
-    details: [`Repair or delete that ledger.jsonl, then run again with --task ${task}.`],
-  });
 const notAccepted = (reason: string, why: string): AmbicodeError =>
-  new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
-const draftMissing = (task: string): AmbicodeError =>
-  new AmbicodeError('plan-draft-missing', `Task ${task} has no plan draft to promote.`, {
-    details: [`Write the plan to steps/plan-body.md and run route next to save the draft, then ask plan-accept again.`],
+  new AmbicodeError('plan-not-accepted', `The plan was not accepted: ${why}`, { details: [`reason: ${reason}`] });
+const planMissing = (task: string): AmbicodeError =>
+  new AmbicodeError('plan-draft-missing', `Task ${task} has no plan.md to accept.`, {
+    details: [`Write the plan to .ambicode/tasks/${task}/plan.md and run route next to check it, then ask plan-accept again.`],
   });
-
-/** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */
-async function owningRoute(ledger: LockedLedger, task: string): Promise<string | null> {
-  const read = await ledger.read();
-  if (read.state === 'unreadable') throw unreadable(task, read.reason);
-  const live = liveHeads(read.state === 'ok' ? read.entries : []).at(-1);
-  return live?.['skill'] === 'plan' ? live.id : null;
-}
 
 async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: string): Promise<string> {
   const { stem, stamped } = NOTE_KINDS[kind];
@@ -55,86 +42,72 @@ async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: s
 
 export async function saveNote(
   deps: NoteDeps,
-  input: { task: string; kind: SaveKind; body: string | null; from: string | null; route?: string | null },
+  input: { task: string; kind: SaveKind; body: string | null; route?: string | null },
 ): Promise<SavedNote> {
   const { runtime, session } = deps;
-  const { task, kind, from } = input;
+  const { task, kind } = input;
   if (!SAVE_KINDS.includes(kind)) throw badArgument(`A note is saved as ${SAVE_KINDS.join(', ')}; an accepted plan comes only from the plan route.`, 'kind');
-  if (from !== null && kind !== 'plan-draft') throw badArgument('--from goes with --kind plan-draft only.', 'from');
-  if (from === null && (input.body === null || input.body.trim() === '')) {
+  if (input.body === null || input.body.trim() === '') {
     throw badArgument(`"note save" reads the note from standard input, up to ${MAX_NOTE_BYTES} bytes; it got nothing usable.`, 'stdin');
   }
 
   const dir = await resolveTaskDir(runtime, task);
-  const body = from === null ? input.body! : await runtime.fs.readText(await resolveFrom(runtime.fs, dir, from));
-  if (Buffer.byteLength(body) > MAX_NOTE_BYTES) throw badArgument(`The note is over ${MAX_NOTE_BYTES} bytes.`, from === null ? 'stdin' : 'from');
-  if (body.trim() === '') throw badArgument(`${from} is empty.`, 'from');
+  const { body } = input;
+  if (Buffer.byteLength(body) > MAX_NOTE_BYTES) throw badArgument(`The note is over ${MAX_NOTE_BYTES} bytes.`, 'stdin');
   const text = `${body.trimEnd()}\n`;
 
   const work = async (ledger: LockedLedger): Promise<SavedNote> => {
-    const route = kind === 'plan-draft' ? await owningRoute(ledger, task) : (input.route ?? null);
+    const route = input.route ?? null;
     const relative = relativeTo(dir, await writeNote(runtime, dir, kind, text));
     const entry = await ledger.append({
       kind: 'note',
       note: kind,
       path: relative,
       contentHash: contentHash(text),
-      ...(from === null ? {} : { from: path.relative(dir.root, dir.planBody).split(path.sep).join('/') }),
       ...(route === null ? {} : { route }),
     });
     return { task, kind, path: shown(dir, relative), entry, warning: await ledgerSizeWarning(runtime.fs, dir.root) };
   };
-  return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session ?? runtime.ids.writerId(), work);
+  return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), work);
 }
 
-type PlanNote = LedgerEntry & { note: string; path: string; contentHash: string };
-const isNote = (entry: LedgerEntry, note: string): entry is PlanNote =>
-  entry.kind === 'note' && entry.note === note && typeof entry.path === 'string' && typeof entry.contentHash === 'string';
+const FRONTMATTER = /^---\n([\s\S]*?)\n---(?:\n|$)/;
+const STATUS_LINE = /^status:[ \t]*(\S+)[ \t]*$/m;
 
-/** The predicate of 01-contracts §6: the draft the human accepted, and only that draft, becomes the plan. */
-export async function promotePlan(
-  deps: NoteDeps,
-  task: string,
-): Promise<{ outcome: 'promoted' | 'plan-already-promoted'; path: string; promotedFrom: string }> {
+/** The `status:` of a plan file's frontmatter, or null when it has none. */
+export const planStatusOf = (text: string): string | null => STATUS_LINE.exec(FRONTMATTER.exec(text)?.[1] ?? '')?.[1] ?? null;
+
+function withStatus(text: string, status: string): string {
+  const front = FRONTMATTER.exec(text);
+  if (front === null) return `---\nstatus: ${status}\n---\n\n${text}`;
+  const inner = STATUS_LINE.test(front[1]!) ? front[1]!.replace(STATUS_LINE, `status: ${status}`) : `${front[1]}\nstatus: ${status}`;
+  return `---\n${inner}\n---\n${text.slice(front[0].length)}`;
+}
+
+/**
+ * The predicate of 01-contracts §6: an Accept the user gave turns the plan file, as it is now, into the accepted plan
+ * (`status: accepted`) and records its hash. The file is not bound to what the gate printed, so the user's own edits stand.
+ */
+export async function acceptPlan(deps: NoteDeps, task: string, anchorsBad: number, policyMissing = 0): Promise<void> {
   const { runtime, session, context } = deps;
   if (session === null) throw notAccepted('no-plan-route', `task ${task} has no live plan route.`);
-  if (context === null) throw new AmbicodeError('internal', 'The plan promotion has no route context to evaluate acceptance against.');
+  if (context === null) throw new AmbicodeError('internal', 'The plan acceptance has no route context to evaluate acceptance against.');
   const dir = await resolveTaskDir(runtime, task);
 
-  const work = async (ledger: LockedLedger) => {
+  const work = async (ledger: LockedLedger): Promise<void> => {
     const view = await context.open(task, session);
     if (view === null || view.skill !== 'plan') throw notAccepted('no-plan-route', `task ${task} has no plan route for this session.`);
-    const draft = (await context.window(view, 'plan-check')).filter((entry): entry is PlanNote => isNote(entry, 'plan-draft')).at(-1);
-    if (draft === undefined) throw draftMissing(task);
-
     const consent = await context.consent(view, 'plan-accept');
     if (consent.state === 'refused') throw notAccepted(consent.reason, `plan-accept is not an honoured Accept (${consent.reason}).`);
-    const { source, object } = consent;
+    const { source } = consent;
     const honoured = source.answer === 'Accept' && source.unbound !== true && ((source.via === 'hook' && source.instance !== null) || source.via === 'prompt');
     if (!honoured) throw notAccepted('not-accepted', 'the latest plan-accept answer is not an Accept given by the user.');
-    const same =
-      object !== null && object.kind === 'note' && object.value === 'plan-draft' && object.id === draft.id && object.path === draft.path && object.contentHash === draft.contentHash;
-    if (!same) {
-      const accepted = object === null ? 'no draft' : `${object.path} ${hash12(object.contentHash)}`;
-      throw notAccepted('object-changed', `the accepted draft is ${accepted}; the latest is ${draft.path} ${hash12(draft.contentHash)}; ask plan-accept again.`);
-    }
 
-    const read = await ledger.read();
-    if (read.state === 'unreadable') throw unreadable(task, read.reason);
-    const promoted = (read.state === 'ok' ? read.entries : []).find((entry) => isNote(entry, 'plan') && entry.promotedFrom === draft.id) as PlanNote | undefined;
-    if (promoted !== undefined) return { outcome: 'plan-already-promoted' as const, path: shown(dir, promoted.path), promotedFrom: draft.id };
-
-    const draftName = path.basename(draft.path);
-    if (!draftName.startsWith('plan-draft_')) throw new AmbicodeError('internal', `${draft.path} is not named plan-draft_<timestamp>.md.`);
-    // Stable name: people and the eval grader need one path to the current accepted plan; consumers read the latest plan note.
-    const [draftFile, planFile] = [path.join(dir.root, draftName), path.join(dir.root, 'plan.md')];
-    const bytesMatch = async (file: string): Promise<boolean> => contentHash(await runtime.fs.readBytes(file)) === draft.contentHash;
-    if (!(await runtime.fs.exists(draftFile))) throw draftMissing(task);
-    if (!(await bytesMatch(draftFile))) throw notAccepted('object-changed', `${draft.path} no longer has the bytes that were accepted.`);
-    await runtime.fs.rename(draftFile, planFile);
-    const relative = relativeTo(dir, planFile);
-    await ledger.append({ kind: 'note', note: 'plan', path: relative, contentHash: draft.contentHash, promotedFrom: draft.id, route: view.routeId });
-    return { outcome: 'promoted' as const, path: shown(dir, relative), promotedFrom: draft.id };
+    const text = await runtime.fs.readText(dir.plan).catch(() => null);
+    if (text === null || text.trim() === '') throw planMissing(task);
+    const accepted = withStatus(text, 'accepted');
+    await runtime.fs.writeText(dir.plan, accepted);
+    await ledger.append({ kind: 'note', note: 'plan', path: relativeTo(dir, dir.plan), contentHash: contentHash(accepted), anchorsBad, ...(policyMissing > 0 ? { policyMissing } : {}), route: view.routeId });
   };
-  return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, work);
+  return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), work);
 }

@@ -3,13 +3,7 @@ id: express-http
 authority: inherited
 description: "Express HTTP layer: route authorization, single response, middleware order, handler responsibility."
 appliesTo:
-  - "**/*.router.ts"
-  - "**/*.routes.ts"
-  - "**/*.controller.ts"
-  - "**/*.validators.ts"
-  - "**/*.{router,routes,controller,validators}.{js,mjs,cjs}"
-  - "**/{routes,router,controller}.{ts,js,mjs,cjs}"
-  - "**/{routes,controllers}/**/*.{ts,js,mjs,cjs}"
+  - "**/*.{ts,js,mjs,cjs}"
 activities: [review, task, plan]
 
 source:

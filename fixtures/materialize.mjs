@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * Usage: <name> <empty-destination>  [--install] [--ambicode-init] [--context] [--policy]
+ * Usage: <name> <empty-destination>  [--install] [--ambicode-init] [--context] [--policy] [--stack-packs]
  * Without --install no project script runs. --ambicode-init commits the config and ignore lines the pure writer produces
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
  * --context (needs --ambicode-init) then writes fixtures/contexts/<fixture>.md into the gitignored .ambicode/context through
  * the real `ambicode context write`, standing in for what /ambicode:init's scout leaves behind.
  * --policy (needs --ambicode-init) writes fixtures/policies/<fixture>.yaml to the gitignored .ambicode/policies/team-rules.yaml
  * and lists it in the project's policyFiles, the place `ambicode rules apply` puts an accepted project pack.
+ * --stack-packs (needs --ambicode-init) adds the built-in packs the fixture declares as `stackPacks` to the project's `packs`:
+ * the shipped stack rules (express for the app fixture) that a real init on that stack would enable.
  */
 import { execFile } from 'node:child_process';
 import { access, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
@@ -90,7 +92,7 @@ async function ignoredFor(destination) {
   return stdout.split('\n').map((line) => line.trim()).filter((line) => line.endsWith('/') && !line.startsWith('.ambicode/')).sort();
 }
 
-async function configFor(destination, wires, policyFiles = []) {
+async function configFor(destination, wires, policyFiles = [], stackPacks = []) {
   const ignored = await ignoredFor(destination);
   const tools = {
     lint: [['node_modules/.bin/eslint', '{file}'], ['.venv/bin/ruff', 'check {file}']],
@@ -119,7 +121,7 @@ async function configFor(destination, wires, policyFiles = []) {
       rules: run,
     },
     requirements: { runtimes: {}, mcps: [], lsps: [], env: [] },
-    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], ignored, packs: ['builtin/common-design', 'builtin/common-code', 'builtin/common-errors', 'builtin/common-security', 'builtin/common-verification', 'builtin/common-checks'], policyFiles, commands: {}, checks }],
+    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], ignored, packs: ['builtin/common-design', 'builtin/common-code', 'builtin/common-errors', 'builtin/common-security', 'builtin/common-verification', 'builtin/common-checks', ...stackPacks], policyFiles, commands: {}, checks }],
   };
 }
 
@@ -150,7 +152,7 @@ async function writeContext(fixture, destination) {
 const TEAM_POLICY = '.ambicode/policies/team-rules.yaml';
 
 /** `wires` holds only after an install, so it is empty without one. */
-async function commitAmbicodeInit(fixture, destination, wires, policy) {
+async function commitAmbicodeInit(fixture, destination, wires, policy, stackPacks) {
   const { createRuntime } = await import('../src/composition/root.ts');
   const { openRepository } = await import('../src/platform/git/open.ts');
   const runtime = await createRuntime({ cwd: destination });
@@ -161,7 +163,7 @@ async function commitAmbicodeInit(fixture, destination, wires, policy) {
     await mkdir(path.join(repositoryRoot, '.ambicode', 'policies'), { recursive: true });
     await writeFile(path.join(repositoryRoot, TEAM_POLICY), await bundleFor('policies', '.yaml', fixture));
   }
-  await writeFile(path.join(repositoryRoot, '.ambicode', 'config.yaml'), stringifyYaml(await configFor(destination, wires, policyFiles)));
+  await writeFile(path.join(repositoryRoot, '.ambicode', 'config.yaml'), stringifyYaml(await configFor(destination, wires, policyFiles, stackPacks ? fixture.stackPacks : [])));
   await writeFile(path.join(repositoryRoot, '.gitignore'), '.ambicode/\n', { flag: 'a' });
   if (wires.length > 0) {
     const config = parseYaml(await readFile(path.join(destination, '.ambicode', 'config.yaml'), 'utf8'));
@@ -178,8 +180,9 @@ async function commitAmbicodeInit(fixture, destination, wires, policy) {
   await settle(destination);
 }
 
-export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false, context = false, policy = false } = {}) {
-  if ((context || policy) && !ambicodeInit) throw new Error('--context and --policy need --ambicode-init');
+export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false, context = false, policy = false, stackPacks = false } = {}) {
+  if ((context || policy || stackPacks) && !ambicodeInit) throw new Error('--context, --policy and --stack-packs need --ambicode-init');
+  if (stackPacks && (fixture.stackPacks ?? []).length === 0) throw new Error(`fixture ${fixture.name} declares no stackPacks`);
   const lastCommit = fixture.steps.findLastIndex((step) => step.commit !== undefined);
   if ((ambicodeInit || installing) && lastCommit === -1) {
     throw new Error(`fixture ${fixture.name} has no commit to install or configure on top of`);
@@ -230,7 +233,7 @@ export async function materialize(fixture, destination, { install: installing = 
       // Install before init, so init detects the runner the install provides.
       if (installing && index === lastCommit) await install(fixture, destination);
       if (ambicodeInit && index === lastCommit) {
-        await commitAmbicodeInit(fixture, destination, installing ? (fixture.wires ?? []) : [], policy);
+        await commitAmbicodeInit(fixture, destination, installing ? (fixture.wires ?? []) : [], policy, stackPacks);
         if (context) await writeContext(fixture, destination);
       }
     }
@@ -246,8 +249,8 @@ export async function materialize(fixture, destination, { install: installing = 
 }
 
 async function main(rawArgv) {
-  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init'), context: rawArgv.includes('--context'), policy: rawArgv.includes('--policy') };
-  const argv = rawArgv.filter((value) => !['--install', '--ambicode-init', '--context', '--policy'].includes(value));
+  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init'), context: rawArgv.includes('--context'), policy: rawArgv.includes('--policy'), stackPacks: rawArgv.includes('--stack-packs') };
+  const argv = rawArgv.filter((value) => !['--install', '--ambicode-init', '--context', '--policy', '--stack-packs'].includes(value));
   const [name, destination] = argv;
   const fixture = name === undefined ? null : fixtureByName(name);
   if (fixture === null) {

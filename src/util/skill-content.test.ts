@@ -88,6 +88,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
       for (const grant of tools.split(',').map((entry) => entry.trim())) {
         if (!/^(Write|Edit)/.test(grant)) continue;
         assert.ok(/^(Write|Edit)\(.+\)/.test(grant), `${what}: ${grant} must be path-scoped`);
+        // A bare `.ambicode/...` is relative to the session directory; the route writes to the repo-root path, so a session started in a subdirectory was denied (2026-10-26).
+        assert.ok(/^(Write|Edit)\((\*\*|\/\/.+)\)$/.test(grant), `${what}: ${grant} must be ** or root-anchored with //`);
       }
       // Setup-time skills are run by the user, never by the model, so their
       // descriptions stay out of the always-on skill list.
@@ -173,9 +175,9 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(Buffer.byteLength(plan) <= 3200, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
-    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(.ambicode/tasks/*/steps/plan-body.md), Write(.ambicode/tasks/*/steps/plan-body.md)');
+    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(//**/.ambicode/tasks/*/plan.md), Write(//**/.ambicode/tasks/*/plan.md)');
     // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
-    const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8');
+    const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'draft.md'), 'utf8');
     for (const judgment of [/ask a material question/i, /reuse what the repository already has/i, /independently reviewable iterations/i]) {
       assert.match(steps.replace(/\s+/g, ' '), judgment);
       assert.doesNotMatch(plan, judgment);
@@ -214,13 +216,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('06-S4: the design step names the three iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
+  it('06-S4: the draft step names the three iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8');
-    assert.ok(!write.includes('*Tests*'), 'plan/design.md still asks for *Tests*');
+    const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'draft.md'), 'utf8');
+    assert.ok(!write.includes('*Tests*'), 'plan/draft.md still asks for *Tests*');
     for (const field of ['Goal', 'Changes', 'Checks']) {
-      assert.ok(!plan.includes(`*${field}*`), `plan/SKILL.md repeats *${field}*, which plan/design.md delivers`);
-      assert.ok(write.includes(`*${field}*`), `plan/design.md lacks *${field}*`);
+      assert.ok(!plan.includes(`*${field}*`), `plan/SKILL.md repeats *${field}*, which plan/draft.md delivers`);
+      assert.ok(write.includes(`*${field}*`), `plan/draft.md lacks *${field}*`);
     }
   });
 
@@ -438,6 +440,17 @@ describe('F7 rules confirmation gate', () => {
 
 // Raised from 1536 by the user on 2026-10-21: the step-3 wording on where a stack documents its checks did not fit.
 const INIT_BODY_MAX_BYTES = 2000;
+describe('rule examples and activity guidance', () => {
+  it('a boundary or design rule is shown with plan among its activities, and both references say when to choose plan', async () => {
+    const init = await readFile(path.join(SKILLS_DIR, 'init', 'references', 'rules.md'), 'utf8');
+    const example = YAML.parse(/```yaml\n([\s\S]*?)```/.exec(init)![1]!) as { activities: string[]; rules: { id: string }[] };
+    assert.equal(example.rules[0]!.id, 'config-read-once', 'the example is an architecture rule');
+    assert.deepEqual([...example.activities].sort(), ['plan', 'review', 'task']);
+    assert.match(init, /\[plan, task, review\]/);
+    assert.match(await readFile(path.join(SKILLS_DIR, 'rules', 'references', 'pack-format.md'), 'utf8'), /boundary, layering, ownership or reuse rule[\s\S]*carries `plan` too/);
+  });
+});
+
 describe('09-R3/09-W1: the init skill and the init route steps', () => {
   it('09-R3: the init body stays within 2,000 bytes, runs the scaffold, config packs and config validate, and may write only the config and rule drafts', async () => {
     const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
@@ -451,9 +464,10 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     assert.doesNotMatch(body, /`rules` \(|ruleSources/, 'init writes no rule into the config');
     assert.equal(fm['disable-model-invocation'], true);
     const tools = requiredString(fm, 'allowed-tools', 'init/SKILL.md');
-    assert.match(tools, /Write\(\.ambicode\/config\.yaml\)/);
-    assert.match(tools, /Write\(\.ambicode\/policies\/drafts\/\*\*\)/);
-    assert.doesNotMatch(tools.replace(/Write\(\.ambicode\/(config\.yaml|policies\/drafts\/\*\*)\)/g, ''), /Edit|Write/);
+    // A bare `.ambicode/...` rule is relative to the session directory: from a subdirectory the Write to the repo-root path was denied (2026-10-26, dontAsk, $0.13).
+    assert.match(tools, /Write\(\/\/\*\*\/\.ambicode\/config\.yaml\)/);
+    assert.match(tools, /Write\(\/\/\*\*\/\.ambicode\/policies\/drafts\/\*\*\)/);
+    assert.doesNotMatch(tools.replace(/Write\(\/\/\*\*\/\.ambicode\/(config\.yaml|policies\/drafts\/\*\*)\)/g, ''), /Edit|Write/);
   });
 
   it('init gives the scout a prompt that asks it to write the context', async () => {

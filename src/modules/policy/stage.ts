@@ -37,8 +37,8 @@ export async function policyStage(input: {
   const join = (items: typeof lines): string => items.map((line) => line.text).join('\n');
   let kept = lines;
   let text = join(kept);
-  // Review rules go to brief.md for the reviewer subagent, which must see every rule rather than a pointer.
-  const capped = input.activity !== 'review';
+  // Review rules go to brief.md for the reviewer subagent, which must see every rule rather than a pointer; plan rules go to a file the draft reads.
+  const capped = input.activity !== 'review' && input.activity !== 'plan';
   if (capped && Buffer.byteLength(text) > limit) {
     // A header with every rule below it cut would dangle, and counting it would overstate the omitted rules.
     const trim = (items: typeof lines): typeof lines => {
@@ -47,7 +47,7 @@ export async function policyStage(input: {
       return items.slice(0, end);
     };
     // Bare ids by file: a model that can Read the pack file needs no command to fetch the rest.
-    const rest = (items: typeof lines): string => {
+    const rest = (items: typeof lines, ids: boolean): string => {
       const omitted = lines.filter((line) => line.rule !== undefined && !items.includes(line));
       const byFile = new Map<string, string[]>();
       for (const { rule } of omitted) {
@@ -55,12 +55,22 @@ export async function policyStage(input: {
         const key = file.startsWith('..') ? rule!.packFile : file.split(path.sep).join('/');
         byFile.set(key, [...(byFile.get(key) ?? []), rule!.qualifiedId]);
       }
-      return `${join(items)}\n${omitted.length} more, ${[...byFile].map(([file, ids]) => `in ${file}: ${ids.join(', ')}`).join('; ')}`;
+      return `${join(items)}\n${omitted.length} more, ${[...byFile].map(([file, omittedIds]) => (ids ? `in ${file}: ${omittedIds.join(', ')}` : `in ${file} (${omittedIds.length})`)).join('; ')}`;
     };
-    kept = trim(kept);
-    while (kept.length > 1 && Buffer.byteLength(rest(kept)) > limit) kept = trim(kept.slice(0, -1));
-    text = rest(kept);
+    // With about 100 omitted ids the id list alone passed the cap (1869 B against 1536), so the last resort names only counts and files.
+    const fit = (ids: boolean): typeof lines => {
+      let shown = trim(lines);
+      while (shown.length > 1 && Buffer.byteLength(rest(shown, ids)) > limit) shown = trim(shown.slice(0, -1));
+      return shown;
+    };
+    let listIds = true;
+    kept = fit(true);
+    if (Buffer.byteLength(rest(kept, true)) > limit) {
+      listIds = false;
+      kept = fit(false);
+    }
+    text = rest(kept, listIds);
   }
   const bytes = Buffer.byteLength(text);
-  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length, bytes } };
+  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length, bytes, activity: input.activity, ids: kept.flatMap((line) => (line.rule === undefined ? [] : [line.rule.qualifiedId])) } };
 }

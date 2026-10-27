@@ -12,11 +12,25 @@ describe('the task map is seeded from the iteration brief', () => {
   it('a planned task started by its key alone maps the files its brief cites', async () => {
     const t = await taskFixture();
     try {
-      await t.fx.repo.write(PLAN, '# Plan\n\n## Iteration 1\nGuard `total` in `src/orders.ts`.\n');
-      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+      await t.fx.repo.write(PLAN, '---\nstatus: accepted\n---\n# Plan\n\n## Iteration 1\nGuard `total` in `src/orders.ts`.\n');
+      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
       await t.start({ text: 'ord-7' });
       const map = (await t.kinds('map')).at(-1);
       assert.ok(Number(map?.['candidates']) > 0, `candidates ${String(map?.['candidates'])}`);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+});
+
+describe('a plan the task runs must say status: accepted', () => {
+  it('a plan.md back at status: draft stops the start and says how to run it anyway', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total`.\n');
+      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+      await assert.rejects(t.start({ text: 'ord-7' }), /not status: accepted.*--plan/);
+      assert.equal((await t.kinds('map')).length, 0);
     } finally {
       await t.fx.dispose();
     }

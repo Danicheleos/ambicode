@@ -58,7 +58,7 @@ export async function session(options: SessionOptions = {}) {
   const dir = await resolveTaskDir(fx.runtime, task);
   const args = ((await fx.kinds(task, 'route'))[0]!['args']) as RouteArgs;
   const under = <T>(body: (deps: Omit<CaptureDeps, 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
-    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
+    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), async (ledger) => {
       const view = (await openRouteView(fx.runtime, fx.routes, task, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });

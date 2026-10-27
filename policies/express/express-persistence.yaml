@@ -3,14 +3,7 @@ id: express-persistence
 authority: inherited
 description: "Express services: bounded reads, write conflicts, client-controlled shapes, persistence types kept internal."
 appliesTo:
-  - "**/*.service.ts"
-  - "**/*.schema.ts"
-  - "**/*.model.ts"
-  - "**/models/**/*.ts"
-  - "**/*.{service,schema,model,repository}.{js,mjs,cjs}"
-  - "**/*.repository.ts"
-  - "**/{service,repository,model}.{ts,js,mjs,cjs}"
-  - "**/models/**/*.{js,mjs,cjs}"
+  - "**/*.{ts,js,mjs,cjs}"
 activities: [review, task, plan]
 
 source:

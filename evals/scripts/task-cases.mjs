@@ -152,7 +152,8 @@ export function taskCases(B) {
         file('non-positive-refused', 'grams (<= 0|< 1)', 'internal/rates/lookup.go'),
         // The refusal comes before the band loop, wrapped as the file's last line already is.
         file('refusal-wrapped-as-contributing', 'grams (<= 0|< 1)[^\\n]*\\{\\s*return 0, fmt\\.Errorf\\("rates\\.CentsFor: %w", core\\.ErrInvalid\\)', 'internal/rates/lookup.go'),
-        file('zero-weight-tested', 'CentsFor\\(0\\)', 'internal/rates/rates_test.go'),
+        // A zero weight as a literal argument, in a []int loop list, or as the first field of a table row.
+        file('zero-weight-tested', 'CentsFor\\(0\\)|\\[\\]int\\{[^}]*\\b0\\b|\\{\\s*(?:\\w+:\\s*)?0\\s*[,}]', 'internal/rates/rates_test.go'),
         file('existing-tests-kept', 'TestCentsForPicksTheFirstBandThatFits', 'internal/rates/rates_test.go'),
       ],
     }),

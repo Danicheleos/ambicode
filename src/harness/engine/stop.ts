@@ -81,7 +81,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
   if (active === null && !(await deliverOnce(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), 'stop-seen', `${target.routeId}:${blocks}`))) return null;
 
   const message = input.last_assistant_message ?? null;
-  const verdict = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, async (ledger): Promise<{ output: StopHookOutput | null; entries: number } | null> => {
+  const verdict = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), async (ledger): Promise<{ output: StopHookOutput | null; entries: number } | null> => {
     const read = await ledger.read();
     const entries = read.state === 'ok' ? read.entries : [];
     const head = entries.find((entry) => entry.kind === 'route' && entry.id === target.routeId && entry['session'] === session);
@@ -101,7 +101,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
     }
     // A route whose answer is already its note keeps one copy.
     if (!def.steps.some(answersAsNote)) {
-      await saveNote({ runtime, session, context: null, ledger }, { task: target.task, kind: 'result', body: message, from: null, route: target.routeId }).catch((error: unknown) => void process.stderr.write(`ambicode stop: final message not saved, ${error instanceof Error ? error.message : String(error)}\n`));
+      await saveNote({ runtime, session, context: null, ledger }, { task: target.task, kind: 'result', body: message, route: target.routeId }).catch((error: unknown) => void process.stderr.write(`ambicode stop: final message not saved, ${error instanceof Error ? error.message : String(error)}\n`));
       // A route that exited before this Stop had its summary written without the note.
       if (active === null) await writeSummary(runtime, dir, ledger);
     }

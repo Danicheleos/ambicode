@@ -71,7 +71,7 @@ function fakeNet(foreignPort: number | null = null) {
 type Net = ReturnType<typeof fakeNet>;
 
 /** Fresh per review run: the secret first (the command asks for it before starting), then one link per mint. */
-const makeIds = (): IdSource => { let calls = 0; let sessions = 0; return { reviewId: () => 'r', sessionId: () => `session-${++sessions}`, capability: () => (calls++ === 0 ? 'server-secret-0123456789' : `link-${calls}-0123456789abcdef`), csrfToken: () => 'csrf-1', writerId: () => 'w' }; };
+const makeIds = (): IdSource => { let calls = 0; let sessions = 0; return { reviewId: () => 'r', sessionId: () => `session-${++sessions}`, capability: () => (calls++ === 0 ? 'server-secret-0123456789' : `link-${calls}-0123456789abcdef`), csrfToken: () => 'csrf-1' }; };
 
 /** What the commands print: the link (and a note before it), captured so nothing reaches the test output. */
 let printed: string[] = [];
