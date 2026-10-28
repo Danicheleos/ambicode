@@ -70,7 +70,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `evidence.plan.accept` | none | Mark the task's plan.md `status: accepted` as it is now and record its hash (after the user's Accept). |
 | `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |
 | `review.evaluate` | `review.evaluate` | Judges the latest review: no findings proceeds; any finding goes back to `fix`, which files the ones outside the brief under Remaining. Fails the step (`onFail`) when there are findings to fix. |
-| `review.page` | `review.page` | Starts the repository's local review page server as a detached process, or registers with the one already running, and delivers a one-time link; none for a local review with no finding. |
+| `review.page` | `review.page` | Starts the repository's local review page server as a detached process, or registers with the one already running, and delivers a login link (24 h); none for a local review with no finding. |
 | `task.verdict` | none | Ends the route `blocked` when its last check is red, so the iteration is not done and the next start redoes it. |
 | `task.start` | `brief` | The task's brief: iteration and plan path, then the plan's current iteration or the request. Exits `iterations-complete` when every iteration is done. |
 | `evidence.report` | `report` | The Checks, Review and Not verified facts of the route, for its final message to copy. |

@@ -27,3 +27,26 @@ export async function removePageState(fs: FileSystem, repositoryRoot: string, ow
   const current = await readPageState(fs, repositoryRoot);
   if (current?.secret === own.secret) await fs.remove(stateFile(repositoryRoot));
 }
+
+/** A login link that outlives the process: where it lands and when it stops working (epoch ms). */
+export interface StoredLink { to: string; expiresAt: number }
+
+const linksFile = (repositoryRoot: string): string => path.join(repositoryRoot, AMBICODE_DIR, 'page-links.json');
+
+/** Expired links are dropped here, so a stale file never revives one; an unreadable file is an empty one. */
+export async function readPageLinks(fs: FileSystem, repositoryRoot: string, now: number): Promise<Record<string, StoredLink>> {
+  try {
+    const parsed = JSON.parse(await fs.readText(linksFile(repositoryRoot))) as Record<string, Partial<StoredLink>>;
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, StoredLink] => typeof entry[1]?.to === 'string' && typeof entry[1].expiresAt === 'number' && entry[1].expiresAt > now));
+  } catch {
+    return {};
+  }
+}
+
+/** Mode 600, through a scratch file: `writeFile` applies a mode only when it creates the file, so overwriting in place would keep a looser one. */
+export async function writePageLinks(fs: FileSystem, repositoryRoot: string, links: Record<string, StoredLink>): Promise<void> {
+  await fs.mkdirp(path.join(repositoryRoot, AMBICODE_DIR));
+  const scratch = `${linksFile(repositoryRoot)}.${process.pid}.tmp`;
+  await fs.writeText(scratch, `${JSON.stringify(links)}\n`, 0o600);
+  await fs.rename(scratch, linksFile(repositoryRoot));
+}

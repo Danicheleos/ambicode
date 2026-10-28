@@ -1,14 +1,17 @@
 import path from 'node:path';
 import { escape, renderIndex, renderPublishResult, renderReviewPage, reviewTitle, type IndexRow } from '#modules/review/findings/page';
 import type { AppReply } from '#modules/review/page/server';
+import type { Publication } from '#modules/review/publication/publication';
 import { discardReview, publishFindings, readMergeRequest, readPicks, readPublication } from '#modules/review/publication/publication';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
+import { mrLineUrl } from '#platform/gitlab/glab';
 import { capturedFiles } from '#modules/review/snapshot/target';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import { recordedResult, recordedResultFile } from '#skills/review/page';
 import { REVIEWS_DIR } from '#types/defaults';
 import { isAmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
+import type { FindingLocation } from '#types/modules/review';
 
 const base = (slug: string): string => `/r/${encodeURIComponent(slug)}`;
 const notice = (status: number, message: string, slug: string | null): AppReply => ({ status, body: `<!doctype html><title>Review</title><p>${escape(message)}</p><p><a href="${slug === null ? '/' : base(slug)}">Back</a></p>` });
@@ -31,7 +34,12 @@ export function pageApp(runtime: Runtime, repositoryRoot: string, open: Set<stri
       const patch = mr?.patch ?? await runtime.fs.readText(path.join(repositoryRoot, path.dirname(recordedResultFile(read.entries) ?? ''), 'changed.diff')).catch(() => '');
       try { files = capturedFiles(patch); } catch { files = []; }
     }
-    return { dir, result, mr, context: { files, base: base(slug), ...(mr === null ? {} : { title: mr.title, url: mr.url }) } };
+    // Only a merge request has a web diff to link to; a local review keeps plain text.
+    const placeUrl = mr === null || mr.url === '' ? undefined : (location: FindingLocation): string | null => {
+      const file = files.find((candidate) => candidate.oldPath === location.oldPath && candidate.newPath === location.newPath);
+      return file === undefined ? null : mrLineUrl(mr.url, file, location.side, location.line);
+    };
+    return { dir, result, mr, context: { files, base: base(slug), ...(mr === null ? {} : { title: mr.title, url: mr.url }), ...(placeUrl === undefined ? {} : { placeUrl }) } };
   };
 
   const rows = async (): Promise<IndexRow[]> => {
@@ -39,8 +47,11 @@ export function pageApp(runtime: Runtime, repositoryRoot: string, open: Set<stri
     const found = await Promise.all(names.map(async (slug): Promise<IndexRow> => {
       const review = await load(slug, false).catch(() => null);
       if (review === null) return { slug, title: slug, createdAt: '', findings: null, published: 'no readable review' };
-      const posted = review.mr === null ? null : Object.entries((await readPublication(runtime, review.dir.root, review.result.reviewId).catch(() => ({ findings: {} }))).findings).filter(([key, entry]) => /^\d+$/.test(key) && entry.status === 'posted').length;
-      return { slug, title: reviewTitle(review.result, review.mr?.title, review.mr?.url), createdAt: review.result.createdAt, findings: review.result.findings.length, published: posted === null ? 'local review' : `${posted} of ${review.result.findings.length} posted` };
+      const record = review.mr === null ? null : (await readPublication(runtime, review.dir.root, review.result.reviewId).catch((): Pick<Publication, 'findings'> => ({ findings: {} }))).findings;
+      const posted = record === null ? null : Object.entries(record).filter(([key, entry]) => /^\d+$/.test(key) && entry.status === 'posted').length;
+      // A posted requirement note (`r<n>`) is a publication too, though the count shows findings only.
+      const any = record !== null && Object.values(record).some((entry) => entry.status === 'posted');
+      return { slug, title: reviewTitle(review.result, review.mr?.title, review.mr?.url), createdAt: review.result.createdAt, findings: review.result.findings.length, published: posted === null ? 'local review' : `${posted} of ${review.result.findings.length} posted`, posted: any, ...(review.mr === null || review.mr.url === '' ? {} : { mrUrl: review.mr.url }) };
     }));
     return found.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.slug < b.slug ? -1 : 1));
   };
@@ -53,7 +64,9 @@ export function pageApp(runtime: Runtime, repositoryRoot: string, open: Set<stri
   };
 
   const handle = async ({ method, path: route, form, csrf }: { method: 'GET' | 'POST'; path: string; form: URLSearchParams; csrf: string }): Promise<AppReply> => {
-    if (route === '/') return method === 'GET' ? { status: 200, body: renderIndex(await rows()) } : { status: 405, body: 'Method not allowed.' };
+    if (route === '/') return method === 'GET' ? { status: 200, body: renderIndex(await rows(), csrf) } : { status: 405, body: 'Method not allowed.' };
+    // The command removes page.json once the server has stopped, so the next `review page` starts fresh.
+    if (route === '/terminate') return method === 'POST' ? { status: 200, body: '<!doctype html><title>Review</title><p>Server stopped. You can close this tab.</p>', stop: 'terminated' } : { status: 405, body: 'Method not allowed.' };
     const match = /^\/r\/([^/]+)(?:\/(publish|close|delete))?$/.exec(route);
     if (match === null) return { status: 404, body: 'Not found.' };
     let slug: string;

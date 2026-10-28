@@ -155,7 +155,7 @@ note, recorded in `publication.json` as `r<row>`.
 There is one page server per repository, on 127.0.0.1 only. `/` lists every folder
 under `.ambicode/reviews/` (title, date, findings, how many are posted), read on
 each request, so a review that finishes later appears at once. A review page is
-`/r/<review>`. Each review run prints its one-time link: the first run starts the
+`/r/<review>`. Each review run prints its login link (valid 24 h, reusable after the browser is closed, kept in `.ambicode/page-links.json` so a restarted server honours it): the first run starts the
 server, a later run finds it and registers with it instead of starting another.
 
 - **Port.** `skills.review.pagePort` fixes the port (45831, say, for an ssh

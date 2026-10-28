@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { AmbicodeError } from '#util/errors';
+import type { DiffFile } from '#types/platform/git';
 import type { ProcessRunner } from '#types/platform/ports';
 
 export interface MrRefs { base_sha: string; start_sha: string; head_sha: string }
@@ -19,6 +21,28 @@ export function parseMrUrl(url: string): MrUrl {
 
 /** The text itself when it is one merge-request URL; null for anything else, so prose and tickets are left alone. */
 export const mrUrlIn = (text: string): string | null => (MR_URL.test(text.trim()) ? text.trim() : null);
+
+/**
+ * Where a finding's line sits on the merge request's web diff: `<mr>/diffs#<sha1(path)>_<old>_<new>`. GitLab's diff parser (lib/gitlab/diff/parser.rb)
+ * starts both counters at the hunk's start numbers and emits each line, then advances: an added line carries the old counter as it stands, a removed one the new.
+ * A line the diff does not hold, or an unparsable URL, links to the file alone (null for the latter).
+ */
+export function mrLineUrl(mrUrl: string, file: DiffFile, side: 'old' | 'new', line: number): string | null {
+  const parsed = MR_URL.exec(mrUrl.trim());
+  if (parsed === null) return null;
+  const base = `${parsed[1]}://${parsed[2]}${parsed[3] === undefined ? '' : `:${parsed[3]}`}/${parsed[4]}/-/merge_requests/${parsed[5]}/diffs`;
+  const hash = createHash('sha1').update(file.newPath ?? file.oldPath ?? '').digest('hex');
+  for (const hunk of file.hunks) {
+    let oldPos = hunk.oldStart;
+    let newPos = hunk.newStart;
+    for (const row of hunk.lines) {
+      if ((side === 'old' ? row.oldLine : row.newLine) === line) return `${base}#${hash}_${oldPos}_${newPos}`;
+      if (row.kind !== 'added') oldPos++;
+      if (row.kind !== 'removed') newPos++;
+    }
+  }
+  return `${base}#${hash}`;
+}
 
 /** Throws a plain Error; the callers name the outcome code, which the documented-codes test reads as a literal. */
 async function glab(runner: ProcessRunner, cwd: string, argv: string[], overrides?: Record<string, string>): Promise<string> {

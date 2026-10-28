@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
-import { comment, externalIssueLinks, fetchMr, parseMrUrl } from './glab.ts';
+import { createHash } from 'node:crypto';
+import { capturedFiles } from '#modules/review/snapshot/target';
+import { comment, externalIssueLinks, fetchMr, mrLineUrl, parseMrUrl } from './glab.ts';
 
 const URL_MR = 'https://git.example.org/team/sub/app/-/merge_requests/12';
 const REFS = { base_sha: 'b'.repeat(40), start_sha: 's'.repeat(40), head_sha: 'h'.repeat(40) };
@@ -82,5 +84,28 @@ describe('glab adapter', () => {
   it('a failed post is mr-publish-failed', async () => {
     const runner = new FakeProcessRunner().stubArgv(['glab'], { exitCode: 1, stderr: '400 line_code invalid' });
     await assert.rejects(comment(runner, '/repo', URL_MR, REFS, { oldPath: 'a', newPath: 'a', oldLine: null, newLine: 1 }, 'b'), { code: 'mr-publish-failed' });
+  });
+});
+
+describe('mrLineUrl', () => {
+  const sha1 = (text: string): string => createHash('sha1').update(text).digest('hex');
+  const patch = 'diff --git a/src/o.ts b/src/o.ts\n--- a/src/o.ts\n+++ b/src/o.ts\n@@ -10,3 +10,3 @@\n ctx\n-gone\n+new\n tail\n'
+    + 'diff --git a/n.ts b/n.ts\nnew file mode 100644\n--- /dev/null\n+++ b/n.ts\n@@ -0,0 +1,2 @@\n+a\n+b\n';
+  const [edited, created] = capturedFiles(patch);
+  const url = 'https://git.example.org:8443/team/sub/app/-/merge_requests/12';
+
+  it('builds GitLab line codes <sha1(path)>_<old>_<new>: context has both, removed carries the new counter, added the old counter', () => {
+    const at = (file: typeof edited, side: 'old' | 'new', line: number) => mrLineUrl(url, file!, side, line);
+    const base = `https://git.example.org:8443/team/sub/app/-/merge_requests/12/diffs#${sha1('src/o.ts')}`;
+    assert.equal(at(edited, 'new', 10), `${base}_10_10`);
+    assert.equal(at(edited, 'old', 11), `${base}_11_11`);
+    assert.equal(at(edited, 'new', 11), `${base}_12_11`);
+    assert.equal(at(edited, 'new', 12), `${base}_12_12`);
+    assert.equal(at(created, 'new', 2), `https://git.example.org:8443/team/sub/app/-/merge_requests/12/diffs#${sha1('n.ts')}_0_2`);
+  });
+
+  it('falls back to the file when the diff lacks the line, and to null for a URL that is no merge request', () => {
+    assert.equal(mrLineUrl(url, edited!, 'new', 99), `${url}/diffs#${sha1('src/o.ts')}`);
+    assert.equal(mrLineUrl('https://example.org/x', edited!, 'new', 10), null);
   });
 });

@@ -1,5 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
-import { escape } from '#modules/review/findings/page';
+import { escape, themed } from '#modules/review/findings/page';
+import type { StoredLink } from '#modules/review/page/state';
+import { PAGE_SESSION_MS } from '#types/defaults';
 import { messageOf } from '#util/errors';
 import type { HttpHost, HttpRequest, HttpResponse, IdSource } from '#types/platform/ports';
 
@@ -30,11 +32,15 @@ interface PageServerOptions {
   handle: (call: { method: 'GET' | 'POST'; path: string; form: URLSearchParams; csrf: string }) => Promise<AppReply>;
   /** POST /register: the path to open for the review the form names, or null when there is no such review. */
   admit: (form: URLSearchParams) => Promise<string | null>;
+  /** Where login links survive a restart; absent keeps them in memory only. `load` returns the links still valid. */
+  linkStore?: { load(): Promise<Record<string, StoredLink>>; save(links: Record<string, StoredLink>): Promise<void> };
+  /** Epoch ms; the tests' fake clock. */
+  now?: () => number;
 }
 
 interface PageServer {
   port: number;
-  /** A one-time login URL that lands on `to`. */
+  /** A login URL that lands on `to`; it opens a session for 24 h from minting, as often as it is opened. */
   mint(to: string): string;
   stopped: Promise<string>;
   stop(reason: string): Promise<void>;
@@ -42,15 +48,24 @@ interface PageServer {
 
 const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/;
 const same = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const reply = (status: number, body = '', headers: Record<string, string> = {}): HttpResponse => ({ status, headers: { ...HEADERS, ...headers }, body });
+const reply = (status: number, body = '', headers: Record<string, string> = {}): HttpResponse => {
+  const all = { ...HEADERS, ...headers };
+  return { status, headers: all, body: all['content-type']!.startsWith('text/html') ? themed(body === '' && status >= 400 ? `Error ${status}.` : body) : body };
+};
 const cookieOf = (request: HttpRequest): string => (request.headers['cookie'] ?? '').split(/;\s*/).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1) ?? '';
 
 /**
- * One server for every review of a repository. A login link opens once and is exchanged for a cookie session (shared by the
+ * One server for every review of a repository. A login link is exchanged for a cookie session (shared by the
  * tabs of that browser) with a CSRF token; it stops on idle, when the application says so, or when the process does.
  */
 export async function startPageServer(options: PageServerOptions): Promise<PageServer> {
-  const links = new Map<string, string>();
+  const now = options.now ?? Date.now;
+  const links = new Map<string, StoredLink>(Object.entries(await options.linkStore?.load().catch(() => ({})) ?? {}));
+  let saving: Promise<void> = Promise.resolve();
+  const save = (): void => {
+    const live = Object.fromEntries([...links].filter(([, link]) => link.expiresAt > now()));
+    saving = saving.then(() => options.linkStore?.save(live)).catch(() => undefined);
+  };
   const sessions = new Map<string, string>();
   let origin = '';
   let idle: NodeJS.Timeout | undefined;
@@ -66,6 +81,7 @@ export async function startPageServer(options: PageServerOptions): Promise<PageS
     sessions.clear();
     links.clear();
     await closing.close();
+    await saving;
     resolveStopped(reason);
   };
   const touch = (): void => {
@@ -75,7 +91,8 @@ export async function startPageServer(options: PageServerOptions): Promise<PageS
   };
   const mint = (to: string): string => {
     const token = options.ids.capability();
-    links.set(token, to);
+    links.set(token, { to, expiresAt: now() + PAGE_SESSION_MS });
+    save();
     return `${origin}/${token}`;
   };
   const sessionOf = (request: HttpRequest): { id: string; csrf: string } | null => {
@@ -96,15 +113,20 @@ export async function startPageServer(options: PageServerOptions): Promise<PageS
         // A prefetch or an embedded request must not spend the single use.
         const mode = request.headers['sec-fetch-mode'];
         if (mode !== undefined && mode !== 'navigate') return reply(403, 'This link opens only as a page.');
-        const to = [...links].find(([token]) => same(link, token))?.[1];
-        if (to === undefined) return reply(403, 'That review link is no longer valid.');
-        links.delete(link);
+        const found = [...links].find(([token]) => same(link, token));
+        if (found === undefined || found[1].expiresAt <= now()) {
+          if (found !== undefined) { links.delete(found[0]); save(); }
+          return reply(403, 'That review link is no longer valid.');
+        }
+        const to = found[1].to;
         touch();
         // A browser that is signed in keeps its session: a second review opens beside the first without breaking the first tab's forms.
         if (session !== null) return reply(303, '', { location: to });
         const created = { id: options.ids.sessionId(), csrf: options.ids.csrfToken() };
         sessions.set(created.id, created.csrf);
-        return reply(303, '', { location: to, 'set-cookie': `${SESSION_COOKIE}=${created.id}; HttpOnly; SameSite=Strict; Path=/` });
+        // Expiry on both sides: Max-Age is only the browser's promise, the server forgets the session itself.
+        setTimeout(() => sessions.delete(created.id), PAGE_SESSION_MS).unref();
+        return reply(303, '', { location: to, 'set-cookie': `${SESSION_COOKIE}=${created.id}; Max-Age=${PAGE_SESSION_MS / 1000}; HttpOnly; SameSite=Strict; Path=/` });
       }
       if (session === null) return reply(401, 'Open the review link you were given.');
       touch();

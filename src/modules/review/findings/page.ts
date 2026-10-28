@@ -1,5 +1,5 @@
 import type { Outcome, Publication } from '#modules/review/publication/publication';
-import type { Finding, ReviewResult } from '#types/modules/review';
+import type { Finding, FindingLocation, ReviewResult } from '#types/modules/review';
 import type { DiffFile } from '#types/platform/git';
 import { attentionNotes, checkLine, emptyFindingsNotice, findingPath, placeLabel, POINT_LABEL, scopeNotes } from './report.ts';
 
@@ -8,10 +8,20 @@ const STYLE = ':root{color-scheme:dark}body{background:#0d1117;color:#c9d1d9;fon
 export const escape = (text: string): string => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
 /**
+ * Every HTML response goes through here so none renders in the browser's light default: a full page passes, a fragment (the
+ * `<!doctype html><title>..</title><p>..` notices) or plain text (the server's refusals) is wrapped in the page shell with STYLE.
+ */
+export function themed(body: string): string {
+  if (body === '' || body.startsWith('<!doctype html><html')) return body;
+  const inner = body.startsWith('<') ? body.replace(/^<!doctype html>/i, '').replace(/^<title>.*?<\/title>/s, '') : `<p>${escape(body)}</p>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Review</title><style>${STYLE}</style></head><body>${inner}</body></html>\n`;
+}
+
+/**
  * What the page shows besides the review: the merge request's heading and the diff the review dir holds, since the worktree is gone by now.
  * `base` is this review's path on the shared server (`/r/<slug>`), the prefix of every form action.
  */
-interface PageContext { title?: string; url?: string; files?: readonly DiffFile[]; base?: string }
+interface PageContext { title?: string; url?: string; files?: readonly DiffFile[]; base?: string; placeUrl?: (location: FindingLocation) => string | null }
 
 /** Lines of the file's diff shown above the finding line before the rest folds away; a scroll box without script cannot start mid-way, so the box itself starts here. */
 const LINES_BEFORE = 4;
@@ -41,8 +51,10 @@ function codeWindow(finding: Finding, files: readonly DiffFile[]): string | null
   return `<div class="code"><pre>${joined(rows.slice(from, from + WINDOW_ROWS))}</pre>${more}</div>`;
 }
 
+const linked = (html: string, url: string | null): string => (url === null ? html : `<a href="${escape(url)}" rel="noreferrer">${html}</a>`);
+
 /** Publishing is offered for a merge request only: `publication` is its record, or null for a local review. */
-function findingHtml(finding: Finding, number: number, publication: Publication | null, files: readonly DiffFile[]): string {
+function findingHtml(finding: Finding, number: number, publication: Publication | null, files: readonly DiffFile[], placeUrl: (location: FindingLocation) => string | null): string {
   const place = `${findingPath(finding)}:${finding.location.line}`;
   const entry = publication?.findings[String(number)];
   const posted = entry?.status === 'posted';
@@ -51,10 +63,10 @@ function findingHtml(finding: Finding, number: number, publication: Publication 
   const code = codeWindow(finding, files) ?? (finding.evidence === '' ? '' : `<pre>${escape(finding.evidence)}</pre>`);
   return `<article id="${escape(finding.id)}" class="risk-${escape(finding.risk)}">${state}
 <span class="tag risk-${escape(finding.risk)}">${escape(finding.risk)}</span> <span class="meta">confidence: ${escape(finding.confidence)} · ${escape(finding.category)}</span>
-<h3><code>${escape(place)}</code></h3>
+<h3>${linked(`<code>${escape(place)}</code>`, placeUrl(finding.location))}</h3>
 <p class="why"><b>Problem:</b> ${escape(finding.problem)}<br><b>Impact:</b> ${escape(finding.impact)}<br><b>Confidence:</b> ${escape(finding.confidence)} — ${escape(finding.confidenceReason)}</p>
 ${posted || publication === null ? `<pre>${escape(finding.suggestedComment)}</pre>` : `<textarea name="comment-${number}" aria-label="Comment for #${number}">${escape(finding.suggestedComment)}</textarea>`}
-${finding.supportingLocations.length === 0 ? '' : `<details><summary>Also: ${finding.supportingLocations.length} location${finding.supportingLocations.length === 1 ? '' : 's'}</summary><ul>${finding.supportingLocations.map((location) => `<li><code>${escape(placeLabel(location))}</code></li>`).join('')}</ul></details>\n`}${code}</article>`;
+${finding.supportingLocations.length === 0 ? '' : `<details><summary>Also: ${finding.supportingLocations.length} location${finding.supportingLocations.length === 1 ? '' : 's'}</summary><ul>${finding.supportingLocations.map((location) => `<li>${linked(`<code>${escape(placeLabel(location))}</code>`, placeUrl(location))}</li>`).join('')}</ul></details>\n`}${code}</article>`;
 }
 
 /** What a publish request did, per finding; a failure names its reason and stays pickable on the page. */
@@ -139,9 +151,11 @@ const targetLabel = (target: ReviewResult['target']): string => target.kind === 
 export function renderReviewPage(result: ReviewResult, csrf: string, publication: Publication | null = null, context: PageContext = {}): string {
   const token = `<input type="hidden" name="csrf" value="${escape(csrf)}">`;
   const files = context.files ?? [];
-  const list = result.findings.length === 0 ? '<p>No findings.</p>' : result.findings.map((finding, at) => findingHtml(finding, at + 1, publication, files)).join('\n');
+  const list = result.findings.length === 0 ? '<p>No findings.</p>' : result.findings.map((finding, at) => findingHtml(finding, at + 1, publication, files, context.placeUrl ?? (() => null))).join('\n');
   const heading = escape(reviewTitle(result, context.title, context.url));
   const link = context.url === undefined || !/^https?:\/\//.test(context.url) ? '' : `<p class="meta"><a href="${escape(context.url)}" rel="noreferrer">${escape(context.url)}</a></p>`;
+  const sources = result.requirements.filter((source) => /^https?:\/\//.test(source.url));
+  const requirementLinks = sources.length === 0 ? '' : `<p class="meta">Requirements: ${sources.map((source) => `<a href="${escape(source.url)}" rel="noreferrer">${escape(source.title || source.url)}</a>`).join(' · ')}</p>`;
   const attention = attentionLines(result);
   const scope = scopeLines(result);
   const base = escape(context.base ?? '');
@@ -149,7 +163,7 @@ export function renderReviewPage(result: ReviewResult, csrf: string, publication
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${heading}</title><style>${STYLE}</style></head><body>
 <p class="meta"><a href="/">All reviews</a></p>
 <h1>${heading}</h1>
-${link}${publication === null ? `${list}
+${link}${requirementLinks}${publication === null ? `${list}
 <div class="actions">${close}</div>` : `<form id="publish" method="post" action="${base}/publish">${token}
 ${list}
 <div class="actions"><button type="submit" class="primary">Publish</button>${close}</div>
@@ -163,12 +177,20 @@ ${attention.length === 0 ? '' : `<section class="attention"><h2>Needs attention<
 `;
 }
 
-export interface IndexRow { slug: string; title: string; createdAt: string; findings: number | null; published: string }
+export interface IndexRow { slug: string; title: string; createdAt: string; findings: number | null; published: string; mrUrl?: string; posted?: boolean }
 
-/** Every review folder of the repository, read per request; a row links to that review's page. */
-export function renderIndex(rows: readonly IndexRow[]): string {
-  const row = (entry: IndexRow): string => `<tr><td><a href="/r/${encodeURIComponent(entry.slug)}">${escape(entry.title)}</a><br><span class="meta">${escape(entry.slug)}</span></td><td>${escape(entry.createdAt.slice(0, 16).replace('T', ' '))}</td><td>${entry.findings ?? ''}</td><td>${escape(entry.published)}</td></tr>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Reviews</title><style>${STYLE}</style></head><body><h1>Reviews</h1>${rows.length === 0 ? '<p>No saved reviews.</p>' : `<table><tr><th align="left">Review</th><th align="left">Date</th><th align="left">Findings</th><th align="left">Published</th></tr>${rows.map(row).join('')}</table>`}</body></html>\n`;
+/** `!7` linking to the merge request, from the URL the review recorded; nothing for a local review. */
+const mrLink = (url: string | undefined): string => {
+  const iid = /\/merge_requests\/(\d+)/.exec(url ?? '')?.[1];
+  return url === undefined || iid === undefined || !/^https?:\/\//.test(url) ? '' : `<br><a class="meta" href="${escape(url)}" rel="noreferrer">!${iid}</a>`;
+};
+
+/** Every review folder of the repository, read per request; a row links to that review's page. A tick marks a review with a comment posted to its merge request. Terminate is a POST form carrying the session's `csrf`. */
+export function renderIndex(rows: readonly IndexRow[], csrf = ''): string {
+  const row = (entry: IndexRow): string => `<tr><td>${entry.posted === true ? '<span title="Published to the merge request" aria-label="Published">&#10003;</span> ' : ''}<a href="/r/${encodeURIComponent(entry.slug)}">${escape(entry.title)}</a><br><span class="meta">${escape(entry.slug)}</span>${mrLink(entry.mrUrl)}</td><td>${escape(entry.createdAt.slice(0, 16).replace('T', ' '))}</td><td>${entry.findings ?? ''}</td><td>${escape(entry.published)}</td></tr>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Reviews</title><style>${STYLE}</style></head><body><h1>Reviews</h1>${rows.length === 0 ? '<p>No saved reviews.</p>' : `<table><tr><th align="left">Review</th><th align="left">Date</th><th align="left">Findings</th><th align="left">Published</th></tr>${rows.map(row).join('')}</table>`}
+<form method="post" action="/terminate" class="actions"><input type="hidden" name="csrf" value="${escape(csrf)}"><button type="submit">Terminate</button><span class="meta">Stops this review server; the next review starts a fresh one.</span></form></body></html>
+`;
 }
 
 /** The title the page and the index give a review: the merge request's, else what was reviewed. */

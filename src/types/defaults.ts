@@ -26,4 +26,7 @@ export type DirKind = 'task' | 'review';
 export const dirKindFor = (skill: string): DirKind => (skill === 'review' ? 'review' : 'task');
 
 /** The review page stops after this long without a request; the old page's `page.idleTimeoutSeconds` default (1800), kept. */
+/** How long a login session of the review page stays valid, cookie and server side alike (user request 2026-10-27: tired of requesting a new link). */
+export const PAGE_SESSION_MS = 24 * 60 * 60 * 1000;
+
 export const PAGE_IDLE_MS = 30 * 60 * 1000;

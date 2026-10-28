@@ -1,7 +1,7 @@
 import { loadConfig } from '#modules/config/load';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { SECRET_HEADER, startPageServer } from '#modules/review/page/server';
-import { readPageState, removePageState, writePageState, type PageState } from '#modules/review/page/state';
+import { readPageLinks, readPageState, removePageState, writePageLinks, writePageState, type PageState } from '#modules/review/page/state';
 import { PAGE_IDLE_MS } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
 import { taskOf } from '../route/route.ts';
@@ -25,7 +25,7 @@ async function register(runtime: Runtime, state: PageState, slug: string): Promi
 /** Runs until the page server stops, or returns at once when this repository's server already runs. Prints the link, preceded by any note, for the step that spawned it. */
 export const reviewPageCommand: CliCommand = {
   name: 'review page',
-  summary: "Open the task's recorded review on the repository's local review page server (--task); prints its one-time link.",
+  summary: "Open the task's recorded review on the repository's local review page server (--task); prints its login link (valid 24 h).",
   options: { values: ['task'], flags: ['json'] },
   run: async (runtime, args) => {
     const slug = taskOf('review page', args);
@@ -44,7 +44,7 @@ export const reviewPageCommand: CliCommand = {
 
     const configured = (await loadConfig(runtime.fs, root).catch(() => null))?.config.skills.review.pagePort ?? null;
     const secret = runtime.ids.capability();
-    const start = (port: number) => startPageServer({ host: runtime.http, ids: runtime.ids, idleMs: PAGE_IDLE_MS, port, secret, handle: app.handle, admit: app.admit });
+    const start = (port: number) => startPageServer({ host: runtime.http, ids: runtime.ids, idleMs: PAGE_IDLE_MS, port, secret, handle: app.handle, admit: app.admit, now: () => runtime.clock.now().getTime(), linkStore: { load: () => readPageLinks(runtime.fs, root, runtime.clock.now().getTime()), save: (links) => writePageLinks(runtime.fs, root, links) } });
     let server: Awaited<ReturnType<typeof start>>;
     let note: string | null = null;
     try {

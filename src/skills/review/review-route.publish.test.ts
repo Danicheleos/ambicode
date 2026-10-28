@@ -408,7 +408,7 @@ describe('publishing from the review page', () => {
       });
     });
 
-    it('authentication still holds on the shared server: no cookie, no page; a link opens once; /register needs the secret', async () => {
+    it('authentication still holds on the shared server: no cookie, no page; a link opens only as a page; /register needs the secret', async () => {
       await withReview(true, async (t) => {
         const net = fakeNet();
         const page = await openPage(t, net);
@@ -419,7 +419,8 @@ describe('publishing from the review page', () => {
         assert.equal((await bare({ method: 'POST', url: '/register', body: `task=${CHECK_TASK}` })).status, 403);
         assert.equal((await bare({ method: 'POST', url: `/r/${CHECK_TASK}/publish`, body: 'csrf=csrf-1&pick=1' })).status, 401);
         const link = new URL(printed.join('').trim().split('\n').at(-1)!).pathname;
-        assert.equal((await bare({ url: link })).status, 403, 'the link was spent by the first page');
+        assert.equal((await bare({ url: link, headers: { host, 'sec-fetch-mode': 'no-cors' } })).status, 403, 'a prefetch does not open the link');
+        assert.equal((await bare({ url: '/wrong-token-0123456789' })).status, 403, 'an unknown link is refused');
         assert.equal((await page.post('/publish', { pick: '1', csrf: 'wrong' })).status, 403);
         await page.close();
       });

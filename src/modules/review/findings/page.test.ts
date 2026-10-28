@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { finding, reviewResult } from '#testing/fixtures/review-fixture';
 import { capturedFiles } from '#modules/review/snapshot/target';
-import { renderIndex, renderReviewPage } from './page.ts';
+import { renderIndex, renderReviewPage, themed } from './page.ts';
 
 /** Everything after the last finding: the requirements, what needs attention, the review scope. */
 const gapsOf = (html: string): string => html.slice(Math.max(html.lastIndexOf('</article>'), 0), html.indexOf('<form id="close"'));
@@ -141,5 +141,38 @@ describe('the review page', () => {
     assert.equal([...gaps.matchAll(/not reviewed because it is test code/g)].length, 1);
     assert.match(gaps, /<li>c\/z\.ts: not reviewed because it is generated\.<\/li>/);
     assert.match(gaps, /<li>plain gap<\/li>/);
+  });
+
+  it('links each finding place, the Also places and the requirements when the page has a place URL, and keeps plain text without one', () => {
+    const at = finding({ id: 'f-1', location: { oldPath: 'a.ts', newPath: 'b.ts', side: 'new', line: 9 } });
+    const plain = renderReviewPage(reviewResult({ findings: [at] }), 'c', null, { url: 'https://gitlab.example/g/p/-/merge_requests/2' });
+    assert.match(plain, /<h3><code>b\.ts:9<\/code><\/h3>/);
+    const html = renderReviewPage(reviewResult({ findings: [at] }), 'c', null, { url: 'https://gitlab.example/g/p/-/merge_requests/2', placeUrl: (location) => `https://x/diffs#${location.line}&"` });
+    assert.match(html, /<h3><a href="https:\/\/x\/diffs#9&#38;&#34;" rel="noreferrer"><code>b\.ts:9<\/code><\/a><\/h3>/);
+    assert.match(html, /merge_requests\/2" rel="noreferrer">[^<]*<\/a><\/p><p class="meta">Requirements: <a href="https:\/\/example\.atlassian\.net\/browse\/ORD-17" rel="noreferrer">Reject negative amounts/);
+    assert.doesNotMatch(renderReviewPage({ ...reviewResult(), requirements: [] }, 'c'), /Requirements:/);
+  });
+
+  it('marks a published review on the list, links its merge request under the name and offers Terminate as a csrf POST form', () => {
+    const html = renderIndex([
+      { slug: 'mr-7', title: 'Fix (!7)', createdAt: '2026-10-23T09:15:00Z', findings: 3, published: '1 of 3 posted', mrUrl: 'https://gitlab.example/g/p/-/merge_requests/7', posted: true },
+      { slug: 'local', title: 'local', createdAt: '', findings: 1, published: 'local review' },
+    ], 'tok');
+    const [first = '', second = ''] = html.split('<tr><td>').slice(1);
+    assert.match(first, /^<span title="Published to the merge request" aria-label="Published">&#10003;<\/span> <a href="\/r\/mr-7">/);
+    assert.match(first, /<a class="meta" href="https:\/\/gitlab\.example\/g\/p\/-\/merge_requests\/7" rel="noreferrer">!7<\/a>/);
+    assert.doesNotMatch(second, /Published|merge_requests/);
+    assert.match(html, /<form method="post" action="\/terminate"[^>]*><input type="hidden" name="csrf" value="tok"><button type="submit">Terminate<\/button>/);
+  });
+
+  it('wraps a notice fragment and plain text in the dark shell, escaped, and leaves a full page alone', () => {
+    for (const body of ['<!doctype html><title>Review</title><p>gone</p>', 'Not <found>.']) {
+      const html = themed(body);
+      assert.match(html, /^<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Review<\/title><style>:root\{color-scheme:dark\}/);
+      assert.equal(html.split('<title>').length, 2, 'one title, in the head');
+    }
+    assert.match(themed('Not <found>.'), /<p>Not &#60;found&#62;\.<\/p>/);
+    const full = renderIndex([]);
+    assert.equal(themed(full), full);
   });
 });
