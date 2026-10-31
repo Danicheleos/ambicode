@@ -26,7 +26,10 @@ const RULE_PACKS = ['code', 'design', 'errors', 'security', 'verification'].map(
 const WITH_RULES = { config: CHECK_CONFIG.replace('    policyFiles:', `    packs: [${RULE_PACKS}]\n    policyFiles:`) };
 const ruleIds = (text: string): string[] => [...new Set(text.match(/common-[a-z]+\/[a-z0-9-]+/g) ?? [])].sort();
 
+const NO_CHECKS = CHECK_CONFIG.replace(/^(\s+)(unit|e2e|typecheck|lint|format):.*$/gm, '$1$2: null');
 const OTHER = { oldPath: 'src/other.ts', newPath: 'src/other.ts', side: 'new' as const, line: 1 };
+/** The PostToolUse tool_response of a background Agent launch, recorded from a real headless session (Claude Code, 2026-10-29); the "Async agent launched" text is only what the model reads. */
+const ASYNC_LAUNCH = { isAsync: true, status: 'async_launched', agentId: 'a8911c6a0944fb72c', description: 'Reply with ok', prompt: 'reply with the word ok', canContinueAgent: true };
 
 async function withTask(body: (t: Fixture) => Promise<void>, options: Parameters<typeof taskFixture>[0] = {}): Promise<void> {
   const t = await taskFixture(options);
@@ -52,7 +55,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('07-R1: the shipped route declares its steps in order, the raised registry gates and 5 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map-seeded', 'map-request', 'rules', 'change', 'format', 'review-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'report-step', 'next', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map-seeded', 'map-request', 'rules', 'change', 'format', 'review-offer', 'checks-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'scope-checks', 'report-step', 'write']);
       assert.equal(def.steps.filter((step) => step.actor === 'model').length, 5);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') != null);
       for (const gone of ['review-checks', 'scope-expanding']) assert.equal(t.fx.routes.gate(gone) ?? null, null, `${gone} is not a gate`);
@@ -74,7 +77,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       await finished(t, 1);
       const red = await t.start({ plan, text: UNNAMED });
       const work = await t.work();
-      assert.match(work, /iteration 2 of 2 · plan: \.ambicode\/tasks\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
+      assert.match(work, /iteration 2 of 2\n\n## Iteration 2\nSeed the reduce\./);
       assert.doesNotMatch(work, /Add the guard/);
       assert.doesNotMatch(red.text, /Seed the reduce/);
       const record = (await t.kinds('step')).find((entry) => entry['step'] === 'start' && entry['route'] !== 'done-1');
@@ -170,6 +173,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('CHECK_LIMIT failing greens release change with the gap in Not verified, never a dead end', async () => {
     await withTask(async (t) => {
       await t.start();
+      t.runner.out = { exitCode: 1, stdout: 'Tests:       1 failed, 1 total\n' };
       for (let run = 0; run < 5; run += 1) {
         assert.equal((await t.runCheck({ phase: 'green' })).outcome, 'ran');
         assert.equal((await t.next({ cause: 'check' })).position, 'change');
@@ -192,7 +196,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       assert.equal(await realpath(launched), await realpath(path.join(t.dir, 'steps', 'work-change.md')));
       assert.doesNotMatch(change.text, /## (brief|envelope|baseline|map|policy|checks|context)|Rules \(/);
       assert.match(work, /^<!-- ambicode work: task\/change[\s\S]*# Work brief[\s\S]*## brief\n/);
-      assert.match(section(work, 'brief'), /plan: none \(the request is the brief\)$/, 'a plan-less brief is its header; the request has its own section');
+      assert.match(section(work, 'brief'), /^Task ord-7 · iteration 1 of 1$/, 'a plan-less brief is its header; the request has its own section');
       assert.match(section(work, 'request'), /^fix `total` for an empty list iteration 1$/);
       assert.match(work, /--phase green`/);
       assert.doesNotMatch(work, /--phase green -/, 'no flag follows the phase');
@@ -207,7 +211,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('change and fix carry the runnable check keys, and their texts tell the model to use one of them', async () => {
     await withTask(async (t) => {
       const change = await t.start();
-      const runnable = /## checks\.runnable\nProject app: e2e \(--file needs approval\), typecheck \(all needs approval\), unit \(--file runs freely, all needs approval\)\./;
+      const runnable = /## checks\.runnable\nProject app: e2e \(--file needs approval\), typecheck \(no file form: left to the end step, never run it\), unit \(--file runs freely, all needs approval\)\./;
       assert.match(await t.work(), runnable);
       assert.match(await t.work(), /key listed under `checks\.runnable`/);
       assert.doesNotMatch(change.text, /## checks\.runnable/);
@@ -253,16 +257,27 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     });
   });
 
-  it('07-R7/07-V4: headless, the offer defaults to skip; brief, review-agent, review-run and fix are skipped, no review runs, and the report says so', async () => {
+  it('07-R7/07-V4: headless is offered nothing; review-offer, checks-offer, brief, review-agent, review-run and fix are skipped, no review runs, and the report adds no gap line', async () => {
     await withTask(async (t) => {
       const write = await toOffer(t, { headless: true });
       assert.equal(write.position, 'write');
-      assert.equal((await t.kinds('default-taken')).find((entry) => entry['gate'] === 'review-offer')?.['answer'], 'skip — verification incomplete');
+      assert.deepEqual(await prints(t), [], 'no gate entry: nothing was asked and no default was taken');
       const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
-      assert.ok(['brief', 'review-agent', 'review-record', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
+      assert.ok(['review-offer', 'checks-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
       assert.equal((await t.kinds('review')).length, 0);
-      assert.match(write.text, /independent review skipped — verification incomplete/);
+      assert.doesNotMatch(await t.work('write'), /independent review skipped/);
     });
+  });
+
+  it('a headless task with the review skipped and no configured checks: no Not verified line, and the Stop hook does not block', async () => {
+    await withTask(async (t) => {
+      const write = await toOffer(t, { headless: true });
+      assert.deepEqual(gapsOf(await t.ledger()), []);
+      const report = (await t.work('write')).split('## report\n')[1] ?? '';
+      assert.doesNotMatch(report, /Not verified|independent review skipped|nothing was verified by running checks/);
+      const stop = await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: '# Task report\n**Done**\n- src/a.ts:1 guard the empty list.' }, { repositoryRoot: t.fx.repo.root, where: '.' });
+      assert.notEqual(stop?.decision, 'block');
+    }, { config: NO_CHECKS });
   });
 
   it('07-R7: on a trusted start, a model --answer review-offer=run is declined; a skip then runs no review', async () => {
@@ -278,7 +293,9 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
 
   it('07-R7: a trusted preanswer run is honoured at the gate, and the brief step pins the review before its script runs', async () => {
     await withTask(async (t) => {
-      const run = await toOffer(t, { answers: [{ gate: 'review-offer', option: 'run' }] });
+      const asked = await toOffer(t, { answers: [{ gate: 'review-offer', option: 'run' }] });
+      assert.equal(asked.position, 'checks-offer', 'the review answer is honoured and the checks question follows');
+      const run = await t.hook('checks-offer', 'skip — verification incomplete');
       assert.equal(run.position, 'review-agent');
       assert.match(await t.work('review-agent'), /brief: .*brief\.md/);
       assert.equal(await delivered(t, 'review-agent'), 1);
@@ -291,7 +308,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const dir = path.dirname(path.join(t.fx.repo.root, String(review['result'])));
       for (const file of ['brief.md', 'changed.diff', 'files.txt', 'result.json', 'report.txt']) await readFile(path.join(dir, file), 'utf8');
       const preanswer = (await t.kinds('preanswer'))[0];
-      assert.deepEqual((await t.kinds('acceptance')).map((entry) => [entry['gate'], entry['answer'], entry['via'], entry['preanswer']]), [['review-offer', 'run', 'prompt', preanswer?.id]]);
+      assert.deepEqual((await t.kinds('acceptance')).map((entry) => [entry['gate'], entry['answer'], entry['via'], entry['preanswer']]), [['review-offer', 'run', 'prompt', preanswer?.id], ['checks-offer', 'skip — verification incomplete', 'hook', undefined]]);
     });
   });
 
@@ -444,7 +461,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const deps = { load: async () => ({ engine: t.fx.engine, routes: t.fx.routes }) };
       const send = (event: Record<string, unknown>) => runHook(t.fx.runtime, JSON.stringify({ session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, ...event }), deps);
       const workFile = path.join(t.fx.repo.root, '.ambicode', 'tasks', CHECK_TASK, 'steps', 'work-change.md');
-      await send({ hook_event_name: 'PostToolUse', tool_name: 'Agent', tool_response: { content: [{ type: 'text', text: 'Async agent launched successfully.\nagentId: a8911c6a0944fb72c (internal ID)\nThe agent is working in the background.' }] } });
+      await send({ hook_event_name: 'PostToolUse', tool_name: 'Agent', tool_response: ASYNC_LAUNCH });
       await send({ hook_event_name: 'Stop' });
       assert.equal((await t.kinds('exit')).length, 0, 'the launching turn ended, the implementer is still running');
       assert.ok((await readFile(workFile, 'utf8')).length > 0);
@@ -452,6 +469,28 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       await send({ hook_event_name: 'Stop' });
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['inconclusive']);
     });
+  });
+
+  it('the background marker is found whichever optional fields the launch and the Stop carry', async () => {
+    const launched = ASYNC_LAUNCH;
+    const variants: Array<[string, boolean, boolean, unknown]> = [
+      ['scratchpad_dir on the launch only', true, false, launched],
+      ['scratchpad_dir on the Stop only', false, true, launched],
+      ['neither carries scratchpad_dir', false, false, launched],
+    ];
+    for (const [name, onLaunch, onStop, response] of variants) {
+      await withTask(async (t) => {
+        await t.start({ headless: true });
+        const deps = { load: async () => ({ engine: t.fx.engine, routes: t.fx.routes }) };
+        const send = (event: Record<string, unknown>, scratch: boolean) => runHook(t.fx.runtime, JSON.stringify({ session_id: SESSION_A, cwd: t.fx.repo.root, ...(scratch ? { scratchpad_dir: t.fx.scratchpad } : {}), ...event }), deps);
+        await send({ hook_event_name: 'PostToolUse', tool_name: 'Agent', tool_response: response }, onLaunch);
+        await send({ hook_event_name: 'Stop' }, onStop);
+        assert.equal((await t.kinds('exit')).length, 0, name);
+        await send({ hook_event_name: 'SubagentStop', agent_id: 'a8911c6a0944fb72c' }, onStop);
+        await send({ hook_event_name: 'Stop' }, onStop);
+        assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['inconclusive'], name);
+      });
+    }
   });
 
   it('B9: before-work reaches change', async () => {
@@ -480,23 +519,36 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }, { pack: COMMAND_PACK.replace('{ command: unit, action: run, reason: "unit" }', '{ command: unit, action: propose, reason: "unit" }') });
   });
 
-  it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB', async () => {
+  it('07-R8: every task step text is at most 1,500 characters after inclusion; report ≤ 3 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
-    for (const name of ['task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write']) {
+    for (const name of ['task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'task/write-work']) {
       const text = (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
     }
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan.md', `# Plan\n\n${'Seed the reduce with zero. '.repeat(400)}\n`);
-      const red = await t.start({ plan: 'docs/plan.md' });
-      const brief = section(await t.work(), 'brief');
-      assert.ok(Buffer.byteLength(brief) <= 4096, `${Buffer.byteLength(brief)}`);
-      assert.match(brief, /\[cut: read docs\/plan\.md\]$/);
+      await t.start({ plan: 'docs/plan.md' });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
       const write = await t.hook('review-offer', 'skip — verification incomplete');
-      assert.ok(Buffer.byteLength(section(write.text, 'report')) <= 3072);
-      assert.doesNotMatch(section(write.text, 'report'), /ambicode report/);
+      assert.ok(Buffer.byteLength(section(await t.work('write'), 'report')) <= 3072);
+      assert.doesNotMatch(section(await t.work('write'), 'report'), /ambicode report/);
+    });
+  });
+
+  it('plan iterations over the old 4096 B cap reach the work file whole: the last iteration and Assumptions, no pointer to plan.md', async () => {
+    await withTask(async (t) => {
+      const iteration = (n: number) => `## Iteration ${n}: step ${n}\n\n${`Seed the reduce with zero, part ${n}. `.repeat(40)}\n\nReferences: src/orders.ts:${n}\n`;
+      await t.fx.repo.write('docs/plan.md', `# Plan\n\n${[1, 2, 3, 4].map(iteration).join('\n')}\n## Assumptions\n- the list is never null\n`);
+      await t.start({ plan: 'docs/plan.md', text: 'implement the plan' });
+      // `section` stops at the first `## `, which the iteration headings are: measure the whole file.
+      const brief = await t.work();
+      assert.ok(Buffer.byteLength(brief) > 4096, `${Buffer.byteLength(brief)}: over the old cap`);
+      assert.doesNotMatch(brief, /\[cut: read/);
+      assert.match(brief, /References: src\/orders\.ts:4/);
+      assert.match(brief, /^Task ord-7 · iterations 1-4 of 4$/m);
+      assert.doesNotMatch(brief, /plan: /, 'the header names no plan path: the implementer may not read it');
+      assert.match(brief, /## Assumptions\n- the list is never null/);
     });
   });
 });
@@ -518,13 +570,14 @@ describe('task route: the implementer returns', { concurrency: 4 }, () => {
     });
   });
 
-  it('the implementer returning prints nothing and writes nothing: the model runs route next itself', async () => {
+  it('the implementer returning before its route next leaves main the command, and writes nothing', async () => {
     await withTask(async (t) => {
       await t.start();
       await t.edit();
       await t.held('green');
       const before = (await t.ledger()).map((entry) => entry.id);
-      assert.deepEqual(await returned(t), {});
+      const out = (await returned(t)) as { hookSpecificOutput?: { additionalContext: string } };
+      assert.match(out.hookSpecificOutput!.additionalContext, /route next --task/);
       assert.deepEqual((await t.ledger()).map((entry) => entry.id), before);
     });
   });
@@ -597,7 +650,8 @@ describe('task route: format is a code step', { concurrency: 4 }, () => {
       assert.equal((await toOffer(t)).position, 'format');
       assert.equal((await t.hook('check-only-unauthorized', 'decline')).position, 'review-offer');
       assert.deepEqual((await t.kinds('format')).map((entry) => entry['outcome']), ['refused']);
-      assert.match((await t.hook('review-offer', 'skip — verification incomplete')).text, /not formatted: app\/format \(refused\)/);
+      await t.hook('review-offer', 'skip — verification incomplete');
+      assert.match(await t.work('write'), /not formatted: app\/format \(refused\)/);
     }, { pack: PROPOSE });
   });
 
@@ -613,13 +667,17 @@ describe('gate hook from a process folder other than the repository root', { con
   it('the AskUserQuestion answer arrives through a hook process outside the repository: the gate advances to review-agent', async () => {
     await withTask(async (t) => {
       await toOffer(t);
-      const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'review-offer')!;
       const wrapper = await mkdtemp(path.join(tmpdir(), 'ambicode-above-'));
       try {
         const above = await createRuntime({ ...t.fx.runtime, cwd: wrapper });
-        const question = `Run the review? [ambicode gate review-offer ${print.id}]`;
-        const event = { hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'run' }, { label: 'skip — verification incomplete' }] }] }, tool_response: { answers: { [question]: 'run' } } };
-        const output = (await runHook(above, JSON.stringify({ session_id: SESSION_A, cwd: path.join(t.fx.repo.root, 'src'), scratchpad_dir: t.fx.scratchpad, ...event }))) as { hookSpecificOutput?: { additionalContext: string } };
+        const answerFrom = async (gate: string, option: string) => {
+          const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === gate)!;
+          const question = `Run it? [ambicode gate ${gate} ${print.id}]`;
+          const event = { hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'run' }, { label: 'skip — verification incomplete' }] }] }, tool_response: { answers: { [question]: option } } };
+          return (await runHook(above, JSON.stringify({ session_id: SESSION_A, cwd: path.join(t.fx.repo.root, 'src'), scratchpad_dir: t.fx.scratchpad, ...event }))) as { hookSpecificOutput?: { additionalContext: string } };
+        };
+        assert.match((await answerFrom('review-offer', 'run')).hookSpecificOutput?.additionalContext ?? '', /\[ambicode gate checks-offer /);
+        const output = await answerFrom('checks-offer', 'skip — verification incomplete');
         assert.match(output.hookSpecificOutput?.additionalContext ?? '', /ambicode:reviewer/);
         assert.deepEqual((await t.kinds('step')).filter((entry) => entry['status'] === 'failed'), []);
       } finally {

@@ -227,6 +227,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
+  it('H1: the implementer puts a choice it makes where the brief gave only a count or a partial list under Gaps', async () => {
+    const agent = (await readFile(path.join(repositoryRoot, 'agents', 'implementer.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(agent, /count or a partial list[^.]*you choose the rest[^.]*`Gaps:`/i);
+  });
+
   it('06-S3: plan distinguishes draft from accepted status, and requires explicit human acceptance', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /\bdraft\b/i);
@@ -348,7 +353,7 @@ describe('P2.3 task skill', () => {
   });
 
   it('07-M1 the write step asks for Done in prose and the generated Checks, Review and Not verified facts as printed, with no Evidence block; the SKILL.md leaves it to the step', async () => {
-    const write = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'write.md'), 'utf8')).replace(/\s+/g, ' ');
+    const write = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'write-work.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(write, /\*\*Done\*\*/);
     assert.match(write, /the facts below copied as printed \(Checks, Review, Not verified;/);
     assert.doesNotMatch(write, /Evidence|\*\*Remaining\*\*/);
@@ -533,10 +538,18 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     assert.match(content, /skip WebSearch and the rules route \(drafts are still written\)/);
   });
 
+  it('every agent skips CLAUDE.md: the parent session reads it and the route work file carries the project rules', async () => {
+    for (const name of ['implementer', 'reviewer', 'scout']) {
+      const fm = frontmatter(await readFile(path.join(repositoryRoot, 'agents', `${name}.md`), 'utf8'), `agents/${name}.md`);
+      assert.equal(fm['omitClaudeMd'], true, `agents/${name}.md`);
+    }
+  });
+
   it('the scout agent is internal to init and may not write files', async () => {
     const fm = frontmatter(await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8'), 'agents/scout.md');
     assert.equal(fm['name'], 'scout');
     assert.equal(fm['model'], undefined, 'the model comes from config skills.init.scout.model, passed by the init skill');
+    assert.equal(fm['autoCompactWindow'], 100000);
     assert.doesNotMatch(requiredString(fm, 'tools', 'agents/scout.md'), /Write|Edit/);
     const body = (await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(body, /each project directory is one root, never a folder inside it/);
@@ -549,7 +562,8 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     assert.match(requiredString(fm, 'description', 'agents/implementer.md'), /never by a natural-language request/);
     assert.equal(requiredString(fm, 'tools', 'agents/implementer.md'), 'Read, Grep, Glob, Edit, Write, Bash');
     const body = text.replace(/\s+/g, ' ');
-    for (const rule of [/only through the `check` command/, /never commit, push or publish/, /never weaken or delete a test/i, /green check is your last tool call/, /do not read the ledger or any other file under `\.ambicode\/tasks\/`/, /relative to the repository root, never absolute/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
-    assert.ok(text.length < 2500, `${text.length} bytes`);
+    for (const rule of [/only through the `check` command/, /never commit, push or publish/, /never weaken or delete a test/i, /your last call is the work file's `route next`/i, /do not read the ledger or any other file under `\.ambicode\/tasks\/`/, /relative to the repository root, never absolute/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
+    // omitClaudeMd stops the agent loading the project CLAUDE.md, which frees far more context than this prompt grows.
+    assert.ok(text.length < 3000, `${text.length} bytes`);
   });
 });

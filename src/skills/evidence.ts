@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { acceptPlan } from '#modules/evidence/notes';
 import { buildChain, currentIn } from '#harness/engine/fold';
 import { factsOf } from '#modules/evidence/report/report';
@@ -23,6 +24,10 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
     const head = chain.find((entry) => entry.kind === 'route' && entry.id === input.view.routeId);
     const current = input.def === undefined || head === undefined ? undefined : currentIn(input.def, buildChain(chain, head));
     const checks = input.def?.steps.some((step) => step.produces.some((produced) => produced.kind === 'check')) ?? false;
-    return { state: 'ok', payload: factsOf(chain, current, { checks }) || null };
+    // Each round's Changed/Gaps list was saved when its implementer stopped; the one that writes the report holds only its own round.
+    const rounds = await Promise.all(chain.filter((entry) => entry.kind === 'note' && entry['note'] === 'changed').map((entry) => input.runtime.fs.readText(path.join(input.dir.repositoryRoot, String(entry['path']))).catch(() => '')));
+    const changed = rounds.filter((text) => text.trim() !== '');
+    const earlier = changed.length === 0 ? '' : `Changed in earlier rounds, oldest first (list them with your own):\n${changed.map((text) => text.trim()).join('\n\n')}\n\n`;
+    return { state: 'ok', payload: `${earlier}${factsOf(chain, current, { checks })}`.trim() || null };
   },
 };

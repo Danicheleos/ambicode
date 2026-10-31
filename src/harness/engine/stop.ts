@@ -8,7 +8,7 @@ import { writeSummary } from './run-context.ts';
 import { readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { saveNote } from '#modules/evidence/notes';
-import { gapsOf } from '#modules/evidence/report/report';
+import { gapsOf, unstated } from '#modules/evidence/report/report';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { deliverOnce, hookStateBaseDir, runningBackgroundAgents } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
@@ -26,8 +26,6 @@ interface StopPorts {
 
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
-
-const squash = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /** A Stop that did nothing is not the same as a Stop that was never reached: the reason is left on stderr, where the session record keeps it. */
 function skipped(reason: string): null {
@@ -60,7 +58,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
   if (typeof found === 'string') return skipped(`no session repository from ${input.cwd ?? runtime.cwd}`);
   const [root, session, scratchpad] = [found.repositoryRoot, input.session_id, input.scratchpad_dir];
   // A background subagent reads the step files this Stop would delete; its return resumes the session and ends in a later Stop.
-  if ((await runningBackgroundAgents(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), runtime.clock.now())) > 0) return skipped('a background subagent has not returned');
+  if ((await runningBackgroundAgents(runtime.fs, session, runtime.clock.now())) > 0) return skipped('a background subagent has not returned');
   // Parallel subagents of this session may drive their own live routes: this Stop closes and checks only a route that is the main session's.
   const latest = async () => {
     const all = await sessionRoutes(runtime.fs, root, session);
@@ -96,11 +94,12 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
     const chain = buildChain(entries, head);
     const heading = firstHeading([...def.steps].reverse().find((step) => step.actor === 'model')?.instruction ?? null);
     // A saved answer is the note itself: its gaps live in the ledger and the summary, and no second message is asked for.
-    const finalMessage = message !== null && !answered && (active === null || (heading !== null && firstLine(message) === heading));
+    // A report the implementer wrote is a note of the route, with the gap lines appended by code: the message after it is a pointer to that file, not the report.
+    const reported = chain.entries.some((entry) => entry.kind === 'note' && entry['note'] === 'report');
+    const finalMessage = message !== null && !answered && !reported && (active === null || (heading !== null && firstLine(message) === heading));
     if (!finalMessage) return { output: null, entries: entries.length };
     // One block per route: a second Stop lets the message through, or a model that cannot fix it would never finish.
-    const stated = squash(message);
-    const missing = chain.entries.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block') ? [] : gapsOf(chain.entries, currentIn(def, chain)).filter((gap) => !stated.includes(squash(gap)));
+    const missing = chain.entries.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block') ? [] : unstated(gapsOf(chain.entries, currentIn(def, chain)), message);
     if (missing.length > 0) {
       await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: missing.length });
       return { output: { decision: 'block', reason: `Your final message leaves ${missing.length} gap(s) unstated. Add each, in these words:${missing.map((gap) => `\n- ${gap}`).join('')}` }, entries: entries.length };

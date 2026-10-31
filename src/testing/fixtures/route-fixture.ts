@@ -14,6 +14,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from './temp-repo.ts';
 import { REPO_ROOT } from '../paths.ts';
 import type { Runtime } from '#types/composition';
+import type { ProcessRunner } from '#types/platform/ports';
 import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import { HANDLER_NAMES, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry } from '#types/harness';
 
@@ -71,9 +72,11 @@ export async function stopRoute(fx: Pick<RouteFixture, 'runtime'>, task: string,
 interface Assembled { runtime: Runtime; routes: RouteRegistry; build(handlers: Record<string, Handler>): Engine }
 
 /** The engine over an existing repository: what a second process attached to the same task directory builds. */
-export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date; pluginRoot?: string }): Promise<Assembled> {
+export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date; pluginRoot?: string; wrapRunner?: (real: ProcessRunner) => ProcessRunner }): Promise<Assembled> {
   const clock = options.clock ?? ((): Date => new Date());
-  const runtime = await createRuntime({ cwd: options.root, clock: { now: clock, elapsed: () => 0 }, ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }) });
+  const real = await createRuntime({ cwd: options.root, clock: { now: clock, elapsed: () => 0 }, ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }) });
+  // The engine's own handlers run checks through the runtime's runner, so a test that scripts check output wraps it here, not after the engine is built.
+  const runtime: Runtime = options.wrapRunner === undefined ? real : { ...real, runner: options.wrapRunner(real.runner) };
   const handlerNames = [...HANDLER_NAMES, ...(options.handlers ?? [])];
   const registry = parseRegistry('routes/gates.yaml', await readFile(path.join(REPO_ROOT, 'routes', 'gates.yaml'), 'utf8'), KINDS);
   const context = { handlers: handlerNames, readInstruction: async (relative: string) => options.step?.[relative] ?? '' };
@@ -94,13 +97,14 @@ export async function routeFixture(options: {
   config?: string | null;
   /** Where `skills/<skill>/scripts/*.mjs` are read from for `run: script(<name>)` steps; the repository by default. */
   pluginRoot?: string;
+  wrapRunner?: (real: ProcessRunner) => ProcessRunner;
 }): Promise<RouteFixture> {
   const repo = await TempRepo.create();
   await repo.write('package.json', '{}\n');
   if (options.config !== null) await repo.write('.ambicode/config.yaml', options.config ?? CONFIG);
   await repo.commitAll('initial');
   let time = new Date(2026, 9, 5, 10, 0, 0).getTime();
-  const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }), clock: () => new Date(time) });
+  const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }), ...(options.wrapRunner === undefined ? {} : { wrapRunner: options.wrapRunner }), clock: () => new Date(time) });
   const { runtime, routes, build } = assembled;
   const scratchpad = await runtime.fs.temporaryDirectory('ambicode-scratch-');
   const dir = (task: string): string => runDirOf(repo.root, task);

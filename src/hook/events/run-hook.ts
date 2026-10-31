@@ -4,13 +4,14 @@ import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextHookOutput, type Ro
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { liveRouteOf } from '#harness/session/active-route';
+import { isImplementer } from '#harness/engine/subagent-stop';
 import { openRouteView } from '#harness/engine/context';
 import { createApp } from '#composition/app';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
-import { launchRoute, reinjectRoute } from './prompt-launch.ts';
+import { implementerReturned, launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { loadConfig } from '#modules/config/load';
 import { dropIgnoredGlobResults, type GlobResponse } from '#modules/search/glob-ignored';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
@@ -79,12 +80,17 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         return (await (await loadFor(deps, found)).engine.stopHook(input, found)) ?? EMPTY_HOOK_OUTPUT;
       }
       case 'SubagentStop': {
-        if (input.agent_id !== undefined) await clearBackgroundAgent(runtime.fs, stateDir(runtime, input), input.agent_id);
+        if (input.agent_id !== undefined) await clearBackgroundAgent(runtime.fs, input.session_id, input.agent_id);
+        if (isImplementer(input.agent_type)) {
+          const found = await repositoryOf(runtime, input);
+          await (await loadFor(deps, found)).engine.subagentStopHook(input, found);
+        }
         return EMPTY_HOOK_OUTPUT;
       }
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
         await cleanupSessionState(runtime.fs, base);
+        await cleanupSessionState(runtime.fs, hookStateBaseDir(runtime.fs, input.session_id));
         return EMPTY_HOOK_OUTPUT;
       }
       case 'PostToolUse':
@@ -155,9 +161,16 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'Agent' || input.tool_name === 'Task') {
-    // The launch result of a background agent names its id; a foreground launch returns the agent's answer instead.
-    const id = /Async agent launched[\s\S]*?agentId: ([A-Za-z0-9_-]+)/.exec(JSON.stringify(input.tool_response ?? ''))?.[1];
-    if (id !== undefined) await markBackgroundAgent(runtime.fs, stateDir(runtime, input), id, runtime.clock.now());
+    // Recorded from a real headless session: the hook gets the structured result {isAsync, status: 'async_launched', agentId}, not the
+    // "Async agent launched" text the model reads. The text regex never matched, so no marker was ever written.
+    const response = input.tool_response as { status?: unknown; agentId?: unknown } | null | undefined;
+    const id = response?.status === 'async_launched' && typeof response.agentId === 'string' ? response.agentId : undefined;
+    if (id !== undefined) await markBackgroundAgent(runtime.fs, input.session_id, id, runtime.clock.now());
+    else if (isImplementer(input.tool_input?.['subagent_type'] as string | undefined)) {
+      const found = await repositoryOf(runtime, input);
+      const context = await implementerReturned(runtime, input, await loadFor(deps, found), found);
+      if (context !== null) return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
+    }
     return EMPTY_HOOK_OUTPUT;
   }
   if (input.tool_name === 'Glob') return await filterGlob(runtime, input);

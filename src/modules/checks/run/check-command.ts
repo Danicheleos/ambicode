@@ -15,6 +15,8 @@ import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/module
 import type { RouteView } from '#types/harness';
 import type { Workspace } from '#types/composition';
 const CHECK_LIMIT = 5;
+// Chosen by the user for a route covering several iterations; below CHECK_LIMIT when only one or two are covered.
+const CHECKS_PER_ITERATION = 2;
 const TAIL_LINES = 40;
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
@@ -114,10 +116,10 @@ async function consentForKey(
 export async function authorizeKey(
   deps: CheckDeps,
   routed: Routed | null,
-  input: { policy: ResolvedPolicy; commandId: string; key: string; form: 'file' | 'all'; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raise?: boolean },
+  input: { policy: ResolvedPolicy; commandId: string; key: string; form: 'file' | 'all'; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raise?: boolean; consented?: boolean },
 ): Promise<'allowed' | 'declined' | 'waiting'> {
   const authorization = authorizeCommand({ policy: input.policy, commandId: input.commandId, approvalKey: input.key, approvals: new Set(), form: input.form });
-  if (authorization.kind === 'allowed') return 'allowed';
+  if (authorization.kind === 'allowed' || (authorization.kind === 'needs-approval' && input.consented === true)) return 'allowed';
   if (authorization.kind === 'refused') {
     if (routed !== null) {
       await withLedger(deps, routed.dir, (ledger) => ledger.append({ kind: 'limit', route: routed.view.routeId, which: 'check-forbidden', count: 1, step: stepOf(routed.view), key: input.key }));
@@ -129,15 +131,28 @@ export async function authorizeKey(
   return consent === 'honoured' ? 'allowed' : consent;
 }
 
-async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Promise<boolean> {
+/** One `change` window of an unnamed route spans every covered iteration, so its limit is a fixed number per iteration, not per window. */
+async function limitFor(deps: CheckDeps, routed: Routed): Promise<number> {
+  const { view } = routed;
+  if (stepOf(view) !== 'change') return CHECK_LIMIT;
+  const entries = (await deps.context!.entries(view.task)).filter((entry) => entry['route'] === view.routeId || entry.id === view.routeId);
+  const named = (entries.find((entry) => entry.kind === 'route')?.['args'] as { iteration?: unknown } | undefined)?.iteration;
+  const start = entries.find((entry) => entry.kind === 'step' && entry['step'] === 'start');
+  if (typeof named === 'number' || typeof start?.['iteration'] !== 'number') return CHECK_LIMIT;
+  const through = typeof start['through'] === 'number' ? start['through'] : start['iteration'];
+  return CHECKS_PER_ITERATION * (through - start['iteration'] + 1);
+}
+
+async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Promise<number | null> {
   const { view } = routed;
   const window = cycleEntries(await deps.context!.window(view, stepOf(view)));
   const runs = window.filter((entry) => entry.kind === 'check' && entry['phase'] === phase).length;
-  if (runs < CHECK_LIMIT) return false;
+  const limit = await limitFor(deps, routed);
+  if (runs < limit) return null;
   if (!window.some((entry) => entry.kind === 'limit' && entry['which'] === 'check')) {
-    await withLedger(deps, routed.dir, (ledger) => ledger.append({ kind: 'limit', route: view.routeId, which: 'check', count: CHECK_LIMIT, step: stepOf(view), phase }));
+    await withLedger(deps, routed.dir, (ledger) => ledger.append({ kind: 'limit', route: view.routeId, which: 'check', count: limit, step: stepOf(view), phase }));
   }
-  return true;
+  return limit;
 }
 
 /** `{file}` becomes the quoted files, space-joined: one run, one exit, one ledger entry for the whole selection. */
@@ -169,8 +184,9 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
     throw badArgument(`Project "${project.id}" check "${input.name}" has no ${files.length > 0 ? '`file`' : '`all`'} command, so it cannot run${files.length > 0 ? ' on --file' : ' without --file'}.`, files.length > 0 ? 'file' : 'name');
   }
   const routed = await routedOf(deps, input.task);
-  if (routed !== null && (await limitReached(deps, routed, input.phase))) {
-    throw new AmbicodeError('check-limit', `${CHECK_LIMIT} ${input.phase} checks already ran in this step; nothing was run.`, {
+  const reached = routed === null ? null : await limitReached(deps, routed, input.phase);
+  if (reached !== null) {
+    throw new AmbicodeError('check-limit', `${reached} ${input.phase} checks already ran in this step; nothing was run.`, {
       details: [`Release: state the gap in the report; route next --task ${input.task}`],
     });
   }
@@ -179,7 +195,7 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   const key = checkApprovalKey(project.id, input.name);
   const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: files });
   const form = files.length > 0 ? 'file' : 'all';
-  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, form, files, approve: input.approve, decline: input.decline, ...(input.raise === undefined ? {} : { raise: input.raise }) });
+  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, form, files, approve: input.approve, decline: input.decline, ...(input.raise === undefined ? {} : { raise: input.raise }), ...(input.consented === true ? { consented: true } : {}) });
   if (decision === 'waiting') return { outcome: 'waiting', gate: GATE, key };
   if (decision === 'declined') return { outcome: 'declined', key };
 

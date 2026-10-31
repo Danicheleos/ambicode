@@ -45,12 +45,13 @@ async function offByOne() {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
-  for (const name of ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-  const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step });
+  for (const name of ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'task/write-work']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  // The route's own end checks run through the same scripted runner: jest is not installed here.
+  let runner!: SplitRunner;
+  const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step, wrapRunner: (real) => (runner = new SplitRunner(real)) });
   const engine = assembled.build(skillHandlers());
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
-  const runner = new SplitRunner(assembled.runtime.runner);
-  const runtime: Runtime = { ...assembled.runtime, runner };
+  const runtime: Runtime = assembled.runtime;
   const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
   const tail = (cause: 'check', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, produced, scratchpadDir: scratchpad });
@@ -71,8 +72,12 @@ async function offByOne() {
     start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page. iteration 1', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
     ledger,
     skip: async () => {
-      const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'review-offer');
-      return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate: 'review-offer', option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
+      const answer = async (gate: string) => {
+        const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
+        return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
+      };
+      // Its only check has a file form, which runs unasked: there is no checks question.
+      return answer('review-offer');
     },
     work: (step = 'change') => readFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', `work-${step}.md`), 'utf8'),
     write: (file: string, text: string) => writeFile(path.join(root, file), text),
@@ -109,16 +114,18 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
 
       const write = await t.skip();
       assert.equal(write.position, 'write');
-      assert.match(write.text, /^Checks\n- app\/unit: passed\n- no formatter configured$/m);
-      assert.match(write.text, /^Review\n- skipped by you$/m);
-      assert.match(write.text, /^Not verified\n- independent review skipped — verification incomplete$/m);
-      assert.doesNotMatch(write.text, /Evidence|not formatted|green exit/);
+      // The facts moved from the step message to the work file the implementer writes the report from.
+      const facts = await t.work('write');
+      assert.match(facts, /^Checks\n- app\/unit: passed\n- no formatter configured$/m);
+      assert.doesNotMatch(facts.split('## report\n')[1] ?? '', /^Review$/m);
+      assert.doesNotMatch(facts.split('## report\n')[1] ?? '', /Not verified/);
+      assert.doesNotMatch(facts, /Evidence|not formatted|green exit/);
 
       const ledger = await t.ledger();
       const checks = ledger.filter((entry) => entry.kind === 'check');
-      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['green', 0]]);
+      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['green', 0], ['green', 0]], 'the implementer\'s run, then the end run of the same key by file');
       assert.deepEqual(ledger.filter((entry) => entry.kind === 'baseline').map((entry) => (entry['dirty'] as { path: string }[]).map((dirty) => dirty.path)), [['src/page.js']]);
-      const report = write.text.split('## report\n')[1]!.split('\n\n## ')[0]!;
+      const report = facts.split('## report\n')[1]!.split('\n\n## ')[0]!;
       const allowed = await t.stop(`# Task report\n\n**Done**: the last item stays on its page. All tests pass.\n\n**Remaining**: none\n\n${report}`);
       assert.notEqual(allowed?.decision, 'block', allowed?.reason);
       console.log(`[test 18 ledger] ${trail(await t.ledger())}`);

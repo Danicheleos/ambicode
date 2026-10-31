@@ -54,6 +54,8 @@ describe('downstream cases', () => {
     assert.throws(() => read(bare, 'graders/route-done.md'));
     assert.throws(() => read(plugin, 'graders/skill-called.md'));
     assert.match(read(plugin, 'scaffold.sh'), /cp -R '.*ctx' \.ambicode\/context/);
+    assert.match(read(plugin, 'scaffold.sh'), /^cp '.*repo\/\.ambicode\/config\.yaml' \.ambicode\/config\.yaml$/m);
+    assert.doesNotMatch(read(plugin, 'scaffold.sh'), /\[ ! -f [^\n]*config\.yaml' \] \|\| cp/);
     assert.match(read(plugin, 'scaffold.sh'), /scripts\/ambicode\.mjs' context index/);
     assert.doesNotMatch(read(bare, 'scaffold.sh'), /\.ambicode/);
     for (const arm of [plugin, bare]) {

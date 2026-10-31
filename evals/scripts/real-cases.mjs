@@ -61,7 +61,8 @@ export function graderFiles(real, plugin) {
   const out = real.graders.filter((g) => g.kind !== 'diff').map((g) => {
     const weight = `weight: ${g.weight ?? 1}`;
     if (g.kind === 'exists') return grader(g.name, `type: file_exists\npath: ${g.glob}\n${weight}`);
-    if (g.kind === 'llm') return { name: g.name, text: `---\ntype: llm\nfocus: last_message\n${weight}\n---\n\n${g.rubric.trim()}\n` };
+    // The plugin arm's final message is one pointer line: the implementer's report is the file the task route saves; the bare arm has no route, so its message is the report.
+    if (g.kind === 'llm') return { name: g.name, text: `---\ntype: llm\nfocus: ${plugin ? `{ source: file, path: .ambicode/tasks/${real.slug}/report.md }` : 'last_message'}\n${weight}\n---\n\n${g.rubric.trim()}\n` };
     const pattern = g.wrote ? wroteLine(g.wrote) : g.pattern;
     const target = g.kind === 'trace' ? 'trace' : `{ source: file, path: ${g.file} }`;
     return grader(g.name, `type: regex\npattern: ${y(pattern)}\nmatch: ${g.match ?? 'contains'}\ntarget: ${target}\n${weight}`);
@@ -112,10 +113,15 @@ export function caseFiles({ real, order, sources, plugin }) {
   return files;
 }
 
-/** Rewrites both task-real trees; returns one row per variant. */
-export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().cases }) {
+// The variants main() renders, with the number each directory keeps from the 30-variant set the other 27 were archived from
+// (eval-archive/task-cases-2026-10-29): the numbers pin the directory names, so a later trim of the local file cannot renumber them.
+export const KEEP = { 'task-real-k12-report-settings-plan': 19, 'task-real-k12-celery-email-plan': 22, 'task-real-k12-recognition-notifications': 30 };
+
+/** Rewrites both task-real trees; returns one row per variant. With `keep` ({variant name: directory number}) only those variants are rendered. */
+export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().cases, keep = null }) {
   for (const tree of ['cases', 'bare']) rmSync(path.join(evalsDir, tree, REAL_TAG), { recursive: true, force: true });
-  return cases.flatMap(variantsOf).map((real, order) => {
+  const variants = cases.flatMap(variantsOf).map((real, order) => ({ real, order: keep ? (keep[real.name] ?? 0) - 1 : order }));
+  return variants.filter(({ order }) => order >= 0).map(({ real, order }) => {
     for (const plugin of [true, false]) {
       for (const [relative, text] of caseFiles({ real, order, sources, plugin })) {
         const file = path.join(evalsDir, plugin ? 'cases' : 'bare', REAL_TAG, relative);
@@ -156,7 +162,7 @@ function main(argv, env) {
     const bench = path.resolve(env[names.bench]);
     sources[key] = { bench, context: path.resolve(env[names.context] ?? path.join(bench, '.ambicode', 'context')) };
   }
-  for (const row of writeReal({ evalsDir: evals, sources, cases })) console.log(`${row.name}: ${row.relevant} relevant, ${row.allowed} allowed, parent ${row.parent.slice(0, 8)}`);
+  for (const row of writeReal({ evalsDir: evals, sources, cases, keep: KEEP })) console.log(`${row.name}: ${row.relevant} relevant, ${row.allowed} allowed, parent ${row.parent.slice(0, 8)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

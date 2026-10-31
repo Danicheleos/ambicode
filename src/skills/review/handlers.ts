@@ -180,7 +180,7 @@ const pin: Handler = async (input) => {
     }
     const pinned = await pinAssembled(runtime, bundle, { omissions: scope.omissions, ledger: scope.ledger, append: (fields) => input.ledger.append(fields) });
     const started = reviewing ? undefined : chain.find((entry) => entry.kind === 'step' && entry['step'] === 'start');
-    const section = started === undefined ? null : (await briefOf({ ...input, args: { ...input.args, plan: started['planPath'] as string | null, iteration: started['iteration'] as number } }, [])).brief;
+    const section = started === undefined ? null : (await briefOf({ ...input, args: { ...input.args, plan: started['planPath'] as string | null, iteration: started['iteration'] as number } }, [], started['through'] as number | undefined)).brief;
     if (section !== null) await runtime.fs.writeText(path.join(pinned.bundle.reviewDirectory, PLAN_SECTION), `${section}\n`);
     return { state: 'ok', payload: null };
   } catch (error) {

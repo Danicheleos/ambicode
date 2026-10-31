@@ -9,7 +9,7 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 # Implement a change
 
 A route hands you one step at a time: the change with its tests, format, an independent review
-offered, then the report. Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; without it every iteration runs from the first not done, each with its review. Do what each step says; the output of the command it ends with brings the next step.
+offered, then the report. Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; with it the review is offered, the checks by file run unasked, and a check that runs the whole project is offered. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; one review follows over the whole change, then the checks run once, over everything the task changed. Do what each step says; the output of the command it ends with brings the next step.
 
 ## Your part
 

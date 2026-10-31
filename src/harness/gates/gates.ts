@@ -175,7 +175,7 @@ export const matchOption = (options: readonly string[], answer: string): string 
  * Print-time text for a gate. The question window cannot show selectable text or click a path, so `details` is written to
  * the chat before the question and the recorded question stays the declared one. `note` is an instruction to the model only.
  */
-interface PrintShape { details?: string; note?: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }
+interface PrintShape { question?: string; details?: string; note?: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }
 type PrintShaper = (input: { runtime: Runtime; dir: TaskDir; task: string; chain: readonly LedgerEntry[]; gate: GateDef }) => Promise<PrintShape | null>;
 const PRINT_SHAPERS = new Map<string, PrintShaper>();
 
@@ -190,7 +190,7 @@ export async function shapePrint(gate: GateDef, input: Omit<Parameters<PrintShap
     throw new AmbicodeError('internal', `gate ${gate.id}: a print offered options outside the declared ones or without the default.`);
   }
   return {
-    question: gate.question,
+    question: shape.question ?? gate.question,
     ...(shape.details === undefined || shape.details.trim() === '' ? {} : { details: shape.details }),
     ...(shape.note === undefined || shape.note.trim() === '' ? {} : { note: shape.note }),
     options: [...offered],

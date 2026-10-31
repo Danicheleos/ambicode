@@ -10,17 +10,19 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'review/agent', 'review/agent-work'];
+const STEPS = ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'task/write-work', 'review/agent', 'review/agent-work'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
 /** The shipped task route with its step texts and the real handlers, on `checkFixture`'s repository. */
-export async function taskFixture(options: { config?: string; pack?: string } = {}) {
+export async function taskFixture(options: { config?: string; pack?: string; askChecks?: boolean } = {}) {
   const step: Record<string, string> = {};
   for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const task = await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8');
-  const base = await checkFixture({ routes: { task }, handlers: skillHandlers(), step, ...options });
+  const base = await checkFixture({ routes: { task }, handlers: skillHandlers(), step, scriptEngine: true, ...(options.config === undefined ? {} : { config: options.config }), ...(options.pack === undefined ? {} : { pack: options.pack }) });
   const { fx } = base;
+  // The engine's own format step now goes through the scripted runner too; it used the real one, where `fmt` exits 0.
+  base.runner.out = { exitCode: 0, stdout: '' };
   await fx.repo.write('src/orders.ts', ORDERS);
   await fx.repo.commitAll('orders');
   const dir = path.join(fx.repo.root, '.ambicode', 'tasks', CHECK_TASK);
@@ -31,9 +33,14 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   const next = (input: Partial<AdvanceInput> = {}): Promise<StepMessage> =>
     fx.engine.advance({ task: CHECK_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
-  const hook = async (gate: string, option: string): Promise<StepMessage> => {
+  const answer = async (gate: string, option: string): Promise<StepMessage> => {
     const print = (await fx.kinds(CHECK_TASK, 'gate')).findLast((entry) => entry['gate'] === gate);
     return next({ cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
+  };
+  // Most tests are about the review and the report, not the checks question that follows the review offer: it is skipped for them unless `askChecks` is on.
+  const hook = async (gate: string, option: string): Promise<StepMessage> => {
+    const message = await answer(gate, option);
+    return gate === 'review-offer' && message.position === 'checks-offer' && options.askChecks !== true ? answer('checks-offer', 'skip — verification incomplete') : message;
   };
   const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>

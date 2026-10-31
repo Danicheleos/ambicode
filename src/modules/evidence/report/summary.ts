@@ -31,7 +31,7 @@ export async function renderSummary(task: string, entries: readonly LedgerEntry[
   const others = chains.filter((chain) => iterationOf(chain) === null);
 
   const final = async (chain: Chain): Promise<string[]> => {
-    const note = chain.entries.findLast((entry) => entry.kind === 'note' && (entry['note'] === 'result' || entry['note'] === 'investigation'));
+    const note = chain.entries.findLast((entry) => entry.kind === 'note' && (entry['note'] === 'result' || entry['note'] === 'investigation' || entry['note'] === 'report'));
     const body = note === undefined ? null : await read(text(note['path']));
     return body === null ? [] : quote(body, text(note!['path']));
   };
@@ -60,12 +60,14 @@ export async function renderSummary(task: string, entries: readonly LedgerEntry[
   const inits = entries.filter((entry) => entry.kind === 'init');
 
   const iterationBlocks = await Promise.all(rows.map(async ([n, chain]) => {
-    const total = chain.entries.find((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['iterations'];
+    const start = chain.entries.find((entry) => entry.kind === 'step' && entry['step'] === 'start');
+    const total = start?.['iterations'];
+    const through = Number(start?.['through']);
     const files = [...new Set(chain.entries.filter((entry) => entry.kind === 'check').flatMap((entry) => (Array.isArray(entry['files']) ? entry['files'] : []).map(String)))];
     const checks = checkFacts(chain.entries).filter((line) => line !== 'no formatter configured');
     const review = reviewFact(chain.entries);
     return [
-      `- Iteration ${n} of ${String(total)}${titles.has(n) ? ` (${titles.get(n)})` : ''}: ${endOf(chain)}`,
+      `- ${through > n ? `Iterations ${n}-${through}` : `Iteration ${n}`} of ${String(total)}${titles.has(n) ? ` (${titles.get(n)})` : ''}: ${endOf(chain)}`,
       ...(await final(chain)),
       ...(files.length === 0 ? [] : [`  Files: ${files.join(', ')}`]),
       ...(checks.length === 0 ? [] : [`  Checks: ${checks.join('; ')}`]),

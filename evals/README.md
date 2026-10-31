@@ -1,6 +1,6 @@
 # Evals: skill coverage
 
-Sixty-eight synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 59 of them also run with no plugin
+Forty-eight synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 40 of them also run with no plugin
 loaded, which is the baseline. Two generators outside `cases.mjs` add six more runnable cases (`downstream` 5 and
 `init-large` 1), and two offline map bench suites outside `evals/` (`bench/map`, `evals/local/bench/map-k12`) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
 here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
@@ -23,8 +23,8 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: the 68 cases of cases.mjs (+ downstream, init-large once generated)
-npm run evals:bare                  # bare arm: 59 cases of cases.mjs (+ downstream), no plugin
+npm run evals                       # plugin arm: the 48 cases of cases.mjs (+ downstream, init-large once generated)
+npm run evals:bare                  # bare arm: 40 cases of cases.mjs (+ downstream), no plugin
 npm run evals -- --case 'review-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
@@ -35,6 +35,12 @@ Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap 
 `--model`, `--effort`, `--runs` or `--max-cost-usd`. The harness has no effort flag, so `run.mjs` sets
 `CLAUDE_CODE_EFFORT_LEVEL` in the environment. A probe showed the variable inside the run. It does not prove the
 model honoured it.
+
+Before each case `run.mjs` prints `preflight: evals/ <n> entries` (it refuses to run at 20000 or more) and one line per bench repository
+(env `NAV_BENCH`, `K12_BENCH`, `INIT_BENCH` and every variable `evals/local/real-cases.json` names): the absolute path and the sha256 of its `.ambicode/context/index.md`.
+Briefs need not locate the repositories, and nobody should `find /` for them.
+`--max-cost-usd` is one total per command, checked before each run launches. The runs of a case start in parallel (`-j 4`), so one command can overshoot it by up to the runs in flight.
+A `--case` or `--tag` that matches no case fails the command (exit 1, `--case/--tag matched no case: <value>`). A paid grader the harness skipped for the cost ceiling is left out of the run's score; the run gets `partialGrading` and `skippedGraders`, and the summary prints one `warning:` line per such run.
 
 A series of one-case commands reports progress: pass every command the same `--series <case1,case2,...>` plus its own `--case <name>` (`npm run evals -- --series a,b,c --case a`, then `--case b`, ...). Each command updates `evals/cases/results/running.json` (series id, arm, per-case queued/running/done/failed, score, cost, `finishedAt` once all are done), which the plugin-master Evals view shows. A different list or a finished file starts a new one; without `--series` a lone `--case` is a one-case series. The file has no `schemaVersion`, so the viewer does not list it as a run, and a write failure only warns.
 
@@ -64,7 +70,7 @@ Reference means (F1 over the ten fe-angular cases, 2026-10-26, 0.6.27 map): all 
 
 `scripts/downstream-cases.mjs` turns five corrected map cases (6141, 3571, 6404, 5967, 6292: the first three by choice, then the two with the most reachable targets) into `fe-vs-<id>-downstream`, written to `evals/cases/downstream/` (plugin arm: `/ambicode:investigate <ticket>`, with the bench's `.ambicode/config.yaml` and `context/`) and `evals/bare/downstream/` (bare arm: same request, no skill). Both gitignored.
 
-`scripts/real-cases.mjs` renders `task-real` cases (tag `task-real`: a past merge of a bench repository, the task stated as a user would) to `evals/cases/task-real/` and `evals/bare/task-real/` (gitignored: the scaffold names the local checkouts). The cases are data about those repositories and are never in git: they live in `evals/local/real-cases.json` (gitignored; `REAL_CASES_FILE` points elsewhere), whose shape the header of `real-cases.mjs` documents, and the checkout of each repository comes from the env var that file names: `<ENV>=<checkout> node evals/scripts/real-cases.mjs`. The scaffold is downstream-cases.mjs's, archiving the parent of the merge. The prompt states the outcome only. Each case yields three variants, `<name>-plan`, `<name>-inv` and `<name>` (tag `task-real-raw`: the task prompt alone, nothing seeded, no `plan-picked-up` grader): the plugin arm starts from a seeded accepted plan or investigation note in `.ambicode/tasks/<slug>/` (task-seeds.mjs), the bare arm has the same text in the prompt (the raw variant has none), and both prompts end with a sentence not to run builds, tests, linters or reviews (the plugin arm also has every configured check set to null by `config-checks-off.mjs`, and `--headless iteration 1` skips the review offer). Graders are regexes on fixed workspace files, `diff` graders (diff-graders.mjs: a regex over the added lines of the run's final workspace diff, which harvest saves as `<case>-<n>.diff`; scored by run.mjs after the harness and folded into the run's graders and score) for new files of any name, and one `llm` judge of weight 1 on the final message; measuring ones fail on the parent and pass on the real merge, guards forbid the naive alternative and pass on the parent. `truth.json` (`source: changed`) is scored by run.mjs on the workspace diff. `real-cases.test.mjs` tests the generator on invented cases and, when the local file and the checkouts exist, checks every local case against its repository (read-only git show/diff/ls-tree); without them those tests skip.
+`scripts/real-cases.mjs` renders `task-real` cases (tag `task-real`: a past merge of a bench repository, the task stated as a user would) to `evals/cases/task-real/` and `evals/bare/task-real/` (gitignored: the scaffold names the local checkouts). The cases are data about those repositories and are never in git: they live in `evals/local/real-cases.json` (gitignored; `REAL_CASES_FILE` points elsewhere), whose shape the header of `real-cases.mjs` documents, and the checkout of each repository comes from the env var that file names: `<ENV>=<checkout> node evals/scripts/real-cases.mjs`. Only the variants of `KEEP` in real-cases.mjs are rendered (since 2026-10-29: `19-...-k12-report-settings-plan`, `22-...-k12-celery-email-plan`, `30-...-k12-recognition-notifications`, the last one raw, tag `task-real-raw`), under the directory numbers `KEEP` pins; the other 27 variants and the full `real-cases.json` are in `../eval-archive/task-cases-2026-10-29`. The scaffold is downstream-cases.mjs's, archiving the parent of the merge. The prompt states the outcome only. Each case yields three variants, `<name>-plan`, `<name>-inv` and `<name>` (tag `task-real-raw`: the task prompt alone, nothing seeded, no `plan-picked-up` grader): the plugin arm starts from a seeded accepted plan or investigation note in `.ambicode/tasks/<slug>/` (task-seeds.mjs), the bare arm has the same text in the prompt (the raw variant has none), and both prompts end with a sentence not to run builds, tests, linters or reviews (the plugin arm also has every configured check set to null by `config-checks-off.mjs`, and `--headless iteration 1` skips the review offer). Graders are regexes on fixed workspace files, `diff` graders (diff-graders.mjs: a regex over the added lines of the run's final workspace diff, which harvest saves as `<case>-<n>.diff`; scored by run.mjs after the harness and folded into the run's graders and score) for new files of any name, and one `llm` judge of weight 1 on the report (plugin arm: `.ambicode/tasks/<slug>/report.md`, the implementer's report, since the final message is one pointer line; bare arm: the final message); measuring ones fail on the parent and pass on the real merge, guards forbid the naive alternative and pass on the parent. `truth.json` (`source: changed`) is scored by run.mjs on the workspace diff. `real-cases.test.mjs` tests the generator on invented cases and, when the local file and the checkouts exist, checks every local case against its repository (read-only git show/diff/ls-tree); without them those tests skip.
 
 The plugin-arm scaffold also runs `ambicode context index` after copying `context/`, so the search index exists at the archived HEAD and the first map does not build it cold.
 
@@ -98,7 +104,7 @@ Read the result files, not the exit code. The harness exits 1 whenever any case 
 
 1. **Scaffold.** `scaffold.sh` replays a fixture into `repo/`, a fresh git repository with known history. The
    plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real. `--context` also writes
-   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (59 of the 65 cases).
+   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (42 of the 48 cases).
 2. **Prompt.** The plugin arm types the skill exactly as a user would, for example
    `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() …`. `--task` fixes the slug so
    graders can find the ledger. `--answer` pre-answers a gate. A case with no answer tests the gate's default. The
@@ -120,7 +126,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Nine cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`), the five `init-auto-*` cases, one `task` case (`task-app-review-fix-loop`; the after-plan and after-investigate cases have a bare arm that gets the note as prompt text) and one `plan` case (`plan-app-draft`).
+Eight cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`), the five `init-auto-*` cases and one `plan` case (`plan-app-draft`); the after-investigate task case has a bare arm that gets the note as prompt text.
 
 ## Suites
 
@@ -131,7 +137,7 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 | review | 14 | 14 | `cases.mjs`, see Review cases |
 | investigate | 15: app 5, other stacks 5 (`investigate-<ts|py|go|jvm|mono>-*`), downstream 5 | 15 | 10 in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs` |
 | plan | 15 | 14 | `cases.mjs`: app 5, other stacks 10 |
-| task | 22 | 21 | `cases.mjs` |
+| task | 2 (`task-app-segments-void`, `task-jvm-after-investigate`; both tag `task-tune`) | 2 | `cases.mjs` (task-cases.mjs); the other 20 are in `../eval-archive/task-cases-2026-10-29` |
 | init | 5 | 0 | `cases.mjs` (`init-auto-*`) |
 | rules (tag; the cases sit in the rules and plan suites) | 2 | 0 | `rules-cases.mjs` |
 | init-large | 1 | 0 | `init-large-case.mjs`, real repository |

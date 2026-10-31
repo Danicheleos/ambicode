@@ -5,8 +5,11 @@ import { TASKS_DIR } from '#types/defaults';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { HandlerInput } from '#types/harness';
 
-/** The plan a task implements, its iteration count, and the brief of the iteration it starts at. */
-export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry[]): Promise<{ planPath: string | null; iteration: number; iterations: number; brief: string | null }> {
+/**
+ * The plan a task implements, its iteration count, and the brief from the iteration it starts at. An unnamed start briefs
+ * every iteration not done, in order, through the last (`through`); a named one briefs itself, or up to `through` for the review pin.
+ */
+export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry[], through?: number): Promise<{ planPath: string | null; iteration: number; iterations: number; through: number; brief: string | null }> {
   const planPath = input.args.plan ?? (entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')?.['path'] as string | undefined) ?? null;
   const plan = planPath === null ? null : await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null);
   const done = doneIterations(entries);
@@ -15,9 +18,18 @@ export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry
   // Without iteration headings the request is the one brief, and it may run again.
   let iteration = named ?? 1;
   while (named === null && headings.length > 0 && done.has(iteration)) iteration += 1;
-  const at = headings.findIndex((heading) => Number(heading[1]) === iteration);
-  const brief = plan === null ? null : headings.length === 0 ? plan : at < 0 ? null : plan.slice(headings[at]!.index, headings[at + 1]?.index ?? plan.length);
-  return { planPath, iteration, iterations: Math.max(1, headings.length), brief: brief?.trim() ?? null };
+  const iterations = Math.max(1, headings.length);
+  const last = named === null ? iterations : Math.max(iteration, through ?? iteration);
+  const sections: string[] = [];
+  if (plan !== null && headings.length === 0) sections.push(plan);
+  else if (plan !== null) {
+    for (let number = iteration; number <= last; number += 1) {
+      if (named === null && done.has(number)) continue;
+      const at = headings.findIndex((heading) => Number(heading[1]) === number);
+      if (at >= 0) sections.push(plan.slice(headings[at]!.index, headings[at + 1]?.index ?? plan.length).trim());
+    }
+  }
+  return { planPath, iteration, iterations, through: last, brief: sections.length === 0 ? null : sections.join('\n\n').trim() };
 }
 
 /** The investigation file a request names by path (the file, or a task folder: its latest), if it sits under the tasks directory. */

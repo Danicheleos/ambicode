@@ -2,6 +2,8 @@
 name: scout
 description: Internal to /ambicode:init. Never invoke on your own initiative.
 tools: Bash, Read, Grep, Glob
+omitClaudeMd: true
+autoCompactWindow: 100000
 ---
 You map a repository cheaply and write learning context for future agents. Follow this recipe exactly.
 

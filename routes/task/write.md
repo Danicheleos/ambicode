@@ -1,13 +1,4 @@
 # Task report
-Your final message is this heading, **Done**, then the facts below copied as printed (Checks, Review, Not verified; a section missing below is left out). Nothing else. `{cli} report --task {task}` prints the task summary.
-- **Done**: the implementer's `Changed:` lines, one per changed file: `path:line` and what and why.
-- Not verified also lists the implementer's `Gaps:` lines and findings left outside the brief, one each; add the section if only those exist.
-Never say tests pass unless Checks says passed.
-Example:
-# Task report
-**Done**
-- src/orders/service.ext:42 refund total skips refunded lines, so partial refunds stop overcharging.
-Checks
-- unit: passed
-Review
-- 1 finding, 1 fixed, re-review clean
+The implementer writes the report, from {work}: it did the work, so its context is small; the main session's is large.
+- Implementer, this step was printed by your last call: the brief below is yours, with the facts. Its final message is the report; run nothing and read nothing.
+- Main session: launch `ambicode:implementer` in the foreground (`run_in_background: false`) on `Write the task report described in {work}. The code is in the checkout.` The hook then gives you one line to reply with; write nothing else.

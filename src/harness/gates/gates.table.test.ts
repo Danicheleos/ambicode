@@ -28,6 +28,7 @@ steps:
 const VALUES: Record<string, Record<string, string[]>> = {
   'requirements-not-captured-twice': {},
   'check-only-unauthorized': { key: ['unit'], files: ['src/a.ts'] },
+  'checks-again': { key: ['app/unit'] },
   'review-again': {},
   'project-ambiguous': { projects: ['app', 'lib'] },
   'decision:db-choice': {},

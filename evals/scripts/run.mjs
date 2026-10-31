@@ -5,12 +5,12 @@
 // --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { archiveOf, deliveryLine, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
-import { isRealCase, realTruth } from './real-cases.mjs';
+import { isRealCase, loadRealCases, realTruth } from './real-cases.mjs';
 import { metricsOf, scoreFiles } from './metrics.mjs';
-import { applyDiffGraders } from './diff-graders.mjs';
+import { applyDiffGraders, isSkipped } from './diff-graders.mjs';
 import { downstreamMetrics, downstreamTruth, isDownstreamCase } from './downstream-cases.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -20,6 +20,41 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 export const RESULTS = path.join(REPO, 'evals', 'cases', 'results');
 // Outside the plugin, because the harness walks the whole target directory; .tmp/ is gitignored.
 export const NAKED = path.join(REPO, '.tmp', 'naked');
+
+// A subagent once ran `find /` per case to locate the bench repositories: the 120 s Bash timeout backgrounded it and kept the agent alive ~30 min.
+// The runner prints the facts instead; the limit stops a results folder that grew unbounded from slowing every harness walk.
+export const ENTRY_LIMIT = 20000;
+const EVALS = path.join(REPO, 'evals');
+
+/** Entries under `dir` (files and folders, recursive); counting stops once it passes `limit`. */
+export function countEntries(dir, limit = Infinity) {
+  let count = 0;
+  const pending = [dir];
+  while (pending.length > 0 && count <= limit) {
+    for (const entry of readdirSync(pending.pop(), { withFileTypes: true })) {
+      count += 1;
+      if (entry.isDirectory()) pending.push(path.join(entry.parentPath, entry.name));
+    }
+  }
+  return count;
+}
+
+/** One line per bench repository named by the local real-cases file or by NAV_BENCH, K12_BENCH, INIT_BENCH: env var, absolute path, sha256 of its context index. */
+export function benchLines(env = process.env, real = loadRealCases()) {
+  const names = new Set(['NAV_BENCH', 'K12_BENCH', 'INIT_BENCH', ...Object.values(real.repos).map((repo) => repo.bench).filter(Boolean)]);
+  return [...names].filter((name) => env[name]).map((name) => {
+    const bench = path.resolve(env[name]);
+    const index = path.join(bench, '.ambicode', 'context', 'index.md');
+    return `${name} ${bench} ${existsSync(index) ? `index.md sha256 ${createHash('sha256').update(readFileSync(index)).digest('hex')}` : 'no .ambicode/context/index.md'}`;
+  });
+}
+
+/** What is printed before a case runs; `error` is set when evals/ holds `limit` entries or more. */
+export function preflight({ evals = EVALS, env = process.env, limit = ENTRY_LIMIT, real } = {}) {
+  const entries = countEntries(evals, limit);
+  if (entries >= limit) return { error: `preflight: evals/ has ${entries} entries (limit ${limit}); clear evals/cases/results before running`, lines: [] };
+  return { line: `preflight: evals/ ${entries} entries`, lines: benchLines(env, real) };
+}
 
 const VALUE_FLAGS = ['--case', '--tag', '--runs', '--model', '--effort', '--max-cost-usd', '--series'];
 const SWITCHES = ['--bare', '--dry-run'];
@@ -105,6 +140,30 @@ const REAL = {
   tracesRoot: path.join(RESULTS, 'traces'),
 };
 
+/**
+ * Graders the harness skipped for the cost ceiling count as neither passed nor failed: the run's score is recomputed without them, the
+ * run is marked `partialGrading` with their names, and a run with nothing left to score has no score (absent, not 0).
+ */
+function markPartialGrading(evalCase, log) {
+  const runs = Object.values(evalCase.arms ?? {}).flatMap((list) => list ?? []);
+  let changed = false;
+  runs.forEach((one, index) => {
+    const skipped = (one.graders ?? []).filter(isSkipped);
+    if (skipped.length === 0) return;
+    changed = true;
+    const scored = one.graders.filter((grader) => grader.scored !== false && !isSkipped(grader));
+    const total = scored.reduce((sum, grader) => sum + grader.weight, 0);
+    one.score = total === 0 ? null : scored.filter((grader) => grader.passed).reduce((sum, grader) => sum + grader.weight, 0) / total;
+    one.passed = total === 0 ? null : scored.every((grader) => grader.passed);
+    one.partialGrading = true;
+    one.skippedGraders = skipped.map((grader) => grader.name);
+    log(`warning: ${evalCase.name}-${index + 1}: partial grading, not scored: ${one.skippedGraders.join(', ')} (cost ceiling)`);
+  });
+  if (!changed) return;
+  const graded = runs.filter((one) => typeof one.score === 'number');
+  evalCase.aggregates = { ...evalCase.aggregates, score: graded.length === 0 ? null : graded.reduce((sum, one) => sum + one.score, 0) / graded.length, passRate: graded.length === 0 ? null : graded.filter((one) => one.passed).length / graded.length };
+}
+
 /** One `claude plugin eval` call: harvest, metrics; leaves run.result holding this call's result. */
 export function runCase(run, deps = REAL) {
   const status = deps.spawn('claude', run.argv, run.env);
@@ -112,6 +171,11 @@ export function runCase(run, deps = REAL) {
   // (`partial` is the harness's own flag in the JSON). Anything else is a harness failure with no result.
   if (![0, 1, 2].includes(status)) return { status: status ?? 1, result: null };
   const result = JSON.parse(readFileSync(run.result, 'utf8'));
+  // A filter matching nothing used to be written as a finished result (cases [], cost 0, partial false; 2026-10-29).
+  if ((result.cases ?? []).length === 0) {
+    (deps.log ?? console.log)(`--case/--tag matched no case: ${option(run.argv, '--case') ?? option(run.argv, '--tag')}`);
+    return { status: 1, result };
+  }
   const stamp = String(result.startedAt ?? Date.now()).replace(/[:.]/g, '-');
   // Per suite run: clearing one shared folder lost the traces of every earlier run (2026-10-12).
   const tracesDir = path.join(deps.tracesRoot, run.arm, stamp);
@@ -135,6 +199,7 @@ export function runCase(run, deps = REAL) {
       evalCase.aggregates = { ...evalCase.aggregates, score: all.reduce((sum, one) => sum + one.score, 0) / all.length, passRate: all.filter((one) => one.passed).length / all.length };
     }
   }
+  for (const evalCase of result.cases) markPartialGrading(evalCase, deps.log ?? console.log);
   writeFileSync(run.result, `${JSON.stringify(result, null, 2)}\n`);
   // The viewer reads one copy per run (<results>/<stamp>/); the harness's own copy there lacks our fields, so the viewer
   // computed its own metrics (2026-10-19: graders 0.244, viewer recall 0.111). The bare arm's harness copy lands in the
@@ -171,7 +236,9 @@ const runsOfCase = (result, name) => {
 export function mergeSeries(previous, result) {
   const fresh = new Set((result.cases ?? []).map((one) => one.name));
   const cases = [...(previous.cases ?? []).filter((one) => !fresh.has(one.name)), ...(result.cases ?? [])];
-  const mean = (key) => (cases.length === 0 ? 0 : Number((cases.reduce((sum, one) => sum + (one.aggregates?.[key] ?? 0), 0) / cases.length).toFixed(3)));
+  // A case with a null score was not graded (every grader skipped): averaging it as 0 reported an absent score as a fail.
+  const graded = cases.filter((one) => typeof one.aggregates?.score === 'number');
+  const mean = (key) => (graded.length === 0 ? 0 : Number((graded.reduce((sum, one) => sum + (one.aggregates?.[key] ?? 0), 0) / graded.length).toFixed(3)));
   return {
     ...result,
     startedAt: previous.startedAt ?? result.startedAt,
@@ -179,7 +246,7 @@ export function mergeSeries(previous, result) {
     costUsd: Number(((previous.costUsd ?? 0) + (result.costUsd ?? 0)).toFixed(6)),
     partial: Boolean(previous.partial || result.partial),
     cases,
-    aggregates: { ...result.aggregates, casesTotal: cases.length, casesPassed: cases.filter((one) => one.aggregates?.passRate === 1).length, overallScore: mean('score'), overallPassRate: mean('passRate') },
+    aggregates: { ...result.aggregates, casesTotal: cases.length, casesScored: graded.length, notScored: cases.filter((one) => !graded.includes(one)).map((one) => one.name), casesPassed: cases.filter((one) => one.aggregates?.passRate === 1).length, overallScore: mean('score'), overallPassRate: mean('passRate') },
   };
 }
 
@@ -250,7 +317,7 @@ export function withProgress(run, argv, exec, { file = path.join(path.dirname(ru
     const state = load();
     const one = entry(state);
     const runs = outcome.result === null ? [] : runsOfCase(outcome.result, name);
-    one.state = outcome.result === null ? 'failed' : 'done';
+    one.state = (outcome.result?.cases ?? []).length === 0 ? 'failed' : 'done';
     one.score = score(runs);
     one.costUsd = outcome.result === null ? null : cost(runs);
     state.current = null;
@@ -273,6 +340,9 @@ function main(argv) {
     console.log(`${Object.entries(run.env).map(([k, v]) => `${k}=${v}`).join(' ')} claude ${run.argv.join(' ')}`);
     return 0;
   }
+  const checkedEvals = preflight();
+  if (checkedEvals.error) { console.error(checkedEvals.error); return 2; }
+  console.log([checkedEvals.line, ...checkedEvals.lines].join('\n'));
   mkdirSync(RESULTS, { recursive: true });
   if (run.arm === 'bare') buildNaked();
   return withProgress(run, argv, () => runCase(run)).status;

@@ -5,7 +5,7 @@ import { createRuntime } from '#composition/root';
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
 import { CONFIG_HEAD } from '#testing/fixtures/route-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { policyStage, STAGE_LIMITS } from './stage.ts';
+import { policyStage } from './stage.ts';
 
 async function repo() {
   const temp = await TempRepo.create();
@@ -75,28 +75,26 @@ describe('03-P policy stage', () => {
     }
   });
 
-  it('03-P1/03-P3: each stage stays under its byte cap unless the reviewer reads it; the entry fields describe what was delivered', async () => {
+  it('03-P1/03-P3: every stage delivers its rules whole; the entry fields describe what was delivered', async () => {
     const { temp, runtime, project } = await repo();
     try {
       const review = await policyStage({ runtime, project, activity: 'review', paths: ['src/a.ts'], stage: 'before-work' });
-      assert.ok(review.bytes > STAGE_LIMITS['before-work'], `review ${review.bytes}: the whole set is over the cap, so this proves it is not cut`);
       assert.doesNotMatch(review.text, /\d+ more, in /);
       const payload = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
-      assert.ok(payload.bytes <= STAGE_LIMITS['before-work'], `before-work: ${payload.bytes}`);
+      assert.doesNotMatch(payload.text, /\d+ more, in /);
       assert.deepEqual(Object.keys(payload.entry).sort(), ['activity', 'bytes', 'ids', 'packs', 'problems', 'rules', 'stage']);
       assert.equal(payload.entry.ids.length, payload.entry.rules);
       assert.equal(payload.entry.bytes, payload.bytes);
-      assert.equal(STAGE_LIMITS['before-work'], 4096);
     } finally {
       await temp.dispose();
     }
   });
 
-  it('11 §2: before-work carries the built-in rules within its cap, uncut', async () => {
+  it('11 §2: before-work carries the built-in rules, uncut', async () => {
     const { temp, runtime, project } = await repo();
     try {
       const work = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
-      assert.ok(work.entry.rules > 0 && work.bytes <= STAGE_LIMITS['before-work']);
+      assert.ok(work.entry.rules > 0);
       assert.doesNotMatch(work.text, /\d+ more, in /);
     } finally {
       await temp.dispose();
@@ -142,20 +140,18 @@ describe('before-work carries every rule', () => {
     }
   });
 
-  it('an overflowing before-work is cut under its cap, and the pointer names every omitted rule and the file to Read', async () => {
-    const fx = await styleRepo(40, ` ${'x'.repeat(200)}`);
+  it('a task before-work far over the old 4096 B cap arrives whole: every instruction in full, every id listed, no pointer line', async () => {
+    const filler = ` ${'x'.repeat(200)}`;
+    const fx = await styleRepo(40, filler);
     try {
       const work = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
-      assert.ok(work.bytes <= STAGE_LIMITS['before-work'], `${work.bytes}`);
-      const lines = work.text.split('\n');
-      const pointer = lines[lines.length - 1]!;
-      const shown = new Set(lines.filter((line) => /^[a-z0-9-]+\/[a-z0-9-]+: /.test(line)).map((line) => line.split(':')[0]));
-      const omitted = ['no-secrets', ...Array.from({ length: 40 }, (_, index) => `style-${index}`)].map((id) => `team/${id}`).filter((id) => !shown.has(id));
-      assert.ok(omitted.length > 0);
-      assert.match(pointer, new RegExp(`^${omitted.length} more, in \\.ambicode/policies/team\\.yaml: `));
-      for (const id of omitted) assert.ok(pointer.includes(id), `${id} missing from the pointer`);
-      assert.doesNotMatch(work.text, /--show/);
-      assert.ok(await fx.runtime.fs.readText(`${fx.temp.root}/.ambicode/policies/team.yaml`));
+      assert.ok(work.bytes > 4096, `${work.bytes}: over the old cap`);
+      assert.doesNotMatch(work.text, /\d+ more, in |\.ambicode\/policies\//);
+      for (let index = 0; index < 40; index++) assert.ok(work.text.includes(`team/style-${index}: Style rule ${index}.${filler}`), `style-${index} whole`);
+      assert.match(work.text, /team\/no-secrets: Never log a token\./);
+      assert.equal(work.entry.ids.length, 41);
+      assert.equal(work.entry.rules, 41);
+      assert.equal(work.entry.bytes, work.bytes);
     } finally {
       await fx.temp.dispose();
     }
@@ -163,7 +159,7 @@ describe('before-work carries every rule', () => {
 });
 
 describe('rules are grouped under one header per authority', () => {
-  it('team rules come before inherited ones, each under its own header, and a cut never leaves a dangling header or counts one as a rule', async () => {
+  it('team rules come before inherited ones, each under its own header, and no header counts as a rule', async () => {
     const fx = await styleRepo(3, ` ${'x'.repeat(300)}`);
     try {
       const config = await fx.runtime.fs.readText(`${fx.temp.root}/.ambicode/config.yaml`);
@@ -175,21 +171,9 @@ describe('rules are grouped under one header per authority', () => {
       assert.deepEqual(headers, ['Rules (team):', 'Rules (inherited):']);
       assert.ok(whole.text.indexOf('team/style-0:') < whole.text.indexOf('Rules (inherited):') && whole.text.indexOf('Rules (inherited):') < whole.text.indexOf('common-code/naming:'));
       assert.doesNotMatch(whole.text, /^[a-z-]+\/[a-z-]+ \(/m, 'no per-line authority suffix');
-      const cut = await styleRepo(40, ` ${'x'.repeat(200)}`);
-      try {
-        const cfg = await cut.runtime.fs.readText(`${cut.temp.root}/.ambicode/config.yaml`);
-        await cut.temp.write('.ambicode/config.yaml', cfg.replace('packs: []', 'packs: [builtin/common-code]'));
-        const cutProject = projectForRequest((await openWorkspace(cut.runtime)).config, null, []);
-        const capped = await policyStage({ runtime: cut.runtime, project: cutProject, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
-        const total = capped.entry.rules;
-        const lines = capped.text.split('\n');
-        const shown = lines.filter((line) => /^[a-z0-9-]+\/[a-z0-9-]+: /.test(line)).length;
-        assert.ok(capped.bytes <= STAGE_LIMITS['before-work']);
-        assert.ok(!lines[lines.length - 2]!.startsWith('Rules ('), 'no trailing header before the pointer');
-        assert.match(lines[lines.length - 1]!, new RegExp(`^${total - shown} more, in `), 'omitted count excludes headers');
-      } finally {
-        await cut.temp.dispose();
-      }
+      const task = await at('task');
+      assert.ok(task.text.startsWith('Rules (team):'), 'headers also lead a task payload');
+      assert.ok(task.text.includes('Rules (inherited):'));
     } finally {
       await fx.temp.dispose();
     }
@@ -205,7 +189,7 @@ describe('plan gets every rule whole', () => {
       assert.ok(plan.text.includes(`team/style-0: Style rule 0.${filler}`), 'the whole instruction');
       assert.ok(plan.text.includes(`team/style-59: Style rule 59.${filler}`), 'no alphabetical cut');
       assert.doesNotMatch(plan.text, /\d+ more, in /);
-      assert.ok(plan.bytes > 4096, `${plan.bytes}: over the task cap, and not cut`);
+      assert.ok(plan.bytes > 4096, `${plan.bytes}: over 4096 B, and not cut`);
       assert.equal(plan.entry.ids.length, plan.entry.rules);
       assert.ok(plan.entry.ids.includes('team/style-59'));
     } finally {
@@ -233,7 +217,6 @@ describe('plan gets every rule whole', () => {
       assert.ok(lines.length > 3);
       assert.ok(lines.every((line) => !line.endsWith('…')));
       assert.ok(lines.some((line) => line.replace(/^[^:]+: /, '').length > 110), 'a rule longer than the old 110-character line');
-      assert.equal('before-work:plan' in STAGE_LIMITS, false);
     } finally {
       await temp.dispose();
     }

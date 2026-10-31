@@ -9,6 +9,11 @@ check-only-unauthorized:
   default: decline
   acting: [approve]
   onAnswer: { approve: "revise $raisedBy" }
+checks-again:
+  question: "{key} is still red after a fix round. Send the implementer again?"
+  options: [fix, "report the gap"]
+  default: "report the gap"
+  acting: [fix]
 review-again:
   question: "The fix changed the code after the review. Run the independent review again?"
   options: [run, skip]

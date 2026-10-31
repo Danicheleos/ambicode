@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { taskFixture, ORDERS } from '#testing/fixtures/task-fixture';
 import { SESSION_A } from '#testing/fixtures/ids';
+import { doneIterations } from '#modules/evidence/task/iterations';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
@@ -25,42 +26,41 @@ const iterationOf = async (t: Fixture, route: number): Promise<unknown> => {
   const id = (await routes(t))[route]!.id;
   return (await t.kinds('step')).find((entry) => entry['step'] === 'start' && entry['route'] === id)?.['iteration'];
 };
+const entriesOf = (t: Fixture) => t.ledger();
 const gates = async (t: Fixture): Promise<unknown[]> => (await t.kinds('gate')).map((entry) => entry['gate']);
 const stop = (t: Fixture) => t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad }, { repositoryRoot: t.fx.repo.root, where: '.' });
 
 describe('task route: the iteration loop', { concurrency: 4 }, () => {
-  it('no iteration in the request: every iteration runs, the review runs unasked, and no gate separates them', async () => {
+  it('no iteration in the request: one route briefs every iteration in order, one review follows, and the run ends done for all of them', async () => {
     await withTask(async (t) => {
-      await t.start({ plan: PLAN, text: TEXT });
+      const started = await t.start({ plan: PLAN, text: TEXT });
+      assert.match(started.text.split('\n')[0]!, /· iteration 1-2\/2 · step change/);
+      const work = await t.work();
+      assert.match(work, /iterations 1-2 of 2\n\n## Iteration 1\nAdd the guard\.\n\n## Iteration 2\nSeed the reduce\./);
       await t.edit();
-      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'review-agent', 'iteration 1: the review starts with no review-offer');
-      const second = await t.review([]);
-      assert.equal(second.position, 'change', 'iteration 2 opens in the same call');
-      assert.match(await t.work(), /iteration 2 of 2 · plan: \.ambicode\/tasks\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
-      assert.equal((await routes(t)).length, 2);
-      assert.deepEqual((await t.kinds('exit')).map((entry) => [entry['route'], entry['reason']]), [[(await routes(t))[0]!.id, 'done']]);
-      await t.fx.repo.write('src/orders.ts', ORDERS.replace('a + b)', 'a + b, 1)'));
-      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'review-agent');
+      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'review-agent', 'the one review starts with no review-offer');
       assert.equal((await t.review([])).position, 'write');
-      assert.equal((await t.kinds('review')).filter((entry) => entry['stage'] === 'recorded').length, 2);
+      assert.equal((await routes(t)).length, 1, 'no second route');
+      assert.equal((await t.kinds('review')).filter((entry) => entry['stage'] === 'recorded').length, 1);
       assert.deepEqual(await gates(t), [], 'no review-offer, no next-offer');
-      assert.equal((await t.kinds('step')).filter((entry) => entry['step'] === 'write' && entry['status'] === 'delivered').length, 1);
-      assert.deepEqual([await iterationOf(t, 0), await iterationOf(t, 1)], [1, 2]);
+      assert.deepEqual([...doneIterations(await entriesOf(t))], []);
       await stop(t);
-      assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['done', 'done']);
+      assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['done']);
+      assert.deepEqual([...doneIterations(await entriesOf(t))], [1, 2], 'a done exit marks every covered iteration');
+      await t.start({ plan: PLAN, text: TEXT });
+      assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']).at(-1), 'iterations-complete');
     });
   });
 
-  it('headless with no iteration in the request: every iteration runs, the review offer takes its default skip, and no review runs', async () => {
+  it('headless with no iteration in the request: one route covers every iteration, and no review runs', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT, headless: true });
       await t.edit();
       const after = await t.check('green', { ran: 1, failed: 0 });
       assert.notEqual(after.position, 'review-agent');
-      assert.match(after.text.split('\n')[0]!, /· iteration 2\/2 · step change/, 'the header line names the iteration, so the next iteration does not print as the step before');
+      assert.match(after.text.split('\n')[0]!, /· iteration 1-2\/2 · step /, 'the header names the range');
       assert.equal((await t.kinds('review')).length, 0);
-      assert.equal((await routes(t)).length, 2, 'iteration 2 opened: the offer did not end the task');
-      assert.equal(await iterationOf(t, 1), 2);
+      assert.equal((await routes(t)).length, 1);
     });
   });
 
@@ -86,7 +86,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       assert.equal((await t.hook('review-offer', SKIP)).position, 'write');
       await stop(t);
       assert.equal((await routes(t)).length, 1);
-      assert.deepEqual(await gates(t), ['review-offer']);
+      assert.deepEqual(await gates(t), ['review-offer', 'checks-offer']);
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
     });
   });
@@ -100,6 +100,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       await stop(t);
       await t.start({ plan: PLAN, text: TEXT });
       assert.equal(await iterationOf(t, 1), 2);
+      assert.match(await t.work(), /iteration 2 of 2/);
     });
   });
 
@@ -124,21 +125,18 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
     });
   });
 
-  it('a red last check released by the limit ends the route blocked, and the next start redoes that iteration', async () => {
+  it('a route stopped blocked after its change is not done: the next start redoes from iteration 1', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });
       await t.edit();
-      await t.check('red', { ran: 1, failed: 1 });
-      await t.append({ kind: 'limit', which: 'check', step: 'change', phase: 'green', count: 5 });
-      let message = await t.next();
-      for (let round = 0; round < 4 && message.position === 'review-agent'; round += 1) message = await t.review([]);
+      await t.fx.engine.stop('ord-7', 'blocked', 'stopped');
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['blocked']);
       await t.start({ plan: PLAN, text: TEXT });
       assert.deepEqual([await iterationOf(t, 0), await iterationOf(t, 1)], [1, 1]);
     });
   });
 
-  it('a route that ends blocked does not continue to iteration 2', async () => {
+  it('a route that ends blocked marks no iteration done', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });
       await t.edit();
@@ -146,6 +144,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       await t.fx.engine.stop('ord-7', 'blocked', 'fix limit spent');
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['blocked']);
       assert.equal((await routes(t)).length, 1);
+      assert.deepEqual([...doneIterations(await entriesOf(t))], []);
     });
   });
 
@@ -167,4 +166,61 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       assert.equal((await routes(t)).length, 1);
     }, '# Plan\n\n## Iteration 1\nAdd the guard.\n');
   });
+  it('an unnamed start skips an iteration already done: the brief holds the others in order, and a done exit marks them all', async () => {
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
+      await t.edit();
+      await t.check('green', { ran: 1, failed: 0 });
+      await t.hook('review-offer', SKIP);
+      await stop(t);
+      await t.start({ plan: PLAN, text: TEXT });
+      const work = await t.work();
+      assert.match(work, /iterations 1-3 of 3/);
+      assert.match(work, /## Iteration 1\nAdd the guard\.\n\n## Iteration 3\nWire it\./);
+      assert.doesNotMatch(work, /## Iteration 2/);
+    }, `${TWO}\n## Iteration 3\nWire it.\n`);
+  });
+
+  it('the change step of an unnamed route allows 2 checks per phase for each covered iteration; a named one keeps 5', async () => {
+    const THREE = `${TWO}\n## Iteration 3\nWire it.\n`;
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: TEXT });
+      t.runner.out = { exitCode: 1, stdout: 'Tests: 1 failed\n' };
+      for (let run = 0; run < 6; run += 1) assert.equal((await t.runCheck({ phase: 'green' })).outcome, 'ran');
+      await assert.rejects(t.runCheck({ phase: 'green' }), /6 green checks already ran/);
+    }, THREE);
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
+      t.runner.out = { exitCode: 1, stdout: 'Tests: 1 failed\n' };
+      for (let run = 0; run < 5; run += 1) assert.equal((await t.runCheck({ phase: 'green' })).outcome, 'ran');
+      await assert.rejects(t.runCheck({ phase: 'green' }), /5 green checks already ran/);
+    }, THREE);
+  });
+
+  it('a route started after one that was interrupted keeps its baseline: the work it left is not "already changed"', async () => {
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: TEXT });
+      await t.edit();
+      await t.start({ plan: PLAN, text: TEXT });
+      const baselines = await t.kinds('baseline');
+      assert.equal(baselines.length, 2);
+      assert.deepEqual(baselines[1]!['dirty'], baselines[0]!['dirty']);
+      assert.equal(baselines[1]!['tree'], baselines[0]!['tree']);
+      assert.deepEqual((baselines[1]!['dirty'] as unknown[]), [], 'the interrupted route edited after its baseline, so the edit is not in it');
+    });
+  });
+
+  it('a route started after one that finished takes a fresh baseline: the finished work is already changed', async () => {
+    await withTask(async (t) => {
+      await t.start({ plan: PLAN, text: `${TEXT} iteration 1` });
+      await t.edit();
+      await t.check('green', { ran: 1, failed: 0 });
+      await t.hook('review-offer', SKIP);
+      await stop(t);
+      await t.start({ plan: PLAN, text: TEXT });
+      const baselines = await t.kinds('baseline');
+      assert.deepEqual((baselines[1]!['dirty'] as { path: string }[]).map((entry) => entry.path), ['src/orders.ts']);
+    });
+  });
+
 });

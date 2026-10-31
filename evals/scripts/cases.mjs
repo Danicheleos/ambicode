@@ -72,7 +72,7 @@ export const CASES = [
   // Ten tricky questions on the init stacks and five in depth on ts-app-medium, two of them on its ts-app-medium-deep variant (investigate-cases.mjs).
   ...investigateCases(BUILDERS),
   // ---------------------------------------------------------------- task
-  // Fifteen cases on the init stacks (task-cases.mjs) and five on the app fixtures; seeded ones start after a plan or an investigation.
+  // Two cases (task-cases.mjs): one after an investigation on the seedvault stack, one on the app fixture.
   ...taskCases(BUILDERS),
   // ---------------------------------------------------------------- plan
   // Ten cases on the init stacks and five on ts-app-medium (plan-cases.mjs): same request in both arms, the plan graded as text.

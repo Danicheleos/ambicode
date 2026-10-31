@@ -5,6 +5,9 @@ import type { HookInput, RouteHookDeps } from '#types/hook';
 import { liveRouteOf, markStepDelivered } from '#harness/session/active-route';
 import { answersOf } from '#harness/definition/flags';
 import { isAmbicodeError } from '#util/errors';
+import { dirKindFor } from '#types/defaults';
+import { readLedger } from '#platform/ledger/ledger';
+import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
 
@@ -84,4 +87,25 @@ export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: Ro
   const message = await deps.engine.deliver(active.task, input.scratchpad_dir);
   if (message === null) return null;
   return (await markStepDelivered(runtime.fs, { session: input.session_id, scratchpad: input.scratchpad_dir, routeId: active.routeId, position: message.position })) ? message.text : null;
+}
+
+/**
+ * The implementer ran `route next` itself, so what main needs is the step it reached, delivered here instead of by a turn of its
+ * own (every main turn re-reads a context of ~300k). At the closing step with the report already saved the step is not repeated:
+ * main answers with the pointer and nothing else.
+ */
+export async function implementerReturned(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository): Promise<string | null> {
+  if (input.agent_id !== undefined || typeof found === 'string') return null;
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now());
+  if (active === null) return null;
+  const message = await deps.engine.deliver(active.task, input.scratchpad_dir);
+  if (message === null) return null;
+  // An implementer with no runnable check has no green check to end on and returned without `route next`: the step it was launched on is the step still open, and redelivering that step made main relaunch the same brief (a measured run: a second implementer, $.19).
+  if (String(input.tool_input?.['prompt'] ?? '').includes(`work-${message.position}.md`)) return `The implementer returned without running \`route next\`, so the route is still at step ${message.position}. Do not launch it again. Run \`node "${runtime.pluginRoot}/scripts/ambicode.mjs" route next --task ${active.task}\` yourself; the next step prints from it.`;
+  const def = deps.routes.route(active.skill);
+  const entries = await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill)).root).catch(() => []);
+  const report = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'report' && entry['route'] === active.routeId);
+  if (report !== undefined && def?.steps.at(-1)?.id === message.position) return `The implementer wrote the report to ${String(report['path'])}. Your whole reply is this one line, nothing before or after it, and no command or file read: Task report: ${String(report['path'])}`;
+  await markStepDelivered(runtime.fs, { session: input.session_id, scratchpad: input.scratchpad_dir, routeId: active.routeId, position: message.position });
+  return message.text;
 }

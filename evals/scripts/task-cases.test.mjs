@@ -1,4 +1,4 @@
-// $0 checks of the task cases: the seeds are what the ledger reader accepts, the plans and investigations cite real lines of their
+// $0 checks of the task cases: the seeds are what the ledger reader accepts, the investigation cites real lines of its
 // fixture, the "kept" graders hold on the untouched fixture and the graders that measure the change do not. No model runs here.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -7,14 +7,14 @@ import { FIXTURES } from '../../fixtures/definitions.mjs';
 import { parseEntry } from '../../src/platform/ledger/kinds.ts';
 import { contentHash } from '../../src/util/hash.ts';
 import { CASES, caseDir, render } from './cases.mjs';
-import { INVESTIGATIONS, PLANS } from './task-seeds.mjs';
+import { INVESTIGATIONS } from './task-seeds.mjs';
 
 const FILES = render();
 const taskCases = CASES.filter((c) => c.name.startsWith('task-') && !c.tags.includes('rules'));
 const seeded = taskCases.filter((c) => Object.keys(c.files ?? {}).some((name) => name.startsWith('seed/')));
 const frontmatter = (text) => parse(text.split('---')[1]);
-const STACKS = ['ts-service-lendbox', 'py-service-tidewatch', 'go-module-parcelhub', 'jvm-gradle-seedvault', 'monorepo-rust-ts-kiln'];
-const APP = ['ts-app-medium', 'ts-app-medium-sites', 'ts-app-medium-refund-bug', 'ts-app-medium-plan'];
+const STACKS = ['jvm-gradle-seedvault'];
+const APP = ['ts-app-medium-sites'];
 
 /** The files a fixture holds once its steps ran (writes and deletes; no git, no install). */
 const filesOf = (name) => {
@@ -34,34 +34,25 @@ const sourceGraders = (c) =>
 const matches = (spec, text) => new RegExp(spec.pattern).test(text) === (spec.match !== 'not_contains');
 
 describe('task cases', () => {
-  it('are fifteen on the five stacks (one after a plan, one after an investigation, one bare each), five on the app fixtures and two after a plan on the app plan fixture', () => {
-    assert.equal(taskCases.length, 22);
-    for (const stack of STACKS) {
-      const own = taskCases.filter((c) => c.fixture === stack);
-      assert.deepEqual(own.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), ['after-investigate', 'after-plan', 'bare']);
-    }
-    const narrow = taskCases.filter((c) => APP.includes(c.fixture));
-    assert.equal(narrow.length, 7);
-    assert.equal(taskCases.filter((c) => !STACKS.includes(c.fixture) && !APP.includes(c.fixture)).length, 0);
+  it('are two: one after an investigation on the seedvault stack, one on the app fixture', () => {
+    assert.deepEqual(taskCases.map((c) => c.name).sort(), ['task-app-segments-void', 'task-jvm-after-investigate']);
+    assert.deepEqual(taskCases.filter((c) => STACKS.includes(c.fixture)).map((c) => c.name), ['task-jvm-after-investigate']);
+    assert.deepEqual(taskCases.filter((c) => APP.includes(c.fixture)).map((c) => c.name), ['task-app-segments-void']);
   });
 
-  it('keep the budget of the task skill and answer the review offer in the review-loop case', () => {
-    const limits = frontmatter(FILES.get(`${caseDir('cases', 'task-app-refund-multi-file')}/prompt.md`));
+  it('keep the budget of the task skill and name their iteration, so no review runs unasked', () => {
+    const limits = frontmatter(FILES.get(`${caseDir('cases', 'task-app-segments-void')}/prompt.md`));
     assert.equal(limits.max_turns, 40);
     assert.ok(limits.allowed_tools.includes('Agent'), 'the implementer and the reviewer are subagents');
-    const loop = taskCases.find((c) => c.name === 'task-app-review-fix-loop');
-    assert.match(loop.prompt, / --headless --answer review-offer=run /);
-    assert.equal(frontmatter(FILES.get(`${caseDir('cases', loop.name)}/prompt.md`)).max_turns, 60);
-    for (const c of taskCases.filter((x) => x !== loop)) assert.match(c.prompt, / --headless iteration 1 /, `${c.name} names its iteration, so no review runs unasked`);
+    for (const c of taskCases) assert.match(c.prompt, / --headless iteration 1 /, `${c.name} names its iteration, so no review runs unasked`);
   });
 
   describe('seeds', () => {
-    it('are the ten stack cases and the two app plan cases, copied by the scaffold into .ambicode; the bare arm gets the same note as prompt text and no seed', () => {
-      assert.deepEqual(seeded.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), [...Array(5).fill(['after-investigate', 'after-plan']).flat(), 'csv-after-plan', 'due-after-plan'].sort());
+    it('is the one investigation case, copied by the scaffold into .ambicode; the bare arm gets the same note as prompt text and no seed', () => {
+      assert.deepEqual(seeded.map((c) => c.name.replace(/^task-[a-z]+-/, '')).sort(), ['after-investigate']);
       for (const c of seeded) {
-        const kind = c.name.endsWith('after-plan') ? 'plan' : 'investigation';
         const slug = /--task (\S+)/.exec(c.prompt)[1];
-        const note = (kind === 'plan' ? PLANS : INVESTIGATIONS)[slug].trim();
+        const note = INVESTIGATIONS[slug].trim();
         assert.ok(c.bare.includes(note), `${c.name}: the bare prompt carries the note text`);
         assert.doesNotMatch(c.bare, /ambicode|\.ambicode|--task/i);
         assert.doesNotMatch(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), /seed\/|--ambicode-init|--policy|--stack-packs/);
@@ -78,7 +69,7 @@ describe('task cases', () => {
     for (const c of seeded) {
       it(`${c.name}: the ledger line is a note entry the real reader accepts, for the file beside it, under the prompt's slug`, () => {
         const slug = /--task (\S+)/.exec(c.prompt)[1];
-        const kind = c.name.endsWith('after-plan') ? 'plan' : 'investigation';
+        const kind = 'investigation';
         const ledgerText = c.files[`seed/tasks/${slug}/ledger.jsonl`];
         const lines = ledgerText.trim().split('\n');
         assert.equal(lines.length, 1);
@@ -90,14 +81,13 @@ describe('task cases', () => {
         const text = c.files[`seed/${parsed.entry.path.replace(/^\.ambicode\//, '')}`];
         assert.equal(parsed.entry.contentHash, contentHash(text));
         assert.deepEqual(Object.keys(c.files).sort(), [`seed/tasks/${slug}/ledger.jsonl`, `seed/${parsed.entry.path.replace(/^\.ambicode\//, '')}`].sort());
-        if (kind === 'plan') assert.match(text, /^---\nstatus: accepted\n---\n\n/);
-        assert.equal(text.replace(/^---\nstatus: accepted\n---\n\n/, '').trim(), (kind === 'plan' ? PLANS : INVESTIGATIONS)[slug].trim());
+        assert.equal(text.replace(/^---\nstatus: accepted\n---\n\n/, '').trim(), INVESTIGATIONS[slug].trim());
       });
 
       it(`${c.name}: every path:line citation of the note names a line the fixture has`, () => {
         const slug = /--task (\S+)/.exec(c.prompt)[1];
         const files = filesOf(c.fixture);
-        const note = (c.name.endsWith('after-plan') ? PLANS : INVESTIGATIONS)[slug];
+        const note = INVESTIGATIONS[slug];
         const cited = [...note.matchAll(/(?<![\w./-])((?:[\w-]+\/)+[\w.-]+\.[A-Za-z0-9]+):(\d+)(?:-(\d+))?/g)];
         assert.ok(cited.length >= 3, 'a note cites its claims');
         for (const [, file, from, to] of cited) {
@@ -107,13 +97,6 @@ describe('task cases', () => {
         }
       });
     }
-
-    it('the plans give Iteration 1 the five fields routes/plan/draft.md asks for', () => {
-      for (const [slug, plan] of Object.entries(PLANS)) {
-        assert.match(plan, /\| requirement \| section \| code \|/, slug);
-        assert.match(plan, /## Iteration 1\b[\s\S]*\*Goal\*[\s\S]*\*Changes\*[\s\S]*\*Accept\*[\s\S]*\*Checks\*[\s\S]*\*Leaves out\*/, slug);
-      }
-    });
   });
 
   describe('graders', () => {
@@ -138,45 +121,14 @@ describe('task cases', () => {
       });
     }
 
-    it('the ledger patterns read what the check, exit and revise entries look like', () => {
+    it('the green-check pattern reads what the check entry looks like', () => {
       const green = '{"id":"a-1","at":"x","route":"r","kind":"check","key":"app/unit","files":["a.js"],"exit":0,"phase":"green","tail":"","ms":3}';
-      const red = green.replace('"exit":0', '"exit":1');
-      const loop = taskCases.find((c) => c.name === 'task-app-review-fix-loop');
-      const spec = (name) => frontmatter(loop.graders.find((g) => g.name === name).text);
-      const pattern = (name) => new RegExp(spec(name).pattern);
-      assert.ok(pattern('green-check-recorded').test(green));
-      assert.ok(!pattern('green-check-recorded').test(red));
-      const left = pattern('no-check-left-red');
-      assert.ok(left.test(red), 'a red run alone is left red');
-      assert.ok(!left.test(`${red}\n${green}`), 'a red run followed by a green one is recovered');
-      assert.ok(left.test(`${green}\n${red}`), 'a green run followed by a red one is left red');
-      const fixed = pattern('findings-fixed-and-checked');
-      const finding = '{"id":"a-2","kind":"revise","route":"r","from":"fix","via":"code","cycle":1,"reason":"review-findings"}';
-      assert.ok(fixed.test(`${green}`), 'no finding passes');
-      assert.ok(!fixed.test(`${green}\n${finding}`), 'a finding with no check after it fails');
-      assert.ok(fixed.test(`${green}\n${finding}\n${green}`), 'a finding followed by a green check passes');
+      const c = taskCases.find((x) => x.name === 'task-app-segments-void');
+      const pattern = new RegExp(frontmatter(c.graders.find((g) => g.name === 'green-check-recorded').text).pattern);
+      assert.ok(pattern.test(green));
+      assert.ok(!pattern.test(green.replace('"exit":0', '"exit":1')));
     });
 
-    it('the unique-code pattern of task-py-bare accepts a new TW code and refuses a reused one', () => {
-      const c = taskCases.find((x) => x.name === 'task-py-bare');
-      const spec = sourceGraders(c).find((g) => g.name === 'new-code-raised').spec;
-      assert.ok(matches(spec, 'raise FutureReadingError("TW-204", "x")'));
-      assert.ok(!matches(spec, 'raise StaleReadingError("TW-203", "x")'));
-      const used = new Set([...[...filesOf(c.fixture).entries()].filter(([f]) => f.startsWith('src/')).flatMap(([, t]) => t.match(/TW-\d{3}/g) ?? [])]);
-      for (const code of used) assert.ok(!matches(spec, `raise X("${code}", "y")`), `${code} is already used in the fixture`);
-      assert.ok(!used.has('TW-204'));
-    });
-
-    it('a reference solution of each app case satisfies its regex graders', () => {
-      // The fixture's own healthy sibling is the reference for the refund case: its repository and service are the fixed ones.
-      const bug = filesOf('ts-app-medium-refund-bug');
-      const fixed = filesOf('ts-app-medium');
-      const c = taskCases.find((x) => x.name === 'task-app-refund-multi-file');
-      const after = new Map(bug);
-      for (const file of ['src/payments/repository.js', 'src/payments/service.js']) after.set(file, fixed.get(file));
-      after.set('tests/payments/payments.test.js', `${fixed.get('tests/payments/payments.test.js')}\ntest('x', () => { payments.refund({ invoiceId: 1, amountCents: 1 }); expect(a.status).toBe('partially_paid'); });\n`);
-      for (const { name, spec, file } of sourceGraders(c)) assert.ok(matches(spec, after.get(file)), `${name} accepts the reference`);
-    });
   });
 
   it('the no-duplication graders accept a shared helper and refuse the same rule written in each leaf', () => {
@@ -187,12 +139,6 @@ describe('task cases', () => {
     const leaves = "const a = invoices.list({ customerId }).filter((i) => i.status !== STATUS.VOID);\nconst b = invoices.list({ customerId }).filter((i) => i.status !== STATUS.VOID);";
     assert.ok(matches(once, helper) && matches(list, helper));
     assert.ok(!matches(once, leaves) && !matches(list, leaves));
-    const copy = grader('task-app-csv-after-plan', 'no-void-rule-copy-in-reports');
-    assert.ok(matches(copy, 'totalCents: invoices.total(invoice)'));
-    assert.ok(!matches(copy, 'totalCents: invoice.status === STATUS.VOID ? 0 : invoices.total(invoice)'));
-    const thin = grader('task-app-csv-after-plan', 'no-fat-route');
-    assert.ok(matches(thin, "const invoicesCsv = handle(() => attachment(reports.invoicesCsv(), { filename: 'invoices.csv' }));"));
-    assert.ok(!matches(thin, 'const invoicesCsv = handle(() => attachment(reports.invoicesCsv().map(row), x));'));
   });
 
   it('segments-void on the sites fixture: a fix through the shared helper passes every grader, the rule copied into a leaf fails', () => {
@@ -216,49 +162,12 @@ describe('task cases', () => {
     for (const c of taskCases.filter((x) => x.tags.includes('task-tune'))) {
       assert.equal(c.metrics?.source, 'changed', c.name);
       assert.ok(c.metrics.relevant.length >= 2, c.name);
-      // reuse-report-helpers allows a service or a route test, so its tests sit in `allowed`.
       assert.ok([...c.metrics.relevant, ...c.metrics.allowed].some((f) => /test/i.test(f)), `${c.name}: a test file is named`);
     }
   });
 
-  it('no-literal-boundaries ignores the explanatory comment of the baseline runs and refuses a literal in code', () => {
-    const spec = sourceGraders(taskCases.find((x) => x.name === 'task-app-checks-fail-first')).find((g) => g.name === 'no-literal-boundaries').spec;
-    assert.ok(matches(spec, "// Labels follow config.agingBucketsDays: with [30, 60, 90] they are 0-30, 31-60, 61-90 and 90+.\nfunction bucketFor(days) {\n  return second + '+';\n}"));
-    assert.ok(matches(spec, 'if (days <= third) return 1; // 90 days'));
-    assert.ok(!matches(spec, '// note\nif (days <= 60) return x;'));
-    assert.ok(!matches(spec, 'const third = 90;'));
-  });
-
-  it('the app plan cases ask the fixture for the express packs, jest and the context, and the policy row they grade is what the route writes', () => {
-    for (const name of ['task-app-due-after-plan', 'task-app-csv-after-plan']) {
-      const c = taskCases.find((x) => x.name === name);
-      assert.match(c.flags, /--install/);
-      assert.match(c.flags, /--stack-packs/);
-      assert.ok(c.tags.includes('task-tune'));
-    }
-    const row = '{"id":"8","route":"2","kind":"policy","stage":"before-work","packs":[],"rules":2,"bytes":9,"activity":"task","ids":["common-design/fix-the-cause","express-errors/classified-errors"]}\n';
-    const ledgerSpec = (name) => frontmatter(taskCases.find((x) => x.name === 'task-app-due-after-plan').graders.find((g) => g.name === name).text);
-    assert.ok(new RegExp(ledgerSpec('policy-delivered-classified-errors').pattern).test(row));
-    assert.ok(!new RegExp(ledgerSpec('policy-delivered-classified-errors').pattern).test(row.replace('"activity":"task"', '"activity":"plan"')));
-  });
-
-  it('exactly ten cases carry the task-tune tag', () => {
-    assert.equal(taskCases.filter((c) => c.tags.includes('task-tune')).length, 10);
-  });
-
-  it('task-go-after-plan: zero-weight-tested accepts a literal, a loop list and a table row, and refuses a test with no zero weight', () => {
-    const spec = sourceGraders(taskCases.find((c) => c.name === 'task-go-after-plan')).find((g) => g.name === 'zero-weight-tested').spec;
-    for (const text of [
-      'if _, err := CentsFor(0); err == nil {}',
-      'for _, grams := range []int{0, -5} {\n\t\tCentsFor(grams)\n\t}',
-      'cases := []struct{ grams, want int }{\n\t{grams: 0, want: 0},\n}',
-      'cases := []struct{ grams int }{\n\t{0},\n}',
-    ]) assert.ok(matches(spec, text), text);
-    for (const text of [
-      'CentsFor(5)',
-      'for _, grams := range []int{5, 10, 100} { CentsFor(grams) }',
-      'cases := []struct{ grams, want int }{\n\t{grams: 10, want: 0},\n\t{grams: 100, want: 20},\n}',
-    ]) assert.ok(!matches(spec, text), text);
+  it('exactly the two cases carry the task-tune tag', () => {
+    assert.equal(taskCases.filter((c) => c.tags.includes('task-tune')).length, 2);
   });
 
   it('every case reads its ledger by the prompt slug and the flags install jest only where the checks must run', () => {

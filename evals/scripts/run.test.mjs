@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { NAKED, USAGE, buildNaked, checkArgs, childEnv, plan, runCase, withProgress } from './run.mjs';
+import { ENTRY_LIMIT, NAKED, USAGE, benchLines, buildNaked, checkArgs, childEnv, countEntries, mergeSeries, plan, preflight, runCase, withProgress } from './run.mjs';
 
 describe('result copy', () => {
   const truth = { source: 'files-section', relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [] };
@@ -39,6 +39,100 @@ describe('result copy', () => {
     assert.equal(none.recall, 0, 'no diff at all is a miss, not an absent score');
   });
 
+});
+
+describe('empty selection', () => {
+  const emptyRun = () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-empty-'));
+    const result = path.join(root, 'plugin.json');
+    const spawn = () => { writeFileSync(result, JSON.stringify({ startedAt: '2026-10-29T08:24:46.533Z', cases: [], costUsd: 0, partial: false })); return 0; };
+    return { root, result, deps: { tracesRoot: path.join(root, 'traces'), harvest: () => {}, spawn, log: () => {} } };
+  };
+
+  it('a --case or --tag that matches no case is a failure that names the value', () => {
+    const { result, deps } = emptyRun();
+    const lines = [];
+    const outcome = runCase({ argv: ['--case', 'does-not-exist'], env: {}, result, arm: 'plugin' }, { ...deps, log: (line) => lines.push(line) });
+    assert.notEqual(outcome.status, 0);
+    assert.ok(lines.includes('--case/--tag matched no case: does-not-exist'));
+  });
+
+  it('the progress file marks such a case failed with no score', () => {
+    const { root, result } = emptyRun();
+    const argv = ['--case', 'does-not-exist'];
+    withProgress(plan(argv, undefined, root), argv, () => ({ status: 1, result: { cases: [] } }), { file: path.join(root, 'running.json') });
+    const [one] = JSON.parse(readFileSync(path.join(root, 'running.json'), 'utf8')).cases;
+    assert.deepEqual([one.state, one.score], ['failed', null]);
+  });
+});
+
+describe('graders skipped for the cost ceiling', () => {
+  const skipped = { name: 'judge', passed: false, weight: 1, explanation: 'skipped: cost ceiling', scored: true };
+  const grader = (name, passed) => ({ name, passed, weight: 1, explanation: '', scored: true });
+  const run = () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-skipped-'));
+    const result = path.join(root, 'plugin.json');
+    const raw = { startedAt: '2026-10-29T09:00:00.000Z', cases: [{ name: 'task-x', aggregates: { score: 0.5, passRate: 0 }, arms: { with: [{ score: 0.5, passed: false, skippedPaidGraders: true, graders: [grader('a', true), skipped] }] } }] };
+    const lines = [];
+    const deps = { tracesRoot: path.join(root, 'traces'), harvest: () => {}, log: (line) => lines.push(line), spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } };
+    runCase({ argv: ['--case', 'task-x'], env: {}, result, arm: 'plugin' }, deps);
+    return { out: JSON.parse(readFileSync(result, 'utf8')).cases[0], lines };
+  };
+
+  it('are left out of the run score, which is marked partial, and the case aggregates follow', () => {
+    const { out } = run();
+    const one = out.arms.with[0];
+    assert.equal(one.score, 1);
+    assert.equal(one.passed, true);
+    assert.equal(one.partialGrading, true);
+    assert.deepEqual(one.skippedGraders, ['judge']);
+    assert.deepEqual([out.aggregates.score, out.aggregates.passRate], [1, 1]);
+  });
+
+  it('print one warning line per affected run', () => {
+    const { lines } = run();
+    assert.deepEqual(lines.filter((line) => line.includes('partial grading')), ['warning: task-x-1: partial grading, not scored: judge (cost ceiling)']);
+  });
+
+  it('a run whose every grader was skipped has no score', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-skipped-all-'));
+    const result = path.join(root, 'plugin.json');
+    const raw = { startedAt: '2026-10-29T09:00:00.000Z', cases: [{ name: 'task-y', arms: { with: [{ score: 0, passed: false, graders: [skipped] }] } }] };
+    runCase({ argv: [], env: {}, result, arm: 'plugin' }, { tracesRoot: path.join(root, 't'), harvest: () => {}, log: () => {}, spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } });
+    const one = JSON.parse(readFileSync(result, 'utf8')).cases[0];
+    assert.equal(one.arms.with[0].score, null);
+    assert.equal(one.aggregates.score, null);
+  });
+});
+
+describe('preflight', () => {
+  const tree = (files) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-pre-'));
+    for (const file of files) { mkdirSync(path.dirname(path.join(root, file)), { recursive: true }); writeFileSync(path.join(root, file), 'x'); }
+    return root;
+  };
+
+  it('counts every entry under a directory and stops counting past the limit', () => {
+    const root = tree(['a/b/c.txt', 'a/d.txt', 'e.txt']);
+    assert.equal(countEntries(root), 5);
+    assert.equal(countEntries(root, 3), 4, 'stops as soon as the limit is passed');
+  });
+
+  it('fails with a clear message at the limit, prints one line below it', () => {
+    const root = tree(['a.txt', 'b.txt']);
+    assert.match(preflight({ evals: root, env: {}, limit: 2 }).error, /evals\/ has 2 entries \(limit 2\)/);
+    assert.equal(preflight({ evals: root, env: {}, limit: 3 }).error, undefined);
+    assert.equal(preflight({ evals: root, env: {}, limit: 3 }).line, `preflight: evals/ 2 entries`);
+    assert.equal(ENTRY_LIMIT, 20000);
+  });
+
+  it('lists each configured bench repository with the absolute path and the sha256 of its context index', () => {
+    const bench = tree(['.ambicode/context/index.md']);
+    const lines = benchLines({ NAV_BENCH: bench, K12_BENCH: path.join(bench, 'missing') }, { repos: { fe: { bench: 'NAV_BENCH' } } });
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], new RegExp(`^NAV_BENCH ${bench.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} index.md sha256 [0-9a-f]{64}$`));
+    assert.match(lines[1], /^K12_BENCH .*missing no \.ambicode\/context\/index\.md$/);
+  });
 });
 
 describe('evals runner', () => {
@@ -187,6 +281,17 @@ describe('series progress file', () => {
   });
 });
 
+describe('series mean with unscored cases', () => {
+  it('skips null case scores in the mean and reports how many cases were scored', () => {
+    const one = (name, score, passRate) => ({ name, aggregates: { score, passRate } });
+    const merged = mergeSeries({ cases: [one('a', 1, 1)] }, { cases: [one('b', null, null)] });
+    assert.equal(merged.aggregates.overallScore, 1);
+    assert.equal(merged.aggregates.overallPassRate, 1);
+    assert.deepEqual([merged.aggregates.casesScored, merged.aggregates.casesTotal], [1, 2]);
+    assert.deepEqual(merged.aggregates.notScored, ['b']);
+  });
+});
+
 describe('downstream metrics', () => {
   it('a downstream case gets recall, precision and F1 from the Files section and truth.json', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'run-downstream-'));
@@ -263,7 +368,7 @@ describe('series results file', () => {
     command(results, '--series a,b --case b', 'b', 0.5);
     const merged = read(file);
     assert.deepEqual(merged.cases.map((c) => c.name), ['a', 'b']);
-    assert.deepEqual(merged.aggregates, { casesTotal: 2, casesPassed: 1, overallScore: 0.75, overallPassRate: 0.5 });
+    assert.deepEqual(merged.aggregates, { casesTotal: 2, casesScored: 2, notScored: [], casesPassed: 1, overallScore: 0.75, overallPassRate: 0.5 });
     assert.equal(merged.costUsd, 1);
     assert.equal(merged.durationSeconds, 20);
     assert.equal(merged.startedAt, 's-a');

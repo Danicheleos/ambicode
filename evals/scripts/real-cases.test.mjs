@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { NO_RUNS, REAL_TAG, graderFiles, isRealCase, loadRealCases, realTruth, variantsOf, wroteLine, writeReal } from './real-cases.mjs';
@@ -61,6 +61,16 @@ describe('real-change task cases: the generator', () => {
     assert.match(read(dirOf(VARIANTS.find((v) => v.name === 'task-real-beta-inv'), 'bare'), 'prompt.md'), /max_turns: 60\ntimeout_seconds: 1500/);
   });
 
+  it('with a keep list only the named variants are rendered, under the numbers the list pins, and nothing else is left in either tree', () => {
+    const only = mkdtempSync(path.join(tmpdir(), 'real-cases-keep-'));
+    const kept = writeReal({ evalsDir: only, sources, cases: FIXTURE, keep: { 'task-real-alpha-inv': 7, 'task-real-beta': 30 } });
+    assert.deepEqual(kept.map((r) => r.name), ['task-real-alpha-inv', 'task-real-beta']);
+    for (const arm of ['cases', 'bare']) {
+      assert.deepEqual(readdirSync(path.join(only, arm, REAL_TAG)).sort(), ['07-task-real-alpha-inv', '30-task-real-beta']);
+    }
+    assert.equal(read(path.join(only, 'cases', REAL_TAG, '07-task-real-alpha-inv'), 'truth.json'), read(dirOf(VARIANTS[1], 'cases'), 'truth.json'));
+  });
+
   it('every harness grader kind renders (file regex, trace regex, file_exists glob, llm on the final message); diff graders do not; the plugin arm adds route-done and, after a plan, plan-picked-up', () => {
     const dir = (c, arm) => path.join(dirOf(c, arm), 'graders');
     const [plan, inv] = VARIANTS;
@@ -68,7 +78,8 @@ describe('real-change task cases: the generator', () => {
     assert.match(read(dir(plan, 'cases'), 'no-copy.md'), /match: not_contains/);
     assert.match(read(dir(plan, 'cases'), 'wrote-both.md'), /target: trace/);
     assert.match(read(dir(plan, 'cases'), 'migration-present.md'), /type: file_exists\npath: migrations\/\*\.py/);
-    assert.match(read(dir(plan, 'cases'), 'design.md'), /type: llm\nfocus: last_message\nweight: 1[\s\S]*PASS if layered/);
+    assert.match(read(dir(plan, 'cases'), 'design.md'), /type: llm\nfocus: \{ source: file, path: \.ambicode\/tasks\/rl-alphap\/report\.md \}\nweight: 1[\s\S]*PASS if layered/);
+    assert.match(read(dir(plan, 'bare'), 'design.md'), /type: llm\nfocus: last_message\nweight: 1/);
     assert.ok(!existsSync(path.join(dir(plan, 'cases'), 'diff-has-class.md')), 'a diff grader is not a harness grader');
     assert.ok(existsSync(path.join(dir(plan, 'cases'), 'route-done.md')));
     assert.match(read(dir(plan, 'cases'), 'plan-picked-up.md'), /rl-alphap\/plan\\\.md/);

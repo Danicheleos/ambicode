@@ -57,6 +57,10 @@ export const NOTE_KINDS = {
   plan: { stem: 'plan', stamped: false },
   notes: { stem: 'notes', stamped: false },
   result: { stem: 'result', stamped: true },
+  /** One implementer round's `Changed:`/`Gaps:` message, saved by the SubagentStop hook. */
+  changed: { stem: 'changed', stamped: true },
+  /** The task report the implementer wrote as its final message: one file per task, the latest route's. */
+  report: { stem: 'report', stamped: false },
 } as const;
 
 export type NoteKind = keyof typeof NOTE_KINDS;
@@ -64,7 +68,7 @@ export type NoteKind = keyof typeof NOTE_KINDS;
 /** A `plan` note is recorded only when the plan route accepts the plan file. */
 export type SaveKind = Exclude<NoteKind, 'plan'>;
 
-export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'notes', 'result'];
+export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'notes', 'result', 'changed', 'report'];
 
 export const LEDGER_FILE = 'ledger.jsonl';
 

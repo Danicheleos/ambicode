@@ -14,10 +14,11 @@ import { isStale, markHeadless, markStepDelivered, sessionRoutes } from '../sess
 import { matchOption } from '../gates/gates.ts';
 import { exitRoute, recordFlagAnswer, recordHookAnswer, unknownGate } from '../gates/answers.ts';
 import { commandContext, entriesOf, readEntries, routeNotOpen } from './context.ts';
-import { canonicalArgs, parseAnswerFlag } from '../definition/flags.ts';
+import { canonicalArgs } from '../definition/flags.ts';
 import { buildChain, exitOf, foldRoute, liveHeads, producesOf, windowOf } from './fold.ts';
 import { taskForEmptyStart } from './empty-start.ts';
 import { stopHook } from './stop.ts';
+import { subagentStopHook } from './subagent-stop.ts';
 import { EXPLICIT, createExecutor, isClosing } from './execute.ts';
 import { append, chainOf, closeRoute, latestPrint } from './run-context.ts';
 import type { Runtime } from '#types/composition';
@@ -73,7 +74,6 @@ export function createEngine(deps: EngineDeps): Engine {
       written,
       notes: [],
       exited: null,
-      restart: false,
     };
   }
 
@@ -94,26 +94,6 @@ export function createEngine(deps: EngineDeps): Engine {
   /** One live route per task: whatever stands is ended before another begins, whichever session started it. */
   async function interrupt(dir: TaskDir, ledger: LockedLedger, entries: readonly LedgerEntry[]): Promise<void> {
     for (const head of liveHeads(entries)) await closeRoute(runtime, routes, dir, ledger, { route: head.id, reason: 'interrupted', detail: 'a new route started' });
-  }
-
-  /** The same launch again on the same task: it names no iteration, so the new route picks the next one itself. */
-  function restartOf(run: Run): StartInput {
-    const args = run.head['args'] as RouteArgs;
-    return {
-      skill: run.def.skill,
-      task: run.task,
-      text: args.text,
-      requirements: args.requirements,
-      headless: args.headless,
-      answers: args.answers.map(parseAnswerFlag),
-      cwd: run.runtime.cwd,
-      session: run.session,
-      channel: run.head['channel'] as StartInput['channel'],
-      ...(args.project === null ? {} : { project: args.project }),
-      ...(args.plan === null ? {} : { plan: args.plan }),
-      ...(args.target === undefined ? {} : { target: args.target }),
-      ...scratchOf(run.head, undefined),
-    };
   }
 
   // ---------------------------------------------------------------- start
@@ -218,7 +198,7 @@ export function createEngine(deps: EngineDeps): Engine {
         });
       }
     }
-    return result.run.restart ? start(restartOf(result.run)) : result.message;
+    return result.message;
   }
 
   // ---------------------------------------------------------------- advance
@@ -252,7 +232,7 @@ export function createEngine(deps: EngineDeps): Engine {
       return { run, message: messageOf(run, part), part };
     });
     await settle(result.run, result.part);
-    return result.run.restart ? start(restartOf(result.run)) : result.message;
+    return result.message;
   }
 
   async function deliver(task: string, scratchpadDir?: string): Promise<StepMessage | null> {
@@ -316,6 +296,7 @@ export function createEngine(deps: EngineDeps): Engine {
     advance: (input) => inside.run(true, () => advance(input)),
     deliver: (task, scratchpadDir) => inside.run(true, () => deliver(task, scratchpadDir)),
     stopHook: (input, found) => inside.run(true, () => stopHook(stopPorts, input, found)),
+    subagentStopHook: (input, found) => inside.run(true, () => subagentStopHook({ runtime, routes }, input, found)),
     stop: (task, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, reason, detail, scratchpadDir)),
     command: (spec, request, body) => runCommand({ runtime, routes }, spec, request, body),
   };

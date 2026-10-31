@@ -56,14 +56,13 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    // A headless session has no one to run a review unasked: it gets the offer, whose default is skip, as a named iteration does.
-    case 'iteration.named': return typeof context.args.iteration === 'number' || context.args.headless === true;
+    // Only an interactive session is offered anything: a headless one has no one to answer and no review to run, so neither predicate holds for it.
+    case 'iteration.named': return typeof context.args.iteration === 'number' && context.args.headless !== true;
     case 'iteration.unnamed': return typeof context.args.iteration !== 'number' && context.args.headless !== true;
-    // The start step recorded which iteration this route is at and how many the plan has.
-    case 'iterations.continue': {
-      const start = all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start');
-      return typeof context.args.iteration !== 'number' && Number(start?.['iteration']) < Number(start?.['iterations']);
-    }
+    // Only a full key (no file form) is asked about; the scoped ones run unasked, so a project without one has nothing to offer.
+    case 'checks.offer': return typeof context.args.iteration === 'number' && context.args.headless !== true && Number(all.findLast((entry) => entry.kind === 'baseline')?.['full']) > 0;
+    // The end checks run without a question where one route covers every iteration, or a headless run named one (nothing else will).
+    case 'checks.auto': return typeof context.args.iteration !== 'number' || context.args.headless === true;
     // The start step recorded whether a plan brief or an investigation exists, by the functions the context map reads them with.
     case 'task.seeded': return all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['seeded'] === true;
     case 'task.unseeded': return all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['seeded'] !== true;

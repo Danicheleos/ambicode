@@ -2,6 +2,6 @@
 type: regex
 pattern: 'Task report[\s\S]*\*\*Done\*\*'
 match: contains
-target: last_message
+target: { source: file, path: .ambicode/tasks/sv-floor/report.md }
 weight: 1
 ---

@@ -18,7 +18,7 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'iterations.continue' | 'task.seeded' | 'task.unseeded' | 'revised' }
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'checks.auto' | 'checks.offer' | 'task.seeded' | 'task.unseeded' | 'revised' }
   | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string }
   | { predicate: 'any'; of: When[] };
 
@@ -70,11 +70,11 @@ export const HANDLER_NAMES = [
   'evidence.plan.accept',
   'evidence.report',
   'task.start',
-  'task.continue',
   'task.verdict',
   'checks.baseline',
   'checks.format',
   'checks.approved',
+  'checks.scope',
   'checks.runnable',
   'review.evaluate',
   'review.estimate',
@@ -219,6 +219,8 @@ export interface Engine {
   deliver(task: string, scratchpadDir?: string): Promise<StepMessage | null>;
   /** Stop: the checks on the final message under one ledger lock and the single block they may cause. */
   stopHook(input: HookInput, found: SessionRepository): Promise<StopHookOutput | null>;
+  /** SubagentStop: the implementer's final report, read from its transcript and saved as a note of the live route. */
+  subagentStopHook(input: HookInput, found: SessionRepository): Promise<void>;
   /** Ends the task's live route with an `exit` entry. */
   stop(task: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;
   /** Runs a guarded command's body with the route the call speaks for resolved and its context supplied. */
@@ -246,7 +248,7 @@ export interface HandlerInput {
  * makes an approval revise that step; the print stays open at the running one.
  */
 export type HandlerResult =
-  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string; exitDetail?: string; restart?: boolean }
+  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string; exitDetail?: string }
   | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>> } }
   | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy?: string };
 

@@ -9,7 +9,7 @@ export type CheckEntry = Extract<TypedEntry, { kind: 'check' }>;
 
 export const GATE = 'check-only-unauthorized';
 
-export interface CheckOnlyInput { task: string; name: string; project: string | null; files: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[]; raise?: boolean }
+export interface CheckOnlyInput { task: string; name: string; project: string | null; files: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[]; raise?: boolean; /** The caller's own start or the user's answer already is the consent: a run that would ask is allowed; a forbidden one still refuses. */ consented?: boolean }
 
 export type CheckOnlyOutcome =
   | { outcome: 'ran'; entry: CheckEntry; proof: ProofVerdict }

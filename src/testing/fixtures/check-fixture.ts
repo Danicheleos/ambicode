@@ -58,6 +58,8 @@ export const startedPage = (): ProcessOutcome => ({ kind: 'exited', exitCode: 0,
 export class SplitRunner implements ProcessRunner {
   readonly calls: string[][] = [];
   out: Partial<ProcessOutcome> = { exitCode: 1, stdout: 'Tests:       1 failed, 1 total\n' };
+  /** Per command: wins over `out` when it answers, so one scope run can pass one check and fail another. */
+  outFor: ((command: string) => Partial<ProcessOutcome> | null) | null = null;
   effect: ((request: ProcessRequest) => Promise<void>) | null = null;
   private readonly real: ProcessRunner;
   constructor(real: ProcessRunner) {
@@ -68,18 +70,21 @@ export class SplitRunner implements ProcessRunner {
     // A config check is one shell string; tests read the command, not the shell wrapper around it.
     this.calls.push(request.argv[0] === 'sh' || request.argv[0] === 'cmd' ? [request.argv.at(-1)!] : [...request.argv]);
     await this.effect?.(request);
-    const kind = this.out.kind ?? 'exited';
-    return { kind, exitCode: this.out.exitCode ?? (kind === 'exited' ? 0 : null), stdout: this.out.stdout ?? '', stderr: '', truncated: false, durationMs: 3, failure: this.out.failure ?? null };
+    const out = this.outFor?.(this.calls.at(-1)!.join(' ')) ?? this.out;
+    const kind = out.kind ?? 'exited';
+    return { kind, exitCode: out.exitCode ?? (kind === 'exited' ? 0 : null), stdout: out.stdout ?? '', stderr: '', truncated: false, durationMs: 3, failure: out.failure ?? null };
   }
 }
 
-export async function checkFixture(options: { routes?: Record<string, string>; config?: string; pack?: string; handlers?: Parameters<typeof routeFixture>[0]['handlers']; step?: Record<string, string> } = {}) {
-  const fx = await routeFixture({ routes: options.routes ?? { demo: DEMO }, config: options.config ?? CHECK_CONFIG, ...(options.handlers === undefined ? {} : { handlers: options.handlers }), ...(options.step === undefined ? {} : { step: options.step }) });
+export async function checkFixture(options: { routes?: Record<string, string>; config?: string; pack?: string; handlers?: Parameters<typeof routeFixture>[0]['handlers']; step?: Record<string, string>; scriptEngine?: boolean } = {}) {
+  let scripted: SplitRunner | undefined;
+  const fx = await routeFixture({ routes: options.routes ?? { demo: DEMO }, config: options.config ?? CHECK_CONFIG, ...(options.scriptEngine === true ? { wrapRunner: (real: ProcessRunner) => (scripted = new SplitRunner(real)) } : {}), ...(options.handlers === undefined ? {} : { handlers: options.handlers }), ...(options.step === undefined ? {} : { step: options.step }) });
   await fx.repo.write('.ambicode/policies/cmds.yaml', options.pack ?? COMMAND_PACK);
   await fx.repo.write('src/a.spec.ts', 'test\n');
   await fx.repo.commitAll('spec');
-  const runner = new SplitRunner(fx.runtime.runner);
-  const runtime: Runtime = { ...fx.runtime, runner };
+  // The engine's handlers share the scripted runner only where a test asked for it; the others run the config's commands for real (`true`, `false`).
+  const runner = scripted ?? new SplitRunner(fx.runtime.runner);
+  const runtime: Runtime = scripted === undefined ? { ...fx.runtime, runner } : fx.runtime;
   const deps = (session: string | null = SESSION_A): CheckDeps => ({
     runtime, session, context: commandContext({ runtime, routes: fx.routes }),
   });

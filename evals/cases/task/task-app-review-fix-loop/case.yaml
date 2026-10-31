@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: task-app-review-fix-loop
-context:
-  scaffold_script: scaffold.sh

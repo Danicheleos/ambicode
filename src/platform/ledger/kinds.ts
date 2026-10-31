@@ -64,7 +64,7 @@ const schemas = [
     const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'], required: ['ids'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
-  entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })), runnable: count.optional(), tree: text.optional() }),
+  entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })), runnable: count.optional(), full: count.optional(), tree: text.optional() }),
   entry('check', {
     key: text, files: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
     tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
@@ -82,7 +82,7 @@ const schemas = [
   }),
   entry('init', { what: text, outcome: text }),
   entry('note', {
-    note: z.enum(['investigation', 'plan', 'notes', 'result']), path: text, contentHash: text,
+    note: z.enum(['investigation', 'plan', 'notes', 'result', 'changed', 'report']), path: text, contentHash: text,
     iteration: z.number().int().min(1).optional(), anchorsBad: count.optional(), policyMissing: count.optional(),
   }),
 ] as const;

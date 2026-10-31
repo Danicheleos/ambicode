@@ -27,6 +27,9 @@ export function gradeOne(grader, diff) {
   return { name: grader.name, passed, weight: grader.weight ?? 1, explanation: `${found ? 'matched' : 'no match for'} ${grader.pattern}${grader.in === undefined ? '' : ` in files ${grader.in}`}`, withOnly: false, scored: true, posthoc: true };
 }
 
+/** A paid grader the harness skipped for the cost ceiling: it carries passed false, which says nothing about the run. */
+export const isSkipped = (grader) => /^skipped: cost ceiling/.test(grader.explanation ?? '');
+
 /**
  * Appends the diff graders' verdicts to a run's graders and recomputes its score as the weighted share of passed graders (how the
  * harness scores: 6 of 7 weights is .857). A run with no diff (no repository found) fails every diff grader: absent is not clean.
@@ -35,7 +38,7 @@ export function applyDiffGraders(run, graders, diff) {
   if (!graders || graders.length === 0) return run;
   const verdicts = graders.map((grader) => gradeOne(grader, diff ?? ''));
   run.graders = [...(run.graders ?? []).filter((one) => !one.posthoc), ...verdicts];
-  const scored = run.graders.filter((one) => one.scored !== false);
+  const scored = run.graders.filter((one) => one.scored !== false && !isSkipped(one));
   const total = scored.reduce((sum, one) => sum + one.weight, 0);
   run.score = total === 0 ? 0 : scored.filter((one) => one.passed).reduce((sum, one) => sum + one.weight, 0) / total;
   run.passed = scored.every((one) => one.passed);

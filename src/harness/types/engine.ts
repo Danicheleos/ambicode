@@ -41,8 +41,6 @@ export interface Run {
   written: string[];
   notes: string[];
   exited: string | null;
-  /** A code step ended the route `done` and asked for the next iteration: the caller starts the route again. */
-  restart: boolean;
   /** Entry ids the advancing command wrote for the step it completes (D1). */
   produced?: readonly string[];
 }

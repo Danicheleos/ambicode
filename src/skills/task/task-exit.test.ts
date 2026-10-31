@@ -42,7 +42,7 @@ describe('route exit: steps/ and summary.md', () => {
     });
   });
 
-  it('done: steps/ is gone and summary.md lists routes, iteration status, checks and the skipped review', async () => {
+  it('done: steps/ is gone and summary.md lists routes, iteration status and checks', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', SKIP);
@@ -53,24 +53,24 @@ describe('route exit: steps/ and summary.md', () => {
       assert.match(text, new RegExp(PLAN.replace(/\./g, '\\.')));
       assert.match(text, /Iteration 1 of 2: done/);
       assert.match(text, /app\/unit/);
-      assert.match(text, /independent review skipped/);
+      assert.doesNotMatch(text, /independent review skipped/);
     });
   });
 
-  it('the final message must state the skipped review; once it does it is saved as the result and shown in summary.md', async () => {
+  it('the final message must state the skipped end checks; once it does it is saved as the result and shown in summary.md', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', SKIP);
       const stop = (message: string) => t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: message }, { repositoryRoot: t.fx.repo.root, where: '.' });
       const blocked = await stop('# Task report\n**Done**\n- src/a.ts:1 guard the empty list.\nChecks\n- app/unit: passed');
       assert.equal(blocked?.decision, 'block');
-      assert.match(blocked?.reason ?? '', /- independent review skipped — verification incomplete$/);
+      assert.match(blocked?.reason ?? '', /- checks skipped: app\/typecheck — verification incomplete\n- Stopped during the end checks: check forbidden \(1\)$/);
       assert.equal((await t.kinds('exit')).length, 0, 'the route stays open until the corrected message');
-      await stop('# Task report\n**Done**\n- src/a.ts:1 guard the empty list.\nNot verified\n- independent review skipped — verification incomplete');
+      await stop('# Task report\n**Done**\n- src/a.ts:1 guard the empty list.\nNot verified\n- checks skipped: app/typecheck — verification incomplete\n- Stopped during the end checks: check forbidden (1)');
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
       const text = await summary(t);
       assert.match(text, /^- Iteration 1 of 2: done\n {2}> # Task report\n {2}> \*\*Done\*\*\n {2}> - src\/a\.ts:1 guard the empty list\./m);
-      assert.equal(text.match(/independent review skipped — verification incomplete/g)?.length, 2, 'once quoted from the message, once in Not verified');
+      assert.equal(text.match(/checks skipped: app\/typecheck — verification incomplete/g)?.length, 2, 'once quoted from the message, once in Not verified');
     });
   });
 

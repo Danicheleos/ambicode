@@ -128,9 +128,9 @@ describe('summary.md reads like a result, not an audit trail', () => {
     assert.match(text, /^- task · .* · iterations-complete$/m);
   });
 
-  it('a task with no checks configured says so under Not verified', async () => {
+  it('a task with no checks configured adds no Not verified line', async () => {
     const text = await renderSummary('ord-17', [...taskRoute('A', 1), entry('baseline', { route: 'A', head: 'abc', dirty: [], runnable: 0 }), review('A', 'r', 0), exit('A', 'done', { complete: true })], read);
-    assert.match(text, /## Not verified\n- nothing was verified by running checks \(none configured\)/);
+    assert.doesNotMatch(text, /nothing was verified by running checks/);
   });
 
   it('routes without iterations get one line and their final note; init entries are listed', async () => {

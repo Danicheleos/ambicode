@@ -3,6 +3,7 @@ name: reviewer
 description: AMBICODE's independent reviewer. Reads one pinned review (brief.md, which holds the whole diff, with the code in the checkout) and writes findings as JSON to its answer file. Invoked only by the review and task routes; never by a natural-language request.
 tools: Read, Grep, Glob, Write
 model: sonnet
+omitClaudeMd: true
 ---
 
 # Reviewer role

@@ -52,15 +52,21 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     return check === undefined ? null : commandFor(`check --task ${run.task} --name <key> --file <file> --phase ${check.value} (key from checks.runnable)`);
   }
 
-  const delegated = (run: Run, step: StepDef): string | null =>
-    step.work === null ? null : `launch the subagent on ${workPath(run, step)}; when it returns, run ${commandFor(`route next --task ${run.task}`)}`;
+  // The implementer records the check and ends its own step with `route next`; the hook hands main the step it reached. The reviewer's step ends with main's `route next`.
+  const delegated = (run: Run, step: StepDef): string | null => {
+    if (step.work === null) return null;
+    const next = commandFor(`route next --task ${run.task}`);
+    return step.produces.some((produced) => produced.kind === 'check')
+      ? `launch the subagent on ${workPath(run, step)}; it runs ${next} itself and the next step arrives when it returns`
+      : `launch the subagent on ${workPath(run, step)}; when it returns, run ${next}`;
+  };
 
   function producerHint(run: Run, step: StepDef): string {
     if (answersAsNote(step)) return 'your final message, which is saved as the note';
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (note?.value) return commandFor(`note save --task ${run.task} --kind ${note.value}`);
-    // A red check is run by the implementer, which needs the check command, not the launch it is already inside.
-    return (run.cause === 'check' ? null : delegated(run, step)) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
+    // Only the implementer's step has a product to miss, and the implementer needs the check command, not the launch it is already inside.
+    return checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function endingCommand(run: Run, step: StepDef): string {
@@ -154,7 +160,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         Object.assign(record, result.record);
         if (result.exit !== undefined) exit = result.exit;
         if (result.exitDetail !== undefined) exitDetail = result.exitDetail;
-        if (result.restart === true) run.restart = true;
         continue;
       }
       if (result.state === 'raise') {
@@ -171,7 +176,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       return failure(run, step, { code: 'route-produces-missing', message: `Step ${step.id} ran but did not record ${names.join(', ')}.`, recoverable: false });
     }
     await append(run, { ...record, kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, ...(exit === undefined ? {} : { exit }) });
-    if (exit !== undefined) await exitRoute(run, exit, exitDetail, run.restart ? { complete: true } : {});
+    if (exit !== undefined) await exitRoute(run, exit, exitDetail);
     return null;
   }
 
@@ -258,11 +263,13 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (step.work !== null) {
       await run.runtime.fs.mkdirp(run.dir.steps);
       await run.runtime.fs.writeText(workPath(run, step), `<!-- ambicode work: ${run.def.skill}/${step.id}, task ${run.task} -->\n\n${sections.join('\n\n')}\n`);
-      sections.splice(0, sections.length, ...launch);
+      // The closing report is written by the implementer that printed this step: its brief follows inline so it needs no Read, and the file stays for the subagent main launches.
+      if (!isClosing(fold, step)) sections.splice(0, sections.length, ...launch);
+      else sections.splice(0, 0, ...launch);
     }
     if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
-    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id), ...iterationOf(run) });
+    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? (step.work === null ? 'write your final message; no route command is needed' : `the report is written from the brief below (also in ${workPath(run, step)}): the implementer writes it now, the main session launches the implementer on that file`) : endingCommand(run, step), route: routeLine(fold, step.id), ...iterationOf(run) });
     // The map is the one section that can be shorter: cut to what remains under the channel limit once the rest is known; the ledger `map` entry keeps the full stats.
     let mapCut = 0;
     const mapAt = step.work === null ? sections.findIndex((section) => section.startsWith('## map\n')) : -1;
@@ -383,7 +390,7 @@ const PREVIEW_CHARS = 300;
  */
 const iterationOf = (run: Run): { iteration?: string } => {
   const start = run.entries.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start' && entry['route'] === run.head.id);
-  return typeof start?.['iteration'] === 'number' && typeof start['iterations'] === 'number' ? { iteration: `${start['iteration']}/${start['iterations']}` } : {};
+  return typeof start?.['iteration'] === 'number' && typeof start['iterations'] === 'number' ? { iteration: `${typeof start['through'] === 'number' && start['through'] > start['iteration'] ? `${start['iteration']}-${start['through']}` : start['iteration']}/${start['iterations']}` } : {};
 };
 
 /** The first route of a chain: it stays the same when a later route resumes it. */

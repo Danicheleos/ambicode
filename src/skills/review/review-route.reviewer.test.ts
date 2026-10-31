@@ -129,7 +129,7 @@ describe('task route: route next records the reviewer answer file', { concurrenc
       assert.equal(write.position, 'write');
       assert.equal((await t.kinds('review')).at(-1)?.['status'], 'error');
       assert.match(gapsOf(await t.ledger()).join('\n'), /The independent review failed/);
-      assert.match(write.text, /Not verified[\s\S]*The independent review failed/);
+      assert.match(await t.work('write'), /Not verified[\s\S]*The independent review failed/);
     } finally {
       await t.fx.dispose();
     }

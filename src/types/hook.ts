@@ -10,6 +10,9 @@ export const HookInput = z.looseObject({
   session_id: z.string().min(1),
   /** Present for a subagent's tool call; absent on the main thread. */
   agent_id: z.string().min(1).optional(),
+  /** SubagentStop: the subagent's type and its transcript, where its final report is read. */
+  agent_type: z.string().min(1).optional(),
+  agent_transcript_path: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
   scratchpad_dir: z.string().min(1).optional(),
   tool_name: z.string().min(1).optional(),

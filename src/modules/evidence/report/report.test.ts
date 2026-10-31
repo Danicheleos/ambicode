@@ -80,10 +80,9 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
     assert.deepEqual(gapsOf([route({ mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]), []);
   });
 
-  it('a bound acceptance or a default-taken review-offer starting with skip is listed; run is not', () => {
-    const skipped = 'independent review skipped — verification incomplete';
-    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), [skipped]);
-    assert.deepEqual(gapsOf([offer('default-taken', 'skip — verification incomplete')]), ['review-offer: default taken, "skip — verification incomplete" (headless)', skipped]);
+  it('a skipped review-offer is no gap line; a default-taken one is still listed as taken; run is not', () => {
+    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), []);
+    assert.deepEqual(gapsOf([offer('default-taken', 'skip — verification incomplete')]), ['review-offer: default taken, "skip — verification incomplete" (headless)']);
     assert.deepEqual(gapsOf([offer('acceptance', 'run', { instance: 'i', via: 'hook' })]), []);
   });
 
@@ -156,15 +155,15 @@ describe('the facts the final message copies', () => {
     assert.equal(reviewFact([review('a', 3), review('b', 2)]), '3 findings, re-review 2 open');
     assert.equal(reviewFact([review('a', 3)]), '3 findings, re-review not run');
     assert.equal(reviewFact([review('a', 1), entry('default-taken', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'headless' })]), '1 finding, re-review skipped by default (headless)');
-    assert.equal(reviewFact([offer('default-taken', 'skip — verification incomplete')]), 'skipped by default (headless)');
+    assert.equal(reviewFact([offer('default-taken', 'skip — verification incomplete')]), null);
     assert.equal(reviewFact([review('a', 1), entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), '1 finding, re-review skipped by you');
-    assert.equal(reviewFact([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), 'skipped by you');
+    assert.equal(reviewFact([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), null);
     assert.equal(reviewFact([]), null);
   });
 
   it('prints Checks, Review and Not verified, leaves out a section with nothing to say, and says when no check is configured', () => {
     assert.equal(factsOf([check({}), review('a', 0)]), 'Checks\n- web/unit: passed\nReview\n- no findings');
-    assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 0 } as LedgerEntry]), 'Not verified\n- nothing was verified by running checks (none configured)');
+    assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 0 } as LedgerEntry]), 'Checks\n- no check ran');
     assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 2 } as LedgerEntry]), 'Checks\n- no check ran');
     assert.equal(factsOf([], undefined, { checks: false }), '');
     assert.equal(factsOf([check({ exit: 1 })]), 'Checks\n- web/unit: failed exit 1\nNot verified\n- web/unit: last run exited 1');
