@@ -269,7 +269,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     }
     if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
-    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? (step.work === null ? 'write your final message; no route command is needed' : `the report is written from the brief below (also in ${workPath(run, step)}): the implementer writes it now, the main session launches the implementer on that file`) : endingCommand(run, step), route: routeLine(fold, step.id), ...iterationOf(run) });
+    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? (step.work === null ? 'write your final message; no route command is needed' : `the report is written from the brief below (also in ${workPath(run, step)}). Normally the implementer that printed this step writes the report now. If this step reached the main session instead (the write fallback), the main session launches the implementer on that file.`) : endingCommand(run, step), route: routeLine(fold, step.id), ...iterationOf(run) });
     // The map is the one section that can be shorter: cut to what remains under the channel limit once the rest is known; the ledger `map` entry keeps the full stats.
     let mapCut = 0;
     const mapAt = step.work === null ? sections.findIndex((section) => section.startsWith('## map\n')) : -1;

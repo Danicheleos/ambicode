@@ -11,6 +11,8 @@ import { CHECK_TASK, CHECK_CONFIG } from '#testing/fixtures/check-fixture';
 import { SESSION_A } from '#testing/fixtures/ids';
 import { REPO_ROOT } from '#testing/paths';
 
+const text = (...parts: string[]): Promise<string> => readFile(path.join(REPO_ROOT, ...parts), 'utf8');
+
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
 const GAP = 'check-only-unauthorized: declined "approve" (acting-needs-human)';
@@ -142,8 +144,11 @@ describe('the implementer closes its own step and writes the report', { concurre
 
   it('no runnable check: an implementer that returned without route next leaves main the command, not the launch of the same brief', async () => {
     const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: null, file: null } }\n');
-    const work = (await readFile(path.join(REPO_ROOT, 'routes', 'task', 'change-work.md'), 'utf8')) + (await readFile(path.join(REPO_ROOT, 'routes', 'task', 'fix-work.md'), 'utf8'));
-    assert.doesNotMatch(work, /Last call after the green check/, 'route next is not conditioned on a check the route may not have');
+    for (const name of ['change-work.md', 'fix-work.md']) {
+      const line = (await text('routes', 'task', name)).split('\n').find((row) => row.includes('Last call'));
+      assert.match(line ?? '', /^- Last call, always: `\{cli\} route next --task \{task\}`/, `${name}: route next is unconditional`);
+      assert.doesNotMatch(line ?? '', /green check/, `${name}: route next is not conditioned on a check the route may not have`);
+    }
     assert.match(await readFile(path.join(REPO_ROOT, 'agents', 'implementer.md'), 'utf8'), /Your last call is the work file's `route next`/);
     const t = await taskFixture({ config });
     try {
@@ -176,6 +181,20 @@ describe('the implementer closes its own step and writes the report', { concurre
       assert.deepEqual((await t.kinds('limit')).filter((entry) => entry['which'] === 'stop-block'), []);
       assert.deepEqual(await notes(t, 'result'), [], 'the pointer does not replace the report');
       assert.ok((await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8')).startsWith(REPORT));
+    });
+  });
+
+  it('write fallback: main launched the implementer on work-write.md, the report is saved, main gets the pointer and not run route next', async () => {
+    await withTask(async (t, send, file) => {
+      await t.start({ headless: true });
+      await t.append(DECLINED);
+      assert.equal((await implementerNext(t)).position, 'write');
+      await send(stopped(await file('handback', REPORT)));
+      const prompt = `Write the task report described in ${path.join(t.dir, 'steps', 'work-write.md')}. The code is in the checkout.`;
+      const out = (await send({ ...returned, tool_input: { subagent_type: 'ambicode:implementer', prompt } })) as { hookSpecificOutput?: { additionalContext: string } };
+      const text = out.hookSpecificOutput!.additionalContext;
+      assert.match(text, new RegExp(`Task report: ${REPORT_PATH.replaceAll('.', '\\.')}`));
+      assert.doesNotMatch(text, /Run .*route next.* yourself/);
     });
   });
 
@@ -228,5 +247,51 @@ describe('the implementer closes its own step and writes the report', { concurre
       assert.match(work, /src\/orders\.ts:2 seed the reduce/);
       assert.match(work, /src\/orders\.ts:3 guard the null list/);
     });
+  });
+});
+
+describe('task route texts agree with the implementer role and the hooks', { concurrency: 4 }, () => {
+  it('AM-2/1: the check is run once over all changed files, as implementer.md says, not recorded per run', async () => {
+    assert.match((await text('agents', 'implementer.md')).replace(/\s+/g, ' '), /once over all changed files after your edits, not per edit/);
+    for (const name of ['change-work.md', 'fix-work.md']) {
+      const work = await text('routes', 'task', name);
+      assert.match(work, /once over all changed files/, name);
+      assert.doesNotMatch(work, /record each/, name);
+    }
+  });
+
+  it('AM-2/2: change.md and fix.md state the normal case and the hook exception that the hook text acts on', async () => {
+    for (const name of ['change.md', 'fix.md']) {
+      assert.match(await text('routes', 'task', name), /Run nothing when it returns, unless the hook tells you to run `route next`: /, name);
+    }
+    await withTask(async (t, send) => {
+      await t.start();
+      await t.edit();
+      const prompt = `Implement the work described in ${path.join(t.dir, 'steps', 'work-change.md')}. The code is in the checkout.`;
+      const out = (await send({ ...returned, tool_input: { subagent_type: 'ambicode:implementer', prompt } })) as { hookSpecificOutput?: { additionalContext: string } };
+      assert.match(out.hookSpecificOutput!.additionalContext, /Run `.*route next.*` yourself/);
+    });
+  });
+
+  it('AM-2/3: SKILL.md leaves the report to the implementer and the saved handler; main answers with the hook line', async () => {
+    const skill = (await text('skills', 'task', 'SKILL.md')).replace(/\s+/g, ' ');
+    assert.doesNotMatch(skill, /builds the report|carry them to the report/);
+    assert.match(skill, /implementer subagent writes the code, runs the checks and writes the report/);
+    assert.match(skill, /at the closing step reply with the one `Task report:` line the hook gives, nothing else/);
+    for (const at of skill.matchAll(/nothing else/g)) assert.match(skill.slice(Math.max(0, at.index - 90), at.index), /at the closing step/, 'a one-line reply must not be unscoped: the other steps print gates main must put to the user');
+    assert.match(await text('routes', 'task', 'write.md'), /write nothing else/);
+  });
+
+  it('AM-2/4: the closing step names who writes the report in the header, the route text and the role file alike', async () => {
+    await withTask(async (t) => {
+      await t.start({ headless: true });
+      await t.append(DECLINED);
+      const write = await implementerNext(t);
+      assert.match(write.text, /Normally the implementer that printed this step writes the report now\. If this step reached the main session instead \(the write fallback\), the main session launches the implementer on that file\./);
+    });
+    const route = await text('routes', 'task', 'write.md');
+    assert.match(route, /^- Implementer, this step was printed by your last call:/m);
+    assert.match(route, /^- Main session: launch `ambicode:implementer`/m);
+    assert.match(await text('agents', 'implementer.md'), /unless it is `write`: its brief follows; the final message is the report/);
   });
 });

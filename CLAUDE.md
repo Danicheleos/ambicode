@@ -1,12 +1,9 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 # Working style
 
-Claude Code loads this file automatically from the repository root. It is
-repository-agnostic apart from the last section, so copying it to another
-project's root is the whole installation.
+Claude Code loads this file from the repository root. Only the last section is
+repository-specific, so copying the file elsewhere is the whole installation.
 
 The rule that does the most work is the first one, because it is checkable.
 "Be rigorous" changes nothing; "produce a number before you claim it" does. If
@@ -94,10 +91,14 @@ don't assert** and **Before anything destructive**.
   change is wrong until you have shown otherwise. Cut your own additions before
   raising a limit — and if you do raise one, say so explicitly rather than
   letting it pass unremarked.
+- After a behaviour change, grep every text stating it (skills, routes, agents,
+  prompts, hooks, docs, tests); update it in the same change or report the gap.
+- When a size cap forces a cut, report every sentence removed.
 - New behaviour ships with its test in the same change, and a bug fix ships
   with the reproduction that was failing before it.
-- Typecheck after every structural edit; run the full suite before saying done.
-  Do not report a change as working on the strength of the edit succeeding.
+- Typecheck after every structural edit; run targeted tests per change and the
+  full suite (`npm run verify`) before hand-off. Do not report a change as
+  working on the strength of the edit succeeding.
 
 ## Editing mechanics
 
@@ -136,7 +137,7 @@ makes measurement cheap in that project.
   24 runs the `.ts` sources directly; there is no compile step for tests.
 - `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
   `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
-- `test:unit` takes about 70s alone (68s measured, 1904 tests) and longer beside
+- `test:unit` takes about 70s alone (68s measured, 1977 tests) and longer beside
   other agents; `verify` adds build and plugin validation, so both can pass the
   default 120s Bash timeout. Run them in the foreground with
   `timeout: 600000`. Never poll a backgrounded run with Monitor or sleep
@@ -150,9 +151,9 @@ makes measurement cheap in that project.
   `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
 - `npm run evals` (plugin arm) and `npm run evals:bare` (no plugin, the
   baseline) cost money and run the bundle, not `src/`. Build first. Defaults:
-  Sonnet 5.5, effort low, 1 run. Cases are generated from
-  `evals/scripts/cases.mjs` (`npm run evals:generate`); results are written to
-  `evals/cases/results/`. `evals/README.md` explains the arms.
+  Sonnet 5.5, effort low, 1 run. Cases come from `evals/scripts/cases.mjs`
+  (`npm run evals:generate`) except `downstream`, `init-large`, `task-real` and
+  the map benches (own generators); `evals/README.md` explains the arms.
 
 CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
 native Windows `cmd`, plus an LF line-endings check. Paths, separators and
@@ -205,5 +206,5 @@ types, util  <  platform  <  modules  <  harness  <  skills  <  composition  <  
   extensions. `tsconfig` sets `erasableSyntaxOnly`, so enums, namespaces and
   constructor parameter properties are not allowed.
 
-Design documents and migration plans live under `gym/planing/`. User-facing
+Design documents and migration plans live under `archive/gym/planing/`. User-facing
 docs are in `docs/`: installation, review, policy authoring, release checklist.
