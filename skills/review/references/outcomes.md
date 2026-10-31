@@ -1,0 +1,164 @@
+# Review outcomes and refusals
+
+Every outcome id `ambicode review` emits, with what to do about each. Read this
+when a run ends in anything but a completed review.
+
+**`requirements-not-retrieved`.** A requirement URL
+has no usable evidence. Fix the access or the envelope; do not fall back.
+
+**`requirements-unreadable` / `requirements-unparsable` / `requirements-invalid`.**
+The envelope on `--evidence -` is empty, over the size limit, not JSON, or not
+the envelope shape (the details name the field). Rebuild it
+and pipe it again; do not hand-edit retrieved content into it.
+
+**`input-too-large`.** The change exceeds the configured limits. The error names
+the largest contributors. Usually something uncommitted and generated — a
+lockfile, build output — is in the working tree. Commit or ignore it, or split
+the change. Raising the limit is a deliberate decision, not the default advice.
+
+**`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
+reviewer ran. Say which; do not widen the patterns without asking.
+
+**`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
+default branch name. AskUserQuestion which ref, then pass `--base <ref>`.
+
+**`check-only-unauthorized`.** `check --file` met a command policy of
+`forbid`, or `propose` with no route on the task. Release:
+configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
+a `propose` check asks the user instead; only the user's own answer approves it.
+
+**`ambiguous-project`.** More than one configured project matches the paths and
+none was named. Refuse to guess: AskUserQuestion with the project ids as options, then pass `--project <id>` or
+narrower paths.
+
+**`check-limit`.** A sixth `check` of one phase in the current step. Release: state
+the gap in the report; `route next --task <slug>`.
+
+**`baseline-unresolvable` / `no-merge-base`.** The `--base` ref names no commit,
+or shares no history with HEAD. Fetch it or correct the name. AMBICODE will not
+substitute `HEAD~1`, and neither should you.
+
+**`not-a-repository` / `no-head`.** Not inside a git work tree, or the
+repository has no commit yet. Run from the checkout, or make the first commit.
+
+**`config-missing` / `config-invalid` / `config-schema-too-new`.**
+`.ambicode/config.yaml` is absent, fails the current config schema (an older
+version included; `config validate` names the field) or was written by a
+newer AMBICODE. Offer `/ambicode:init` for the first; show the user the error
+for the others. For a too-new schema, upgrade the plugin rather than editing
+the file down.
+
+**`rules-apply-unconfirmed`.** `rules apply` ran without the user's *Apply all*
+answer to the rules table. `reason`: `no-rules-route`, a consent refusal, or
+`not-accepted` or `object-changed` (a draft changed after the answer). Nothing went live. Release:
+answer the `rules-table` question in `/ambicode:rules`; headless runs never apply.
+
+**`pack-quote-missing`.** A draft rule's `source.quote` was not found at its
+`source.location` (an error: fix the quote or drop the rule; after three tries
+it is listed as not migrated).
+
+**`unknown-project`.** The `--project` id is not configured, or no path places
+the request inside a configured project root. AskUserQuestion with the project ids as options.
+
+**`conflicting-target` / `baseline-not-applicable`.** One target per run, and
+`--base` belongs to `--branch`. AskUserQuestion with the targets as options.
+
+**`unmerged-index`.** There is a conflict in progress, so there is no single
+working state to review. Resolve it first.
+
+**Faults, not decisions.** `bad-argument` is a usage error: the message
+names the flag, so correct the call once. `git-unavailable`, `git-failed`,
+`git-timeout`, `git-output-truncated`, `diff-unparsable`, `diff-mismatch`,
+`plugin-root-unresolved`, `builtin-pack-duplicate` and `internal` mean git or the installation is not in
+the state AMBICODE relies on. Nothing was reviewed. Report the message verbatim
+and stop; retrying will not change it.
+
+**Guard decisions** (reasons from the `PreToolUse` guard, not error codes).
+A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `note save`; run that. A write into `.ambicode/context/` is denied and names `context write`. A git
+or `glab mr` state change and a
+write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
+decides, so do not rephrase the command to avoid the question.
+`plan.md` of a task is writable only while the task's live route is a plan
+route; no live route, another skill's route, or an unreadable ledger is denied.
+
+**Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
+keep the payload in a file and record its path and hash. `ledger-unreadable`:
+the task's ledger is damaged or cannot be read as a whole, so nothing was
+written; repair or delete that ledger.jsonl, then run again with the same `--task`. `ledger-busy`:
+another AMBICODE process is writing the ledger; retry. If it keeps failing,
+make sure no ambicode process is running, then delete `ledger.lock` in the task
+directory. `session-unbound`: `check` found no live route on the task; start one with
+`route start <skill> --task <slug>`. `plan-draft-missing`:
+the task has no `plan.md` to accept; write it, continue the plan route to `plan-check`.
+
+**Routes.** `route-invalid`: a route, gate registry or step file is malformed; the
+message names the file, the step or gate and the field (build and load): fix that
+file. `route-unknown`: no route ships for that skill; the message lists the shipped
+ones. `route-not-open`: the task has no live route; start one with
+`route start <skill> --task <slug>`. `task-unknown`: `--task` names no task; the
+message lists the existing ones (newest first): use one of them, or ask the user which. `task-needed`: the skill was started with no request and this session has no task to continue; nothing was created. Ask the user with AskUserQuestion (the listed tasks as options, a free answer for a new task), then `route start <skill> "<answer>"`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
+the route does not have; the message lists the valid ones.
+`search-layers-not-for-model`: `map --layers` is not a model option;
+the layers are the route's defaults. `search-layer-unknown`: a layer name that does not exist; the message lists the known names.
+`requirements-not-captured`: a requirement named at the start has no captured
+payload yet; fetch it with the call the message names, then `route next`.
+`requirements-missing`: some requested sources are not captured; fetch them and run
+`route next`, or start again without that `--requirement`.
+
+**`plan-not-accepted`.** The plan was not accepted; its `reason` says why:
+`no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human` or
+`not-accepted` (the latest answer is not an Accept from the user). Ask the user
+`plan-accept` again; do not rewrite or re-check the plan.
+
+**`rules-no-sources`.** `/ambicode:rules` ended because the user chose no rule source (*none — stop*).
+Nothing was drafted; start again and name a source.
+
+**`drafts-empty` / `pack-invalid` / `pack-missing`.** `policy check --drafts` found no `*.yaml` draft, or a
+draft that fails the pack schema, or a declared file that does not exist. The diagnostic names the file; fix the draft.
+
+**`pack-replaces-missing`.** A policy file says `replaces: builtin/<id>` for a built-in this release no longer has.
+Remove it from `policyFiles` or re-copy the packs that replaced it; `docs/rule-migration.md` maps old ids to new ones.
+
+**A command was refused.** A check in `config.yaml` runs unless a pack's
+`commandPolicy` says `propose` or `forbid` for it. The
+message names the pack and the reason. Changing it is a deliberate edit to that
+pack's `commandPolicy`, not something to work around.
+
+The `Stop` hook blocks a finishing message at most once per route, naming what to fix;
+a second failing stop is allowed.
+
+**`invalid-output`.** Printed in the review report when the reviewer's answer could not be verified
+(no JSON block, or a location outside the diff). It is not a clean review. Report the printed
+rejections as they are; do not retry.
+
+**`brief-failed`.** `brief.mjs` threw while building the reviewer's brief; the message carries the
+first stack lines. Nothing was reviewed. Report it verbatim and stop.
+
+**`review-missing`.** The task has no review on record, so there is nothing to brief. Nothing was
+reviewed. Report it verbatim and stop.
+
+**`review-unreadable`.** The review's `result.json` is missing or not a review
+result. Run `route next --task <slug>` again; do not hand-edit the file.
+
+**`script-failed` / `script-output-invalid` / `script-name-invalid`.** A route step
+`script(<name>)` runs `skills/<skill>/scripts/<name>.mjs`. `script-failed`: it exited
+non-zero, timed out or could not start; the message names the file and the last stderr
+lines. `script-output-invalid`: it printed no JSON object, or an entry without a `kind`.
+`script-name-invalid`: the name is not letters, digits, `_` or `-`. Report the message and
+stop; the scripts ship with the plugin, so retrying will not change it.
+
+**`mr-fetch-failed` / `mr-publish-failed`.** `glab` failed to read the merge request, or to post a comment from the review page;
+the message carries glab's own stderr (not installed, not logged in to that host, no access).
+Report it and stop; the route has ended. `mr-diff-missing`: `review --mr` found no fetched
+diff; start the route with `--mr` so its `mr-fetch` step runs. A failed post is in the
+publication record as failed; the review page can post it again. `publication-busy`: another
+publication on the page held the lock for two minutes, nothing was posted by
+this call; wait for it and publish again. `publication-unreadable`: `publication.json` in the
+review folder is not valid JSON; report it, do not publish until the user has checked the
+merge request for comments already posted.
+
+**`review-findings`.** The task route's review step found findings to fix. They come back
+in the step's `Findings` section; fix them, do not discard them.
+
+**`route-produces-missing`.** A step finished without recording what its route declares in
+`produces`. A defect in the route or its handler; report the message verbatim.

@@ -1,0 +1,21 @@
+schemaVersion: 1
+id: common-checks
+authority: team
+description: "Any project: a configured end-to-end check is confirmed per run; every other configured check runs."
+appliesTo:
+  - "**/*"
+activities: [review, task]
+
+source:
+  location: "AMBICODE built-in: end-to-end checks are confirmed per run."
+
+rules: []
+
+# A configured check runs without a decision here; an entry only narrows it. A
+# command configured as null stays unavailable regardless.
+commandPolicy:
+  - command: e2e
+    action: propose
+    reason: >-
+      An existing end-to-end command often starts services or depends on an
+      environment, so its scope is confirmed per run rather than assumed.

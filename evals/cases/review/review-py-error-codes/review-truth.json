@@ -1,0 +1,72 @@
+[
+  {
+    "id": "main",
+    "category": "collected",
+    "main": true,
+    "what": "ImplausibleReadingError is raised with \"jump\" instead of a TW-nnn code",
+    "locations": [
+      {
+        "file": "src/tidewatch/domain/rules/plausibility.py",
+        "lines": [
+          10,
+          10
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "\"jump\"",
+          "ImplausibleReadingError"
+        ],
+        "near": "TW|TW-nnn|code|codes|convention"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "naming-comments",
+    "main": false,
+    "what": "the comment on MAX_JUMP_MM says metres for a value in millimetres",
+    "locations": [
+      {
+        "file": "src/tidewatch/domain/rules/limits.py",
+        "lines": [
+          6,
+          6
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "MAX_JUMP_MM"
+        ],
+        "near": "metre|metres|meter|meters|millimetre|millimetres|millimeter|millimeters|unit|units|comment"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "correctness",
+    "main": false,
+    "what": "ingest stores each reading as it goes, so an implausible reading late in a batch leaves the earlier ones stored",
+    "locations": [
+      {
+        "file": "src/tidewatch/app/commands/ingest.py",
+        "lines": [
+          11,
+          13
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "ingest"
+        ],
+        "near": "partial|partially|atomic|atomicity|rollback|half|earlier readings|already stored|left stored|mid-batch"
+      }
+    ]
+  }
+]

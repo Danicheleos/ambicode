@@ -1,0 +1,158 @@
+import path from 'node:path';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseArgs } from '#util/args';
+import { runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS } from '#cli/commands/search/search';
+import { openRepository } from '#platform/git/open';
+import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
+import { declarationsInText, harvest } from './harvest.ts';
+import { buildMap, pathsCitedIn, symbolsCitedIn } from './map.ts';
+import { refs, REFS_LIMIT_BYTES } from './refs.ts';
+
+const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
+
+async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
+  const fx = await routeFixture({ routes: {} });
+  const files: Record<string, string> = {
+    'src/cart/cart.service.ts': 'export class CartService {\n  addItem(sku: string) { return applyDiscount(sku); }\n}\nexport function applyDiscount(sku: string) { return sku; }\n',
+    'src/cart/discount.ts': 'export function applyDiscount(sku: string, rate: number) { return sku + rate; }\nexport const DISCOUNT_RATE = 0.1; export function bundleRate() { return 1; }\n',
+    'src/billing/invoice.ts': 'import { applyDiscount } from "../../cart/discount";\nexport class InvoiceService { total() { return applyDiscount("a", 1); } }\nfunction hidden() { return 1; }\n',
+    ...Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`src/other/unrelated-${index}.ts`, `export const value${index} = ${index};\n`])),
+    ...extra,
+  };
+  for (const [file, content] of Object.entries(files)) await fx.repo.write(file, content);
+  await fx.repo.commitAll('files');
+  return fx;
+}
+
+describe('git word search and harvest', () => {
+  it('grepWords matches whole words, case-sensitively, in any of the words', async () => {
+    const fx = await repo();
+    try {
+      const { git } = await openRepository(fx.runtime);
+      assert.deepEqual((await git.grepWords(['applyDiscount'])).sort(), ['src/billing/invoice.ts', 'src/cart/cart.service.ts', 'src/cart/discount.ts']);
+      assert.deepEqual(await git.grepWords(['apply']), []);
+      assert.deepEqual(await git.grepWords([]), []);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('harvest keeps a file with exports to its exports, drops short and common names, and counts declaring files', async () => {
+    const fx = await repo({ 'src/cart/many.ts': 'export function alpha() {} export function beta() {}\nexport const get = 1;\nexport const ab = 2;\n', 'tools/py.py': 'def compute_tax(order):\n    return order\n' });
+    try {
+      const found = await harvest(fx.runtime.fs, fx.repo.root, ['src/cart/cart.service.ts', 'src/cart/discount.ts', 'src/billing/invoice.ts', 'src/cart/many.ts', 'tools/py.py']);
+      const names = found.map((declaration) => declaration.name);
+      assert.ok(['alpha', 'beta', 'bundleRate', 'DISCOUNT_RATE', 'CartService', 'InvoiceService', 'compute_tax'].every((name) => names.includes(name)), names.join(','));
+      assert.ok(!names.includes('hidden') && !names.includes('get') && !names.includes('ab'));
+      assert.ok(found.filter((declaration) => declaration.name === 'applyDiscount').every((declaration) => declaration.declarations === 2));
+      assert.equal(found.find((declaration) => declaration.name === 'CartService')?.kind, 'class');
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('harvest of prose', () => {
+  it('a declaration keyword inside a comment, a string or a sentence declares nothing; modifiers and decorators still do', () => {
+    const text = [
+      '/** Another report of the same type and task. */',
+      ' * the upload flow with the type and the source preselected.',
+      'it("hides the type and date line", () => {',
+      'The function and the class that holds it are described here.',
+      'export default async function loadReport() {}',
+    ].join('\n');
+    assert.deepEqual(declarationsInText('src/a.ts', text).map((declaration) => declaration.name), ['loadReport']);
+    const java = ['The class that holds it', '@Entity("holders") public final class LegacyHolder {', '  private static async fetchAll(): void {}'].join('\n');
+    assert.deepEqual(declarationsInText('src/B.java', java).map((declaration) => declaration.name), ['LegacyHolder', 'fetchAll']);
+  });
+});
+
+describe('refs', () => {
+  it('lists lines per name and flags a name declared in several files', async () => {
+    const fx = await repo();
+    try {
+      const result = await refs(fx.runtime, ['applyDiscount', 'CartService'], { project });
+      assert.deepEqual(result.names.map((row) => [row.name, row.hits > 0, row.collides]), [['applyDiscount', true, true], ['CartService', true, false]]);
+      assert.match(result.text, /applyDiscount: \d+ hits in 3 files; declarations: 2; collides: declared in src\/cart\/cart\.service\.ts, src\/cart\/discount\.ts/);
+      const declared = await refs(fx.runtime, ['CartService'], { project, declarations: true });
+      assert.match(declared.text, /class src\/cart\/cart\.service\.ts:1/);
+      assert.equal(declared.hits, 0);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('prints at most 4,096 bytes and records a search entry; a name in most files is dropped and listed', async () => {
+    const lines = Array.from({ length: 200 }, (_, index) => `export const marker = ${index}; // applyMarker ${'y'.repeat(60)}`).join('\n');
+    const fx = await repo({ 'src/big/markers.ts': `${lines}\n`, ...Object.fromEntries(Array.from({ length: 80 }, (_, index) => [`src/w${index}.ts`, 'export const common = UniversalService;\n'])) });
+    try {
+      const run = (argv: string[]) => runRefs(fx.runtime, parseArgs('refs', argv, REFS_OPTIONS));
+      await fx.runtime.fs.mkdirp(path.join(fx.repo.root, '.ambicode/tasks/T1'));
+      await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T1/ledger.jsonl'), '');
+      const bounded = await run(['applyMarker', '--task', 'T1']);
+      assert.ok(bounded.bytes <= REFS_LIMIT_BYTES, `${bounded.bytes}`);
+      assert.match(bounded.text, /\d+ more lines; name fewer words/);
+      assert.deepEqual((await fx.kinds('T1', 'search')).map((entry) => [entry['command'], entry['names'], entry['hits']]), [['refs', ['applyMarker'], 200]]);
+      const broad = await run(['UniversalService', 'CartService', '--json']);
+      assert.deepEqual((broad.data as { names: { name: string }[] }).names.map((row) => row.name), ['CartService']);
+      assert.match(broad.text, /limitations:\n {2}"UniversalService" matched 80 of \d+ files; ignored$/);
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('map command', () => {
+  it('appends a map entry with the slim fields, prints the legend first, and refuses --layers whatever its value', async () => {
+    const fx = await repo();
+    try {
+      await fx.runtime.fs.mkdirp(path.join(fx.repo.root, '.ambicode/tasks/T2'));
+      await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T2/ledger.jsonl'), '');
+      const output = await runMap(fx.runtime, parseArgs('map', ['--task', 'T2', '--term', 'cart'], MAP_OPTIONS));
+      assert.match(output.text, /^Map: files ranked by/);
+      const entry = (await fx.kinds('T2', 'map'))[0]!;
+      assert.deepEqual([entry['mode'], entry['layersSource'], entry['index']], ['prompt', 'default', undefined]);
+      await assert.rejects(runMap(fx.runtime, parseArgs('map', ['--term', 'cart', '--layers', 'grep'], MAP_OPTIONS)), (error: Error & { code?: string }) => error.code === 'search-layers-not-for-model');
+      await assert.rejects(runMap(fx.runtime, parseArgs('map', ['--layers', ''], MAP_OPTIONS)), (error: Error & { code?: string }) => error.code === 'search-layers-not-for-model');
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('context grep ranks a file holding several words, rare ones first, never lists an excluded file, and lets a named file\'s folder list two', async () => {
+    const fx = await repo({
+      'src/cart/near-a.ts': 'export const applyDiscount = 1;\n', 'src/cart/near-b.ts': 'export const applyDiscount = 2;\n', 'src/cart/near-c.ts': 'export const applyDiscount = 3;\n',
+      'src/z/rare-and-common.ts': 'export const bundleRate = 1; export const applyDiscount = 2;\n',
+    });
+    try {
+      const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount', 'bundleRate'], paths: ['src/cart/cart.service.ts'], exclude: ['src/cart/cart.service.ts', 'src/cart/discount.ts'] });
+      const listed = map.candidates.map((candidate) => candidate.path);
+      assert.equal(listed[0], 'src/z/rare-and-common.ts', 'both words, one of them rare, outrank files holding only applyDiscount');
+      assert.ok(!listed.includes('src/cart/cart.service.ts') && !listed.includes('src/cart/discount.ts'), 'files the caller already has are not listed, seed or not');
+      assert.equal(listed.filter((file) => file.startsWith('src/cart/')).length, 2, 'the folder of the named file lists 2 of its 3 sharers; any other folder lists 1');
+      assert.match(map.candidates[0]!.reasons[0]!, /^contains "applyDiscount", "bundleRate"$|^contains "bundleRate", "applyDiscount"$/);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('keeps AMBICODE working files out of the agent searches', async () => {
+    const fx = await repo();
+    try {
+      await fx.repo.write('.ambicode/tasks/t/ledger.jsonl', 'applyDiscount\n');
+      const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount'] });
+      assert.ok(map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('seed extraction', () => {
+  it('pathsCitedIn keeps tracked paths with or without a line; symbolsCitedIn keeps code-shaped names', () => {
+    const files = ['src/cart/cart.service.ts', 'src/other.ts'];
+    assert.deepEqual(pathsCitedIn('See src/cart/cart.service.ts:12-20, then ./src/other.ts. Also docs/missing.md.', files), ['src/cart/cart.service.ts', 'src/other.ts']);
+    assert.deepEqual(symbolsCitedIn('Change `applyDiscount()` and CartService.addItem_now; AC-ORD-01 plain words'), ['applyDiscount', 'CartService', 'addItem_now']);
+  });
+});

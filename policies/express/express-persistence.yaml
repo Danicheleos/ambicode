@@ -1,0 +1,62 @@
+schemaVersion: 1
+id: express-persistence
+authority: inherited
+description: "Express services: bounded reads, write conflicts, client-controlled shapes, persistence types kept internal."
+appliesTo:
+  - "**/*.{ts,js,mjs,cjs}"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE persistence baseline, adapted from grahpt
+    express-services-and-persistence. The original's mandatory feature-slice
+    migration and its ORM-specific expectations are not carried over; the
+    pagination, conflict, and shape concerns are. Query-input safety is a
+    common rule (untrusted-input-allowlist).
+  externalVersion: "express-v2"
+
+rules:
+  - id: bounded-reads
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      A list query has an explicit maximum page size, and a read selects the
+      fields the response needs.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed query.
+
+  - id: write-conflict-behaviour
+    category: correctness
+    activities: [plan, task, review]
+    instruction: >-
+      A write that can race on a uniqueness constraint states its conflict or
+      idempotency behaviour, and translates a constraint violation into a typed
+      error rather than surfacing the store's own message.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed write path.
+
+  - id: client-controlled-shapes
+    category: security
+    activities: [plan, review]
+    instruction: >-
+      Model client-controlled data as explicit typed fields. An open map or blob
+      for client input hides validation and compatibility decisions rather than
+      removing them.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed schema or type.
+
+  - id: persistence-types-stay-internal
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      A response should not expose a raw persistence document or a
+      persistence-only field. Which mapping layer performs the translation is
+      the project's decision.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed response shape.
+
+commandPolicy: []

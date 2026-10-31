@@ -1,4 +1,3 @@
-# Dependencies and generated build output
 /node_modules/
 *.tsbuildinfo
 /scripts/*
@@ -9,26 +8,6 @@
 tmp/
 .nyc_output/
 *.log
-
-# Python fixture/tool caches
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-.venv/
-*.py[cod]
-
-# AMBICODE runtime and evaluation output
-/.ambicode/reviews/
-/.ambicode/notes/
-/evals/results/
-/eval-results.json
-
-# Local planning and research inputs
-/plan/
-/research/
-/review/
-
-# Operating-system and editor metadata (at any depth)
 .DS_Store
 Thumbs.db
 .idea/
@@ -36,4 +15,39 @@ Thumbs.db
 *.swp
 *.swo
 *~
-.ambicode
+.ambicode/*
+archive
+
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.py[cod]
+
+/benchmarks
+
+
+eval-replay/reports
+eval-replay/2026-*
+eval-replay/core.json
+eval-replay/evals/**/*.*
+!eval-replay/evals/**/*.md
+
+
+/evals/cases/results/
+
+/research/
+/review/
+
+gym/planing/abstract
+gym/planing/new-architecture/implementation-reports
+gym/planing/new-architecture/cutting-down
+
+/bench/map/
+/evals/cases/downstream/
+/evals/cases/init-large/
+/evals/bare/downstream/
+/evals/local/
+/evals/cases/task-real/
+/evals/bare/task-real/
+.plugin-master

@@ -1,0 +1,39 @@
+schemaVersion: 1
+id: angular-http
+authority: inherited
+description: "Angular HTTP access: duplicate requests, cross-cutting concerns such as interceptors."
+appliesTo:
+  - "**/*.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-api-and-http. The
+    original's facade and API-layer structure is a project decision and is not
+    carried over as a rule; the duplicate-request and interceptor concerns are.
+    Response validation and error handling are common rules.
+  externalVersion: "angular-v2"
+
+rules:
+  - id: duplicate-requests
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      Decide once whether a request is returned, shared, or promoted into state.
+      Several independent subscriptions to the same cold request issue it
+      several times.
+    check:
+      kind: reviewer
+      explanation: Requires tracing the subscribers present in the snapshot.
+
+  - id: cross-cutting-http-concerns
+    category: architecture
+    activities: [plan, task, review]
+    instruction: >-
+      Authentication, tracing, and shared headers belong in one interceptor
+      rather than copied into each endpoint.
+    check:
+      kind: reviewer
+      explanation: Requires locating the existing interceptor in the snapshot.
+
+commandPolicy: []

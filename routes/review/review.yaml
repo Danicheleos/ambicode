@@ -1,0 +1,20 @@
+skill: review
+version: 3
+steps:
+  - { id: mr-fetch, actor: code, when: args.hasMergeRequest, run: review.mrFetch, onError: "stop:blocked" }   # first: its title, description and discussions decide the fetch step
+  - { id: fetch, actor: model, when: args.hasRequirement or mr.requirements, instruction: file:routes/review/fetch.md, payload: [review.mrFetch] }
+  - { id: ground, actor: code, when: args.hasRequirement or mr.requirements, run: requirements.normalize, produces: [envelope] }
+  - { id: estimate-step, actor: code, run: review.estimate }
+  - id: estimate
+    actor: human
+    when: estimate.asks                          # only a refusal or an unavailable estimate has a question; otherwise the route goes on without one
+    gate:
+      question: "The review cannot run on this change as it stands. Narrow it, or skip the review?"   # followed by renderEstimate(); `run` is not offered, a refused estimate would refuse again
+      options: [narrow, skip]
+      default: skip
+      onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
+  - { id: brief, actor: code, when: estimate.run, run: [review.pin, "policy.stage(before-work, review)", "search.map(context, review)", script(brief)] }   # a check answer revises it; checks that ran are not run again
+  - { id: review-agent, actor: model, when: estimate.run, instruction: file:routes/review/agent.md, work: file:routes/review/agent-work.md, payload: ["script:brief"] }
+  - { id: review-record, actor: code, when: estimate.run, run: review.record, produces: ["review{recorded}"] }   # reads the reviewer's answer file; its report is readback's payload
+  - { id: page, actor: code, when: estimate.run, run: review.page }   # the local page: a link when there is a finding or a merge request, a note when it cannot start
+  - { id: readback, actor: model, when: estimate.run, instruction: file:routes/review/readback.md, payload: [review.record, review.page], final: true }

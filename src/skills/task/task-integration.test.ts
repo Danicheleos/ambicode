@@ -1,0 +1,136 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { parse, stringify } from 'yaml';
+// @ts-expect-error untyped fixture modules
+import { fixtureByName } from '../../../fixtures/definitions.mjs';
+// @ts-expect-error untyped fixture modules
+import { materialize } from '../../../fixtures/materialize.mjs';
+import { runCheckOnly } from '#modules/checks/run/check-command';
+import { runHook } from '#hook/events/run-hook';
+import { commandContext } from '#harness/engine/context';
+import { runCommandTail } from '#harness/engine/engine';
+import { skillHandlers } from '#skills/handlers';
+import { assembleEngine } from '#testing/fixtures/route-fixture';
+import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
+import { readLedger } from '#platform/ledger/ledger';
+import { nodeFileSystem } from '#platform/ports/filesystem';
+import { REPO_ROOT } from '#testing/paths';
+import type { CheckDeps } from '#types/modules/checks';
+import type { Runtime } from '#types/composition';
+import type { LedgerEntry } from '#types/modules/evidence';
+import type { HookDeps } from '#types/hook';
+import { SESSION_A } from '#testing/fixtures/ids';
+
+const TASK = 'page-last';
+const SPEC = 'tests/page-last.test.js';
+const PASSING = 'Tests:       1 passed, 1 total\n';
+
+/** `ts-off-by-one` with jest wired by hand (no install: the runner's output is scripted) and no format command. */
+async function offByOne() {
+  const root = path.join(await mkdtemp(path.join(tmpdir(), 'ambicode-task-int-')), 'repo');
+  await materialize(fixtureByName('ts-off-by-one'), root, { ambicodeInit: true });
+  const configPath = path.join(root, '.ambicode', 'config.yaml');
+  const config = parse(await readFile(configPath, 'utf8'));
+  const app = config.projects[0];
+  app.checks.unit = { all: 'jest', file: 'jest {file}' };
+  app.policyFiles = ['.ambicode/policies/cmds.yaml'];
+  await writeFile(configPath, stringify(config));
+  await mkdir(path.join(root, '.ambicode', 'policies'), { recursive: true });
+  await writeFile(path.join(root, '.ambicode', 'policies', 'cmds.yaml'), COMMAND_PACK);
+  execFileSync('git', ['add', '-f', '.ambicode'], { cwd: root });
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
+
+  const step: Record<string, string> = {};
+  for (const name of ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'task/write-work']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  // The route's own end checks run through the same scripted runner: jest is not installed here.
+  let runner!: SplitRunner;
+  const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step, wrapRunner: (real) => (runner = new SplitRunner(real)) });
+  const engine = assembled.build(skillHandlers());
+  const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
+  const runtime: Runtime = assembled.runtime;
+  const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
+  const tail = (cause: 'check', produced: string[]) =>
+    runCommandTail({ engine }, { task: TASK, cause, produced, scratchpadDir: scratchpad });
+  const check = async (phase: 'red' | 'green') => {
+    const result = await runCheckOnly(deps, { task: TASK, name: 'unit', project: null, files: [SPEC], phase, approve: [], decline: [] });
+    assert.equal(result.outcome, 'ran');
+    return tail('check', result.outcome === 'ran' ? [result.entry.id] : []);
+  };
+  const hookDeps: HookDeps = { load: async () => ({ engine, routes: assembled.routes }) };
+  const stop = async (text: string) => {
+    const transcript = path.join(scratchpad, 'transcript.jsonl');
+    await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
+    return runHook(runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: root, scratchpad_dir: scratchpad, transcript_path: transcript }), hookDeps) as Promise<{ decision?: string; reason?: string } | null>;
+  };
+  const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
+  return {
+    root, engine, runner, check, stop,
+    start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page. iteration 1', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
+    ledger,
+    skip: async () => {
+      const answer = async (gate: string) => {
+        const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
+        return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
+      };
+      // Its only check has a file form, which runs unasked: there is no checks question.
+      return answer('review-offer');
+    },
+    work: (step = 'change') => readFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', `work-${step}.md`), 'utf8'),
+    write: (file: string, text: string) => writeFile(path.join(root, file), text),
+    dispose: async () => {
+      await rm(path.dirname(root), { recursive: true, force: true });
+      await rm(scratchpad, { recursive: true, force: true });
+    },
+  };
+}
+
+const trail = (ledger: readonly LedgerEntry[]): string =>
+  ledger.map((entry) => {
+    const what = entry['step'] ?? entry['stage'] ?? entry['gate'] ?? entry['which'] ?? entry['reason'] ?? entry['phase'] ?? entry['outcome'] ?? '';
+    return `${entry.kind}${what === '' ? '' : `:${String(what)}`}${entry['status'] === undefined ? '' : `:${String(entry['status'])}`}`;
+  }).join(' · ');
+
+describe('task route on ts-off-by-one (integration, test 18)', () => {
+  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → change (green) → automatic unconfigured format → offer → skip → report', async () => {
+    const t = await offByOne();
+    try {
+      const first = await t.start();
+      assert.equal(first.position, 'change');
+      const work = await t.work();
+      assert.match(work, /1 file\(s\) already changed stay out of this task's review/);
+      assert.doesNotMatch(work, /git grep|Callers/);
+      assert.doesNotMatch(first.text, /already changed|## baseline/);
+
+      await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
+      await t.write('src/page.js', 'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n');
+      t.runner.out = { exitCode: 0, stdout: PASSING };
+      const offer = await t.check('green');
+      assert.equal(offer?.position, 'review-offer');
+      assert.match(offer?.text ?? '', /Review estimate: working tree/);
+
+      const write = await t.skip();
+      assert.equal(write.position, 'write');
+      // The facts moved from the step message to the work file the implementer writes the report from.
+      const facts = await t.work('write');
+      assert.match(facts, /^Checks\n- app\/unit: passed\n- no formatter configured$/m);
+      assert.doesNotMatch(facts.split('## report\n')[1] ?? '', /^Review$/m);
+      assert.doesNotMatch(facts.split('## report\n')[1] ?? '', /Not verified/);
+      assert.doesNotMatch(facts, /Evidence|not formatted|green exit/);
+
+      const ledger = await t.ledger();
+      const checks = ledger.filter((entry) => entry.kind === 'check');
+      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['green', 0], ['green', 0]], 'the implementer\'s run, then the end run of the same key by file');
+      assert.deepEqual(ledger.filter((entry) => entry.kind === 'baseline').map((entry) => (entry['dirty'] as { path: string }[]).map((dirty) => dirty.path)), [['src/page.js']]);
+      const report = facts.split('## report\n')[1]!.split('\n\n## ')[0]!;
+      const allowed = await t.stop(`# Task report\n\n**Done**: the last item stays on its page. All tests pass.\n\n**Remaining**: none\n\n${report}`);
+      assert.notEqual(allowed?.decision, 'block', allowed?.reason);
+      console.log(`[test 18 ledger] ${trail(await t.ledger())}`);
+    } finally {
+      await t.dispose();
+    }
+  });
+});

@@ -1,0 +1,80 @@
+[
+  {
+    "id": "main",
+    "category": "correctness",
+    "main": true,
+    "what": "isBefore(today) rejects lots stored more than HOLD_DAYS ago and lets lots inside the hold through",
+    "locations": [
+      {
+        "file": "domain/src/main/kotlin/org/seedvault/domain/lot/RetirementRules.kt",
+        "lines": [
+          11,
+          11
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "RetirementRules",
+          "isBefore"
+        ],
+        "near": "invert|inverted|reversed|wrong|backwards|opposite|flipped"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "tests",
+    "main": false,
+    "what": "RetirementRules.check has no test, and the retire flow has none either",
+    "locations": [
+      {
+        "file": "application/src/main/kotlin/org/seedvault/application/usecase/lot/RetireLotService.kt",
+        "lines": [
+          25,
+          25
+        ]
+      },
+      {
+        "file": "domain/src/main/kotlin/org/seedvault/domain/lot/RetirementRules.kt",
+        "lines": [
+          9,
+          13
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "RetirementRules",
+          "RetireLotService"
+        ],
+        "gap": true
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "dead-dup",
+    "main": false,
+    "what": "daysLeftInHold has no caller outside its own test",
+    "locations": [
+      {
+        "file": "domain/src/main/kotlin/org/seedvault/domain/lot/HoldPeriod.kt",
+        "lines": [
+          6,
+          6
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "daysLeftInHold"
+        ],
+        "near": "unused|dead|never|unreferenced|uncalled"
+      }
+    ]
+  }
+]

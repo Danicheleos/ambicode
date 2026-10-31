@@ -1,0 +1,189 @@
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, it } from 'node:test';
+import { createRuntime } from '#composition/root';
+import { contentHash } from '#util/hash';
+import { CONFIG } from '#testing/fixtures/route-fixture';
+import { TempRepo } from '#testing/fixtures/temp-repo';
+import { parseArgs } from '#util/args';
+import { taskSlugFor } from '#modules/review/bundle/review-name';
+import { runNoteSave, NOTE_SAVE_OPTIONS } from './note.ts';
+
+const MAIN = path.join(import.meta.dirname, '..', '..', 'main.ts');
+
+const NOW = new Date(2026, 9, 2, 14, 35);
+
+/** A task folder exists before anything saves into it; `seed: false` keeps a test about refusals from creating one. */
+async function save(repo: TempRepo, argv: string[], body: string | null, seed = true) {
+  const task = taskSlugFor({ requirementIds: [], task: argv[argv.indexOf('--task') + 1] ?? null });
+  if (seed && task !== null) {
+    await mkdir(path.join(repo.root, '.ambicode/tasks', task), { recursive: true });
+    await writeFile(path.join(repo.root, '.ambicode/tasks', task, 'ledger.jsonl'), '', { flag: 'a' });
+  }
+  const runtime = await createRuntime({
+    cwd: repo.root,
+    clock: { now: () => NOW, elapsed: () => 0 },
+    stdin: { read: async () => body },
+  });
+  return runNoteSave(runtime, parseArgs('note save', argv, NOTE_SAVE_OPTIONS));
+}
+
+async function inRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
+  const repo = await TempRepo.create();
+  try {
+    await repo.write('package.json', '{}\n');
+    await repo.commitAll('initial');
+    await run(repo);
+  } finally {
+    await repo.dispose();
+  }
+}
+
+describe('note save owns the name and the time of a task note', () => {
+  it('stamps the clock into the name and writes the body as given', async () => {
+    await inRepo(async (repo) => {
+      const out = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], 'Finding: validate() lives in service.ts:12\n');
+      assert.equal(out.path, '.ambicode/tasks/ORD-17/investigation_2026-10-02T14-35.md');
+      const text = await readFile(path.join(repo.root, out.path), 'utf8');
+      assert.equal(text, 'Finding: validate() lives in service.ts:12\n');
+    });
+  });
+
+  it('keeps two saves in the same minute apart instead of overwriting', async () => {
+    await inRepo(async (repo) => {
+      const first = await save(repo, ['--task', 'x', '--kind', 'investigation'], 'one');
+      const second = await save(repo, ['--task', 'x', '--kind', 'investigation'], 'two');
+      assert.notEqual(first.path, second.path);
+      assert.match(second.path, /T14-35-2\.md$/);
+      assert.match(await readFile(path.join(repo.root, first.path), 'utf8'), /one/);
+    });
+  });
+
+  it('writes notes.md as the one resumable file, replaced on the next save', async () => {
+    await inRepo(async (repo) => {
+      await save(repo, ['--task', 'x', '--kind', 'notes'], 'first');
+      const out = await save(repo, ['--task', 'x', '--kind', 'notes'], 'second');
+      assert.equal(out.path, '.ambicode/tasks/x/notes.md');
+      const text = await readFile(path.join(repo.root, out.path), 'utf8');
+      assert.match(text, /second/);
+      assert.doesNotMatch(text, /first/);
+    });
+  });
+
+  it('saves into the configured repository below the session directory, where the hook prepared', async () => {
+    const run = async (cwd: string) =>
+      runNoteSave(
+        await createRuntime({ cwd, clock: { now: () => NOW, elapsed: () => 0 }, stdin: { read: async () => 'note' } }),
+        parseArgs('note save', ['--task', 'x', '--kind', 'investigation'], NOTE_SAVE_OPTIONS),
+      );
+    const withConfiguredChild = async (parent: string) => {
+      execFileSync('git', ['init', '-q', path.join(parent, 'repo')]);
+      await mkdir(path.join(parent, 'repo', '.ambicode', 'tasks', 'x'), { recursive: true });
+      await writeFile(path.join(parent, 'repo', '.ambicode', 'tasks', 'x', 'ledger.jsonl'), '');
+      await writeFile(path.join(parent, 'repo', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    };
+    // The eval sandbox's home is an unconfigured git tree holding repo/.
+    await inRepo(async (home) => {
+      await withConfiguredChild(home.root);
+      const out = await run(home.root);
+      assert.equal(out.path, 'repo/.ambicode/tasks/x/investigation_2026-10-02T14-35.md');
+      assert.match(await readFile(path.join(home.root, out.path), 'utf8'), /note/);
+      await assert.rejects(readdir(path.join(home.root, '.ambicode')));
+    });
+    const plain = await mkdtemp(path.join(tmpdir(), 'ambicode-note-parent-'));
+    try {
+      await withConfiguredChild(plain);
+      assert.equal((await run(plain)).path, 'repo/.ambicode/tasks/x/investigation_2026-10-02T14-35.md');
+    } finally {
+      await rm(plain, { recursive: true, force: true });
+    }
+  });
+
+  it('cannot be steered out of the task directory by the slug', async () => {
+    await inRepo(async (repo) => {
+      const out = await save(repo, ['--task', '../../src/evil', '--kind', 'investigation'], 'x');
+      assert.match(out.path, /^\.ambicode\/tasks\/[A-Za-z0-9._-]+\/investigation_/);
+      assert.ok(!out.path.includes('..'));
+    });
+  });
+
+  it('records each save in the task ledger with the hash of what was written', async () => {
+    await inRepo(async (repo) => {
+      const out = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], 'one');
+      await save(repo, ['--task', 'ORD-17', '--kind', 'notes'], 'two');
+      const lines = (await readFile(path.join(repo.root, '.ambicode/tasks/ORD-17/ledger.jsonl'), 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
+      assert.deepEqual(lines.map((line) => [line.kind, line.note]), [['note', 'investigation'], ['note', 'notes']]);
+      assert.deepEqual(lines.map((line) => line.id), ['1', '2']);
+      assert.equal(lines[0].path, out.path);
+      assert.equal(lines[0].contentHash, contentHash(await readFile(path.join(repo.root, out.path), 'utf8')));
+    });
+  });
+
+  it('refuses a missing kind, a missing task and an empty body, writing nothing', async () => {
+    await inRepo(async (repo) => {
+      await assert.rejects(save(repo, ['--task', 'x'], 'body', false), /--kind/);
+      await assert.rejects(save(repo, ['--kind', 'notes'], 'body', false), /--task/);
+      await assert.rejects(save(repo, ['--task', 'x', '--kind', 'notes'], '  \n'), /standard input/);
+      await assert.rejects(save(repo, ['--task', 'x', '--kind', 'notes'], null), /standard input/);
+      await assert.rejects(readFile(path.join(repo.root, '.ambicode/tasks/x/plan.md')));
+      assert.deepEqual(await readdir(path.join(repo.root, '.ambicode/tasks')), ['x'], 'a refusal creates no task');
+      assert.deepEqual(await readdir(path.join(repo.root, '.ambicode/tasks/x')), ['ledger.jsonl'], 'only the empty ledger the test seeded');
+      assert.equal(await readFile(path.join(repo.root, '.ambicode/tasks/x/ledger.jsonl'), 'utf8'), '');
+    });
+  });
+});
+
+function cli(repo: TempRepo, argv: string[], input = ''): { status: number | null; stdout: string; stderr: string } {
+  const { status, stdout, stderr } = spawnSync(process.execPath, [MAIN, ...argv], { cwd: repo.root, input, encoding: 'utf8' });
+  return { status, stdout, stderr };
+}
+
+describe('the note and report commands', () => {
+  it('02-D2/5.1: an investigation save on a task with a live plan route is the owner of that route, found by --task', async () => {
+    await inRepo(async (repo) => {
+      const dir = path.join(repo.root, '.ambicode/tasks/ORD-17');
+      await mkdir(dir, { recursive: true });
+      await repo.write('.ambicode/config.yaml', CONFIG);
+      const route = { id: '1', at: 't', kind: 'route', skill: 'plan', args: { text: 'x', requirements: [] }, mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
+      await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify(route)}\n`);
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation', '--json'], '# Finding');
+      assert.equal(out.status, 0, out.stderr);
+      const saved = (await readFile(path.join(dir, 'ledger.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry['kind'] === 'note');
+      assert.deepEqual(saved.map((entry) => [entry['note'], entry['route']]), [['investigation', '1']]);
+    });
+  });
+
+  it('06-N1: --kind plan is a bad argument naming every save kind, and writes nothing', async () => {
+    await inRepo(async (repo) => {
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan', '--json'], '# Plan');
+      assert.equal(out.status, 2);
+      assert.match(out.stderr, /bad-argument/);
+      assert.match(out.stderr, /investigation, notes, result/);
+      await assert.rejects(readdir(path.join(repo.root, '.ambicode/tasks/ORD-17')));
+    });
+  });
+
+  it('02-R7: report --json prints its shape', async () => {
+    await inRepo(async (repo) => {
+      cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation'], '# Findings');
+      const report = JSON.parse(cli(repo, ['report', '--task', 'ORD-17', '--json']).stdout);
+      assert.deepEqual(Object.keys(report), ['summary']);
+      assert.doesNotMatch(cli(repo, ['report', '--task', 'ORD-17']).stdout, /ambicode report/);
+    });
+  });
+
+  it('02-A4: a ledger of 1 MiB warns on standard error, naming a separate task, and the save still succeeds', async () => {
+    await inRepo(async (repo) => {
+      const dir = path.join(repo.root, '.ambicode/tasks/ORD-17');
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'ledger.jsonl'), '\n'.repeat(1_048_576));
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'notes', '--json'], 'x');
+      assert.equal(out.status, 0);
+      assert.match(out.stderr, /--task ORD-17-2/);
+      assert.equal(JSON.parse(out.stdout).command, 'note save');
+    });
+  });
+});

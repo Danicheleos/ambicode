@@ -1,0 +1,80 @@
+[
+  {
+    "id": "main",
+    "category": "team-rule",
+    "main": true,
+    "what": "Sweep calls time.Now() instead of the injected core.Clock, against the team rule on clocks, and its test works around the real clock with a parcel dated 2999",
+    "locations": [
+      {
+        "file": "internal/retention/sweep.go",
+        "lines": [
+          12,
+          12
+        ]
+      },
+      {
+        "file": "internal/retention/sweep_test.go",
+        "lines": [
+          17,
+          17
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "time.Now",
+          "2999"
+        ],
+        "near": "clock|Clock|inject|injected|deterministic|rule|real|wall"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "dead-dup",
+    "main": false,
+    "what": "the expiry comparison repeats the existing Expired helper",
+    "locations": [
+      {
+        "file": "internal/retention/sweep.go",
+        "lines": [
+          23,
+          23
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "Expired"
+        ],
+        "near": "duplicate|duplicates|repeat|repeats|reimplement|reimplements|helper|already"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "tests",
+    "main": false,
+    "what": "only the happy path is tested: no parcel without scans and no store error",
+    "locations": [
+      {
+        "file": "internal/retention/sweep_test.go",
+        "lines": [
+          24,
+          24
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "Sweep",
+          "TestSweepListsOldParcels"
+        ],
+        "gap": true
+      }
+    ]
+  }
+]

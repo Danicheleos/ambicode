@@ -1,0 +1,37 @@
+skill: plan
+version: 3
+needsRequest: true
+steps:
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: file:routes/investigate/fetch.md
+  - id: ground
+    actor: code
+    run: [requirements.normalize, search.map(prompt), "policy.stage(before-work)", context.list(docs)]
+    produces: [envelope, map, policy]
+  - id: draft
+    actor: model
+    instruction: file:routes/plan/draft.md
+    payload: [map, "file:policy:before-work", context.list]
+    repeat: 2                                     # the first draft and one fix after plan-check
+  - id: plan-check
+    actor: code
+    run: ["script(plan-check, resolve)", policy.required, "script(plan-check)"]
+    produces: [worker]
+    repeat: 2
+    onFail: revise draft                         # bad anchors reach the model while it can fix them; a second failure stays a not-verified line at plan-accept
+  - id: plan-accept
+    actor: human
+    gate:
+      question: "Accept this plan?"
+      options: [Accept, Revise, Reject]
+      acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
+      default: Reject                             # non-acting: plan.md stays status: draft. No object: Accept takes the file as it is, user edits included
+      onAnswer: { Revise: revise draft }         # a human cycle: resets the draft repeats
+  - id: promote
+    actor: code
+    when: gate.plan-accept.is(Accept)             # the latest answer in this step's window
+    run: ["script(plan-check, accept)", evidence.plan.accept]  # re-checks the file as it is now; bad anchors stay a count on the accepted note, never a loop back to the gate
+    onFail: revise plan-accept                    # plan-not-accepted: re-print the gate
+    produces: ["note{plan}"]

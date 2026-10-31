@@ -1,83 +1,17 @@
 ---
 name: init
-description: Set up AMBICODE in this repository — detect projects, write .ambicode/config.yaml, and explain which checks are configured and which are missing. Use when the user asks to set up, initialize, or configure AMBICODE, or when another AMBICODE skill reports that no configuration exists.
+description: "Set up AMBICODE in this repository: .ambicode/ folder, config.yaml, policy packs, candidate rules and learning context. Run once per project."
+argument-hint: "[--auto]"
+disable-model-invocation: true
+allowed-tools: Bash(node *skills/init/scripts/*) Bash(node *ambicode.mjs config *) Bash(node *ambicode.mjs context write*) Bash(node *ambicode.mjs policy check*) Bash(node *ambicode.mjs route start rules*) Read Write(//**/.ambicode/config.yaml) Write(//**/.ambicode/policies/drafts/**) Glob Grep Agent AskUserQuestion WebSearch
 ---
+`--auto` in `$ARGUMENTS` alone decides: with it never ask, skip WebSearch and the rules route (drafts are still written); without it ask and start the rules route even if a notice calls the session non-interactive. Run commands plain, never alias a command to a shell variable (a chain repeats the full path); never poll.
 
-# Set up AMBICODE
-
-Run the helper, read its output back to the user, and help them decide what to
-fill in.
-
-## Steps
-
-1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" init`. Add `--dry-run` first if the user wants to see the
-   proposal before anything is written.
-2. Read the result to the user: which projects were detected, which checks are
-   configured, which are missing, and each project's code-intelligence
-   recommendation. Explain that the listed official LSP plugin and server are
-   optional setup; only the active Claude session can confirm LSP availability.
-3. For every missing check, give the notice verbatim. The notices say exactly why
-   a slot is null and what to do about it.
-4. Stop. Do not edit `.ambicode/config.yaml` yourself unless the user asks for a
-   specific change.
-
-## What init will and will not do
-
-It reads `package.json`, `pyproject.toml` and `requirements*.txt`, and looks for
-installed executables under `node_modules/.bin` and `.venv`; the `scripts`
-section is evidence only. It does **not** run a project script, install
-anything, or invent a command line: a tool it cannot find becomes a `null`
-command with a notice, and a skipped check rather than a guess.
-
-`@angular/core` or `express` in `package.json` also enables that framework's
-built-in packs.
-
-Re-running init is safe. It adds missing command slots and framework packs and
-never overwrites a value the user has set, including an explicit `null`.
-Comments in the file survive.
-
-## Things that will come up
-
-**A check is null even though the tool is installed.** pytest and Playwright
-cannot report which tests a change affects. Rather than write a selector that
-selects nothing, init leaves the check null and prints a worked `mapping`
-example. Offer to add the mapping using the project's real directory layout.
-
-**`npm run test` exists but the check is still null.** AMBICODE runs the runner
-directly, because it cannot scope a wrapper to the changed files or ask a wrapper
-which tests a change affects. Point the `argv` at `./node_modules/.bin/<tool>`.
-
-**The lint tool is not eslint or ruff.** Set `adapter: generic`: any tool whose
-exit code is the verdict (`prettier --check`, stylelint, biome, `tsc`). The
-adapters are eslint, ruff, generic, jest, vitest, pytest and playwright.
-
-**No baseline was recorded.** AMBICODE does not assume a branch is called `main`.
-Either set `baseline` in the configuration or pass `--base <ref>` when reviewing
-a branch.
-
-**`requirements.mcpServer` is null.** Requirement-based review retrieves Jira and
-Confluence content through one bound MCP server, and the helper cannot see which
-servers this session has. Look at what is connected:
-
-- exactly one compatible Jira/Confluence server — offer to write its name;
-- more than one — **ask the user which one this repository should use**, then
-  write that name. Do not choose for them;
-- none — leave it null and say that requirement-based review is unavailable
-  until a server is connected. Quality review still works.
-
-The name is written as `requirements.mcpServer` in `.ambicode/config.yaml`.
-
-**Nothing was detected at all.** One project covering the repository root is
-written with every command null: a working configuration with no checks yet.
-
-**Rule sources were reported.** Init lists documents that usually hold written
-rules — `CLAUDE.md`, `CONTRIBUTING.md`, `docs`, `.cursor/rules` — when they
-exist. It has not read any of them, and rules written in Markdown are not in
-effect: AMBICODE resolves policy from YAML packs only. Offer `/ambicode:rules`,
-which turns them into scoped packs once, at setup. Do not attempt the migration
-yourself here.
-
-## After init
-
-`node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` prints the effective values, including the limits that are not
-stored in the file. Quote it rather than repeating numbers from memory.
+1. `node "${CLAUDE_PLUGIN_ROOT}/skills/init/scripts/scaffold.mjs" --task init`. Exit 2: stop, tell user. `configExisted`: ask: refresh or abort.
+2. Read root `*.md` and the layout (depth 2) in one turn. Find the stack and defining files; derive `ecosystem`, `commands`.
+3. Launch `ambicode:scout` in background with scaffold's `scout` `model`, `effort`. Prompt it to write the context. Same turn, in parallel: read `references/rules.md` and `skills/rules/references/pack-format.md`, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config packs --list`.
+4. Find the stack's configuration and rule files; derive its usual checks from them, defining files winning; fill `checks.<name>.{all,file}` (`{file}` placeholder), else null. Hold; end turn.
+5. On its report, parallel Writes in one turn: `.ambicode/config.yaml` (template shape): `paths`, `include`, `exclude`, `skills.review.excludePaths` = `reviewExclude`, per project `packs` from findings and `--list`, ids exactly as it prints them; and step 6's drafts.
+6. Always draft the scout's conventions per `references/rules.md`, also with `--auto`. Else one WebSearch (core stack), one AskUserQuestion (the user's own).
+7. One Bash call, full paths, `;`-joined: `config packs --task init`, `config validate --task init`, `policy check --drafts`. Corrective Write only for problems or warnings. Unless `--auto`: `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start rules --task init`.
+8. Summary: projects, packs, checks found/missing, context files, drafts, questions. Errors: `references/outcomes.md`.

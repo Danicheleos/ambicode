@@ -1,0 +1,7 @@
+---
+type: regex
+pattern: '(?:(?<![\w-])policy\.ts[:\s(,#L`*]{0,6}(?:[Ll]ines?\s+)?(?:\d+(?:\s*[-–]\s*L?\d+)?\s*(?:,|;|and|&)\s*L?)*(?<!\d)(?:(?:1|2|3|4|5|6)(?!\d)(?!\d))|(?<![\w-])tier\.ts[:\s(,#L`*]{0,6}(?:[Ll]ines?\s+)?(?:\d+(?:\s*[-–]\s*L?\d+)?\s*(?:,|;|and|&)\s*L?)*(?<!\d)(?:(?:1|2|3|4|5|6)(?!\d)(?!\d))|(?:(?<![A-Za-z0-9_])(?:MAX_OPEN_LOANS|loanLimit)(?![A-Za-z0-9_])[\s\S]{0,200}?(?<![\w/.-])(?:[tT][iI][eE][rR]|[tT][iI][eE][rR][sS]|[mM][eE][mM][bB][eE][rR]|[mM][eE][mM][bB][eE][rR][sS]|[bB][aA][sS][iI][cC]|[pP][lL][uU][sS]|[cC][oO][nN][fF][lL][iI][cC][tT]|[cC][oO][nN][fF][lL][iI][cC][tT][sS]|[cC][oO][nN][tT][rR][aA][dD][iI][cC][tT]|[cC][oO][nN][tT][rR][aA][dD][iI][cC][tT][sS]|[dD][uU][pP][lL][iI][cC][aA][tT][eE]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][dD]|[tT][wW][oO] [sS][oO][uU][rR][cC][eE][sS])(?![\w/-]|\.\w)|(?<![\w/.-])(?:[tT][iI][eE][rR]|[tT][iI][eE][rR][sS]|[mM][eE][mM][bB][eE][rR]|[mM][eE][mM][bB][eE][rR][sS]|[bB][aA][sS][iI][cC]|[pP][lL][uU][sS]|[cC][oO][nN][fF][lL][iI][cC][tT]|[cC][oO][nN][fF][lL][iI][cC][tT][sS]|[cC][oO][nN][tT][rR][aA][dD][iI][cC][tT]|[cC][oO][nN][tT][rR][aA][dD][iI][cC][tT][sS]|[dD][uU][pP][lL][iI][cC][aA][tT][eE]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][dD]|[tT][wW][oO] [sS][oO][uU][rR][cC][eE][sS])(?![\w/-]|\.\w)[\s\S]{0,200}?(?<![A-Za-z0-9_])(?:MAX_OPEN_LOANS|loanLimit)(?![A-Za-z0-9_])))'
+match: contains
+target: { source: file, path: .ambicode/reviews/rev-3/1/report.txt }
+weight: 1
+---

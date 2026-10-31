@@ -1,6 +1,6 @@
 # Authoring a policy pack
 
-Three fields change AMBICODE's behaviour in ways the schema cannot warn you
+Two fields change AMBICODE's behaviour in ways the schema cannot warn you
 about, because each one is valid either way and only the consequence differs.
 This is what each one does.
 
@@ -12,8 +12,13 @@ you wrote by hand before wiring it in:
 ambicode policy check --project web .ambicode/policies/team-components.yaml
 ```
 
-It applies the same rules the loader does, reports what each `appliesTo` glob
-matches in the repository as it stands, and exits nonzero on an error.
+It applies the same rules the loader does and exits nonzero on an error. It does
+not measure what an `appliesTo` glob matches; derive globs from the real layout.
+
+For drafts that `/ambicode:rules` writes, run `ambicode policy check --drafts`.
+It checks every file in `.ambicode/policies/drafts/` and requires each rule to
+carry `source.quote` (at least 20 characters, verbatim from the source) and
+`source.location`. A quote that is not found is `pack-quote-missing`.
 
 ## `authority`: what the reviewer is allowed to conclude
 
@@ -26,8 +31,9 @@ rule can produce a finding on its own.
 | `observed` | Evidence of existing practice, possibly legacy. | Raise it as context or a question. **Never** as a violation on the strength of the label. |
 | `inherited` | Baseline guidance, which is what every built-in pack carries. | Same as `observed`: guidance, not an approved requirement. |
 
-The exact wording the reviewer and the authoring skills operate under is in
-`prompts/shared-operating-contract.md`.
+The authority follows where the rule came from: a project document that states
+it is `team`; a convention inferred from the code is `observed`; a practice taken
+from the web or a built-in baseline is `inherited`.
 
 The practical consequence: labelling a convention `team` when it is really just
 how the code currently looks turns every legitimate alternative into a reported
@@ -54,78 +60,94 @@ applied.
 When you want your own pack instead of a built-in, say so:
 
 ```yaml
-id: common-quality
-replaces: builtin/common-quality
+id: common-design
+replaces: builtin/common-design
 ```
 
 Then:
 
-- the built-in is dropped **whole**. None of its rules, prompts, or command
+- the built-in is dropped **whole**. None of its rules or command
   decisions survive — you are taking over the entire pack, not editing it;
-- provenance stays visible: effective-policy output records that your pack
-  replaced `builtin/common-quality`, so a reader can see what is no longer
-  there;
 - only a project pack may declare it, and only as `builtin/<id>`.
 
 Use it when you genuinely want to own that whole area. If you only want to add
 to a built-in, do not use `replaces` — add a **second** pack with its own id. To
-remove a built-in you do not want, take it out of that project's `packs` list;
-there is no need to replace a pack in order to disable it.
+remove a built-in you do not want, take it out of that project's `packs` list, or
+delete its copy from `policyFiles`; there is no need to replace a pack in order to
+disable it. `config packs` writes such copies for you.
 
-`policy check` warns (`pack-replaces-unused`) when a pack declares `replaces`
-for a built-in the project does not enable. That is a no-op you probably did
-not intend.
+A `replaces` for a built-in the project does not enable does nothing.
 
-## `remindOnEdit`: only on a path-scoped pack
+## A rule narrows its pack
 
-A rule with `remindOnEdit: true` is a candidate for delivery by the packaged
-`PostToolUse` hook: when you edit a file the owning pack matches, the rule can
-arrive as context while you are writing the code, rather than waiting for a
-review.
+A pack's `activities` and `appliesTo` apply to every rule in it. A rule may carry
+its own `activities` to narrow them; absent, it takes the pack's. A rule cannot
+list an activity its pack does not carry, and the pack-level globs decide whether
+the pack applies to a file at all. The shipped
+`common-design` uses this: the pack carries `[review, task, plan]`, and a rule such
+as `need` narrows to `[plan, review]`, so each stage carries only its own. When a
+stage knows the files at hand (the task's touched files, else the search map's top
+candidates), a pack whose `appliesTo` matches none of them is left out; with no
+known file nothing is filtered.
 
-It is **rejected** — a configuration error, not a silently ignored flag — on any
-pack whose `appliesTo` includes `**/*`.
+## One rule, one place
 
-The reason is the point of the feature. A reminder earns its place by being
-about the file in front of you. A broad pack matches every file in the project,
-so its reminders would fire on every edit anywhere, which is exactly the
-per-file noise the feature exists to avoid: a checklist repeated at every
-keystroke is ignored within a day, and it then crowds out the reminder that
-would have mattered.
+Every rule is a pack rule. There is no rule list in `config.yaml`; a config that
+has one is refused. Rules that init drafts go through `/ambicode:rules`, and
+`policy check --drafts` rejects a draft rule whose `id` or instruction (case,
+spacing and final punctuation ignored) equals a rule already in force.
 
-So a reminder needs a scope narrow enough that seeing it is informative:
+## Where a rule applies
 
-```yaml
-appliesTo:
-  - "src/**/*.component.ts"
-rules:
-  - id: no-transport-in-components
-    remindOnEdit: true
-    # ...
-```
+Choose a rule's `activities` by what it decides. A rule about where code goes or who owns it
+(layers, boundaries, reuse, state ownership) shapes the plan before any code exists, so it carries
+`plan` with `task` and `review`. A rule about how code is written (naming, style, error text)
+carries `task` and `review`; a plan has no code to apply it to.
 
-If you want a rule both globally and as a reminder, that is two decisions: keep
-the global rule in the broad pack without `remindOnEdit`, and put the reminder
-in a narrow pack covering the paths where the mistake is actually made.
+A pack's `appliesTo` says which files the pack concerns, and its `activities` which stages
+carry it; a rule narrows only by its own `activities`. Every rule of a pack applies to every
+file the pack matches, so `appliesTo` is the project or language scope and one concern per pack
+is the way to scope narrower. With touched files known, a pack whose `appliesTo` matches none of
+them is left out; with none known every pack of the activity contributes. The plan route has no
+touched files before the draft, so it gets the packs the search map's files match, whole.
 
-The whole mechanism is also switchable per repository:
+## Choosing built-in packs
 
-```yaml
-authoring:
-  editReminders: false
-```
+Packs are chosen, not detected: init picks each project's `packs: [builtin/<id>]` from
+`ambicode config packs --list` (every built-in's id and its one-line `description`)
+by what the scout found in that project. `ambicode config packs` copies
+every built-in a project names to `.ambicode/policies/<group>/<id>.yaml`
+(the built-in's text plus `replaces: builtin/<id>`, comments included), adds the
+copy to the project's `policyFiles`, and reports a name that is no built-in. A pack
+whose commands the project does not declare is still copied: those commands count
+as unavailable.
 
-That disables reminder delivery entirely, whatever any pack declares.
+The copy is yours to edit. A later run never overwrites an existing copy; when the
+built-in's `source.externalVersion` differs from the copy's it prints
+`builtin/<id> is <new>, your copy is <old>` and leaves the merge to you. A
+`packs: [builtin/<id>]` reference still loads, and next to a copy of the same pack
+the copy wins. `.ambicode/` is gitignored by init, so copies are per-user.
+
+## Checks run unless a pack narrows them
+
+A check configured in `config.yaml` runs on the change's files (`--file` form).
+The `all` form, a whole-suite run, asks the user before each run for every check,
+whatever the packs say. `commandPolicy` only narrows further, per command name:
+`propose` asks before each run of either form, `forbid` refuses it. A command no
+pack mentions runs, so a copied pack listing only `e2e` still allows `test` and
+`typecheck`. `checks.runnable` lists exactly what `check` will run.
 
 ## Two smaller things worth knowing
 
 **`appliesTo` is project-relative.** The globs are matched against paths
 relative to the project's `root`, not to the repository. In a monorepository
 with `root: apps/web`, a component rule is `"src/**/*.component.ts"`, not
-`"apps/web/src/**/*.component.ts"`. `policy check` reports the match count, so a
-glob written against the wrong base shows up as zero matches.
+`"apps/web/src/**/*.component.ts"`. A glob written against the
+wrong base matches nothing and the rule never applies.
 
 **A `command` check must name a declared command.** `check: { kind: command,
 command: lint }` requires `lint` in that project's command catalog — as `null`
-if it is not configured yet. An undeclared command id is an error rather than a
-check that silently never runs. The same applies to every `commandPolicy` entry.
+if it is not configured yet. In a hand-written project pack without `replaces`, an
+undeclared command id is an error rather than a check that silently never runs;
+the same applies to every `commandPolicy` entry. A built-in pack or its copy
+(`replaces`) naming an undeclared command is treated as unavailable instead.

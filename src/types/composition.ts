@@ -1,0 +1,34 @@
+import type { Git } from '#platform/git/git';
+import type { AmbicodeConfig } from './modules/config.ts';
+import type { ProcessRunner, FileSystem, Clock, IdSource, StandardInput, HttpHost } from './platform/ports.ts';
+
+/**
+ * The only place that touches `node:fs`, `process`, `process.env`, `Date` or
+ * `crypto`; everything deeper gets them from here.
+ */
+export interface Runtime {
+  runner: ProcessRunner;
+  fs: FileSystem;
+  clock: Clock;
+  ids: IdSource;
+  http: HttpHost;
+  cwd: string;
+  /** The directory the shell ran in when `cwd` was moved into a task's repository. */
+  invokedFrom?: string;
+  pluginRoot: string;
+  stdin: StandardInput;
+  env: Readonly<Record<string, string | undefined>>;
+  /** Config notices collected while commands run; the CLI prints them to stderr. */
+  notices?: string[];
+}
+
+export interface Workspace {
+  runtime: Runtime;
+  git: Git;
+  repositoryRoot: string;
+  config: AmbicodeConfig;
+  configPath: string;
+}
+
+/** The repository a session is about, or why there is none. */
+export type SessionRepository = { repositoryRoot: string; where: string } | string;

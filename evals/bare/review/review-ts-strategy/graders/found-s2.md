@@ -1,0 +1,7 @@
+---
+type: regex
+pattern: '(?:(?<![\w-])factory\.ts[:\s(,#L`*]{0,6}(?:[Ll]ines?\s+)?(?:\d+(?:\s*[-–]\s*L?\d+)?\s*(?:,|;|and|&)\s*L?)*(?<!\d)(?:(?:2|3|4|5|6|7|8)(?!\d)|(?:1)\s*[-–]\s*L?(?:[1-9]\d{1,}|2|[3-9]\d{0})(?!\d))|(?<![\w-])late\.ts[:\s(,#L`*]{0,6}(?:[Ll]ines?\s+)?(?:\d+(?:\s*[-–]\s*L?\d+)?\s*(?:,|;|and|&)\s*L?)*(?<!\d)(?:(?:1|2|3|4|5|6|7)(?!\d)(?!\d))|(?:(?<![A-Za-z0-9_])(?:CENTS_PER_LATE_DAY|lateFee|LateFeeStrategy)(?![A-Za-z0-9_])[\s\S]{0,200}?(?<![\w/.-])(?:[dD][uU][pP][lL][iI][cC][aA][tT][eE]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][dD]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][sS]|[dD][uU][pP][lL][iI][cC][aA][tT][iI][oO][nN]|50|[mM][aA][gG][iI][cC]|[hH][aA][rR][dD][cC][oO][dD][eE][dD]|[hH][aA][rR][dD]-[cC][oO][dD][eE][dD]|[tT][wW][oO] [pP][lL][aA][cC][eE][sS]|[tT][rR][uU][tT][hH]|[cC][lL][aA][mM][pP]|[cC][lL][aA][mM][pP][sS]|[rR][eE][pP][eE][aA][tT][sS])(?![\w/-]|\.\w)|(?<![\w/.-])(?:[dD][uU][pP][lL][iI][cC][aA][tT][eE]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][dD]|[dD][uU][pP][lL][iI][cC][aA][tT][eE][sS]|[dD][uU][pP][lL][iI][cC][aA][tT][iI][oO][nN]|50|[mM][aA][gG][iI][cC]|[hH][aA][rR][dD][cC][oO][dD][eE][dD]|[hH][aA][rR][dD]-[cC][oO][dD][eE][dD]|[tT][wW][oO] [pP][lL][aA][cC][eE][sS]|[tT][rR][uU][tT][hH]|[cC][lL][aA][mM][pP]|[cC][lL][aA][mM][pP][sS]|[rR][eE][pP][eE][aA][tT][sS])(?![\w/-]|\.\w)[\s\S]{0,200}?(?<![A-Za-z0-9_])(?:CENTS_PER_LATE_DAY|lateFee|LateFeeStrategy)(?![A-Za-z0-9_])))'
+match: contains
+target: last_message
+weight: 1
+---

@@ -1,49 +1,27 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it } from 'node:test';
-import { parseArgs, type OptionSpec } from './args.ts';
-import { BUNDLE_OPTIONS } from './commands/bundle.ts';
-import { CONFIG_OPTIONS } from './commands/config.ts';
-import { INIT_OPTIONS } from './commands/init.ts';
-import { LOCATE_OPTIONS } from './commands/locate.ts';
-import { POLICY_OPTIONS } from './commands/policy.ts';
-import { POLICY_CHECK_OPTIONS } from './commands/policy-check.ts';
-import { PREPARE_OPTIONS } from './commands/prepare.ts';
-import { REVIEW_OPTIONS } from './commands/review.ts';
-import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
-import { isAmbicodeError } from '../util/errors.ts';
+import { parseArgs } from '#util/args';
+import { COMMANDS } from './commands/registry.ts';
+import { MAP_OPTIONS, REFS_OPTIONS } from './commands/search/search.ts';
+import { CONFIG } from '#testing/fixtures/route-fixture';
+import { isAmbicodeError } from '#util/errors';
+import type { OptionSpec } from './types/cli.ts';
+import { POLICY_CHECK_OPTIONS } from './commands/policy/policy-check.ts';
+import { CHECK_OPTIONS } from './commands/checks/check.ts';
+import { REVIEW_OPTIONS } from './commands/review/review.ts';
+
+const COMMAND_SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COMMANDS].map(([name, entry]) => [name, entry.options]));
 
 const SPECS: Record<string, OptionSpec> = {
-  init: INIT_OPTIONS,
-  config: CONFIG_OPTIONS,
-  locate: LOCATE_OPTIONS,
-  policy: POLICY_OPTIONS,
+  map: MAP_OPTIONS,
+  refs: REFS_OPTIONS,
   'policy check': POLICY_CHECK_OPTIONS,
-  prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
-  bundle: BUNDLE_OPTIONS,
 };
-
-/**
- * The options each command block in the help text names. The help text is
- * authored, so this is what keeps it from documenting an option the parser
- * would reject (doc 11).
- */
-function documentedOptions(): Map<string, string[]> {
-  const documented = new Map<string, string[]>();
-  let current: string | null = null;
-  for (const line of USAGE.split('\n')) {
-    const command = /^  ([a-z]+)(?: |$)/.exec(line);
-    if (command !== null) {
-      current = command[1] ?? null;
-      if (current !== null) documented.set(current, []);
-    }
-    if (current === null) continue;
-    for (const [, name] of line.matchAll(/(?:^|\s)--([a-z][a-z-]*)/g)) {
-      if (name !== undefined) documented.get(current)?.push(name);
-    }
-  }
-  return documented;
-}
 
 function failure(command: string, argv: readonly string[], spec: OptionSpec): { code: string; message: string } {
   try {
@@ -57,24 +35,13 @@ function failure(command: string, argv: readonly string[], spec: OptionSpec): { 
 
 describe('U27 command line arguments', () => {
   it('accepts every option the usage text documents', () => {
-    // The regression: `init --dry-run` parsed against one spec and then failed
-    // against another, so a documented option ran the command and then errored.
-    assert.equal(parseArgs('init', ['--dry-run'], INIT_OPTIONS).flag('dry-run'), true);
-    assert.equal(parseArgs('init', ['--dry-run', '--json'], INIT_OPTIONS).flag('json'), true);
+    assert.equal(parseArgs('check', ['--name', 'unit', '--file', 'a.ts', '--file', 'b.ts', '--phase', 'red'], CHECK_OPTIONS).all('file').length, 2);
 
-    const policy = parseArgs('policy', ['--project', 'web', '--activity', 'review', 'src/a.ts'], POLICY_OPTIONS);
-    assert.equal(policy.value('project'), 'web');
-    assert.equal(policy.value('activity'), 'review');
-    assert.deepEqual(policy.positionals, ['src/a.ts']);
+    const review = parseArgs('review', ['--branch', '--base', 'main'], REVIEW_OPTIONS);
+    assert.equal(review.flag('branch'), true);
+    assert.equal(review.value('base'), 'main');
 
-    const bundle = parseArgs('bundle', ['--branch', '--base', 'main'], BUNDLE_OPTIONS);
-    assert.equal(bundle.flag('branch'), true);
-    assert.equal(bundle.value('base'), 'main');
-
-    assert.equal(parseArgs('config', ['--json'], CONFIG_OPTIONS).flag('json'), true);
-
-    // R3: `policy check` is the one two-word command; `main` strips the
-    // subcommand before parsing, so the spec sees only what follows it.
+    // `main` strips the `policy check` subcommand before parsing, so the spec sees only what follows it.
     const policyCheck = parseArgs(
       'policy check',
       ['--project', 'web', '--json', '.ambicode/policies/a.yaml'],
@@ -91,35 +58,18 @@ describe('U27 command line arguments', () => {
     }
   });
 
-  it('accepts every option the help text documents', () => {
-    for (const [command, options] of documentedOptions()) {
-      const spec = COMMAND_SPECS[command];
-      assert.ok(spec !== undefined, `the help text documents "${command}", which is not a command`);
-      for (const option of options) {
-        const declared = [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])];
-        assert.ok(
-          declared.includes(option),
-          `"${command}" documents --${option} but does not accept it`,
-        );
-      }
-    }
-  });
-
   it('rejects an operand on a command that takes none', () => {
-    for (const command of ['init', 'config', 'review', 'bundle', 'version']) {
+    for (const command of ['review', 'version']) {
       const spec = COMMAND_SPECS[command];
       assert.ok(spec !== undefined);
       const error = failure(command, ['src/app.ts'], spec);
       assert.equal(error.code, 'bad-argument');
       assert.match(error.message, /takes no positional arguments/);
     }
-    // Policy, prepare and locate are the commands whose operands are data.
-    assert.deepEqual(parseArgs('policy', ['src/app.ts'], POLICY_OPTIONS).positionals, ['src/app.ts']);
-    assert.deepEqual(parseArgs('prepare', ['src/app.ts'], PREPARE_OPTIONS).positionals, ['src/app.ts']);
-    // R4: locate's operands are search terms, which may be multiword.
-    const locate = parseArgs('locate', ['--limit', '5', 'invoice', 'negative amount'], LOCATE_OPTIONS);
-    assert.deepEqual(locate.positionals, ['invoice', 'negative amount']);
-    assert.equal(locate.value('limit'), '5');
+    assert.deepEqual(parseArgs('policy check', ['a.yaml'], POLICY_CHECK_OPTIONS).positionals, ['a.yaml']);
+    const refs = parseArgs('refs', ['--declarations', 'invoice', 'refund'], REFS_OPTIONS);
+    assert.deepEqual(refs.positionals, ['invoice', 'refund']);
+    assert.equal(refs.flag('declarations'), true);
   });
 
   it('collects repeatable requirement URLs in the order they were given', () => {
@@ -136,7 +86,6 @@ describe('U27 command line arguments', () => {
   });
 
   it('has no flag that turns checks or the requirement mode off', () => {
-    // D03: the mode follows from whether a requirement URL was supplied.
     for (const spec of Object.values(SPECS)) {
       const declared = [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])];
       for (const banned of ['quality-only', 'no-checks', 'skip-checks', 'no-review']) {
@@ -145,35 +94,34 @@ describe('U27 command line arguments', () => {
     }
   });
 
-  it('collects repeated approvals in order and keeps them apart from values', () => {
-    const args = parseArgs('bundle', ['--approve', 'web/unit', '--approve', 'api/lint'], BUNDLE_OPTIONS);
-    assert.deepEqual(args.all('approve'), ['web/unit', 'api/lint']);
-    assert.deepEqual(parseArgs('bundle', [], BUNDLE_OPTIONS).all('approve'), []);
-    // A single-valued option never answers `all`, so approvals cannot be faked.
-    assert.deepEqual(parseArgs('bundle', ['--base', 'main'], BUNDLE_OPTIONS).all('base'), []);
+  it('collects repeated values in order and keeps them apart from single values', () => {
+    const args = parseArgs('review', ['--only', 'src/**', '--only', 'lib/**'], REVIEW_OPTIONS);
+    assert.deepEqual(args.all('only'), ['src/**', 'lib/**']);
+    assert.deepEqual(parseArgs('review', [], REVIEW_OPTIONS).all('only'), []);
+    assert.deepEqual(parseArgs('review', ['--base', 'main'], REVIEW_OPTIONS).all('base'), []);
   });
 
   it('accepts inline values and stops at --', () => {
-    assert.equal(parseArgs('bundle', ['--base=release/1.2'], BUNDLE_OPTIONS).value('base'), 'release/1.2');
-    const args = parseArgs('policy', ['--', '--not-an-option'], POLICY_OPTIONS);
+    assert.equal(parseArgs('review', ['--base=release/1.2'], REVIEW_OPTIONS).value('base'), 'release/1.2');
+    const args = parseArgs('policy check', ['--', '--not-an-option'], POLICY_CHECK_OPTIONS);
     assert.deepEqual(args.positionals, ['--not-an-option']);
   });
 
   it('names the command and its own options when an option is unknown', () => {
-    const error = failure('init', ['--branch'], INIT_OPTIONS);
+    const error = failure('refs', ['--branch'], REFS_OPTIONS);
     assert.equal(error.code, 'bad-argument');
-    assert.match(error.message, /init/);
+    assert.match(error.message, /refs/);
     assert.match(error.message, /--branch/);
   });
 
   it('rejects a missing value and a value given to a flag', () => {
-    assert.equal(failure('bundle', ['--base'], BUNDLE_OPTIONS).code, 'bad-argument');
-    assert.equal(failure('init', ['--dry-run=yes'], INIT_OPTIONS).code, 'bad-argument');
+    assert.equal(failure('review', ['--base'], REVIEW_OPTIONS).code, 'bad-argument');
+    assert.equal(failure('refs', ['--declarations=yes'], REFS_OPTIONS).code, 'bad-argument');
   });
 
   it('rejects an unknown option before the command can do anything', async () => {
-    // Nothing is constructed on this path: main parses before createRuntime, so
-    // a rejected argument cannot have spawned a process or written a file.
+    // main parses before createRuntime, so a rejected argument cannot have spawned a process or
+    // written a file.
     const { main } = await import('./main.ts');
     const written: string[] = [];
     const stdout = process.stdout.write.bind(process.stdout);
@@ -181,7 +129,7 @@ describe('U27 command line arguments', () => {
     process.stdout.write = ((chunk: string) => (written.push(String(chunk)), true)) as typeof process.stdout.write;
     process.stderr.write = ((chunk: string) => (written.push(String(chunk)), true)) as typeof process.stderr.write;
     try {
-      assert.equal(await main(['init', '--no-such-option']), 2);
+      assert.equal(await main(['refs', '--no-such-option']), 2);
     } finally {
       process.stdout.write = stdout;
       process.stderr.write = stderr;
@@ -200,5 +148,45 @@ describe('U27 command line arguments', () => {
       process.stderr.write = stderr;
     }
     assert.match(text, /Unknown command "nope"/);
+  });
+});
+
+describe('search commands', () => {
+  it('map and refs are registered and take --json; the index, locate, find, relates and read commands are gone', () => {
+    for (const command of ['map', 'refs']) assert.ok((COMMAND_SPECS[command]?.flags ?? []).includes('json'), command);
+    assert.equal(COMMAND_SPECS['map'], MAP_OPTIONS);
+    assert.equal(COMMAND_SPECS['refs'], REFS_OPTIONS);
+    for (const command of ['locate', 'find', 'relates', 'read', 'index build', 'index status']) assert.equal(COMMAND_SPECS[command], undefined, command);
+  });
+});
+
+describe('a --task command runs in the task\'s repository', () => {
+  const MAIN = path.join(import.meta.dirname, 'main.ts');
+  const git = (cwd: string, ...argv: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...argv], { cwd });
+
+  it('reads the task repository\'s files from a shell started above it, inside another work tree', async () => {
+    const session = await mkdtemp(path.join(tmpdir(), 'ambicode-task-cwd-'));
+    try {
+      const repo = path.join(session, 'repo');
+      git(session, 'init', '-q');
+      await mkdir(path.join(repo, '.ambicode', 'tasks', 't'), { recursive: true });
+      git(repo, 'init', '-q');
+      await writeFile(path.join(repo, '.ambicode', 'config.yaml'), CONFIG);
+      await writeFile(path.join(repo, '.ambicode', 'tasks', 't', 'ledger.jsonl'), '');
+      await mkdir(path.join(repo, 'src'));
+      await writeFile(path.join(repo, 'src', 'a.ts'), 'export const a = 1;\n');
+      git(repo, 'add', 'src/a.ts');
+      git(repo, 'commit', '-q', '-m', 'base');
+
+      const run = (cwd: string) => spawnSync(process.execPath, [MAIN, 'refs', '--task', 't', 'a'], { cwd, encoding: 'utf8' });
+      const above = run(session);
+      assert.equal(above.status, 0, above.stderr);
+      assert.match(above.stdout, /src\/a\.ts:1:/);
+      const inside = run(path.join(repo, 'src'));
+      assert.equal(inside.status, 0, inside.stderr);
+      assert.match(inside.stdout, /src\/a\.ts:1:/);
+    } finally {
+      await rm(session, { recursive: true, force: true });
+    }
   });
 });
