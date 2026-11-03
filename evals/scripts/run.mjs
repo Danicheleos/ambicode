@@ -4,13 +4,14 @@
 // --series names every case of a series of one-case commands; each command updates results/running.json (see progressOf).
 // --load-check is for a $0 check that a case loads (use it with a fake --model): every file the run would write goes to a scratch folder that is
 // deleted afterwards, so plugin.json, bare.json, running.json and the per-stamp folders are left alone (see runLoadCheck).
+// --regrade <stamp> ($0, add --bare for a bare stamp) re-scores that finished run's metrics and diff graders in place (see regradeStamp).
 // --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { archiveOf, deliveryLine, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
-import { isRealCase, realTruth } from './real-cases.mjs';
+import { realTruth } from './real-cases.mjs';
 import { metricsOf, scoreFiles } from './metrics.mjs';
 import { applyDiffGraders, isSkipped } from './diff-graders.mjs';
 import { downstreamMetrics, downstreamTruth, isDownstreamCase } from './downstream-cases.mjs';
@@ -56,9 +57,9 @@ export function preflight({ evals = EVALS, env = process.env, limit = ENTRY_LIMI
   return { line: `preflight: evals/ ${entries} entries`, lines: benchLines(env) };
 }
 
-const VALUE_FLAGS = ['--case', '--tag', '--runs', '--model', '--effort', '--max-cost-usd', '--series'];
+const VALUE_FLAGS = ['--regrade', '--case', '--tag', '--runs', '--model', '--effort', '--max-cost-usd', '--series'];
 const SWITCHES = ['--bare', '--dry-run', '--load-check'];
-export const USAGE = `Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>] [--max-cost-usd <usd>] [--series <a,b,...>] [--dry-run] [--load-check] [--help]`;
+export const USAGE = `Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>] [--max-cost-usd <usd>] [--series <a,b,...>] [--dry-run] [--load-check] [--regrade <stamp>] [--help]`;
 
 /** Before anything runs: `--help` prints the usage; an unknown flag, stray word or value flag without a value is an error. An unknown flag once fell through to a full paid run (`--help`, 52 runs, $6.85, 2026-10-23). */
 export function checkArgs(argv) {
@@ -213,6 +214,40 @@ function markPartialGrading(evalCase, log) {
   refoldAggregates(evalCase, runs);
 }
 
+/** Metrics and diff graders of one harness case, folded into its runs and aggregates (the harness took its aggregates before the diff graders existed). */
+function scoreCase(evalCase, deps) {
+  const downstream = isDownstreamCase(evalCase.name);
+  const spec = downstream ? undefined : (caseOf(evalCase.name)?.metrics ?? ((deps.realTruthOf ?? realTruth)(evalCase.name) ?? undefined));
+  if (!downstream && spec === undefined) return;
+  for (const runs of Object.values(evalCase.arms ?? {})) for (const one of runs ?? []) {
+    if (downstream) one.metrics = downstreamMetrics(deps.truthOf?.(evalCase.name) ?? null, one.trace ? readFileSync(one.trace, 'utf8') : undefined);
+    else if (spec.source === 'changed') one.metrics = scoreFiles(spec, one.changed ?? null);
+    else if (one.trace) one.metrics = metricsOf(spec, readFileSync(one.trace, 'utf8'));
+    if (!downstream && spec?.diffGraders?.length) applyDiffGraders(one, spec.diffGraders, one.diff ? readFileSync(one.diff, 'utf8') : null);
+  }
+  if (!downstream && spec?.diffGraders?.length) {
+    const all = Object.values(evalCase.arms ?? {}).flatMap((runs) => runs ?? []);
+    evalCase.aggregates = { ...evalCase.aggregates, score: all.reduce((sum, one) => sum + one.score, 0) / all.length, passRate: all.filter((one) => one.passed).length / all.length };
+  }
+}
+
+/**
+ * Re-folds metrics and diff graders into the finished result of one stamp (<results>/[bare/]<stamp>/aggregate-result.json) from the diffs and changed lists
+ * it names; $0, no model call, llm graders untouched. For a run scored before its case was recognised (task-k12-* cases had no diff graders, 2026-11-02).
+ * Returns each case's score before and after.
+ */
+export function regradeStamp({ arm, stamp, results = RESULTS }, deps = REAL) {
+  const file = path.join(results, ...(arm === 'bare' ? ['bare'] : []), stamp, 'aggregate-result.json');
+  const result = JSON.parse(readFileSync(file, 'utf8'));
+  const rows = (result.cases ?? []).map((evalCase) => {
+    const before = evalCase.aggregates?.score ?? null;
+    scoreCase(evalCase, deps);
+    return { name: evalCase.name, before, after: evalCase.aggregates?.score ?? null };
+  });
+  writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
+  return rows;
+}
+
 /** One `claude plugin eval` call: harvest, metrics; leaves run.result holding this call's result. */
 export function runCase(run, deps = REAL) {
   const status = deps.spawn('claude', run.argv, run.env);
@@ -233,20 +268,7 @@ export function runCase(run, deps = REAL) {
     Object.values(evalCase.arms ?? {}).forEach((runs) => (runs ?? []).forEach((one, index) => {
       if (one.delivery) (deps.log ?? console.log)(`${evalCase.name}-${index + 1}: ${deliveryLine(one.delivery)}`);
     }));
-    const downstream = isDownstreamCase(evalCase.name);
-    const spec = downstream ? undefined : (caseOf(evalCase.name)?.metrics ?? (isRealCase(evalCase.name) ? (deps.realTruthOf ?? realTruth)(evalCase.name) ?? undefined : undefined));
-    if (!downstream && spec === undefined) continue;
-    for (const runs of Object.values(evalCase.arms ?? {})) for (const one of runs ?? []) {
-      if (downstream) one.metrics = downstreamMetrics(deps.truthOf?.(evalCase.name) ?? null, one.trace ? readFileSync(one.trace, 'utf8') : undefined);
-      else if (spec.source === 'changed') one.metrics = scoreFiles(spec, one.changed ?? null);
-      else if (one.trace) one.metrics = metricsOf(spec, readFileSync(one.trace, 'utf8'));
-      if (!downstream && spec?.diffGraders?.length) applyDiffGraders(one, spec.diffGraders, one.diff ? readFileSync(one.diff, 'utf8') : null);
-    }
-    if (!downstream && spec?.diffGraders?.length) {
-      // The harness's per-case aggregates were taken before the diff graders existed.
-      const all = Object.values(evalCase.arms ?? {}).flatMap((runs) => runs ?? []);
-      evalCase.aggregates = { ...evalCase.aggregates, score: all.reduce((sum, one) => sum + one.score, 0) / all.length, passRate: all.filter((one) => one.passed).length / all.length };
-    }
+    scoreCase(evalCase, deps);
   }
   for (const evalCase of result.cases) markWithOnly(evalCase, (deps.withOnlyNamesOf ?? withOnlyNamesOf)(evalCase.name));
   for (const evalCase of result.cases) markPartialGrading(evalCase, deps.log ?? console.log);
@@ -418,6 +440,11 @@ function main(argv) {
   const checked = checkArgs(argv);
   if (checked.action === 'help') { console.log(checked.usage); return 0; }
   if (checked.action === 'error') { console.error(checked.message); return 2; }
+  const stamp = option(argv, '--regrade');
+  if (stamp !== null) {
+    for (const row of regradeStamp({ arm: argv.includes('--bare') ? 'bare' : 'plugin', stamp })) console.log(`${row.name}: score ${row.before} -> ${row.after}`);
+    return 0;
+  }
   const run = plan(argv);
   if (argv.includes('--dry-run')) {
     console.log(`${Object.entries(run.env).map(([k, v]) => `${k}=${v}`).join(' ')} claude ${run.argv.join(' ')}`);

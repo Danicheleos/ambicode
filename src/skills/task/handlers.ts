@@ -116,7 +116,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     for (const { project, runnable } of await runnableByProject(input)) {
       if (runnable.length > 0) lines.push(`Project ${project.id}: ${runnable.map((entry) => `${entry.key} (${forms(entry)})`).join(', ')}.`);
     }
-    return { state: 'ok', payload: lines.length === 0 ? 'No check has a command configured: run no tests; the report states that nothing was verified by execution.' : lines.join('\n') };
+    return { state: 'ok', payload: lines.length === 0 ? 'No check has a command configured, so none can run. Write the tests the change needs all the same (a bug fix starts with the test that fails for it), run none, and list them under Gaps as not run: nothing was verified by execution.' : lines.join('\n') };
   },
 
   /** Formatting the touched files is a fact of the change, not a model choice; an approval-needing format raises the same question as a check, and the answer re-runs this step. */

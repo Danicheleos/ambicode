@@ -94,8 +94,7 @@ describe('map', () => {
       assert.ok(twice.candidates.some((candidate) => candidate.path === 'src/billing/ledger.ts'));
       assert.ok(twice.text.startsWith(`${MAP_LEGEND}\n{"candidates"`));
       assert.doesNotMatch(twice.text.slice(MAP_LEGEND.length), /"terms"|"pass1"|"symbols"|"collides"|declarations/, 'debug fields stay in the ledger and the result, not in the text');
-      assert.deepEqual(Object.keys(twice.entry).sort(), ['bytes', 'candidates', 'layers', 'layersSource', 'limitations', 'mode', 'paths', 'terms']);
-      assert.deepEqual(twice.entry['paths'], twice.candidates.map((candidate) => candidate.path), 'the ledger keeps the ranked paths a later policy stage scopes rules to');
+      assert.deepEqual(Object.keys(twice.entry).sort(), ['bytes', 'candidates', 'layers', 'layersSource', 'limitations', 'mode', 'terms']);
     } finally {
       await fx.dispose();
     }
@@ -322,25 +321,50 @@ describe('map term extraction', () => {
     assert.ok(!terms.some((term) => /^(?:MUST|NOT|THE|AND|SHOULD)$/.test(term)), terms.join('|'));
   });
 
-  it('plain words stay out of the search even when most identifiers are dead', async () => {
-    // The opposite was measured and dropped: letting plain words in when half the identifiers were dead put 33 more target
-    // folders in the pool but cost .038 F1 and .060 top8 F1 on one 10-case bench; the printed list is what the reader gets.
-    const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
+  it('plain words enter the search when fewer than 3 terms are live, however many identifier-shaped tokens the request carries', async () => {
+    // Identifier-shaped tokens that match nothing used to close the gate on the plain word that names the path.
+    const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n', 'src/zork/index.ts': "export const key = 'x-zork';\n" });
     try {
       const keys = ['aa.bb_cc', 'aa.bb_dd', 'aa.bb_ee', 'aa.bb_ff', 'aa.bb_gg', 'aa.bb_hh', 'aa.bb_ii', 'aa.bb_jj', 'aa.bb_kk', 'aa.bb_ll'].map((key) => `\`${key}\``).join(', ');
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: `Rework \`settleInvoice\` and the keys ${keys} for the refund dialog.` });
-      assert.deepEqual(found.terms.pass1, ['settleInvoice']);
-      assert.ok(!found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
+      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: `Rework \`x-zork\`, \`quuxHandler\` and the keys ${keys} for the refund dialog.` });
+      assert.ok(found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
+      assert.ok(found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
+      assert.ok(found.candidates.some((candidate) => candidate.path === 'src/zork/index.ts'), found.candidates.map((candidate) => candidate.path).join(','));
+      assert.ok(found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
     } finally {
       await fx.dispose();
     }
   });
 
-  it('plain words stay out of the search while most identifiers are live', async () => {
+  it('a plain word that matches nothing is not reported as a missing term, and a dead identifier still is', async () => {
+    const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
+    try {
+      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Rework `quuxHandler` for the refund frobnicate dialog.' });
+      assert.ok(found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
+      assert.ok(found.limitations.some((note) => /no file matches.*"quuxHandler"/.test(note)), found.limitations.join('|'));
+      assert.ok(!found.limitations.some((note) => /frobnicate/.test(note)), found.limitations.join('|'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('context mode takes no plain words: its grep keeps identifiers and nothing there tells a live word from a dead one', async () => {
+    const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
+    try {
+      const found = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep', 'harvest'], request: 'Rework `settleInvoice` for the refund dialog.' });
+      assert.ok(found.terms.pass1.includes('settleInvoice'), found.terms.pass1.join('|'));
+      assert.ok(!found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('plain words stay out of the search once 3 terms are live', async () => {
     const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
     try {
       const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Rework `settleInvoice`, `applyDiscount` and `DISCOUNT_RATE` for the refund dialog.' });
       assert.ok(!found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
+      assert.ok(!found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
     } finally {
       await fx.dispose();
     }

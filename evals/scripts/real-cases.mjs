@@ -150,9 +150,8 @@ export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().c
   });
 }
 
-/** truth.json of the rendered task-real case with this name, or null: run.mjs scores `changed` metrics from it. The plan->task chain cases (chain-cases.mjs) are task-real-*-chain and live in cases/task-chain. */
+/** truth.json of the rendered case with this name (any name: a suite's cases are not all task-real-*), or null: run.mjs scores `changed` metrics from it. The plan->task chain cases (chain-cases.mjs) are task-real-*-chain and live in cases/task-chain. */
 export function realTruth(name, evalsDir = EVALS) {
-  if (!isRealCase(name)) return null;
   for (const tree of [REAL_TAG, 'task-chain', SUITE_TAG]) {
     const root = path.join(evalsDir, 'cases', tree);
     if (!existsSync(root)) continue;

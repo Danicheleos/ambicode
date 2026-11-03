@@ -140,7 +140,7 @@ describe('chain cases: the generator', () => {
   ];
   const root = mkdtempSync(path.join(tmpdir(), 'chain-gen-'));
   const rows = writeChain({ evalsDir: root, sources, cases: FIXTURE });
-  const { env } = harvested(root, 'STAMP-A', 'rl-k12-cec', { extra: { 'report.md': 'task report\n', 'summary.md': 'x\n' } });
+  const { env } = harvested(root, 'STAMP-A', 'rl-k12-cec', { extra: { 'report.md': 'task report\n', 'summary.md': 'x\n', 'result_2026-11-02T20-37.md': 'Done.\n', 'changed_2026-11-02T20-38.md': 'Changed: x\n' } });
   harvested(root, 'STAMP-B', 'rl-k12-rnc', { ledger: PLAN_LEDGER.replaceAll('SLUG', 'rl-k12-rnc') + TASK_TAIL });
   const taskRows = writeTask({ evalsDir: root, sources, cases: FIXTURE, stamps: ['STAMP-A', 'STAMP-B'], env });
   const dir = (arm, n) => path.join(root, arm, 'task-chain', n);
@@ -191,6 +191,8 @@ describe('chain cases: the generator', () => {
     assert.equal(seed(celery, 'rl-k12-cec', 'requirements', 'jira.md'), 'REQ\n');
     assert.ok(!existsSync(path.join(dir('cases', celery), 'seed', 'tasks', 'rl-k12-cec', 'report.md')), 'task-route products are not seeded');
     assert.ok(!existsSync(path.join(dir('cases', celery), 'seed', 'tasks', 'rl-k12-cec', 'summary.md')));
+    // The Stop hook saves a stage 1 run's final message as result_<stamp>.md (src/harness/engine/stop.ts); stage 2 reads plan.md, the ledger and requirements, never it.
+    assert.deepEqual(readdirSync(path.join(dir('cases', celery), 'seed', 'tasks', 'rl-k12-cec')).sort(), ['ledger.jsonl', 'plan.md', 'requirements']);
     // The second ledger carried the task route of a one-prompt run; the seed stops at the plan exit.
     assert.equal(seed(recog, 'rl-k12-rnc', 'ledger.jsonl'), PLAN_LEDGER.replaceAll('SLUG', 'rl-k12-rnc'));
     assert.match(read(dir('cases', celery), 'scaffold.sh'), /cp -R "\$\(dirname "\$0"\)\/seed\/\." \.ambicode\//);
@@ -547,5 +549,36 @@ describe('chain cases: review fixes to tasks-deliver-email and mock-client-kept-
   it('the other diff graders of the case carry none of the new options', () => {
     const plain = JSON.parse(read(root, 'bare', 'task-chain', '01-task-real-k12-celery-email-chain', 'truth.json')).diffGraders;
     for (const g of plain.filter((one) => !['tasks-deliver-email', 'mock-client-kept-for-local-and-test'].includes(one.name))) assert.deepEqual(Object.keys(g).filter((k) => ['keptIf', 'perFile'].includes(k)), []);
+  });
+});
+
+describe('chain cases: a suite ticket with frozen material and no plan values', () => {
+  const material = mkdtempSync(path.join(tmpdir(), 'chain-material-'));
+  mkdirSync(path.join(material, '.ambicode'));
+  const real = { name: 'task-k12-1016', repo: 'r1', kind: 'feature', slug: 'k12-1016', commit: 'a'.repeat(40), parent: 'b'.repeat(40), description: 'Suite.', prompt: 'Do it.', relevant: ['src/a.py'], allowed: [], material,
+    graders: [{ kind: 'diff', name: 'd-one', pattern: 'x', weight: 2 }, { kind: 'llm', name: 'design', rubric: 'PASS if ok.' }] };
+  const root = mkdtempSync(path.join(tmpdir(), 'chain-suite-'));
+  const rows = writeChain({ evalsDir: root, sources, cases: [real] });
+  writeTask({ evalsDir: root, sources, cases: [real], stamps: ['S'], env: harvested(root, 'S', 'k12-1016c').env });
+  const dir = (arm, n) => path.join(root, arm, 'task-chain', n);
+
+  it('is a chain ticket: stage 1 is graded on plan-accepted alone, and every arm of it renders', () => {
+    assert.deepEqual(rows, [{ name: 'task-k12-1016-chain-plan', planGraders: 1 }]);
+    assert.deepEqual(readdirSync(path.join(dir('cases', '03-task-k12-1016-chain-plan'), 'graders')), ['plan-accepted.md']);
+    assert.deepEqual(readdirSync(path.join(root, 'cases', 'task-chain')).sort(), ['03-task-k12-1016-chain', '03-task-k12-1016-chain-plan']);
+  });
+
+  it('the plugin scaffolds copy the case\'s frozen .ambicode, not the bench\'s; the bare one has none', () => {
+    for (const name of ['03-task-k12-1016-chain-plan', '03-task-k12-1016-chain']) {
+      const script = read(dir('cases', name), 'scaffold.sh');
+      assert.ok(script.includes(`cp -R '${path.join(material, '.ambicode')}'/. .ambicode/\n`), name);
+      assert.doesNotMatch(script, /\/bench\/r1\/\.ambicode/);
+    }
+    assert.doesNotMatch(read(dir('bare', '03-task-k12-1016-chain'), 'scaffold.sh'), /\.ambicode/);
+  });
+
+  it('stage 2 keeps the diff graders as truth, found by run.mjs under the -chain name whatever its prefix', () => {
+    assert.deepEqual(realTruth('task-k12-1016-chain', root).diffGraders.map((g) => g.name), ['d-one']);
+    assert.equal(realTruth('task-k12-1016-chain-plan', root), null);
   });
 });

@@ -86,9 +86,10 @@ list an activity its pack does not carry, and the pack-level globs decide whethe
 the pack applies to a file at all. The shipped
 `common-design` uses this: the pack carries `[review, task, plan]`, and a rule such
 as `need` narrows to `[plan, review]`, so each stage carries only its own. When a
-stage knows the files at hand (the task's touched files, else the search map's top
-candidates), a pack whose `appliesTo` matches none of them is left out; with no
-known file nothing is filtered.
+stage knows the files at hand (the task's touched files, or the pinned review's files
+for the review brief), a pack whose `appliesTo` matches none of them is left out; with no
+known file nothing is filtered, so the task and plan stages before any edit carry every
+pack of their activity.
 
 ## One rule, one place
 
@@ -109,7 +110,7 @@ carry it; a rule narrows only by its own `activities`. Every rule of a pack appl
 file the pack matches, so `appliesTo` is the project or language scope and one concern per pack
 is the way to scope narrower. With touched files known, a pack whose `appliesTo` matches none of
 them is left out; with none known every pack of the activity contributes. The plan route has no
-touched files before the draft, so it gets the packs the search map's files match, whole.
+touched files before the draft, so it gets every pack of the plan activity, whole.
 
 ## Choosing built-in packs
 

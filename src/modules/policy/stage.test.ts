@@ -197,7 +197,7 @@ describe('plan gets every rule whole', () => {
     }
   });
 
-  it('a pack scoped to **/*.py still follows the map paths for plan', async () => {
+  it('a pack scoped to **/*.py still follows the paths it is given for plan', async () => {
     const fx = await styleRepo(0);
     try {
       await fx.temp.write('.ambicode/policies/team.yaml', ['schemaVersion: 1', 'id: team', 'authority: team', 'appliesTo: ["**/*.py"]', 'activities: [plan]', 'source: { location: "fixture" }', 'rules:', '  - id: py-only', '    category: correctness', '    instruction: Close files you open.', '    check: { kind: reviewer, explanation: x }', ''].join('\n'));

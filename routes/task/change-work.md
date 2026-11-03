@@ -1,11 +1,12 @@
 # Work brief
 Run commands from the repository: `cd {repo}`.
-- The brief holds the plan's opening and closing sections and one iteration, or several in order: do them in order, finishing one with its tests before the next. One the code already satisfies is verified and skipped. Never start an iteration the brief does not hold; without a plan, the request is the brief.
-- Map: rows are leads. Start from the files the brief names; open a row at its spans to find code to reuse, callers and tests, and rely on it only for what you read. A name declared in several files: check which one a caller imports before editing it.
-- Choose the tests that cover the change and run them once over all changed files: `{cli} check --task {task} --name <key> --file <file> (repeat --file per file) --phase green`, with a key listed under `checks.runnable` below.
-- A check listed there with no file form is the route's, run once at the end over the whole change: never run it, nor its command through Bash, and say under Gaps that you left it.
+- The brief holds the plan's opening and closing sections and one or more iterations, done in order, each with its tests first. An iteration the code already satisfies is verified and skipped. Start none the brief lacks; with no plan the request is the brief.
+- Map rows are leads: start with the files the brief names; open a row's spans for reusable code, callers, tests; trust only what you read. A name in several files: check which one a caller imports.
+- Write the tests that cover the change, then run them once over all changed files: `{cli} check --task {task} --name <key> --file <file> (repeat --file per file) --phase green`, with a key listed under `checks.runnable` below.
+- A check listed there with no file form is the route's, run at the end: never run it, nor its command through Bash; list it under Gaps.
+- Behaviour added or fixed with no test in the diff is unfinished.
 - Last call, always: `{cli} route next --task {task}`. Follow the step it prints only if it is `write`.
-- With several iterations your final message repeats the role file's Changed:/Checks: lines under `Iteration <n>:` for each, in order, then `Gaps:` once. Keep it short: only what changed.
+- With several iterations your final message repeats the role file's Changed:/Checks: lines under `Iteration <n>:` for each, then `Gaps:` once.
 
 ## request
 {request}

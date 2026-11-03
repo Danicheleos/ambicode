@@ -10,6 +10,7 @@ interface ResolvePolicyOptions {
   workspace: Workspace;
   project: ProjectConfig;
   activity: Activity;
+  alsoActivity?: Activity;
   paths: readonly string[];
 }
 
@@ -23,6 +24,7 @@ export async function resolvePolicyFor(options: ResolvePolicyOptions): Promise<R
 
   return resolvePolicy({
     activity: options.activity,
+    ...(options.alsoActivity === undefined ? {} : { alsoActivity: options.alsoActivity }),
     project: options.project,
     packs: loaded.packs,
     paths: options.paths,

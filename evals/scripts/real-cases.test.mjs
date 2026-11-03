@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { NO_RUNS, REAL_TAG, SUITE_TAG, graderFiles, isRealCase, loadRealCases, realTruth, variantsOf, wroteLine, writeReal } from './real-cases.mjs';
 import { gradeOne } from './diff-graders.mjs';
-import { runCase } from './run.mjs';
+import { regradeStamp, runCase } from './run.mjs';
 
 const read = (...parts) => readFileSync(path.join(...parts), 'utf8');
 const sources = { r1: { bench: '/bench/r1', context: '/bench/r1/ctx' } };
@@ -153,6 +153,40 @@ describe('real-change task cases: the generator', () => {
     assert.deepEqual(run.graders.map((g) => [g.name, g.passed]), [['harness', true], ['diff-has-class', true]]);
     assert.equal(run.score, 1, 'the diff grader counts in the score with its weight');
     assert.equal(JSON.parse(read(result)).cases[0].aggregates.score, 1);
+  });
+
+  it('a rendered case is recognised by its truth.json whatever its name starts with: realTruth finds it and run.mjs scores its diff graders', () => {
+    const evalsDir = mkdtempSync(path.join(tmpdir(), 'real-suite-name-'));
+    const c = { ...FIXTURE[0], name: 'task-k12-alpha', plan: undefined, investigation: undefined };
+    writeReal({ evalsDir, sources, cases: [c], tag: SUITE_TAG });
+    assert.equal(realTruth('task-k12-alpha', evalsDir).name, 'task-k12-alpha');
+    assert.equal(realTruth('task-k12-other', evalsDir), null);
+    const result = path.join(evalsDir, 'plugin.json');
+    const diff = path.join(evalsDir, 'run.diff');
+    writeFileSync(diff, 'diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+class FooRepo {}\n');
+    const raw = { startedAt: '2026-10-28T10:00:00.000Z', cases: [{ name: c.name, aggregates: { score: 0, passRate: 0 }, arms: { with: [{ graders: [{ name: 'harness', weight: 2, passed: true, scored: true }], changed: c.relevant, diff }] } }] };
+    runCase({ argv: [], env: {}, result, arm: 'plugin' }, { tracesRoot: path.join(evalsDir, 'traces'), harvest: () => {}, realTruthOf: (name) => realTruth(name, evalsDir), spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } });
+    const run = JSON.parse(read(result)).cases[0].arms.with[0];
+    assert.deepEqual(run.graders.map((g) => g.name), ['harness', 'diff-has-class']);
+    assert.equal(run.metrics.recall, 1);
+  });
+
+  it('regradeStamp re-folds a finished bare stamp that was scored without its diff graders, in place, and leaves the llm verdicts alone', () => {
+    const evalsDir = mkdtempSync(path.join(tmpdir(), 'regrade-'));
+    const c = { ...FIXTURE[0], name: 'task-k12-alpha', plan: undefined, investigation: undefined };
+    writeReal({ evalsDir, sources, cases: [c], tag: SUITE_TAG });
+    const diff = path.join(evalsDir, 'run.diff');
+    writeFileSync(diff, 'diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+class FooRepo {}\n');
+    const graders = [{ name: 'harness', weight: 2, passed: true, scored: true }, { name: 'design', weight: 2, passed: false, scored: true }];
+    const stamp = path.join(evalsDir, 'results', 'bare', 'S');
+    mkdirSync(stamp, { recursive: true });
+    writeFileSync(path.join(stamp, 'aggregate-result.json'), JSON.stringify({ cases: [{ name: c.name, aggregates: { score: 0.5, passRate: 0 }, arms: { with: [{ score: 0.5, passed: false, graders, changed: c.relevant, diff }] } }] }));
+    const rows = regradeStamp({ arm: 'bare', stamp: 'S', results: path.join(evalsDir, 'results') }, { realTruthOf: (name) => realTruth(name, evalsDir) });
+    assert.deepEqual(rows, [{ name: c.name, before: 0.5, after: 4 / 6 }]);
+    const run = JSON.parse(read(stamp, 'aggregate-result.json')).cases[0].arms.with[0];
+    assert.deepEqual(run.graders.map((g) => [g.name, g.passed]), [['harness', true], ['design', false], ['diff-has-class', true]]);
+    assert.equal(run.metrics.recall, 1);
+    assert.deepEqual(regradeStamp({ arm: 'bare', stamp: 'S', results: path.join(evalsDir, 'results') }, { realTruthOf: (name) => realTruth(name, evalsDir) }), [{ name: c.name, before: 4 / 6, after: 4 / 6 }], 'a second pass changes nothing');
   });
 
   it('diff graders read the added lines of the files they name, a missing diff fails them, a guard on a missing diff holds only by not_contains', () => {

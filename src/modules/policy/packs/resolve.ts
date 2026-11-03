@@ -16,6 +16,8 @@ import type { LoadedPack } from './load.ts';
 
 interface ResolveOptions {
   activity: Activity;
+  /** A second activity whose packs and rules are delivered too; a rule in both appears once. */
+  alsoActivity?: Activity;
   project: ProjectConfig;
   packs: readonly LoadedPack[];
   paths: readonly string[];
@@ -24,6 +26,7 @@ interface ResolveOptions {
 
 export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   const { activity, project, packs } = options;
+  const carries = (activities: readonly Activity[]): boolean => activities.includes(activity) || (options.alsoActivity !== undefined && activities.includes(options.alsoActivity));
   const projectRoot = normalizeRelative(project.root);
 
   const pathsSupplied = options.paths.length > 0;
@@ -37,7 +40,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
 
   for (const loaded of packs) {
     const pack = loaded.pack;
-    if (!pack.activities.includes(activity)) continue;
+    if (!carries(pack.activities)) continue;
 
     // With no paths, a pack contributes its activity-level content once; with
     // paths, only when it actually matches one.
@@ -55,7 +58,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     });
 
     for (const rule of pack.rules) {
-      if (rule.activities !== undefined && !rule.activities.includes(activity)) continue;
+      if (rule.activities !== undefined && !carries(rule.activities)) continue;
       rules.push({
         qualifiedId: `${pack.id}/${rule.id}`,
         packId: pack.id,
@@ -69,7 +72,8 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
       });
     }
 
-    for (const decision of pack.commandPolicy) {
+    // Rules only: a pack carried for `alsoActivity` alone adds no command decision.
+    for (const decision of pack.activities.includes(activity) ? pack.commandPolicy : []) {
       const existing = decisionsByCommand.get(decision.command);
       const source = {
         packId: pack.id,

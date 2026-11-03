@@ -22,11 +22,13 @@ export async function policyStage(input: {
   runtime: Runtime;
   project: ProjectConfig;
   activity: Activity;
+  /** The task route without a plan also delivers the plan rules: no plan stage applied the design rules before the work. */
+  alsoActivity?: Activity;
   paths: readonly string[];
   stage: 'before-work';
 }): Promise<StagePayload> {
   const workspace = await openWorkspace(input.runtime);
-  const policy = await resolvePolicyFor({ workspace, project: input.project, activity: input.activity, paths: input.paths });
+  const policy = await resolvePolicyFor({ workspace, project: input.project, activity: input.activity, ...(input.alsoActivity === undefined ? {} : { alsoActivity: input.alsoActivity }), paths: input.paths });
   const carried = policy.rules;
   const lines = renderRuleGroups(carried);
   const text = lines.map((line) => line.text).join('\n');

@@ -48,8 +48,9 @@ don't assert** and **Before anything destructive**.
   information: the user is deciding what to spend next.
 - When evidence kills a task you were asked to do, drop it and name the
   evidence. Do not do it anyway to look thorough.
-- Make routine judgment calls yourself. Ask only when different answers lead to
-  materially different work.
+- Make routine judgment calls yourself, except where the user or a project rule
+  requires agreement first. Ask only when different answers lead to materially
+  different work.
 
 ## Before anything destructive
 
@@ -114,9 +115,10 @@ don't assert** and **Before anything destructive**.
 
 ## In code you write
 
-- Comments record why, with the evidence: the measurement, the real failure
-  they prevent, the alternative that was tried and rejected. Not what the line
-  does.
+- Comment only unobvious behaviour, in at most 3 lines: why, with the evidence
+  (the measurement, the real failure it prevents, the rejected alternative).
+  Not what the line does, no history or iteration ids; one short provenance
+  line is allowed.
 - A constant carries the provenance of its number — why 6 and not 20, what went
   wrong at the previous value.
 - Match the surrounding code's comment density, naming and idiom.
@@ -139,7 +141,7 @@ makes measurement cheap in that project.
   24 runs the `.ts` sources directly; there is no compile step for tests.
 - `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
   `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
-- `test:unit` takes about 70s alone (68s measured, 1977 tests) and longer beside
+- `test:unit` takes about 70s alone (68s measured) and longer beside
   other agents; `verify` adds build and plugin validation, so both can pass the
   default 120s Bash timeout. Run them in the foreground with
   `timeout: 600000`. Never poll a backgrounded run with Monitor or sleep
@@ -153,9 +155,10 @@ makes measurement cheap in that project.
   `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
 - `npm run evals` (plugin arm) and `npm run evals:bare` (no plugin, the
   baseline) cost money and run the bundle, not `src/`. Build first. Defaults:
-  Sonnet 5.5, effort low, 1 run. Cases come from `evals/scripts/cases.mjs`
-  (`npm run evals:generate`) except `downstream`, `init-large`, `task-real` and
-  the map benches (own generators); `evals/README.md` explains the arms.
+  Sonnet 5.5, effort low, 1 run. The live cases are suite-real
+  (`evals/scripts/real-cases.mjs`); the older suites are archived outside the
+  repository. Never run `npm run evals:generate`: it renders the archived
+  suites. `evals/README.md` explains the arms.
 
 CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
 native Windows `cmd`, plus an LF line-endings check. Paths, separators and

@@ -87,6 +87,13 @@ export const PLAN_VALUES = {
     { name: 'plan-migration', pattern: all('migration|alembic'), ticket: 'Persist notifications in the database with a migration' },
     { name: 'plan-tests-cover-both-paths', pattern: facts(relBlock(500, 'tests?|cover(?:s|ed|age)?', 'drafts?|publish\\w*|send[ _-]and[ _-]save'), relBlock(500, 'tests?|cover(?:s|ed|age)?', 'direct(?:ly)?|non[ _-]?draft|not (?:a )?draft|without (?:a )?draft')), ticket: 'cover both paths (direct recognition and publishing drafts) with tests' },
   ],
+  // The suite's k12 tickets: stage 1 is graded on plan-accepted alone (user decision 2026-11-02: no value graders), so their lists are empty.
+  'task-k12-1016': [],
+  'task-k12-1094': [],
+  // The suite's FE tickets (same rule, appended last so the k12 chain directory numbers above stay).
+  'task-real-fe-vs-5945-nom-admin-defaults': [],
+  'task-real-fe-vs-6545-reba-submit': [],
+  'task-real-fe-vs-5915-ge-adv-autolaunch': [],
 };
 
 /**
@@ -176,7 +183,8 @@ export function seedOf(folder, slug) {
       const child = path.join(relative, entry);
       if (statSync(path.join(folder, child)).isDirectory()) { walk(child); continue; }
       // report.md and summary.md are written by the task route; a real stage 1 run has neither, a one-prompt run (2026-10-31) had both.
-      if (child === 'report.md' || child === 'summary.md') continue;
+      // Stamped notes (result_<stamp>.md: the Stop hook saves the run's final message; changed_<stamp>.md) are products of the run that wrote them; k12 chain seeds carried "Done.".
+      if (child === 'report.md' || child === 'summary.md' || /^(?:result|changed)_[^/\\]+\.md$/.test(child)) continue;
       files[`seed/tasks/${slug}/${child.split(path.sep).join('/')}`] = readFileSync(path.join(folder, child), 'utf8');
     }
   };
@@ -208,7 +216,7 @@ export function caseFiles({ real, sources, arm, seed }) {
   const files = new Map();
   const limits = arm === 'plan' ? PLAN_LIMITS : (real.limits ?? TASK_LIMITS);
   files.set(`${root}/case.yaml`, `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task', checksOff: true }, plugin));
+  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task', checksOff: true, material: real.material }, plugin));
   if (arm === 'task') for (const [relative, text] of Object.entries(seed)) files.set(`${root}/${relative}`, text);
   files.set(`${root}/prompt.md`, [
     '---',

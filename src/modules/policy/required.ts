@@ -21,7 +21,7 @@ export function changesPaths(plan: string): string[] {
 
 /**
  * The delivered plan rules the plan's own Changes paths reach: the same resolve task and review use (pack `appliesTo` on the paths).
- * Delivery covers the packs the map's files match; this is the subset the plan must cite.
+ * Delivery covers every pack of the activity until files are touched; this is the subset the plan must cite.
  */
 export async function requiredPlanRules(input: { runtime: Runtime; project: ProjectConfig; paths: readonly string[]; delivered: readonly string[] }): Promise<string[]> {
   if (input.paths.length === 0 || input.delivered.length === 0) return [];

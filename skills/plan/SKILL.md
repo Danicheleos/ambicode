@@ -23,7 +23,7 @@ Accepted means the route recorded Accept (named in its closing line).
 - Plan from the code, not from the request's wording. Read the places the change edits, their callers, the tests beside them, and the code that already does a similar job. Independent reads (several files, a search and a file) go in one turn, not one per turn.
 - The search map is a starting point. Read the docs that decide where code of this kind goes before choosing a location.
 - Stop reading when every change you plan names a file and line you have read and each rule on where code goes is read. More reading after that adds cost, not accuracy.
-- A vague request: choose the reading the code supports, state it as an assumption, and ask only what changes the code. A ticket: its points are the scope; a point the code already meets goes under what the code settles, not into an iteration.
+- A vague request: where it leaves a point ambiguous, choose the reading the code supports, state it as an assumption, and ask only what changes the code; a requirement it states is carried as written, not reinterpreted. A ticket: its points are the scope; a point the code already meets goes under what the code settles, not into an iteration.
 - The reader did not watch you work. Say what changes and where in the repository's own words, and give the reason when it is not obvious.
 
 ## Before the gate

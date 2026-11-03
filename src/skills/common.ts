@@ -107,16 +107,15 @@ async function reviewSeed(input: HandlerInput, chain: readonly LedgerEntry[]): P
   return { text: [...files.filter((file) => !isTestPath(file)), ...added].join('\n'), files, checkout: pinned.result.target.repositoryRoot };
 }
 
-/** The files the stage's rules are scoped to: for review the pinned review's files, else the task's touched files once there are any, else the pinned review's, else the map's top candidates; empty means no scoping. */
+/** The files the stage's rules are scoped to: for review the pinned review's files, else the task's touched files once there are any, else the pinned review's; empty means no scoping, so every pack of the activity is delivered (the map's top paths used to scope it, and 8 .ts paths hid a pack scoped to .html from a task that then edited .html). */
 async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[], activity: Activity): Promise<string[]> {
   const baseline = baselineIn(chain);
   const pinned = activity === 'review' ? await reviewedFiles(input, chain) : [];
   // A task's touched set still holds files the review excludes (a configured `excludePaths`, a narrowing): their rules were staged for files nobody reviewed.
   const touched = pinned.length > 0 || baseline === null ? [] : (await touchedSet(input.runtime as Runtime, baseline)).touched;
   const reviewed = touched.length > 0 ? [] : pinned.length > 0 ? pinned : await reviewedFiles(input, chain);
-  const mapped = (chain.findLast((entry) => entry.kind === 'map')?.['paths'] as string[] | undefined) ?? [];
   const root = normalizeRelative(project.root);
-  return (touched.length > 0 ? touched : reviewed.length > 0 ? reviewed : mapped).filter((file) => toProjectRelative(root, file) !== null);
+  return (touched.length > 0 ? touched : reviewed).filter((file) => toProjectRelative(root, file) !== null);
 }
 
 const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
@@ -202,7 +201,10 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     if (input.params[1] !== undefined && !named.success) return { state: 'failed', code: 'internal', message: `policy.stage's activity must be one of ${Activity.options.join(', ')}, not "${input.params[1]}".`, recoverable: false };
     const activity = named.success ? named.data : 'task';
     try {
-      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity, paths: await stagePaths(input, project, await chainEntries(input), activity), stage });
+      // The plan came from an earlier route, so the whole ledger tells whether one exists; without it nothing applied the plan (design) rules.
+      const read = await input.ledger.read();
+      const planless = input.params[1] === undefined && activity === 'task' && (await briefOf(input, read.state === 'ok' ? read.entries : [])).planPath === null;
+      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity, ...(planless ? { alsoActivity: 'plan' as const } : {}), paths: await stagePaths(input, project, await chainEntries(input), activity), stage });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
       return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
     } catch (error) {

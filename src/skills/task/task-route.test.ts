@@ -248,6 +248,38 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }, { config });
   });
 
+  it('no runnable check: the work file still asks for the tests the change needs, written and not run, and lists them under Gaps', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const runnable = section(await t.work(), 'checks.runnable');
+      assert.match(runnable, /No check has a command configured/);
+      assert.match(runnable, /Write the tests the change needs/, 'a repository with no command still gets its tests written');
+      assert.match(runnable, /Gaps/, 'tests never run are listed as unverified, not reported clean');
+      assert.doesNotMatch(runnable, /run no tests/, 'the old text told the implementer to skip tests altogether');
+    }, { config: NO_CHECKS });
+  });
+
+  it('the change brief names what is skipped: an iteration the code already satisfies, not the garbled "One the code"', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const work = await t.work();
+      assert.doesNotMatch(work, /One the code/, 'the eval traces carried this sentence with its noun missing');
+      assert.match(work, /An iteration the code already satisfies is verified and skipped\./);
+    });
+  });
+
+  it('the change brief has the implementer write the tests before the last call and carries no hunk self-check', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const work = await t.work();
+      assert.match(work, /Write the tests that cover the change, then run them once over all changed files/);
+      assert.doesNotMatch(work, /each hunk|copies a neighbour/, 'the implementer cannot check itself: no source to compare against, and 3/3 paid runs showed no trace of it');
+      const unfinished = work.indexOf('with no test in the diff is unfinished');
+      assert.ok(unfinished > 0);
+      assert.ok(unfinished < work.indexOf('Last call, always'), 'the test rule precedes the last call');
+    });
+  });
+
   it('a project with a runnable check still holds change open until a green check is recorded', async () => {
     await withTask(async (t) => {
       await t.start();
@@ -802,6 +834,37 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       const staged = (await t.kinds('policy')).findLast((entry) => entry['activity'] === 'review')!['ids'] as string[];
       assert.deepEqual(staged, ['srcpack/freeze']);
       assert.ok(brief.includes('srcpack/freeze') && !brief.includes('gen/freeze'), 'the brief carries the rules of the reviewed files only');
+    }, { config });
+  });
+
+  it('a pack scoped to **/*.html reaches the implementer before work although the map found only .ts paths', async () => {
+    const pack = ['schemaVersion: 1', 'id: htmlpack', 'authority: team', 'appliesTo: ["**/*.html"]', 'activities: [task]', 'source: { location: "test" }', 'rules:', '  - id: markup', '    category: code-style', '    instruction: Close every tag.', '    check: { kind: reviewer, explanation: x }', ''].join('\n');
+    const config = CHECK_CONFIG.replace('    policyFiles: [.ambicode/policies/cmds.yaml]', '    policyFiles: [.ambicode/policies/cmds.yaml, .ambicode/policies/html.yaml]');
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/policies/html.yaml', pack);
+      await t.start();
+      const work = await t.work();
+      const mapped = [...section(work, 'map').matchAll(/\["([^"]+)",\d/g)].map((match) => match[1]!);
+      assert.ok(mapped.length > 0 && mapped.every((file) => file.endsWith('.ts')), `the map holds only .ts paths: ${mapped.join(', ')}`);
+      assert.match(section(work, 'policy:before-work'), /htmlpack\/markup: Close every tag\./);
+    }, { config });
+  });
+
+  it('a task with no plan also gets the plan-only rules of its packs; with a plan the delivery is the task rules alone', async () => {
+    const pack = ['schemaVersion: 1', 'id: layers', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [plan, task]', 'source: { location: "test" }', 'rules:', '  - id: where', '    category: architecture', '    instruction: Put code where its owner lives.', '    activities: [plan]', '    check: { kind: reviewer, explanation: x }', '  - id: style', '    category: code-style', '    instruction: Name things.', '    activities: [plan, task]', '    check: { kind: reviewer, explanation: x }', ''].join('\n');
+    const config = CHECK_CONFIG.replace('    policyFiles: [.ambicode/policies/cmds.yaml]', '    policyFiles: [.ambicode/policies/cmds.yaml, .ambicode/policies/layers.yaml]');
+    const ids = async (t: Fixture): Promise<string[]> => (await t.kinds('policy')).find((entry) => entry['activity'] === 'task')!['ids'] as string[];
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/policies/layers.yaml', pack);
+      await t.start({ text: 'fix total' });
+      assert.deepEqual(await ids(t), ['layers/style', 'layers/where']);
+      assert.match(section(await t.work(), 'policy:before-work'), /layers\/where: Put code where its owner lives\./);
+    }, { config });
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/policies/layers.yaml', pack);
+      await t.fx.repo.write('.ambicode/tasks/ord-7/plan.md', '# Plan\n\n## Iteration 1\nAdd the guard.\n');
+      await t.start({ plan: '.ambicode/tasks/ord-7/plan.md', text: 'iteration 1 of ord-7' });
+      assert.deepEqual(await ids(t), ['layers/style']);
     }, { config });
   });
 

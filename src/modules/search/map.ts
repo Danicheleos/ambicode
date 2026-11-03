@@ -69,8 +69,6 @@ interface MapResult {
   entry: Record<string, unknown>;
 }
 
-/** Top-ranked paths the ledger keeps so a later policy stage can scope rules to where the work is likely to land. */
-const STAGE_PATHS = 8;
 
 export function resolveLayers(mode: 'prompt' | 'context'): { layers: string[]; source: 'default' } {
   return { layers: [...SEARCH_LAYER_DEFAULTS[mode]], source: 'default' };
@@ -115,7 +113,7 @@ function spellingsOf(term: string, inflected = false): string[] {
 }
 
 /** One term's files: path hits score by place, content hits are counted so the total has diminishing returns. */
-async function shortlist(git: Git, files: readonly string[], pathspec: string | null, terms: readonly string[], note: (text: string) => void, want: number, declaredIn: ReadonlyMap<string, ReadonlySet<string>> = new Map()): Promise<{ found: MapCandidate[]; live: string[]; dead: string[]; elsewhere: Map<string, string[]> }> {
+async function shortlist(git: Git, files: readonly string[], pathspec: string | null, terms: readonly string[], note: (text: string) => void, want: number, declaredIn: ReadonlyMap<string, ReadonlySet<string>> = new Map(), plain: ReadonlySet<string> = new Set()): Promise<{ found: MapCandidate[]; live: string[]; dead: string[]; elsewhere: Map<string, string[]> }> {
   const live: string[] = [];
   const dead: string[] = [];
   const ranked = new Map<string, { score: number; content: number; reasons: string[]; terms: Set<string> }>();
@@ -125,8 +123,11 @@ async function shortlist(git: Git, files: readonly string[], pathspec: string | 
   const grepped = everywhere.map((hits) => new Set(hits.filter((file) => fileSet.has(file))));
   // The same grep already read the files a name search skips (json, html, markdown): a term found only there is not absent.
   const elsewhere = new Map<string, string[]>();
+  let plainOpen: boolean | undefined;
   terms.forEach((term, index) => {
     if (live.length >= want) return;
+    // Plain words wait behind the other terms and are judged once, at the first of them: terms that match nothing do not count, so a ticket whose ids match nothing still searches its words.
+    if (plain.has(term)) { plainOpen ??= live.length < PLAIN_LIVE_ENOUGH; if (!plainOpen) return; }
     // A name harvested from a file is that file's own word: it says nothing about the file, only about the files that use it.
     const own = declaredIn.get(term) ?? new Set<string>();
     const content = new Set([...grepped[index]!].filter((file) => !own.has(file)));
@@ -295,7 +296,10 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const candidates = new Map<string, MapCandidate>();
   let declarations: Declaration[] = [];
   const derived = input.terms === undefined || input.terms.length === 0;
-  const ranked1 = derived ? rankTerms([{ title: '', content: input.request ?? '' }], { limit: RESERVE_TERMS }) : [...input.terms!];
+  const derivedTerms = derived ? termsOf([{ title: '', content: input.request ?? '' }], { limit: RESERVE_TERMS }) : { terms: [...input.terms!], plain: new Set<string>() };
+  // Context mode has no shortlist to tell live terms from dead ones and its grep keeps identifiers only, so plain words would only add symbol rows.
+  const plain = mode === 'context' ? new Set<string>() : derivedTerms.plain;
+  const ranked1 = derivedTerms.terms.filter((term) => mode !== 'context' || !derivedTerms.plain.has(term));
   const pass1 = ranked1.slice(0, MAX_TERMS);
   const reserve = ranked1.slice(MAX_TERMS);
   let pass2: string[] = [];
@@ -332,10 +336,10 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
         passes += 1;
         const used = passes === 1 ? [...terms, ...reserve] : [...new Set([...pass1.slice(0, MAX_TERMS - PASS2_NAMES), ...names().slice(0, PASS2_NAMES), ...pass1.slice(MAX_TERMS - PASS2_NAMES)])].slice(0, MAX_TERMS);
         if (passes > 1) pass2 = used;
-        const { found, live, dead, elsewhere } = await shortlist(git, files, pathspec, used, note, MAX_TERMS, passes > 1 ? new Map(declarations.filter((declaration) => !pass1.some((term) => term.toLowerCase() === declaration.name.toLowerCase())).map((declaration) => [declaration.name, new Set(declarations.filter((other) => other.name === declaration.name).map((other) => other.path))])) : undefined);
-        const absent = dead.filter((term) => !elsewhere.has(term));
+        const { found, live, dead, elsewhere } = await shortlist(git, files, pathspec, used, note, MAX_TERMS, passes > 1 ? new Map(declarations.filter((declaration) => !pass1.some((term) => term.toLowerCase() === declaration.name.toLowerCase())).map((declaration) => [declaration.name, new Set(declarations.filter((other) => other.name === declaration.name).map((other) => other.path))])) : undefined, passes === 1 ? plain : undefined);
+        const absent = dead.filter((term) => !elsewhere.has(term) && !plain.has(term));
         if (passes === 1 && absent.length > 0) note(`no file matches ${absent.length === 1 ? 'the term' : 'the terms'} ${absent.map((term) => `"${term}"`).join(', ')}; ${derived ? 'the next request terms took their slots' : 'they were left out of the ranking'}`);
-        if (passes === 1) for (const [term, outside] of [...elsewhere].slice(0, ELSEWHERE_TERMS)) note(`"${term}" is in no code file, only in ${outside.slice(0, ELSEWHERE_PATHS).join(', ')}${outside.length > ELSEWHERE_PATHS ? ` and ${outside.length - ELSEWHERE_PATHS} more` : ''}`);
+        if (passes === 1) for (const [term, outside] of [...elsewhere].filter(([term]) => !plain.has(term)).slice(0, ELSEWHERE_TERMS)) note(`"${term}" is in no code file, only in ${outside.slice(0, ELSEWHERE_PATHS).join(', ')}${outside.length > ELSEWHERE_PATHS ? ` and ${outside.length - ELSEWHERE_PATHS} more` : ''}`);
         if (passes === 1 && derived) pass1.splice(0, pass1.length, ...live);
         merge(found);
         hits = found.length;
@@ -434,12 +438,14 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const reported = ordered.length === kept.length ? limitations : [...limitations, `${ordered.length - kept.length} lower-ranked candidate(s) cut to fit ${MAP_LIMIT_BYTES} bytes`];
   return {
     mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: kept, pool, symbols, collisions, limitations: reported, omitted: ordered.length - kept.length, text, bytes,
-    entry: { mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: ordered.length, paths: kept.slice(0, STAGE_PATHS).map((candidate) => candidate.path), limitations: reported, bytes, ...(collisions.length === 0 ? {} : { collisions }), ...(retrieved === null ? {} : { retrieved }) },
+    entry: { mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: ordered.length, limitations: reported, bytes, ...(collisions.length === 0 ? {} : { collisions }), ...(retrieved === null ? {} : { retrieved }) },
   };
 }
 
 // Term extraction for the map: identifiers a request names, in the order that finds code.
 const MAX_TERMS = 12;
+/** Plain words are searched only while fewer terms than this are live. Counting identifier-shaped tokens instead (same 3) left a ticket of dead ids without its words; 10-case bench F1 .411 -> .411, suite files 0/7 -> 2/7. */
+const PLAIN_LIVE_ENOUGH = 3;
 /** Terms past MAX_TERMS stand by for terms that match no file: on one 10-case bench of one repository the first 12 held 3-9 dead ones in 4 cases; F1 effect small (.128 -> .138 on half the cases, .379 -> .376 on the other). */
 const RESERVE_TERMS = 24;
 const IDENTIFIER = /[_./-]|\p{Ll}\p{Lu}/u;
@@ -510,15 +516,19 @@ function tokenize(text: string): string[] {
     if (isIdentifierLike(token)) {
       if (ACRONYM.test(token) && STOPWORDS.has(token.toLowerCase())) continue;
       tokens.push(token);
-      // `ORD-INV-7` names the order-invoice module and `manuallyAdjustedTotals` the adjustment code: the parts are what paths carry.
+      // `ORD-INV-7` names the order-invoice module and `manuallyAdjustedTotals` the adjustment code: their parts are terms too.
       for (const word of wordsOf(token)) if (word.length >= 4 && !/^\p{N}+$/u.test(word) && !STOPWORDS.has(word)) tokens.push(word);
     } else if (token.length >= 4 && !STOPWORDS.has(token.toLowerCase())) tokens.push(token);
   }
   return tokens;
 }
 
-/** Identifiers first, then quoted strings, prose only when identifiers are scarce (fewer than 3) or `withProse` asks for it first. */
+/** Identifiers first, then quoted strings, then plain words (`plain`, searched only while fewer than 3 terms are live) or, with `withProse`, plain words first. */
 export function rankTerms(sources: readonly { title: string; content: string }[], options: { withProse?: boolean; limit?: number } = {}): string[] {
+  return termsOf(sources, options).terms;
+}
+
+function termsOf(sources: readonly { title: string; content: string }[], options: { withProse?: boolean; limit?: number } = {}): { terms: string[]; plain: Set<string> } {
   const limit = options.limit ?? MAX_TERMS;
   const clean = sources.map((source) => ({ title: cleanRequestText(source.title), content: cleanRequestText(source.content) }));
   const text = clean.map((source) => `${source.title}\n${source.content}`).join('\n');
@@ -530,10 +540,10 @@ export function rankTerms(sources: readonly { title: string; content: string }[]
   const ranked = [...new Set([...backticked, ...identifiers, ...strings, ...capitalisedRuns(text)])];
   if (options.withProse === true) {
     const prose = all.filter((term) => !isIdentifierLike(term)).slice(0, 8);
-    return [...new Set([...prose, ...ranked])].slice(0, limit);
+    return { terms: [...new Set([...prose, ...ranked])].slice(0, limit), plain: new Set() };
   }
-  if (new Set([...backticked, ...identifiers]).size < 3) ranked.push(...mined.filter((term) => !isIdentifierLike(term)).flatMap((term) => term.split('-').filter((part) => part.length >= 3)));
-  return [...new Set(ranked)].slice(0, limit);
+  const plain = new Set(all.filter((term) => !isIdentifierLike(term) && !/\s/.test(term) && !ranked.includes(term)));
+  return { terms: [...new Set([...ranked, ...plain])].slice(0, limit), plain };
 }
 
 /** Deliberately short: the breadth guard stops useless terms; this only saves a grep on "should". */

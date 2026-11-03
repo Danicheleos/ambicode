@@ -537,3 +537,15 @@ test('a rule is cut by pack appliesTo and activities only; a rule with kinds is 
   assert.deepEqual(ids('review', []), [], 'the pack is not a review pack');
   assert.equal(PolicyPack.safeParse({ ...pack, rules: [rule('bound', { kinds: ['component'] })] }).success, false);
 });
+
+test('alsoActivity adds a plan-only pack\'s rules but not its commandPolicy', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(path.join(packDirectory, 'planonly.yaml'), ['schemaVersion: 1', 'id: planonly', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [plan]', 'source: { location: "test" }', 'rules:', '  - id: where', '    category: architecture', '    instruction: Put code where its owner lives.', '    check: { kind: reviewer, explanation: x }', 'commandPolicy: [{ command: unit, action: forbid }]'].join('\n'), 'utf8');
+  const config = project({ packs: [], policyFiles: ['.ambicode/policies/planonly.yaml'] });
+  const { packs } = await loadPacksForProject({ fs: nodeFileSystem, project: config, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
+  const resolved = resolvePolicy({ activity: 'task', alsoActivity: 'plan', project: config, packs, paths: [] });
+  assert.deepEqual(resolved.rules.map((rule) => rule.qualifiedId), ['planonly/where']);
+  assert.equal(decisionFor(resolved, 'unit').action, 'run');
+});
