@@ -54,14 +54,13 @@ In the target repository, start or restart Claude Code and run:
 
 `/ambicode:init` is run by the user once per repository, from the git root:
 
-1. A scaffold script creates `.ambicode/` (`tasks/`, `reviews/`, `context/`),
+1. A scaffold script creates `.ambicode/` (`tasks/`, `reviews/`),
    writes `.ambicode/config.yaml` from the template, and adds `.ambicode/` to
-   `.gitignore`. The whole folder is gitignored: config, run ledgers and the
-   learning context stay local.
+   `.gitignore`. The whole folder is gitignored: config and run ledgers stay local.
 2. The `ambicode:scout` agent maps the repository in the background and writes
-   the learning context (overview, navigation, conventions, one file per
-   module) through `ambicode context write`, within `context.maxTotalTokens`
-   `context.maxFileTokens` and, for `index.md`, `context.maxIndexTokens`.
+   nothing: it reports the projects, the paths to leave out of review, the
+   conventions the project documents and lint configs state (each with a quote
+   and its location), and open questions. It opens no source file by default.
 3. Meanwhile the skill reads the manifests to fill in each project's
    ecosystem, commands and checks.
 4. It writes `.ambicode/config.yaml` once, naming each project's built-in packs
@@ -80,22 +79,20 @@ In the target repository, start or restart Claude Code and run:
 Run it again to refresh: the scaffold leaves an existing config untouched, and
 the skill asks whether to refresh or abort (`--auto` refreshes). Edit
 `.ambicode/config.yaml` directly at any time and re-run `config validate`.
-`ambicode context list` shows the context files, their first line and size.
 
 ### Search index and search map
 
-`ambicode context write` also builds the search index,
-`.ambicode/context/search/folders.jsonl` (one row per module folder), so init
-needs no step for it. `ambicode context index [--root <dir>]` builds it on its
-own. A map over a missing index builds it when `.ambicode/` exists (else the map
-says `search index absent: run context index`), and rebuilds an index from an
-older HEAD when the last build was fast.
+The search index, `.ambicode/context/search/folders.jsonl` (one row per module
+folder), is built by init (`context index --task init`, step 7); a map over a missing index also builds it when
+`.ambicode/` exists (else the map says `search index absent: run context index`),
+and rebuilds an index from an older HEAD when the last build was fast.
+`ambicode context index [--root <dir>]` builds it on demand.
 
 The search map (`ambicode search map`, at most 3,584 bytes: a legend and the
 ranked candidates, with limitations) is built by the `investigate`, `plan` and
 `task` routes and arrives in a step the `UserPromptSubmit` hook injects when you
 type `/ambicode:<skill> …`. There is no navigator agent and no generated addon
-script: the map is CLI code over `folders.jsonl`, `git grep` and the notes. Its
+script: the map is CLI code over `folders.jsonl` and `git grep`. Its
 offline bench is described in `evals/README.md`.
 The installed plugin itself remains in Claude's plugin storage.
 

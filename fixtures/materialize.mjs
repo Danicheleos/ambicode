@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 /**
- * Usage: <name> <empty-destination>  [--install] [--ambicode-init] [--context] [--policy] [--stack-packs]
+ * Usage: <name> <empty-destination>  [--install] [--ambicode-init] [--policy] [--stack-packs]
  * Without --install no project script runs. --ambicode-init commits the config and ignore lines the pure writer produces
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
- * --context (needs --ambicode-init) then writes fixtures/contexts/<fixture>.md into the gitignored .ambicode/context through
- * the real `ambicode context write`, standing in for what /ambicode:init's scout leaves behind.
  * --policy (needs --ambicode-init) writes fixtures/policies/<fixture>.yaml to the gitignored .ambicode/policies/team-rules.yaml
  * and lists it in the project's policyFiles, the place `ambicode rules apply` puts an accepted project pack.
  * --stack-packs (needs --ambicode-init) adds the built-in packs the fixture declares as `stackPacks` to the project's `packs`:
@@ -111,7 +109,7 @@ async function configFor(destination, wires, policyFiles = [], stackPacks = []) 
   return {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
     id: 'app',
-    context: { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 },
+    context: { maxTotalTokens: 24000 },
     skills: {
       init: { ...run, scout: run },
       review: { ...run, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] },
@@ -132,21 +130,6 @@ async function bundleFor(folder, extension, fixture) {
   const match = names.filter((name) => fixture.name === name || fixture.name.startsWith(`${name}-`)).sort((a, b) => b.length - a.length)[0];
   if (match === undefined) throw new Error(`no file in fixtures/${folder} for ${fixture.name}`);
   return readFile(path.join(dir, `${match}${extension}`), 'utf8');
-}
-
-/** Goes through the CLI so the bundle faces the same checkContext limits a scout's would; run npm run build first. */
-async function writeContext(fixture, destination) {
-  const cli = path.join(REPO_ROOT, 'scripts', 'ambicode.mjs');
-  await stat(cli).catch(() => { throw new Error(`${cli} is missing: run npm run build before materializing with --context`); });
-  const bundle = await bundleFor('contexts', '.md', fixture);
-  const child = run(process.execPath, [cli, 'context', 'write', '--replace'], { cwd: destination, maxBuffer: 16 * 1024 * 1024 });
-  child.child.stdin.end(bundle);
-  try {
-    const { stdout } = await child;
-    if (JSON.parse(stdout).check.problems.length > 0) throw new Error(stdout);
-  } catch (error) {
-    throw new Error(`context write failed for ${fixture.name}: ${error.stdout ?? ''}${error.stderr ?? ''}${error.message}`);
-  }
 }
 
 const TEAM_POLICY = '.ambicode/policies/team-rules.yaml';
@@ -180,8 +163,8 @@ async function commitAmbicodeInit(fixture, destination, wires, policy, stackPack
   await settle(destination);
 }
 
-export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false, context = false, policy = false, stackPacks = false } = {}) {
-  if ((context || policy || stackPacks) && !ambicodeInit) throw new Error('--context, --policy and --stack-packs need --ambicode-init');
+export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false, policy = false, stackPacks = false } = {}) {
+  if ((policy || stackPacks) && !ambicodeInit) throw new Error('--policy and --stack-packs need --ambicode-init');
   if (stackPacks && (fixture.stackPacks ?? []).length === 0) throw new Error(`fixture ${fixture.name} declares no stackPacks`);
   const lastCommit = fixture.steps.findLastIndex((step) => step.commit !== undefined);
   if ((ambicodeInit || installing) && lastCommit === -1) {
@@ -234,7 +217,6 @@ export async function materialize(fixture, destination, { install: installing = 
       if (installing && index === lastCommit) await install(fixture, destination);
       if (ambicodeInit && index === lastCommit) {
         await commitAmbicodeInit(fixture, destination, installing ? (fixture.wires ?? []) : [], policy, stackPacks);
-        if (context) await writeContext(fixture, destination);
       }
     }
     if (step.branch !== undefined) {
@@ -249,8 +231,8 @@ export async function materialize(fixture, destination, { install: installing = 
 }
 
 async function main(rawArgv) {
-  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init'), context: rawArgv.includes('--context'), policy: rawArgv.includes('--policy'), stackPacks: rawArgv.includes('--stack-packs') };
-  const argv = rawArgv.filter((value) => !['--install', '--ambicode-init', '--context', '--policy', '--stack-packs'].includes(value));
+  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init'), policy: rawArgv.includes('--policy'), stackPacks: rawArgv.includes('--stack-packs') };
+  const argv = rawArgv.filter((value) => !['--install', '--ambicode-init', '--policy', '--stack-packs'].includes(value));
   const [name, destination] = argv;
   const fixture = name === undefined ? null : fixtureByName(name);
   if (fixture === null) {

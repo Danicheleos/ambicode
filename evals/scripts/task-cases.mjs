@@ -37,7 +37,7 @@ export function taskCases(B) {
     tags: ['task', 'seeded', ...tags],
     version: 1,
     fixture,
-    flags: '--ambicode-init --context',
+    flags: '--ambicode-init',
     prompt: PROMPT(slug, request),
     bare: `${request}\n\nAn earlier investigation of this code found the following; build on it.\n\n${INVESTIGATIONS[slug].trim()}`,
     files: seedFiles(slug, 'investigation', INVESTIGATIONS[slug]),
@@ -69,7 +69,7 @@ export function taskCases(B) {
   ];
 
   // ---------------------------------------------------------------- ts-app-medium: one task behaviour each, jest installed so the checks run
-  const app = { flags: '--ambicode-init --context --install', version: 1 };
+  const app = { flags: '--ambicode-init --install', version: 1 };
   const appCases = [
     {
       ...app,

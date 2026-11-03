@@ -326,7 +326,7 @@ describe('plan cases on a fixture that ships stack packs', () => {
   it('are the five app cases; the plugin arm installs the stack packs, the bare arm does not', () => {
     assert.deepEqual(stacked.map((c) => c.name).sort(), ['plan-app-csv', 'plan-app-draft', 'plan-app-remind', 'plan-app-reuse', 'plan-app-vague']);
     for (const c of stacked) {
-      assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /--ambicode-init --context --stack-packs/, c.name);
+      assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /--ambicode-init --stack-packs/, c.name);
       if (c.bare !== null) assert.doesNotMatch(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), /--ambicode-init|--stack-packs/, c.name);
     }
     for (const c of planCases.filter((other) => !stacked.includes(other))) {

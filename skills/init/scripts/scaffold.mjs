@@ -17,7 +17,7 @@ if (!same(top, root)) fail(`not the git root (root is ${top})`);
 
 const created = [];
 const existing = [];
-for (const dir of ['.ambicode/tasks', '.ambicode/reviews', '.ambicode/context']) {
+for (const dir of ['.ambicode/tasks', '.ambicode/reviews']) {
   const full = path.join(root, dir);
   if (existsSync(full)) existing.push(dir);
   else { mkdirSync(full, { recursive: true }); created.push(dir); }

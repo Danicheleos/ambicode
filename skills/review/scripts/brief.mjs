@@ -149,8 +149,6 @@ try {
   if (text !== '') rules = text;
 } catch { /* no steps directory: no policy text */ }
 
-const conventionsFile = path.join(input.repositoryRoot, '.ambicode', 'context', 'conventions.md');
-const conventions = read(conventionsFile);
 const target = result.target ?? {};
 // The reviewed iteration's checks, the latest run per key: an earlier iteration's red run is not this change's result.
 const checks = [...new Map(entries.filter((candidate) => candidate.kind === 'check' && candidate.route === entry.route).map((check) => [check.key, check])).values()];
@@ -220,14 +218,13 @@ const front = [
   ...commitLines(),
   ...discussionLines(),
   '## Policy rules', '', rules, '',
-  '## Project conventions', '', `Source: ${conventionsFile}`, '', conventions?.trim() ? conventions.trim().replace(/^#/gm, '###') : '(none recorded)', '',
   ...(plan === null ? [] : ['## Plan for this iteration', '', plan.trim(), '']),
   '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key}: ${check.exit === 0 ? 'passed' : `FAILED (exit ${check.exit})`}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : `; last output:\n\`\`\`\n${String(check.tail ?? '').split('\n').slice(-12).join('\n')}\n\`\`\``}`)), '',
 ];
 const related_ = related();
 // Parts are packed in order: the front matter, the diff file by file, then the related files. A file that does not fit what is left of a part but fits a part of its own starts the next one;
 // a larger file is split at a hunk boundary, and at a row boundary only when one hunk is larger than a part.
-// Front matter that alone exceeds a part (a long requirement or conventions file) is split across the first parts on line boundaries; one that fits stays whole in part 1.
+// Front matter that alone exceeds a part (a long requirement) is split across the first parts on line boundaries; one that fits stays whole in part 1.
 const frontHead = front.slice(0, 2);
 const frontChunks = [[]];
 let chunkRoom = PART_BUDGET_BYTES - PART_RESERVE_BYTES - bytesOf(frontHead);

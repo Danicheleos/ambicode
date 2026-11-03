@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
-import { checkContext } from '../src/modules/context/context.ts';
 import { SUPPORTED_SCHEMA_VERSION } from '../src/types/modules/config.ts';
 import { materialize } from './materialize.mjs';
 import { fixtureByName } from './definitions.mjs';
@@ -65,30 +64,4 @@ describe('fixtures materialize', { concurrency: 4 }, () => {
       await rm(parent, { recursive: true, force: true });
     }
   });
-
-  for (const name of ['ts-app-medium', 'ts-feature-boundary', 'ts-app-medium-refund-bug', 'ts-app-medium-plan']) {
-    it(`--context leaves a valid, uncommitted .ambicode/context (${name})`, async () => {
-      const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));
-      const destination = path.join(parent, 'repo');
-      try {
-        await materialize(fixtureByName(name), destination, { ambicodeInit: true, context: true });
-        const cli = path.join(import.meta.dirname, '..', 'scripts', 'ambicode.mjs');
-        const listing = execFileSync(process.execPath, [cli, 'context', 'list'], { cwd: destination, encoding: 'utf8' });
-        assert.match(listing, /^\.ambicode\/context\/overview\.md /m);
-        assert.match(listing, /^\.ambicode\/context\/modules\/.+\.md /m);
-        assert.doesNotMatch(listing, /no context/);
-        const root = path.join(destination, '.ambicode', 'context');
-        const files = new Map();
-        for (const file of await readdir(root, { recursive: true })) {
-          if (file.endsWith('.md')) files.set(file.split(path.sep).join('/'), await readFile(path.join(root, file), 'utf8'));
-        }
-        assert.deepEqual(checkContext(files, { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 }), []);
-        const git = (...args) => execFileSync('git', args, { cwd: destination, encoding: 'utf8' });
-        assert.equal(git('status', '--porcelain', '--untracked-files=all'), '');
-        assert.doesNotMatch(git('ls-files'), /\.ambicode\/context/);
-      } finally {
-        await rm(parent, { recursive: true, force: true });
-      }
-    });
-  }
 });

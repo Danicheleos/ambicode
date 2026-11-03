@@ -8,7 +8,7 @@ steps:
     instruction: "file:routes/investigate/fetch.md"
   - id: ground
     actor: code
-    run: [requirements.normalize, search.map(prompt), context.list]
+    run: [requirements.normalize, search.map(prompt)]
     produces: [envelope, map]
     repeat: 2
   - id: scope
@@ -22,7 +22,7 @@ steps:
   - id: read
     actor: model
     instruction: "file:routes/investigate/read.md"
-    payload: ["file:envelope", map, context.list]
+    payload: ["file:envelope", map]
     produces: ["note{investigation}"]
   - id: check-citations
     actor: code

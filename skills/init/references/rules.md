@@ -5,15 +5,15 @@ Init writes no rule into `config.yaml`. A candidate is drafted into `.ambicode/p
 | Candidate from | `authority` | `source.location` |
 |---|---|---|
 | A rule a project guideline document states (README, CONTRIBUTING, docs) | `team` | `path:line` of that document |
-| A convention the scout inferred from code | `observed` | `path:line` of the code it saw |
+| A convention the scout inferred from code counts | `observed` | `path:line` of the example it quoted |
 | A web practice (`WebSearch`) | `inherited` | the page URL; the check flags it `pack-quote-unchecked` |
 | The user's own answer | `team` | `user answer at init` (no file: ask for the document or drop it) |
 
 Never draft from a file Claude Code loads into every session itself: `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*`, nested `CLAUDE.md`, and any file they `@import`. The model already reads them; a draft would be a second copy. `policy check --drafts` rejects a quote located in one.
 
-Each rule needs `source.quote`, 20 or more characters copied verbatim from that location. A rule you cannot quote is dropped, not paraphrased.
+Each rule needs `source.quote`, 20 or more characters copied verbatim from that location. A rule you cannot quote is dropped, not paraphrased. Put the candidate's `evidence` (the counts, or the document line) in the rule's `check.explanation`, so the reviewer and the user see why it was drafted.
 
-Compare each candidate with the rules in force (`config.yaml`'s `packs` and `policyFiles`, built-in copies included) and with your other drafts. The same requirement in other words is not a new rule: skip it, or merge it into the draft that has it, and say which rule absorbed it. The check rejects an id or instruction (case, spacing and final punctuation ignored) equal to one in force and warns `pack-rule-similar` for a close wording. A convention that became a rule is not repeated in `context/conventions.md`.
+Compare each candidate with the rules in force (`config.yaml`'s `packs` and `policyFiles`, built-in copies included) and with your other drafts. The same requirement in other words is not a new rule: skip it, or merge it into the draft that has it, and say which rule absorbed it. The check rejects an id or instruction (case, spacing and final punctuation ignored) equal to one in force and warns `pack-rule-similar` for a close wording.
 
 ```yaml
 schemaVersion: 1

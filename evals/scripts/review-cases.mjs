@@ -422,7 +422,7 @@ export function reviewCases(b) {
   return REVIEW_TRUTHS.map((truth, index) => {
     const slug = `rev-${index + 1}`;
     const R = (file) => `.ambicode/reviews/${slug}/${file}`;
-    const flags = `--ambicode-init --context${truth.policy ? ' --policy' : ''}`;
+    const flags = `--ambicode-init${truth.policy ? ' --policy' : ''}`;
     const records = truthRecords(truth);
     const files = finalFiles(fixtureOf(truth));
     const report = R('1/report.txt');

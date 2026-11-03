@@ -25,7 +25,7 @@ export const CONFIG_HEAD = [
   'schemaVersion: 5',
   'id: repo',
   'baseline: origin/main',
-  'context: { maxTotalTokens: 24000, maxFileTokens: 2500, maxIndexTokens: 5000 }',
+  'context: { maxTotalTokens: 24000 }',
   'skills:',
   `  init: { ${RUN}, scout: { ${RUN} } }`,
   `  review: { ${RUN}, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, excludePaths: [] }`,

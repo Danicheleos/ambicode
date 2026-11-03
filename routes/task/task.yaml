@@ -25,13 +25,13 @@ steps:
     produces: [map]
   - id: rules
     actor: code
-    run: ["policy.stage(before-work)", context.list]
+    run: ["policy.stage(before-work)"]
     produces: [policy]
   - id: change
     actor: model
     instruction: file:routes/task/change.md
     work: file:routes/task/change-work.md
-    payload: [brief, "file:envelope", baseline, map, "policy:before-work", checks.runnable, context.list]
+    payload: [brief, "file:envelope", baseline, map, "policy:before-work", checks.runnable]
     produces: ["check{green}"]
   - id: format
     actor: code

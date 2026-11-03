@@ -143,11 +143,12 @@ test('03-C6: no ecosystem or language name in routes, step texts or the route en
   }
 });
 
-test('context.maxIndexTokens is required and positive; the shipped template carries it', async () => {
+test('context holds maxTotalTokens alone: it is required and positive, and the note limits init no longer uses are refused', async () => {
   const template = (await readFile(path.join(REPO_ROOT, 'templates/config.yaml'), 'utf8')).replace('__PROJECT_ID__', 'p');
   const body = `projects:\n${ONE}\n`;
   assert.doesNotThrow(() => parseConfig(`${template.split('projects:')[0]}${body}`));
-  for (const broken of [template.replace(/ {2}maxIndexTokens: 5000.*\n/, ''), template.replace('maxIndexTokens: 5000', 'maxIndexTokens: 0')]) {
+  assert.doesNotMatch(template, /maxFileTokens|maxIndexTokens/);
+  for (const broken of [template.replace(/ {2}maxTotalTokens: 60000.*\n/, ''), template.replace('maxTotalTokens: 60000', 'maxTotalTokens: 0'), template.replace('maxTotalTokens: 60000', 'maxTotalTokens: 60000\n  maxFileTokens: 2500'), template.replace('maxTotalTokens: 60000', 'maxTotalTokens: 60000\n  maxIndexTokens: 5000')]) {
     assert.throws(() => parseConfig(`${broken.split('projects:')[0]}${body}`), (error: Error & { code?: string }) => error.code === 'config-invalid');
   }
 });

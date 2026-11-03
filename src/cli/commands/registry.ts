@@ -2,7 +2,7 @@ import type { Runtime } from '#types/composition';
 import { configValidateCommand } from './config/validate.ts';
 import { configPacksCommand } from './config/packs.ts';
 import { initRecordCommand } from './init/record.ts';
-import { contextIndexCommand, contextListCommand, contextTreeCommand, contextWriteCommand } from './context/context.ts';
+import { contextEvidenceCommand, contextIndexCommand, contextTreeCommand } from './context/context.ts';
 import { rulesApplyCommand } from './policy/rules.ts';
 import { checkCommand } from './checks/check.ts';
 import { policyCheckCommand } from './policy/policy-check.ts';
@@ -30,11 +30,11 @@ const versionCommand: CliCommand = {
 export const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
   configValidateCommand, configPacksCommand, initRecordCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand,
   checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
-  requirementsNormalizeCommand, reviewCommand, reviewPageCommand, versionCommand, contextListCommand, contextWriteCommand, contextTreeCommand, contextIndexCommand,
+  requirementsNormalizeCommand, reviewCommand, reviewPageCommand, versionCommand, contextTreeCommand, contextIndexCommand, contextEvidenceCommand,
 ].map((entry) => [entry.name, entry]));
 
-/** Generated from `COMMANDS`, so a command cannot be registered and missing from the usage text, or the reverse. */
-export const USAGE = `ambicode <command> [options]
+/** Generated from `COMMANDS`, so a command cannot be registered and missing from the help text, or the reverse. */
+export const CLI_HELP_TEXT = `ambicode <command> [options]
 Every command takes --json: structured output instead of text.
 
 ${[...COMMANDS.values()].map((entry) => `  ${entry.name.padEnd(23)}${entry.summary}`).join('\n')}

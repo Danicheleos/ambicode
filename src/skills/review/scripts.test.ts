@@ -34,7 +34,7 @@ describe('review scripts (C7)', () => {
       assert.match(brief, /### a\.ts \[modified\]\nnew-side lines: 3-6\nold-side lines: 3-5/);
       assert.match(brief, /RULE no-eval: never eval\./);
       assert.doesNotMatch(brief, /changed\.diff/);
-      assert.match(brief, /## Project conventions\n\nSource: .*conventions\.md\n\n\(none recorded\)/);
+      assert.doesNotMatch(brief, /Project conventions/);
       assert.match(brief, /### ORD-1: Totals\nSum them\./);
       assert.match(brief, /No check recorded for this task: nothing was verified by execution\. That is a gap, not a pass\./);
 
@@ -49,7 +49,7 @@ describe('review scripts (C7)', () => {
       await writeFile(path.join(root, '.ambicode', 'context', 'conventions.md'), '## Errors\nMoney goes through toCents().');
       run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
       const withConventions = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
-      assert.match(withConventions, /## Project conventions\n\nSource: .*conventions\.md\n\n#### Errors\nMoney goes through toCents\(\)\.\n\n## Check results/, 'the file\'s headings nest under the section');
+      assert.doesNotMatch(withConventions, /toCents|Project conventions/, 'a conventions.md left by an older init is not read; conventions arrive as policy rules');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -157,7 +157,7 @@ describe('review scripts (C7)', () => {
     return Promise.all(names.map((name) => readFile(path.join(reviewDir, name), 'utf8')));
   };
 
-  it('brief puts requirements, discussions, rules and conventions before the diff, and splits an oversized diff into parts of at most 32 KB with no line lost', async () => {
+  it('brief puts requirements, discussions and rules before the diff, and splits an oversized diff into parts of at most 32 KB with no line lost', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [{ id: 'ORD-1', title: 'Totals', content: 'Sum them.' }], checks: [], omissions: [{ kind: 'attention', text: 'earlier gap' }] });
     try {
       const patch = addedFile('big.ts', 1200) + addedFile('mid.ts', 200) + addedFile('small.ts', 5);
@@ -169,7 +169,7 @@ describe('review scripts (C7)', () => {
       assert.ok(parts.length >= 3, `${parts.length} parts`);
       for (const part of parts) assert.ok(Buffer.byteLength(part) <= 32 * 1024, `${Buffer.byteLength(part)} bytes`);
       const [first] = parts as [string];
-      const order = ['## Requirements', '## Policy rules', '## Project conventions', '## Changed files'].map((heading) => first.indexOf(heading));
+      const order = ['## Requirements', '## Policy rules', '## Changed files'].map((heading) => first.indexOf(heading));
       assert.ok(order.every((at) => at >= 0));
       assert.deepEqual(order, [...order].sort((x, y) => x - y));
       assert.match(first, /### ORD-1: Totals\nSum them\./);

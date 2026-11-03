@@ -277,6 +277,8 @@ describe('real-change cases of a suite file: own tag, prompt files, no-runs sent
       { kind: 'llm', name: 'judge-message', rubric: 'PASS if ok. FAIL if not.' },
     ],
   };
+  mkdirSync(path.join(dir, `${SUITE_TAG}-material`, 'task-real-suite-one', '.ambicode'), { recursive: true });
+  writeFileSync(path.join(dir, `${SUITE_TAG}-material`, 'task-real-suite-one', '.ambicode', 'config.yaml'), 'id: frozen\n');
   const file = path.join(dir, 'suite.json');
   writeFileSync(file, JSON.stringify({ tag: SUITE_TAG, noRuns: 'Do not run checks.', repos: {}, cases: [spec] }));
   const loaded = loadRealCases(file);
@@ -304,6 +306,17 @@ describe('real-change cases of a suite file: own tag, prompt files, no-runs sent
     assert.match(read(root('bare'), 'prompt.md'), /tags: \["task", "suite-real", "suite-real-raw", "bugfix"\]/);
     assert.ok(!existsSync(path.join(evalsDir, 'cases', REAL_TAG)));
     assert.equal(realTruth('task-real-suite-one', evalsDir).name, 'task-real-suite-one');
+  });
+
+  it('the plugin arm starts from the case\'s frozen .ambicode, not the bench\'s; the bare arm has none; a suite case without frozen material is an error', () => {
+    const plugin = read(root('cases'), 'scaffold.sh');
+    const frozen = path.join(dir, `${SUITE_TAG}-material`, 'task-real-suite-one', '.ambicode');
+    assert.ok(plugin.includes(`cp -R '${frozen}'/. .ambicode/\n`), 'copies the frozen material');
+    assert.doesNotMatch(plugin, /\/bench\/r1\/\.ambicode|\/bench\/r1\/ctx/);
+    assert.match(plugin, /config-checks-off\.mjs'? \.ambicode\/config\.yaml/);
+    assert.doesNotMatch(read(root('bare'), 'scaffold.sh'), /\.ambicode/);
+    writeFileSync(path.join(dir, 'nomaterial.json'), JSON.stringify({ tag: 'other-tag', repos: {}, cases: [spec] }));
+    assert.throws(() => loadRealCases(path.join(dir, 'nomaterial.json')), /frozen material .* is missing/);
   });
 
   it('both scaffolds delete the named files before the commit', () => {

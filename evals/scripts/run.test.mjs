@@ -126,12 +126,10 @@ describe('preflight', () => {
     assert.equal(ENTRY_LIMIT, 20000);
   });
 
-  it('lists each configured bench repository with the absolute path and the sha256 of its context index', () => {
-    const bench = tree(['.ambicode/context/index.md']);
-    const lines = benchLines({ NAV_BENCH: bench, K12_BENCH: path.join(bench, 'missing') }, { repos: { fe: { bench: 'NAV_BENCH' } } });
-    assert.equal(lines.length, 2);
-    assert.match(lines[0], new RegExp(`^NAV_BENCH ${bench.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} index.md sha256 [0-9a-f]{64}$`));
-    assert.match(lines[1], /^K12_BENCH .*missing no \.ambicode\/context\/index\.md$/);
+  it('lists each configured bench repository with its absolute path and marks a missing directory', () => {
+    const bench = tree(['a.txt']);
+    const lines = benchLines({ NAV_BENCH: bench, K12_BENCH: path.join(bench, 'missing'), INIT_BENCH: bench });
+    assert.deepEqual(lines, [`NAV_BENCH ${bench}`, `K12_BENCH ${path.join(bench, 'missing')} (missing)`]);
   });
 });
 

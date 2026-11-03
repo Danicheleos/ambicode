@@ -6,6 +6,7 @@ import { readLedger } from '#platform/ledger/ledger';
 import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '#util/args';
+import { contextIndexCommand } from '../context/context.ts';
 import { initRecordCommand } from '../init/record.ts';
 import { configPacksCommand } from './packs.ts';
 import { configValidateCommand } from './validate.ts';
@@ -52,6 +53,18 @@ describe('init commands leave a trail only when given --task', () => {
       await run(['--task', 'init', '--what', 'scaffold', '--outcome', '4 created, gitignore added']);
       const entries = await readLedger(runtime.fs, path.join(repo.root, '.ambicode/tasks/init'));
       assert.deepEqual(entries.map((entry) => [entry.kind, entry['what'], entry['outcome']]), [['init', 'scaffold', '4 created, gitignore added']]);
+    });
+  });
+
+  it('context index --task init leaves the search index and one entry, so search map works right after init (the index was built by the removed context write, f4eac810)', async () => {
+    await inRepo(async (repo, runtime) => {
+      const index = path.join(repo.root, '.ambicode/context/search/folders.jsonl');
+      assert.equal(await runtime.fs.exists(index), false);
+      await contextIndexCommand.run(runtime, parseArgs('context index', ['--task', 'init'], contextIndexCommand.options));
+      assert.equal(await runtime.fs.exists(index), true);
+      const entries = await readLedger(runtime.fs, path.join(repo.root, '.ambicode/tasks/init'));
+      assert.deepEqual(entries.map((entry) => [entry.kind, entry['what']]), [['init', 'context index']]);
+      assert.match(String(entries[0]?.['outcome']), /^\d+ folders, \d+ files indexed$/);
     });
   });
 });

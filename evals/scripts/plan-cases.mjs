@@ -438,7 +438,7 @@ export function planCases({ regex, ledger, tool, never, exists, llm, shared, DON
     ];
     const asked = `/ambicode:plan --task ${slug}`;
     const stackPacks = fixtureByName(spec.fixture).stackPacks ?? [];
-    const flags = stackPacks.length > 0 ? '--ambicode-init --context --stack-packs' : '--ambicode-init --context';
+    const flags = stackPacks.length > 0 ? '--ambicode-init --stack-packs' : '--ambicode-init';
     const citations = stackPacks.length > 0 ? citationGraders({ regex, ledger }, { at, ledgerFile: T(slug), stackPacks }) : [];
     const base = { name: spec.name, description: spec.description, tags: ['plan', spec.size], version: spec.version ?? 1, fixture: spec.fixture, flags, ...(spec.limits ? { limits: spec.limits } : {}) };
 

@@ -8,7 +8,7 @@ import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
-import { listContext, proseFiles, renderListing } from '#modules/context/context';
+import { proseFiles } from '#modules/context/context';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
 import { changesPaths, requiredPlanRules } from '#modules/policy/required';
@@ -126,10 +126,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const { git } = await openRepository(input.runtime);
     const docs = await proseFiles(input.runtime.fs, input.dir.repositoryRoot, (await git.listFiles(null)).filter((file) => !file.startsWith('.ambicode/')));
     // Docs are named because no map row reaches a file that shares no word with the request, and the model otherwise has no path to open.
-    const docLine = docs.length === 0 ? '' : `\nDocumentation files (path, bytes): ${docs.map((doc) => `${doc.path} ${doc.bytes}`).join(', ')}`;
-    // plan works from the map, which already retrieves through the notes: listing them again sent the model to read and cite untracked files.
-    if (input.params[0] === 'docs') return { state: 'ok', payload: docLine.trim() === '' ? null : docLine.trim() };
-    return { state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead the notes of the modules that bear on the task, shared ones included.${docLine}` };
+    return { state: 'ok', payload: docs.length === 0 ? null : `Documentation files (path, bytes): ${docs.map((doc) => `${doc.path} ${doc.bytes}`).join(', ')}` };
   },
 
   'requirements.normalize': async (input) => {

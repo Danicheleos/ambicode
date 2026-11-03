@@ -90,7 +90,9 @@ don't assert** and **Before anything destructive**.
   lint rule fails because of your change, assume the rule is right and the
   change is wrong until you have shown otherwise. Cut your own additions before
   raising a limit — and if you do raise one, say so explicitly rather than
-  letting it pass unremarked.
+  letting it pass unremarked. Removing a check, gate or cap meets the same bar
+  as adding one: only when the task orders it, together with the tests that
+  only pin it, each named in the report.
 - After a behaviour change, grep every text stating it (skills, routes, agents,
   prompts, hooks, docs, tests); update it in the same change or report the gap.
 - When a size cap forces a cut, report every sentence removed.

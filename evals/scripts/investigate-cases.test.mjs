@@ -83,7 +83,7 @@ for (const t of INVESTIGATE_TRUTHS) {
     });
 
     it('is set up like the other route cases: fixed slug, init and context, ledger paths below the slug, a metric on the files', () => {
-      assert.equal(c.flags, '--ambicode-init --context');
+      assert.equal(c.flags, '--ambicode-init');
       assert.ok(c.prompt.startsWith('/ambicode:investigate --task inv-'));
       assert.equal(c.metrics.source, t.files === false ? 'citations' : 'files-section');
       assert.deepEqual(c.metrics.relevant, t.relevant);

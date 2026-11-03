@@ -1,15 +1,14 @@
 # Evals: skill coverage
 
-Forty-eight synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 40 of them also run with no plugin
-loaded, which is the baseline. Two generators outside `cases.mjs` add six more runnable cases (`downstream` 5 and
-`init-large` 1), and two offline map bench suites outside `evals/` (`bench/map`, `evals/local/bench/map-k12`) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
+Forty-three synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 40 of them also run with no plugin
+loaded, which is the baseline. One generator outside `cases.mjs` adds five more runnable cases (`downstream`), and two offline map bench suites outside `evals/` (`bench/map`, `evals/local/bench/map-k12`) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
 here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
 and are not run any more.
 
 ```
 evals/
   scripts/cases.mjs       the single source: every case, its prompt per arm, its graders
-  cases/<suite>/<case>/   plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/); the suite is the case name's first word (rules, review, init); `init-large/`, `map/` and `downstream/` come from their own generators
+  cases/<suite>/<case>/   plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/); the suite is the case name's first word (rules, review, plan); `map/` and `downstream/` come from their own generators
   bare/<suite>/<case>/    no-plugin arm, generated: same request in plain words, shared graders only
   scripts/run.mjs         runs one arm through `claude plugin eval` and leaves the result in `cases/results/`
   scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
@@ -23,7 +22,7 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: the 48 cases of cases.mjs (+ downstream, init-large once generated)
+npm run evals                       # plugin arm: the 43 cases of cases.mjs (+ downstream once generated)
 npm run evals:bare                  # bare arm: 40 cases of cases.mjs (+ downstream), no plugin
 npm run evals -- --case 'review-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
@@ -37,7 +36,7 @@ Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap 
 model honoured it.
 
 Before each case `run.mjs` prints `preflight: evals/ <n> entries` (it refuses to run at 20000 or more) and one line per bench repository
-(env `NAV_BENCH`, `K12_BENCH`, `INIT_BENCH` and every variable `evals/local/real-cases.json` names): the absolute path and the sha256 of its `.ambicode/context/index.md`.
+(env `NAV_BENCH` and `K12_BENCH`): the absolute path, marked `(missing)` when the directory does not exist.
 Briefs need not locate the repositories, and nobody should `find /` for them.
 `--max-cost-usd` is one total per command, checked before each run launches. The runs of a case start in parallel (`-j 4`), so one command can overshoot it by up to the runs in flight.
 A `--case` or `--tag` that matches no case fails the command (exit 1, `--case/--tag matched no case: <value>`). A paid grader the harness skipped for the cost ceiling is left out of the run's score; the run gets `partialGrading` and `skippedGraders`, and the summary prints one `warning:` line per such run.
@@ -93,10 +92,6 @@ npm run evals -- --series <the five names> --case fe-vs-6141-downstream --runs 3
 - The prompt is one line (ticket newlines collapsed to spaces), `/ambicode:investigate --task inv-<id> <request>` in the plugin arm: a multi-line prompt without a slug never fired the skill. The bare numbers taken 2026-10-23T19-14 to 20-55 used the multi-line prompt; re-run them for a like-for-like comparison if the one-line wording changes bare behaviour.
 - Score by file: `truth.json` (`source: files-section`, `relevant`, `allowed`, the map case's corrected truth) is read by `run.mjs` (`downstreamMetrics`, `scoreFiles`) into each run's `metrics`: recall, precision, F1, `missed`, `extra`, `contract`. A directory item is hit by a file directly in it. Graders only check the contract (`files-section`, `no-edit`, plugin-only `route-done`, the ledger exit entry), each weight 1; the case score is not the retrieval score.
 
-## Init on a large real repository
-
-`init-scout-large` runs `/ambicode:init --auto` on a copy of a real repository (`git archive HEAD` of env `INIT_BENCH`, no default; its `.claude/` comes along, rules included) with its `config.yaml` (scout set to haiku in the copy) and no `.ambicode/context`. Generated by `node evals/scripts/init-large-case.mjs` into `evals/cases/init-large/init-scout-large/` (gitignored; `evals:generate` does not touch it). Run: `npm run evals -- --case init-scout-large --max-cost-usd 1`. Graders: scout invoked with model haiku (Agent input), the four context files exist, `index.md` links every module `context tree` prints for the config paths, conventions are descriptive, no `context write` recorded in the init ledger with problems.
-
 ## Recall, precision, drift
 
 A case with `metrics` in `cases.mjs` is scored on the files its answer lists. The prompt asks both arms for a
@@ -113,8 +108,7 @@ Read the result files, not the exit code. The harness exits 1 whenever any case 
 ## How a case works
 
 1. **Scaffold.** `scaffold.sh` replays a fixture into `repo/`, a fresh git repository with known history. The
-   plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real. `--context` also writes
-   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (42 of the 48 cases).
+   plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real.
 2. **Prompt.** The plugin arm types the skill exactly as a user would, for example
    `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() …`. `--task` fixes the slug so
    graders can find the ledger. `--answer` pre-answers a gate. A case with no answer tests the gate's default. The
@@ -136,7 +130,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Eight cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`), the five `init-auto-*` cases and one `plan` case (`plan-app-draft`); the after-investigate task case has a bare arm that gets the note as prompt text.
+Three cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`) and one `plan` case (`plan-app-draft`); the after-investigate task case has a bare arm that gets the note as prompt text.
 
 ## Suites
 
@@ -148,13 +142,11 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 | investigate | 15: app 5, other stacks 5 (`investigate-<ts|py|go|jvm|mono>-*`), downstream 5 | 15 | 10 in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs` |
 | plan | 15 | 14 | `cases.mjs`: app 5, other stacks 10 |
 | task | 2 (`task-app-segments-void`, `task-jvm-after-investigate`; both tag `task-tune`) | 2 | `cases.mjs` (task-cases.mjs); the other 20 are in `../eval-archive/task-cases-2026-10-29` |
-| init | 5 | 0 | `cases.mjs` (`init-auto-*`) |
 | rules (tag; the cases sit in the rules and plan suites) | 2 | 0 | `rules-cases.mjs` |
-| init-large | 1 | 0 | `init-large-case.mjs`, real repository |
 | bench/map | 10 | offline | `map-cases.mjs`, scored by `map-bench.mjs` |
 | evals/local/bench/map-k12 | 5 | offline | `map-k12-cases.mjs`, second stack (Python) |
 
-`bench/map`, `downstream` and `init-large` are gitignored and regenerated from a bench checkout; `evals:generate` does not touch them.
+`bench/map` and `downstream` are gitignored and regenerated from a bench checkout; `evals:generate` does not touch them.
 
 ## Cases
 
@@ -163,21 +155,6 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 | review-<stack>-<topic> (14) | the stack's `*-review-<n>` fixture | see Review cases below | yes |
 | rules-draft-sources | policy-contributing | drafts checked and applied; the vague line and the embedded `rm -rf` ignored, the config left alone | no |
 | plan-policy-staged | policy-ledgerly | the plan's policy row stages whole plan rules, the draft is delivered, `plan.md` cites each applicable rule once by id (`applied at` or `not applicable`) and respects a staged rule (llm) | no |
-| init-auto-ts | ts-service-lendbox (32 modules) | TypeScript service by bounded context with a shared kernel, jest and eslint declared not installed; drafts for importing a context only through `index.ts`, `<context>.<past-tense-verb>` event names, deps-first use-case factories, `createX` returning `Result` |
-| init-auto-python | py-service-tidewatch (30 modules) | layered domain/app/infra/api with a `plugins/sources/` directory of 12 sibling adapters; drafts for `TW-nnn` error codes, `test_<module>__<behaviour>` names, keyword-only arguments, `PLUGIN = SourcePlugin(...)` per adapter |
-| init-auto-go | go-module-parcelhub (31 modules) | flat `cmd/` plus `internal/` with many small packages and one chain nested five levels; drafts for `pkg.Func: %w` wrapping, an injected Clock, constructors over `internal/core` interfaces, `var _ core.X = (*T)(nil)` assertions |
-| init-auto-jvm | jvm-gradle-seedvault (34 modules) | hexagonal Kotlin across seven Gradle subprojects (domain, application, four adapters, bootstrap); drafts for value-class ids, `Outcome.Rejected` instead of exceptions, structured log key-values, `operator fun invoke` use cases |
-| init-auto-monorepo | monorepo-rust-ts-kiln (30 modules) | three projects (Rust workspace `engine/crates/*`, Express `dashboard/` with a generated client, Python `tools/`) and a vendored `vendor/`; drafts for `_dc` units, `expect("invariant: ...")`, `register(app)` route modules, `impl std::error::Error` per crate; the generated client must be excluded |
-
-The init cases share their graders (`evals/scripts/init-cases.mjs`); each case directory also holds `expected-config.yaml` and `truth.json`, the result init should reach, the planted conventions with quotes, the contributor document (`contributorDocument`, a different, neutrally named path in some fixtures so that finding it cannot rest on its name) and `modules` (the module notes `context tree` prints for the fixture, computed by the same function). Written conventions sit in that document, inferred ones only in code. Each fixture is about 30 modules (a module is a directory with three or more source files below it) in its own architecture, so the scout is tested on a tree the size of a real one. `node evals/scripts/cases.mjs --case 'init-*'` rewrites just these cases and leaves every other suite alone. `init-cases.test.mjs` checks them at no cost; no paid run has scored them yet.
-
-Scout-quality graders (deterministic, `scoutGraders` in `init-cases.mjs`):
-
-- `modules-linked-<i>-of-<n>`: regex on `index.md` with one lookahead per module link, six modules per grader, so the score shows how much of the tree was written. `context write` refuses an index link to a missing note, so a link proves the note exists; one `file_exists` per module would be about 30 graders per case. `deepest-module-note` is a `file_exists` on the deepest note.
-- `index-links-every-module` (weight 2): the same lookaheads for the whole tree. `index-has-no-extra-notes`: `count:N` on module links, N = the module count, which catches notes the tree does not have.
-- `contributor-doc-read`: `tool_used` Read of `CONTRIBUTING.md`. The trace file lists a subagent's own calls (`parent_tool_use_id` set), but nothing in the harness documentation or schema says `tool_used` counts them, so a pass may come from the main session's read alone.
-- `conventions-descriptive`: `conventions.md` has no `must`, `never` or `always`; the `context-conventions` grader holds that the file exists.
-- `draft-<convention>`: one tight pattern per planted convention on the Write, Edit or Bash call that puts a draft under `.ambicode/policies/drafts/` (a regex on the trace; the harness can read only one fixed file, and draft file names vary). `drafts-written` is a `file_exists` glob over the created files, so any tool counts. The main session drafts the scout's conventions also with `--auto`. A pattern needs a token only the code or the document shows, and the test feeds each one a paraphrase of the rule (passes) and a guess made from folder names (fails).
 
 ## Review cases
 

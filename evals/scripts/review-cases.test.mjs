@@ -159,7 +159,7 @@ for (const t of REVIEW_TRUTHS) {
     it('truth file, scaffold flags and graders', () => {
       assert.equal(JSON.parse(c.files['review-truth.json']).length, t.issues.length);
       assert.equal(c.fixture, fixtureOf(t));
-      assert.match(c.flags, /^--ambicode-init --context( --policy)?$/);
+      assert.match(c.flags, /^--ambicode-init( --policy)?$/);
       assert.equal(c.flags.includes('--policy'), t.policy);
       assert.equal(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`));
       assert.ok(c.bare !== null && c.graders.some((g) => g.name === 'reviewer-invoked') && c.graders.some((g) => g.name === 'review-recorded'));

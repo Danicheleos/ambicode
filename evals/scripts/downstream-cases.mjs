@@ -42,14 +42,21 @@ const graders = (plugin, id) => [
 ];
 
 /** The bench's HEAD as a one-commit repository in the session directory (no history: a ticket's own merge request is in it), so the truth, corrected at `head`, stays valid. */
-export function scaffold({ bench, head, context, policies = false, seeded = false, checksOff = false, remove = [] }, plugin) {
-  const link = plugin
+export function scaffold({ bench, head, context, policies = false, seeded = false, checksOff = false, remove = [], material }, plugin) {
+  // `material`: a frozen .ambicode of the case (config, policies, context, built for the case's own repository state). The bench's working tree is on other history than the commit archived here, so its .ambicode describes other code.
+  const own = material === undefined
     ? `# Plugin arm only: the bench's own config and context, which are gitignored there and so absent from the archive.
 mkdir -p .ambicode
 # Unguarded: a silent skip surfaced as a misleading config-missing in the session dir; cp now names the bench path.
 cp ${sq(path.join(bench, '.ambicode', 'config.yaml'))} .ambicode/config.yaml
 [ ! -d ${sq(context)} ] || cp -R ${sq(context)} .ambicode/context
-${policies ? `[ ! -d ${sq(path.join(bench, '.ambicode', 'policies'))} ] || cp -R ${sq(path.join(bench, '.ambicode', 'policies'))} .ambicode/policies\n` : ''}${checksOff ? `# No check is runnable, so the task route runs no build, test or lint (config-checks-off.mjs).\n[ ! -f .ambicode/config.yaml ] || node ${sq(path.join(REPO, 'evals', 'scripts', 'config-checks-off.mjs'))} .ambicode/config.yaml\n` : ''}${seeded ? '# The earlier route\'s note and ledger line, for /ambicode:task to pick up (task-seeds.mjs).\ncp -R "$(dirname "$0")/seed/." .ambicode/\n' : ''}printf '.ambicode/\\n' >> .git/info/exclude
+${policies ? `[ ! -d ${sq(path.join(bench, '.ambicode', 'policies'))} ] || cp -R ${sq(path.join(bench, '.ambicode', 'policies'))} .ambicode/policies\n` : ''}`
+    : `# Plugin arm only: the case's frozen .ambicode (config, policies, context), gitignored and so absent from the archive. Unguarded: cp names a missing directory.
+mkdir -p .ambicode
+cp -R ${sq(path.join(material, '.ambicode'))}/. .ambicode/
+`;
+  const link = plugin
+    ? `${own}${checksOff ? `# No check is runnable, so the task route runs no build, test or lint (config-checks-off.mjs).\n[ ! -f .ambicode/config.yaml ] || node ${sq(path.join(REPO, 'evals', 'scripts', 'config-checks-off.mjs'))} .ambicode/config.yaml\n` : ''}${seeded ? '# The earlier route\'s note and ledger line, for /ambicode:task to pick up (task-seeds.mjs).\ncp -R "$(dirname "$0")/seed/." .ambicode/\n' : ''}printf '.ambicode/\\n' >> .git/info/exclude
 # The bench's context predates the search index, so every run built it cold at map time (15 of 17 runs, ~1.4 s of session); init leaves it built at HEAD in real use. A bench with no context (k12-backend) has nothing to index.
 [ ! -d .ambicode/context ] || node ${sq(path.join(REPO, 'scripts', 'ambicode.mjs'))} context index > /dev/null
 `

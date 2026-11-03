@@ -17,7 +17,7 @@ export function rulesCases({ regex, ledger, tool, exists, llm, DONE, never }) {
     name: 'plan-policy-staged',
     description: 'A plan run: the draft reads the whole plan rules from the step policy file (one policy ledger row for plan), the plan cites each applicable rule by id and respects a staged rule.',
     tags: ['plan', 'rules'],
-    fixture: 'policy-ledgerly', flags: '--ambicode-init --context',
+    fixture: 'policy-ledgerly', flags: '--ambicode-init',
     prompt: '/ambicode:plan --task rpl-1 --headless --answer plan-accept=Accept Refuse a payment of zero or negative cents in applyPayment and leave the invoice unpaid.',
     bare: null,
     graders: [

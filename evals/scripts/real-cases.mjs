@@ -37,6 +37,7 @@ export const isRealCase = (name) => name.startsWith('task-real-');
 // change avoided. The others measure the change: they fail on the parent and pass on the real change.
 // Optional file-level keys: `tag` (default task-real), `noRuns` (the sentence both arms get instead of NO_RUNS). Optional case keys: `promptFile` (path relative to the
 // file, read as the prompt as-is; a missing or empty one throws), `remove: [path]` (workspace files deleted before the scaffold's commit, both arms).
+// A file with a `tag` is a suite: its plugin arm copies <file dir>/<tag>-material/<case name>/.ambicode (a missing one throws) instead of the bench's.
 // REAL_CASES_FILE points the generator and its tests at another file (a half-written set, one repository's cases).
 export const LOCAL_FILE = process.env.REAL_CASES_FILE ?? path.join(EVALS, 'local', 'real-cases.json');
 
@@ -44,7 +45,10 @@ export const LOCAL_FILE = process.env.REAL_CASES_FILE ?? path.join(EVALS, 'local
 export function loadRealCases(file = LOCAL_FILE) {
   if (!existsSync(file)) return { repos: {}, cases: [] };
   const data = JSON.parse(readFileSync(file, 'utf8'));
-  const cases = (data.cases ?? []).map((one) => {
+  const cases = (data.cases ?? []).map((withName) => {
+    // A file with a `tag` is a suite: each case starts from its frozen .ambicode in <tag>-material/<name>/ beside the file, not from the bench's current one.
+    const one = data.tag === undefined ? withName : { ...withName, material: path.resolve(path.dirname(file), `${data.tag}-material`, withName.name) };
+    if (one.material !== undefined && !existsSync(path.join(one.material, '.ambicode'))) throw new Error(`${one.name}: frozen material ${path.join(one.material, '.ambicode')} is missing`);
     if (one.promptFile === undefined) return one;
     const source = path.resolve(path.dirname(file), one.promptFile);
     const text = existsSync(source) ? readFileSync(source, 'utf8').trim() : '';
@@ -104,7 +108,7 @@ export function caseFiles({ real, order, sources, plugin, tag = REAL_TAG, noRuns
   const root = `${String(order + 1).padStart(2, '0')}-${real.name}`;
   const files = new Map();
   files.set(`${root}/case.yaml`, `schema_version: "1.1"\nname: ${real.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: real.note !== null, checksOff: true, remove: real.remove }, plugin));
+  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: real.note !== null, checksOff: true, remove: real.remove, material: real.material }, plugin));
   if (plugin && real.note) for (const [name, text] of Object.entries(seedFiles(real.slug, real.note.kind, real.note.text))) files.set(`${root}/${name}`, text);
   files.set(`${root}/prompt.md`, [
     '---',

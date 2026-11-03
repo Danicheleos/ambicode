@@ -1,6 +1,5 @@
 /**
- * Source trees of the five stacks `/ambicode:init --auto` is evaluated on (evals/scripts/init-cases.mjs holds what init
- * should find in each). Each is about 30 modules (`context tree` counts a directory with three or more source files below
+ * Source trees of the five stacks the init-stack evals run on. Each is about 30 modules (`context tree` counts a directory with three or more source files below
  * it, so a leaf module is three small files) in its own architecture: layered with a plugin directory (Python), flat with
  * many small packages and one deep chain (Go), hexagonal over Gradle subprojects (Kotlin), a Rust workspace beside a web
  * app, a Python tool and generated code (monorepo), bounded contexts with a shared kernel (TypeScript). Offline and never

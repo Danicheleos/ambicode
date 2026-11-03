@@ -18,7 +18,7 @@ function onDisk(tree) {
     for (const name of readdirSync(path.join(EVALS, relative))) {
       const child = `${relative}/${name}`;
       // downstream/ is rendered from NDA assets by downstream-cases.mjs, gitignored, and absent on most machines (it made this test fail locally once the cases existed). The map bench inputs live in bench/, outside evals/.
-      if (name === 'results' || name === 'downstream' || name === 'task-real' || name === 'suite-real' || name === 'task-chain' || name === 'init-large' || name.startsWith('.')) continue;
+      if (name === 'results' || name === 'downstream' || name === 'task-real' || name === 'suite-real' || name === 'task-chain' || name.startsWith('.')) continue;
       if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
       else out.push(child);
     }
@@ -45,8 +45,8 @@ describe('skill coverage suite', () => {
     for (const file of disk) assert.equal(readFileSync(path.join(EVALS, file), 'utf8'), FILES.get(file), file);
   });
 
-  // Their old cases were removed; delete the skill from this list when its new cases land.
-  const WITHOUT_CASES = [];
+  // Their old cases were removed; delete the skill from this list when its new cases land. init: its cases graded the context notes init no longer writes (f4eac810) and live in eval-archive.
+  const WITHOUT_CASES = ['init'];
   it('covers every skill with at least one case, except those awaiting new cases, and only skills that exist', () => {
     assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), SKILLS.filter((s) => !WITHOUT_CASES.includes(s)).sort());
     for (const skill of WITHOUT_CASES) assert.ok(SKILLS.includes(skill), `${skill} is a skill`);
@@ -56,9 +56,8 @@ describe('skill coverage suite', () => {
     const skill = c.name.split('-')[0];
     it(`${c.name}: the prompt types the skill with a fixed --task slug, graders read literal paths, the fixture exists`, () => {
       assert.ok(c.prompt.startsWith(`/ambicode:${skill}`));
-      // init has no --task in its prompt: its skill text always scaffolds and records under the slug `init`.
-      const slug = /--task (\S+)/.exec(c.prompt)?.[1] ?? (skill === 'init' ? 'init' : null);
-      if (skill !== 'init') assert.ok(slug !== null, 'a route case fixes its task slug so graders can name the ledger');
+      const slug = /--task (\S+)/.exec(c.prompt)?.[1] ?? null;
+      assert.ok(slug !== null, 'a route case fixes its task slug so graders can name the ledger');
       assert.ok(c.graders.length >= 4, 'at least four graders');
       assert.equal(new Set(c.graders.map((g) => g.name)).size, c.graders.length, 'grader names are unique');
       for (const grader of c.graders) {
@@ -98,7 +97,6 @@ describe('scaffold commands', () => {
       seen += 1;
       const [, fixture, flags] = command;
       assert.ok(known.has(fixture), `${file}: unknown fixture ${fixture}`);
-      if (flags.includes('--context')) assert.ok(has('contexts', '.md', fixture), `${file}: no fixtures/contexts file for ${fixture}`);
       if (flags.includes('--policy')) assert.ok(has('policies', '.yaml', fixture), `${file}: no fixtures/policies file for ${fixture}`);
     }
     assert.ok(seen > 40, `only ${seen} scaffolds were checked`);

@@ -49,7 +49,7 @@ export const AmbicodeConfig = z.strictObject({
   id: Name,
   /** Absent means "no baseline recorded"; branch review then needs --base. */
   baseline: z.string().min(1).optional(),
-  context: z.strictObject({ maxTotalTokens: PositiveInt, maxFileTokens: PositiveInt, maxIndexTokens: PositiveInt }),
+  context: z.strictObject({ maxTotalTokens: PositiveInt }),
   skills: z.strictObject({
     init: z.strictObject({
       ...Run,

@@ -155,7 +155,7 @@ export async function buildSearchIndex(files: readonly string[], read: Reader, o
 }
 
 /** A reader over the repository that skips what it cannot read or what exceeds the cap. */
-const repositoryReader = (fs: FileSystem, root: string): Reader => async (file, maxBytes) => {
+export const repositoryReader = (fs: FileSystem, root: string): Reader => async (file, maxBytes) => {
   try {
     const absolute = path.join(root, file);
     if ((await fs.stat(absolute)).size > maxBytes) return null;

@@ -5,14 +5,14 @@ import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from '#util/args';
 import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
 import { MAX_HOOK_INPUT_BYTES } from '#types/hook';
-import { COMMANDS, USAGE } from './commands/registry.ts';
+import { COMMANDS, CLI_HELP_TEXT } from './commands/registry.ts';
 import type { CliCommand, ParsedArgs, Rendered } from './types/cli.ts';
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
 
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
-    process.stdout.write(USAGE);
+    process.stdout.write(CLI_HELP_TEXT);
     return 0;
   }
 
@@ -32,7 +32,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   const entry = COMMANDS.get(name);
   if (entry === undefined) {
-    process.stderr.write(`Unknown command "${command}".\n\n${USAGE}`);
+    process.stderr.write(`Unknown command "${command}".\n\n${CLI_HELP_TEXT}`);
     return 2;
   }
 

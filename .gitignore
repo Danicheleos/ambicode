@@ -45,7 +45,6 @@ gym/planing/new-architecture/cutting-down
 
 /bench/map/
 /evals/cases/downstream/
-/evals/cases/init-large/
 /evals/bare/downstream/
 /evals/local/
 /evals/cases/task-real/

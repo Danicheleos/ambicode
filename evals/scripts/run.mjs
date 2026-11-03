@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { archiveOf, deliveryLine, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
-import { isRealCase, loadRealCases, realTruth } from './real-cases.mjs';
+import { isRealCase, realTruth } from './real-cases.mjs';
 import { metricsOf, scoreFiles } from './metrics.mjs';
 import { applyDiffGraders, isSkipped } from './diff-graders.mjs';
 import { downstreamMetrics, downstreamTruth, isDownstreamCase } from './downstream-cases.mjs';
@@ -41,21 +41,19 @@ export function countEntries(dir, limit = Infinity) {
   return count;
 }
 
-/** One line per bench repository named by the local real-cases file or by NAV_BENCH, K12_BENCH, INIT_BENCH: env var, absolute path, sha256 of its context index. */
-export function benchLines(env = process.env, real = loadRealCases()) {
-  const names = new Set(['NAV_BENCH', 'K12_BENCH', 'INIT_BENCH', ...Object.values(real.repos).map((repo) => repo.bench).filter(Boolean)]);
-  return [...names].filter((name) => env[name]).map((name) => {
+/** One line per bench repository named by NAV_BENCH or K12_BENCH: env var, absolute path, and whether the directory exists (a mistyped path shows before a paid run). */
+export function benchLines(env = process.env) {
+  return ['NAV_BENCH', 'K12_BENCH'].filter((name) => env[name]).map((name) => {
     const bench = path.resolve(env[name]);
-    const index = path.join(bench, '.ambicode', 'context', 'index.md');
-    return `${name} ${bench} ${existsSync(index) ? `index.md sha256 ${createHash('sha256').update(readFileSync(index)).digest('hex')}` : 'no .ambicode/context/index.md'}`;
+    return `${name} ${bench}${existsSync(bench) ? '' : ' (missing)'}`;
   });
 }
 
 /** What is printed before a case runs; `error` is set when evals/ holds `limit` entries or more. */
-export function preflight({ evals = EVALS, env = process.env, limit = ENTRY_LIMIT, real } = {}) {
+export function preflight({ evals = EVALS, env = process.env, limit = ENTRY_LIMIT } = {}) {
   const entries = countEntries(evals, limit);
   if (entries >= limit) return { error: `preflight: evals/ has ${entries} entries (limit ${limit}); clear evals/cases/results before running`, lines: [] };
-  return { line: `preflight: evals/ ${entries} entries`, lines: benchLines(env, real) };
+  return { line: `preflight: evals/ ${entries} entries`, lines: benchLines(env) };
 }
 
 const VALUE_FLAGS = ['--case', '--tag', '--runs', '--model', '--effort', '--max-cost-usd', '--series'];

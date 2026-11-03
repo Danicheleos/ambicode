@@ -44,10 +44,9 @@ describe('review fixtures', { concurrency: 4 }, () => {
       const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-review-fixture-'));
       const destination = path.join(parent, 'repo');
       try {
-        await materialize(fixtureByName(fixtureOf(truth)), destination, { ambicodeInit: true, context: true, policy: truth.policy });
+        await materialize(fixtureByName(fixtureOf(truth)), destination, { ambicodeInit: true, policy: truth.policy });
         const ambicode = path.join(destination, '.ambicode');
         assert.ok(existsSync(path.join(ambicode, 'config.yaml')));
-        assert.ok(existsSync(path.join(ambicode, 'context', 'conventions.md')));
         assert.equal(existsSync(path.join(ambicode, 'policies', 'team-rules.yaml')), truth.policy);
         if (truth.policy) {
           const out = execFileSync(process.execPath, [CLI, 'policy', 'check', path.join(ambicode, 'policies', 'team-rules.yaml')], { cwd: destination, encoding: 'utf8' });

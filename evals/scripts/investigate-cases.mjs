@@ -227,7 +227,7 @@ export function investigateCases(b) {
       tags: ['investigate', t.fixture.startsWith('ts-app-medium') ? 'depth' : 'stack'],
       version: 1,
       fixture: t.fixture,
-      flags: '--ambicode-init --context',
+      flags: '--ambicode-init',
       metrics: { source: t.files === false ? 'citations' : 'files-section', relevant: t.relevant, allowed: t.allowed },
       prompt: `/ambicode:investigate --task ${t.slug} ${ask}`,
       bare: ask,

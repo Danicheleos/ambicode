@@ -469,7 +469,7 @@ describe('rule examples and activity guidance', () => {
   });
 });
 
-describe('09-R3/09-W1: the init skill and the init route steps', () => {
+describe('09-R3/09-W1: the init skill and the init skill steps', () => {
   it('09-R3: the init body stays within 2,000 bytes, runs the scaffold, config packs and config validate, and may write only the config and rule drafts', async () => {
     const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
     const fm = frontmatter(content, 'init/SKILL.md');
@@ -488,13 +488,13 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     assert.doesNotMatch(tools.replace(/Write\(\/\/\*\*\/\.ambicode\/(config\.yaml|policies\/drafts\/\*\*)\)/g, ''), /Edit|Write/);
   });
 
-  it('init gives the scout a prompt that asks it to write the context', async () => {
+  it('init gives the scout a prompt that asks only for its report, and the scout writes nothing', async () => {
     const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
     const launch = content.split('\n').find((line) => line.includes('Launch `ambicode:scout`'));
     assert.ok(launch !== undefined, 'init launches the scout');
-    // init-auto-go-1 (2026-10-21T06-46-23): a free-form prompt asked only for a report, so the scout wrote no context
-    // and 4 context graders failed.
-    assert.match(launch, /write the context/);
+    // DECISIONS #60: init writes no notes; traces of 10 init runs (2026-10-26) show the scout spent 3 to 4 `context write` calls and 14k output tokens on them.
+    assert.match(launch, /Prompt it for its report/);
+    assert.doesNotMatch(launch, /write the context/);
   });
 
   it('init tells the model to write pack ids as listed and never to alias a command', async () => {
@@ -517,9 +517,11 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     // Trace analysis of 15 runs: ~6.1 serial main turns after the scout; each read or check in its own turn.
     assert.match(step(3), /Launch `ambicode:scout`[\s\S]*Same turn, in parallel[\s\S]*references\/rules\.md[\s\S]*pack-format\.md[\s\S]*config packs --list/);
     assert.match(step(5), /On its report, parallel Writes in one turn: `\.ambicode\/config\.yaml`[\s\S]*and step 6's drafts/);
-    assert.match(step(7), /One Bash call[\s\S]*config packs --task init[\s\S]*config validate --task init[\s\S]*policy check --drafts/);
+    assert.match(step(7), /One Bash call[\s\S]*config packs --task init[\s\S]*config validate --task init[\s\S]*context index --task init[\s\S]*policy check --drafts/);
     const fm = frontmatter(content, 'init/SKILL.md');
     assert.match(requiredString(fm, 'allowed-tools', 'init/SKILL.md'), /Bash\(node \*ambicode\.mjs policy check\*\)/);
+    // f4eac810 removed the only init step that built the search index; without it a paid init run left no .ambicode/context/.
+    assert.match(requiredString(fm, 'allowed-tools', 'init/SKILL.md'), /Bash\(node \*ambicode\.mjs context index\*\)/);
   });
 
   it('the pack reference names the key a command check needs, and the schema rejects a pack without it', async () => {
@@ -538,7 +540,7 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     const step = content.split('\n').find((line) => line.startsWith('6. '));
     assert.ok(step !== undefined, 'init has a step 6');
     // 13 of 20 init --auto runs (2026-10-21) read "skip manual and web rules" as "skip drafting" and wrote no draft.
-    assert.match(step, /Always draft the scout's conventions .*, also with `--auto`/);
+    assert.match(step, /Always draft the scout's `conventions` candidates .*, also with `--auto`/);
     assert.match(content, /skip WebSearch and the rules route \(drafts are still written\)/);
   });
 
@@ -557,6 +559,15 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     assert.doesNotMatch(requiredString(fm, 'tools', 'agents/scout.md'), /Write|Edit/);
     const body = (await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(body, /each project directory is one root, never a folder inside it/);
+    assert.equal(requiredString(fm, 'tools', 'agents/scout.md'), 'Bash, Read, Grep');
+    assert.match(body, /context evidence --root/);
+    assert.match(body, /Open a source file only to confirm a candidate the evidence already shows \(naming, placement, architecture, import direction\)/);
+    assert.match(body, /Every convention cites the source path\(s\) that confirm it in `evidence`/);
+    assert.doesNotMatch(body, /at most \d+ source files|limit \d+|up to 4/, 'no numeric file or line caps on what the scout reads');
+    assert.match(body, /Never take a convention from `CLAUDE\.md`/);
+    assert.doesNotMatch(body, /context write|context-format|context files|conventions\.md|overview\.md/);
+    assert.match(body, /`conventions`: every candidate rule the evidence supports, each `\{rule, quote, location, basis, evidence\}`/);
+    assert.ok(body.length < 5500, `scout.md grew to ${body.length} bytes`);
   });
 
   it('the implementer agent is internal to the task route, runs checks only through the check command and ends on the report format the write step reads', async () => {

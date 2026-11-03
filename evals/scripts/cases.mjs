@@ -7,7 +7,6 @@
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initCases } from './init-cases.mjs';
 import { planCases } from './plan-cases.mjs';
 import { investigateCases } from './investigate-cases.mjs';
 import { reviewCases } from './review-cases.mjs';
@@ -50,18 +49,16 @@ const LIMITS = {
   // 30 turns: the old investigate-trace failed at 12 on a 6-file answer and needed 20; these chains are 5-7 files in 90-120-file repositories.
   investigate: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
   rules: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
-  // Agent: the scout-invoked grader needs it, and the harness withholds an ungranted tool from the model (cannot-pass check in claude plugin eval 2.1.303).
-  init: { max_turns: 24, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill', 'Agent'] },
 };
 
 /**
  * name: `<skill>-<behaviour>`. prompt: the plugin arm (types the skill with a fixed --task slug). bare: the same request
  * as a user would type it to Claude Code with no plugin, or null when the behaviour is the plugin's own (a gate, a
- * policy pack, init) and has no bare counterpart.
+ * policy pack) and has no bare counterpart.
  * version: raise it whenever a prompt or grader changes; a lift is computed only between rows of the current version.
  * metrics: recall and precision of the files the answer names (metrics.mjs), or with source `changed` of the files the workspace diff holds at harvest: `relevant` must be named, `allowed` may be.
  */
-/** The grader builders, for generated cases that live outside this file (init-large-case.mjs, review-cases.mjs). */
+/** The grader builders, for generated cases that live outside this file (review-cases.mjs). */
 export const BUILDERS = { regex, ledger, tool, never, exists, llm, shared, noEdits, DONE };
 
 export const CASES = [
@@ -80,9 +77,6 @@ export const CASES = [
   // ---------------------------------------------------------------- rules
   // One case tagged `rules` (rules-cases.mjs): plan policy delivery.
   ...rulesCases(BUILDERS),
-  // ---------------------------------------------------------------- init
-  // One case per stack (init-cases.mjs): same prompt, the fixture and its expected result differ.
-  ...initCases({ regex, tool, never, exists, llm }),
 ];
 
 // ---------------------------------------------------------------- rendering
@@ -130,7 +124,7 @@ export function render(cases = CASES) {
   for (const c of cases) {
     const arms = [['cases', c.prompt, c.flags, c.graders]];
     // The bare arm gets no config: the fixture as a user without the plugin would have it, unless the case sets `bareFlags` (review cases hold both arms to the same scaffold).
-    if (c.bare !== null) arms.push(['bare', c.bare, c.bareFlags ?? c.flags.replace('--ambicode-init', '').replace('--context', '').replace('--stack-packs', '').replace('--policy', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
+    if (c.bare !== null) arms.push(['bare', c.bare, c.bareFlags ?? c.flags.replace('--ambicode-init', '').replace('--stack-packs', '').replace('--policy', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
     for (const [tree, body, flags, graders] of arms) {
       const dir = caseDir(tree, c.name);
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
@@ -143,7 +137,7 @@ export function render(cases = CASES) {
   return files;
 }
 
-/** A case lives in <tree>/<suite>/<name>; the suite is the name's first word (rules, review, init). */
+/** A case lives in <tree>/<suite>/<name>; the suite is the name's first word (rules, review, plan). */
 export const suiteOf = (name) => name.split('-')[0];
 export const caseDir = (tree, name) => `${tree}/${suiteOf(name)}/${name}`;
 export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
@@ -161,7 +155,7 @@ function write(argv = []) {
     mkdirSync(dir, { recursive: true });
     for (const suite of readdirSync(dir)) {
       // Rendered by their own generators and gitignored: a full regeneration must not delete them.
-      if (['results', 'init-large', 'downstream', 'task-real', 'suite-real'].includes(suite)) continue;
+      if (['results', 'downstream', 'task-real', 'suite-real'].includes(suite)) continue;
       if (pattern === null) rmSync(path.join(dir, suite), { recursive: true, force: true });
       else if (selected.some((c) => suiteOf(c.name) === suite)) {
         for (const name of readdirSync(path.join(dir, suite))) if (pattern.test(name)) rmSync(path.join(dir, suite, name), { recursive: true, force: true });

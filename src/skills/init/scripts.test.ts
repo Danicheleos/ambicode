@@ -24,13 +24,13 @@ describe('init scaffold', () => {
     const first = run(root);
     assert.equal(first.status, 0, first.stderr);
     const out = JSON.parse(first.stdout);
-    assert.deepEqual(out.created, ['.ambicode/tasks', '.ambicode/reviews', '.ambicode/context', '.ambicode/config.yaml']);
+    assert.deepEqual(out.created, ['.ambicode/tasks', '.ambicode/reviews', '.ambicode/config.yaml']);
     assert.equal(out.gitignore, 'created');
     assert.equal(out.configExisted, false);
     assert.match(await readFile(path.join(root, '.ambicode/config.yaml'), 'utf8'), /^id: my-repo-2$/m);
     const second = JSON.parse(run(root).stdout);
     assert.deepEqual(second.created, []);
-    assert.equal(second.existing.length, 3);
+    assert.equal(second.existing.length, 2);
     assert.equal(second.configExisted, true);
     assert.equal(second.gitignore, 'present');
   });
@@ -63,7 +63,7 @@ describe('init scaffold', () => {
     const withTask = (extra: string[]) => spawnSync(process.execPath, [SCAFFOLD, '--root', root, '--task', 'init', ...extra], { encoding: 'utf8', env: { ...process.env, CLI_LOG: log } });
     const ok = JSON.parse(withTask(['--cli', cli]).stdout);
     assert.equal(ok.recorded, true);
-    assert.equal(await readFile(log, 'utf8'), 'init|record|--task|init|--what|scaffold|--outcome|4 created, config written, gitignore created\nconfig|validate|--json\n');
+    assert.equal(await readFile(log, 'utf8'), 'init|record|--task|init|--what|scaffold|--outcome|3 created, config written, gitignore created\nconfig|validate|--json\n');
     const missing = JSON.parse(withTask(['--cli', path.join(path.dirname(root), 'absent.mjs')]).stdout);
     assert.notEqual(missing.recorded, true);
     assert.equal(JSON.parse(run(root).stdout).recorded, undefined, 'no --task, nothing recorded');
