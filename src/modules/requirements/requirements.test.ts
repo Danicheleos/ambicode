@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { jira, mcp, session } from '#testing/fixtures/requirements-session';
 import { contentHash } from '#util/hash';
-import { hasRequirement } from './capture/has-requirement.ts';
+import { hasRequirement, requirementsIn } from './capture/has-requirement.ts';
+import { namesKey, sourceId } from '#util/issue-key';
 import { readCapture, titleOf } from './capture/capture.ts';
+import { gapsOf } from '#modules/evidence/report/report';
 import { askedKeys } from './envelope/envelope.ts';
 
 const GET = 'mcp__atlassian__getJiraIssue';
@@ -29,6 +31,22 @@ describe('hasRequirement', () => {
 describe('keys', () => {
   it('asked keys are the --requirement values, URLs in the text and a bare first key, raw; prose keys are not asked', () => {
     assert.deepEqual(askedKeys({ requirements: [PAGE], text: `ORD-18 see ${TICKET} and ORD-19` }), [PAGE, TICKET, 'ORD-18']);
+  });
+
+  it('a first-word key is matched whole: ORD-1 beside a link to ORD-12 asks both', () => {
+    assert.deepEqual(askedKeys({ requirements: [], text: 'ORD-1 compare https://x/browse/ORD-12' }), ['https://x/browse/ORD-12', 'ORD-1']);
+    assert.deepEqual(askedKeys({ requirements: [], text: 'ORD-1 see https://x/browse/ORD-1?focusedId=3' }), ['https://x/browse/ORD-1?focusedId=3']);
+  });
+
+  it('namesKey takes a key as a whole token and sourceId makes a URL and its key one source', () => {
+    assert.deepEqual([namesKey('/browse/ORD-12', 'ORD-1'), namesKey('XORD-1', 'ORD-1'), namesKey('/browse/ORD-1?x=1', 'ORD-1'), namesKey('{"k":"ORD-1"}', 'ORD-1')], [false, false, true, true]);
+    assert.equal(sourceId(TICKET), sourceId('ORD-17'));
+    assert.notEqual(sourceId('https://x/browse/ORD-1'), sourceId('ORD-12'));
+    assert.equal(sourceId(PAGE), PAGE);
+  });
+
+  it('a merge request description link to ORD-12 does not hide the title\'s ORD-1', () => {
+    assert.deepEqual(requirementsIn('ORD-1 fix', 'see https://x/browse/ORD-12', []).named, ['ORD-1', 'https://x/browse/ORD-12']);
   });
 });
 
@@ -71,12 +89,28 @@ describe('capture stores the raw result text', () => {
     }
   });
 
+  it('a child whose key only starts with the asked key is linked, never recorded as the asked one', async () => {
+    const s = await session({ skill: 'investigate', requirements: ['https://x.atlassian.net/browse/ORD-1'], text: 'ORD-1 which files?' });
+    try {
+      const asked = ['https://x.atlassian.net/browse/ORD-1'];
+      await s.capture(GET, mcp(jira('ORD-1')), { input: { issueIdOrKey: 'ORD-1' }, asked });
+      const child = await s.capture(GET, mcp(jira('ORD-12', { description: 'child body' })), { input: { issueIdOrKey: 'ORD-12' }, asked });
+      assert.deepEqual([child?.['key'], child?.['relation']], ['ORD-12', 'linked']);
+      assert.match((await readCapture(s.fx.runtime.fs, s.dir, asked[0]!, null))!.content, /Body of ORD-1\b/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
   it('a result over 256 KB is cut to 256 KB and its hash is of what is stored; an edited file no longer reads', async () => {
     const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
       await s.capture(GET, mcp('a'.repeat(300 * 1024)), { input: { issueIdOrKey: 'ORD-17' } });
       const stored = await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null);
       assert.equal(stored?.content.length, 256 * 1024);
+      assert.equal(stored?.cutFrom, 300 * 1024);
+      assert.equal((await s.fx.kinds(s.task, 'requirement'))[0]!['capture'], 'cut');
+      assert.match(gapsOf(await s.fx.ledger(s.task)).join('\n'), /Requirement ORD-17 was cut at 256 KB/);
       const file = path.join(s.dir.requirements, (await s.fx.runtime.fs.readdir(s.dir.requirements))[0]!.name);
       await s.fx.runtime.fs.writeText(file, (await readFile(file, 'utf8')).replace('"aaaa', '"bbbb'));
       assert.equal(await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null), null);
@@ -179,6 +213,52 @@ describe('envelope', () => {
     };
     assert.equal((await run('continue without')).envelope?.['builtFrom'], 'args');
     assert.deepEqual(await run('stop').then((result) => [result.envelope, result.exits]), [undefined, ['blocked']]);
+  });
+
+  it('a bare key with no requirements server is not fetched, and the envelope reports it as not captured', async () => {
+    const s = await session({ skill: 'plan', server: null, requirements: [], text: 'ORD-17 which files?' });
+    try {
+      const result = await s.normalize();
+      assert.ok(result.state === 'ok');
+      assert.deepEqual([result.asked, result.missingAsked], [['ORD-17'], ['ORD-17']]);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a bare key with no server is reported as not fetched, not as a failed capture, and the gap is in the step message beside the pointer', async () => {
+    const s = await session({ skill: 'investigate', shipped: true, server: null, requirements: [], text: 'ORD-17 which files add to cart?' });
+    try {
+      const message = await s.next();
+      assert.match(message.text, /## envelope\nRead \S+ \(\d+ bytes\) with your first reads\.\nORD-17 looks like a ticket key; no requirements server is configured, so it was not fetched/);
+      assert.doesNotMatch(message.text, /Not captured/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a failed capture of an asked page shows as Not captured in the step message, beside a captured ticket', async () => {
+    const s = await session({ skill: 'investigate', shipped: true, requirements: [TICKET, PAGE], text: 'which files add to cart?' });
+    try {
+      await s.capture(GET, mcp(jira('ORD-17', { description: 'cart rules' })), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET, PAGE] });
+      const message = await s.next();
+      assert.match(message.text, new RegExp(`## envelope\\nRead \\S+ \\(\\d+ bytes\\) with your first reads\\.\\nNot captured: ${PAGE.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}; list it under Not verified\\.`));
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a route asking the URL of a key an earlier route captured by key does not fetch again', async () => {
+    const s = await session({ skill: 'investigate', shipped: true, requirements: ['ORD-17'], text: 'which files add to cart?' });
+    try {
+      await s.capture(GET, mcp(jira('ORD-17', { description: 'cart rules' })), { input: { issueIdOrKey: 'ORD-17' }, asked: ['ORD-17'] });
+      await s.next();
+      const again = await s.fx.engine.start({ skill: 'investigate', text: 'again', requirements: [TICKET], task: s.task, cwd: s.fx.repo.root, session: 'bbbbbbbb-2222-4222-8222-222222222222', channel: 'hook', scratchpadDir: s.fx.scratchpad });
+      assert.notEqual(again.position, 'fetch');
+      assert.deepEqual((await s.fx.kinds(s.task, 'envelope')).at(-1)!['missingAsked'], []);
+    } finally {
+      await s.fx.dispose();
+    }
   });
 
   it('with nothing to fetch the envelope has no sources and is built from the request', async () => {

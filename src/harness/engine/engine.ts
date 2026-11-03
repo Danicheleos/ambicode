@@ -160,6 +160,7 @@ export function createEngine(deps: EngineDeps): Engine {
         kind: 'route',
         skill: def.skill,
         args: inputArgs,
+        captured: entries.filter((entry) => entry.kind === 'requirement').map((entry) => String(entry['key'])),
         mode: headless ? 'headless' : 'interactive',
         channel: input.channel,
         trusted,

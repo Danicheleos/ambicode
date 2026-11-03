@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { NO_RUNS, REAL_TAG, graderFiles, isRealCase, loadRealCases, realTruth, variantsOf, wroteLine, writeReal } from './real-cases.mjs';
+import { NO_RUNS, REAL_TAG, SUITE_TAG, graderFiles, isRealCase, loadRealCases, realTruth, variantsOf, wroteLine, writeReal } from './real-cases.mjs';
 import { gradeOne } from './diff-graders.mjs';
 import { runCase } from './run.mjs';
 
@@ -262,4 +262,63 @@ describe('local real-change cases against the bench repositories', () => {
       assert.deepEqual(changed.filter((file) => !within(file)), [], 'every file of the real change is relevant or allowed');
     });
   }
+});
+
+describe('real-change cases of a suite file: own tag, prompt files, no-runs sentence, removed files, focused llm judges', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'real-suite-'));
+  mkdirSync(path.join(dir, 'tickets'));
+  writeFileSync(path.join(dir, 'tickets', 'T-1.md'), '# T-1: Do a thing\n\n- first\n- second\n');
+  const spec = {
+    name: 'task-real-suite-one', repo: 'r1', kind: 'bugfix', slug: 'su-one', commit: sha('a'), parent: sha('b'), description: 'a suite case',
+    promptFile: 'tickets/T-1.md', remove: ['.claude/rules/x.md'], relevant: ['src/a.ts'], allowed: [],
+    graders: [
+      { kind: 'diff', name: 'every-file', pattern: 'x', perFile: true, match: 'not_contains', guard: true },
+      { kind: 'llm', name: 'judge-file', rubric: 'PASS if ok. FAIL if not.', weight: 2, focus: 'src/a.ts' },
+      { kind: 'llm', name: 'judge-message', rubric: 'PASS if ok. FAIL if not.' },
+    ],
+  };
+  const file = path.join(dir, 'suite.json');
+  writeFileSync(file, JSON.stringify({ tag: SUITE_TAG, noRuns: 'Do not run checks.', repos: {}, cases: [spec] }));
+  const loaded = loadRealCases(file);
+  const evalsDir = path.join(dir, 'evals');
+  writeReal({ evalsDir, sources, cases: loaded.cases, tag: loaded.tag, noRuns: loaded.noRuns });
+  const root = (arm) => path.join(evalsDir, arm, SUITE_TAG, '01-task-real-suite-one');
+
+  it('reads the prompt from the ticket file as-is, and the file-level tag and sentence', () => {
+    assert.equal(loaded.cases[0].prompt, '# T-1: Do a thing\n\n- first\n- second');
+    assert.deepEqual([loaded.tag, loaded.noRuns], [SUITE_TAG, 'Do not run checks.']);
+  });
+
+  it('a missing or empty prompt file is an error, not a silent gap', () => {
+    writeFileSync(path.join(dir, 'tickets', 'empty.md'), '\n');
+    for (const promptFile of ['tickets/none.md', 'tickets/empty.md']) {
+      writeFileSync(path.join(dir, 'bad.json'), JSON.stringify({ cases: [{ ...spec, promptFile }] }));
+      assert.throws(() => loadRealCases(path.join(dir, 'bad.json')), /missing or empty/);
+    }
+  });
+
+  it('renders under its own tag in both arms with the same text and the file\'s sentence, and leaves task-real/ alone', () => {
+    const body = (arm) => read(root(arm), 'prompt.md').replace(/^---[\s\S]*?---\n\n/, '').trim();
+    assert.equal(body('cases'), '/ambicode:task --task su-one --headless # T-1: Do a thing - first - second Do not run checks.');
+    assert.equal(body('bare'), '# T-1: Do a thing - first - second\n\nDo not run checks.');
+    assert.match(read(root('bare'), 'prompt.md'), /tags: \["task", "suite-real", "suite-real-raw", "bugfix"\]/);
+    assert.ok(!existsSync(path.join(evalsDir, 'cases', REAL_TAG)));
+    assert.equal(realTruth('task-real-suite-one', evalsDir).name, 'task-real-suite-one');
+  });
+
+  it('both scaffolds delete the named files before the commit', () => {
+    for (const arm of ['cases', 'bare']) assert.match(read(root(arm), 'scaffold.sh'), /tar xf -\n# [^\n]*\nrm -f '\.claude\/rules\/x\.md'\ngit init -q/);
+    assert.doesNotMatch(read(root('cases'), 'scaffold.sh').replace(/rm -f '\.claude\/rules\/x\.md'/, ''), /rm -f/);
+  });
+
+  it('an llm grader with a focus judges that workspace file in both arms; without one the final message (bare) or the report (plugin)', () => {
+    assert.match(read(root('cases'), 'graders/judge-file.md'), /focus: \{ source: file, path: src\/a\.ts \}\nweight: 2/);
+    assert.equal(read(root('bare'), 'graders/judge-file.md'), read(root('cases'), 'graders/judge-file.md'));
+    assert.match(read(root('bare'), 'graders/judge-message.md'), /focus: last_message/);
+    assert.match(read(root('cases'), 'graders/judge-message.md'), /path: \.ambicode\/tasks\/su-one\/report\.md/);
+  });
+
+  it('perFile reaches truth.json, so a per-file diff grader keeps its meaning at run time', () => {
+    assert.deepEqual(JSON.parse(read(root('cases'), 'truth.json')).diffGraders, [{ name: 'every-file', pattern: 'x', match: 'not_contains', perFile: true, weight: 1 }]);
+  });
 });

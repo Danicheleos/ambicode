@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ENTRY_LIMIT, NAKED, USAGE, benchLines, buildNaked, checkArgs, childEnv, countEntries, mergeSeries, plan, preflight, runCase, withProgress } from './run.mjs';
+import { ENTRY_LIMIT, NAKED, USAGE, benchLines, buildNaked, checkArgs, childEnv, countEntries, mergeSeries, plan, preflight, runCase, runLoadCheck, withOnlyNamesOf, withProgress } from './run.mjs';
 
 describe('result copy', () => {
   const truth = { source: 'files-section', relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [] };
@@ -400,5 +400,97 @@ describe('series results file', () => {
     command(results, '--series a,b --case b', 'b', 1);
     command(results, '--series a,b --case a', 'a', 1);
     assert.deepEqual(read(file).cases.map((c) => c.name), ['a']);
+  });
+});
+
+describe('plugin-only graders (arm: with-only) under --ablation none', () => {
+  const grader = (name, passed) => ({ name, passed, weight: 1, explanation: '', scored: true });
+  const run = (names) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-withonly-'));
+    const result = path.join(root, 'plugin.json');
+    const raw = { startedAt: '2026-10-31T09:00:00.000Z', cases: [{ name: 'task-x', aggregates: { score: 0.5, passRate: 0 }, arms: { with: [{ score: 0.5, passed: false, graders: [grader('a', true), grader('plan-accepted', false)] }] } }] };
+    const deps = { tracesRoot: path.join(root, 'traces'), harvest: () => {}, log: () => {}, withOnlyNamesOf: () => names, spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } };
+    runCase({ argv: ['--case', 'task-x'], env: {}, result, arm: 'plugin' }, deps);
+    return JSON.parse(readFileSync(result, 'utf8')).cases[0];
+  };
+
+  it('are flagged non-scoring, kept in the list, and left out of the run score and the aggregates', () => {
+    const out = run(['plan-accepted']);
+    const one = out.arms.with[0];
+    assert.deepEqual(one.graders.map((g) => [g.name, g.scored, g.passed]), [['a', true, true], ['plan-accepted', false, false]]);
+    assert.equal(one.graders[1].withOnly, true);
+    assert.equal(one.score, 1);
+    assert.equal(one.passed, true);
+    assert.deepEqual([out.aggregates.score, out.aggregates.passRate], [1, 1]);
+  });
+
+  it('a case with none keeps the harness score', () => {
+    assert.equal(run([]).arms.with[0].score, 0.5);
+  });
+
+  it('withOnlyNamesOf reads arm: with-only from the graders of the named case only', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-withonly-dir-'));
+    for (const [dir, name] of [['x', 'task-x'], ['y', 'task-y']]) {
+      mkdirSync(path.join(root, dir, 'graders'), { recursive: true });
+      writeFileSync(path.join(root, dir, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\n`);
+      writeFileSync(path.join(root, dir, 'graders', 'plan-accepted.md'), `---\narm: with-only\ntype: regex\n---\n`);
+      writeFileSync(path.join(root, dir, 'graders', 'a.md'), `---\ntype: regex\n---\n`);
+    }
+    assert.deepEqual(withOnlyNamesOf('task-x', root), ['plan-accepted']);
+    assert.deepEqual(withOnlyNamesOf('task-none', root), []);
+  });
+});
+
+describe('load check (--load-check)', () => {
+  const sha = (file) => readFileSync(file, 'utf8');
+  const setup = () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'run-load-'));
+    const results = path.join(root, 'results');
+    mkdirSync(results);
+    for (const name of ['plugin.json', 'bare.json', 'running.json']) writeFileSync(path.join(results, name), `earlier ${name}`);
+    const run = plan(['--load-check', '--model', 'any-fake-model'], undefined, results, path.join(root, 'scratch'));
+    // The harness writes its stamp folder under the eval dir's results whatever --json says.
+    run.reports = path.join(root, 'harness-results');
+    mkdirSync(path.join(run.reports, 'older-stamp'), { recursive: true });
+    return { root, results, run };
+  };
+  const fakeHarness = (run, root, error) => {
+    const result = { startedAt: '2026-10-31T10:00:00.000Z', cases: [{ name: 'c', promptMarkdown: 'do it', graders: [{ name: 'g', weight: 1 }], arms: { with: [{ graders: [], error }] } }] };
+    return { tracesRoot: path.join(root, 'must-not-be-used'), harvest: (_r, dir) => mkdirSync(dir, { recursive: true }), log: () => {}, spawn: () => {
+      writeFileSync(run.result, JSON.stringify(result));
+      mkdirSync(path.join(run.reports, '2026-10-31T10-00-00-000Z'), { recursive: true });
+      return 1;
+    } };
+  };
+
+  it('the flag is accepted, and the plan writes its result outside the shared results folder', () => {
+    assert.equal(checkArgs(['--load-check', '--case', 'x']).action, 'run');
+    const { results, run } = setup();
+    assert.ok(!run.result.startsWith(results), run.result);
+    assert.notEqual(run.scratch, null);
+    assert.equal(plan(['--case', 'x']).scratch, null, 'a normal run is unchanged');
+  });
+
+  it('leaves plugin.json, bare.json, running.json and the per-stamp folders as they were, and cleans up its own', () => {
+    const { root, results, run } = setup();
+    const lines = [];
+    const deps = { ...fakeHarness(run, root, 'exit 1: issue with the selected model (any-fake-model)'), log: (line) => lines.push(line) };
+    const outcome = runLoadCheck(run, deps);
+    for (const name of ['plugin.json', 'bare.json', 'running.json']) assert.equal(sha(path.join(results, name)), `earlier ${name}`);
+    assert.deepEqual(readdirSync(results).sort(), ['bare.json', 'plugin.json', 'running.json']);
+    assert.deepEqual(readdirSync(run.reports), ['older-stamp'], 'only the stamp folder it caused is removed');
+    assert.equal(existsSync(run.scratch), false);
+    assert.equal(outcome.status, 0);
+    assert.match(lines.join('\n'), /load check plugin c: loaded; prompt 5 chars, 1 graders, 1 runs/);
+    assert.match(lines.join('\n'), /run error: exit 1: issue with the selected model/);
+  });
+
+  it('reports a case whose scaffold failed as not loaded, and still cleans up', () => {
+    const { root, run } = setup();
+    const lines = [];
+    const outcome = runLoadCheck(run, { ...fakeHarness(run, root, 'scaffold failed: exit 3'), log: (line) => lines.push(line) });
+    assert.equal(outcome.status, 1);
+    assert.match(lines.join('\n'), /NOT loaded/);
+    assert.equal(existsSync(run.scratch), false);
   });
 });

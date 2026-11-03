@@ -1,5 +1,6 @@
 import { describeIssues } from '#modules/config/load';
 import { RequirementEvidence, type EvidenceSource, type RequirementSource } from '#types/modules/requirements';
+import { renderRequirement } from '#modules/requirements/envelope/render';
 import { MAX_EVIDENCE_BYTES } from '#types/defaults';
 import { AmbicodeError, messageOf } from '#util/errors';
 import type { Runtime } from '#types/composition';
@@ -35,5 +36,6 @@ export async function requirementSources(runtime: Runtime, input: { urls: readon
   const sources = urls.map((url) => supplied.find((source) => source.url.trim() === url && source.content.trim() !== ''));
   const missing = urls.filter((_, index) => sources[index] === undefined);
   if (missing.length > 0) throw new AmbicodeError('requirements-not-retrieved', 'A named requirement has no retrieved evidence, so this review cannot judge the change against it.', { details: missing.map((url) => `No evidence for ${url}`) });
-  return sources as RequirementSource[];
+  // The reviewer reads the readable text of each source, the same text the task's requirements file holds.
+  return (sources as RequirementSource[]).map((source) => ({ ...source, content: renderRequirement(source.content) }));
 }

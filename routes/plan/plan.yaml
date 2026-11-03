@@ -4,7 +4,7 @@ needsRequest: true
 steps:
   - id: fetch
     actor: model
-    when: args.hasRequirement
+    when: requirements.missing                    # a ticket is fetched once per task: skipped when every asked key is already captured
     instruction: file:routes/investigate/fetch.md
   - id: ground
     actor: code
@@ -13,7 +13,7 @@ steps:
   - id: draft
     actor: model
     instruction: file:routes/plan/draft.md
-    payload: [map, "file:policy:before-work", context.list]
+    payload: ["file:envelope", map, "file:policy:before-work", context.list]
     repeat: 2                                     # the first draft and one fix after plan-check
   - id: plan-check
     actor: code

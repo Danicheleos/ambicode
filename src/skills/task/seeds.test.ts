@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { planFixture } from '#testing/fixtures/plan-fixture';
 import { appendLedger } from '#platform/ledger/ledger';
+import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 
 const PLAN = '.ambicode/tasks/ord-7/plan.md';
 const NOTE = '.ambicode/tasks/ord-9/investigation_2026-10-01T10-00.md';
@@ -50,14 +51,30 @@ describe('an investigation named by path reaches the plan and the task', () => {
     }
   });
 
-  it('the plan route has a map, and an investigation path stays in the request text for the model to read', async () => {
+  it('the plan route points at an investigation named by path and seeds its map from it', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.fx.repo.write(NOTE, 'The limit lives in `src/orders/limit.ts`.\n');
       const first = await plan.start({ text: `add totals, see ${NOTE}` });
-      assert.doesNotMatch(first.text, /Investigation:/);
+      assert.match(first.text, new RegExp(`Investigation: ${NOTE.replaceAll('.', '\\.')}\\. Read it first`));
       assert.match(first.text, /## map/);
       assert.equal((await plan.fx.kinds('ORD-17', 'map')).length, 1);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('the plan route of a task that has an investigation note points at it and maps the files it cites, without being told its path', async () => {
+    const plan = await planFixture({ shipped: true });
+    try {
+      const dir = await resolveTaskDir(plan.fx.runtime, 'ORD-17');
+      const saved = '.ambicode/tasks/ORD-17/investigation_2026-10-01T10-00.md';
+      await plan.fx.repo.write(saved, 'The total is computed in `src/orders.ts`.\n');
+      await appendLedger(plan.fx.runtime.fs, dir.root, plan.fx.runtime.clock.now(), { kind: 'note', route: 'investigate-1', note: 'investigation', path: saved, contentHash: 'sha256:0' });
+      const first = await plan.start({ text: 'add a discount' });
+      assert.match(first.text, new RegExp(`Investigation: ${saved.replaceAll('.', '\\.')}\\. Read it first`));
+      const map = (await plan.fx.kinds('ORD-17', 'map')).at(-1);
+      assert.ok(Number(map?.['candidates']) > 0, `candidates ${String(map?.['candidates'])}`);
     } finally {
       await plan.dispose();
     }

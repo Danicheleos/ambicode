@@ -40,6 +40,23 @@ describe('skills/investigate/scripts/check-citations.mjs', () => {
     }
   });
 
+  it('checks the citations of the fixed report shape in every section, and a section that says none adds none', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const shaped = (findings: string, code: string) => `**Answer**\nThe total is summed in one place.\n\n**Findings**\n${findings}\n\n**Code to change and to reuse**\n${code}\n\n**Open questions**\nnone\n`;
+      const good = await check(root, shaped('- Sum over lines: `src/invoices/service.ts:3-6`.\n- Rounding (inferred): `src/invoices/service.ts:3`.', '- `src/invoices/service.ts:3` changes here.'));
+      assert.equal(good.failed, undefined);
+      assert.equal(good.entries[0]!.summary.anchorsBad, 0);
+      const bad = await check(root, shaped('- Sum over lines: `src/invoices/service.ts:3-6`.', '- `src/nope.ts:7` would change.'));
+      assert.equal(bad.failed?.code, 'citations-failed');
+      assert.deepEqual(bad.entries[0]!.summary.anchors, ['src/nope.ts:7 missing-file']);
+      const none = await check(root, '**Answer**\nThe code does not have it.\n\n**Findings**\nnone\n\n**Code to change and to reuse**\nnone\n\n**Open questions**\nnone\n');
+      assert.equal(none.failed, undefined);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
   it('an answer with no citation passes, and a version or address with a line-like suffix is not a citation', async () => {
     const root = await materialized('ts-feature-boundary');
     try {

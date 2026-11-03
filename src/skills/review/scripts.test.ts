@@ -135,19 +135,15 @@ describe('review scripts (C7)', () => {
     }
   });
 
-  it('brief renders a captured ticket as its description, not as the raw JSON; text that is not JSON stays as captured', async () => {
-    const jira = JSON.stringify({ issues: { nodes: [{ key: 'VS-1', self: 'https://api.atlassian.com/ex/jira/x/rest/api/3/issue/1', fields: { summary: 'Totals', issuetype: { description: 'A user goal.', name: 'Story' }, description: '## User Story\n\nSum the totals.' } }] } });
-    const adf = JSON.stringify({ fields: { summary: 'S', description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First.' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'Second.' }] }] } } });
-    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [{ id: 'J', title: 'Totals', content: jira }, { id: 'A', title: 'S', content: adf }, { id: 'P', title: 'Plain', content: 'Not json: sum them.' }, { id: 'E', title: 'Empty', content: JSON.stringify({ fields: { summary: 'E', description: null } }) }], checks: [] });
+  it('brief prints each requirement source exactly as the bundle holds it: the rendering happens once, in requirementSources, and nothing is dropped here', async () => {
+    const rendered = 'key: VS-1\nfields.summary: Totals\nfields.customfield_10200:\nAC1: rounds to cents\nAC2: empty cart is zero';
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [{ id: 'J', title: 'Totals', content: rendered }, { id: 'P', title: 'Plain', content: 'Not json: sum them.' }], checks: [] });
     try {
       await writeFile(path.join(reviewDir, 'changed.diff'), 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-x\n+y\n');
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
-      assert.match(brief, /### J: Totals\n## User Story\n\nSum the totals\.\n\n/);
-      assert.doesNotMatch(brief, /api\.atlassian\.com|A user goal/);
-      assert.match(brief, /### A: S\nFirst\.\nSecond\.\n/);
+      assert.ok(brief.includes(`### J: Totals\n${rendered}\n`));
       assert.match(brief, /### P: Plain\nNot json: sum them\.\n/);
-      assert.match(brief, /### E: Empty\n\{"fields":\{"summary":"E","description":null\}\}\n/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -107,10 +107,12 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   }
   for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.commitsError === 'string')) gaps.push(`merge request commits not fetched: ${clip(entry.commitsError, 160)}`);
   for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.discussionsError === 'string')) gaps.push(`existing merge request discussions not fetched: ${clip(entry.discussionsError, 160)}`);
+  for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && Array.isArray(step.requirementsOmitted))) gaps.push(`requirements named by the merge request and not fetched (over the limit): ${clip(list(entry.requirementsOmitted).join(', '), 160)}`);
   for (const entry of of('step').filter((step) => step.recorded === true)) gaps.push(`${clip(entry.step)}: ${clip(entry.message, 160)}`);
   for (const entry of of('policy').filter((policy) => policy.stage === 'drafts' && Number(policy.errors) > 0)) gaps.push(`rules drafts: ${entry.errors} check errors`);
   const mrNamed = new Set(mrRequirements(entries));
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${clip(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${clip(missing)}`);
+  for (const entry of of('requirement').filter((capture) => capture.capture === 'cut')) gaps.push(`Requirement ${clip(entry.key)} was cut at 256 KB: the rest of it was not captured`);
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);
   return [...new Set(gaps)];
 }

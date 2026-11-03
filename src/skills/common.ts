@@ -15,6 +15,9 @@ import { changesPaths, requiredPlanRules } from '#modules/policy/required';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
+import { renderRequirements } from '#modules/requirements/envelope/render';
+import { requirementsServer } from '#modules/requirements/capture/has-requirement';
+import { isIssueKey } from '#util/issue-key';
 import { AmbicodeError } from '#util/errors';
 import { baselineIn, touchedSet } from '#modules/checks/workspace/baseline';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
@@ -25,7 +28,6 @@ import { ReviewResult } from '#types/modules/review';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
-import type { EnvelopeSource } from '#types/modules/requirements';
 
 onGatePrint('project-ambiguous', async ({ task, chain }) => {
   const head = chain.findLast((entry) => entry.kind === 'route');
@@ -33,8 +35,6 @@ onGatePrint('project-ambiguous', async ({ task, chain }) => {
   return { note: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
 });
 
-const MAX_SOURCE_CHARS = 2500;
-const MAX_TOTAL_CHARS = 4500;
 const LISTED_CHARS = 80;
 
 async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
@@ -121,17 +121,6 @@ async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: re
 
 const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
 
-function renderSources(sources: readonly EnvelopeSource[]): string {
-  let left = MAX_TOTAL_CHARS;
-  return sources
-    .map((source) => {
-      const body = source.content.slice(0, Math.min(MAX_SOURCE_CHARS, Math.max(0, left)));
-      left -= body.length;
-      return `## ${source.key}${source.url === '' ? '' : ` ${source.url}`}\n${body}${body.length < source.content.length ? '\n[cut]' : ''}`;
-    })
-    .join('\n\n');
-}
-
 export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
   'context.list': async (input) => {
     const { git } = await openRepository(input.runtime);
@@ -149,8 +138,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     if (result.state === 'raise') return { state: 'raise', gate: result.gate, values: result.values };
     // The request alone is already in the model's context; repeating it as an envelope adds nothing.
     if (result.sources.length === 0 && result.missingAsked.length === 0) return { state: 'ok', payload: null };
-    const missing = result.missingAsked.length === 0 ? '' : `Not captured: ${result.missingAsked.join(', ')}; list it under Not verified.`;
-    return { state: 'ok', payload: [missing, renderSources(result.sources)].filter((part) => part !== '').join('\n\n') };
+    // A bare key that nothing fetched because no requirements server is configured is a different gap from a fetch that failed.
+    const unfetched = input.args.hasRequirement || requirementsServer((await configOf(input)).requirements.mcps) !== null ? [] : result.missingAsked.filter(isIssueKey);
+    return { state: 'ok', payload: renderRequirements(result.sources, result.missingAsked, unfetched) };
   },
 
   'search.map': async (input) => {
@@ -170,8 +160,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     // The whole ledger, not the route's chain: the plan and the investigation were written by earlier routes of the task.
     const read = await input.ledger.read();
     const all = read.state === 'ok' ? read.entries : [];
-    const investigation = mode === 'context' && !reviewing ? await investigationOf(input, all) : null;
-    const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/i, '') : undefined;
+    // Investigating again starts from the code, not from its own earlier report; plan and task build on it.
+    const investigation = !reviewing && input.view.skill !== 'investigate' ? await investigationOf(input, all) : null;
+    const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/gim, '') : undefined;
     const seedText = review?.text ?? brief ?? investigation?.text ?? null;
     const files = seedText === null ? [] : await git.listFiles(null);
     const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];

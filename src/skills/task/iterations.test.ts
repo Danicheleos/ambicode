@@ -36,7 +36,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       const started = await t.start({ plan: PLAN, text: TEXT });
       assert.match(started.text.split('\n')[0]!, /· iteration 1-2\/2 · step change/);
       const work = await t.work();
-      assert.match(work, /iterations 1-2 of 2\n\n## Iteration 1\nAdd the guard\.\n\n## Iteration 2\nSeed the reduce\./);
+      assert.match(work, /iterations 1-2 of 2\n\n# Plan\n\n## Iteration 1\nAdd the guard\.\n\n## Iteration 2\nSeed the reduce\./);
       await t.edit();
       assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'review-agent', 'the one review starts with no review-offer');
       assert.equal((await t.review([])).position, 'write');

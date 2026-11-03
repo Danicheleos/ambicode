@@ -77,7 +77,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       await finished(t, 1);
       const red = await t.start({ plan, text: UNNAMED });
       const work = await t.work();
-      assert.match(work, /iteration 2 of 2\n\n## Iteration 2\nSeed the reduce\./);
+      assert.match(work, /iteration 2 of 2\n\n# Plan\n\n## Iteration 2\nSeed the reduce\./);
       assert.doesNotMatch(work, /Add the guard/);
       assert.doesNotMatch(red.text, /Seed the reduce/);
       const record = (await t.kinds('step')).find((entry) => entry['step'] === 'start' && entry['route'] !== 'done-1');
@@ -770,7 +770,7 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
   it('risk 1: the reviewer brief stages its own rules; the fix work file still carries the task rules change carried, not the review ones', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.find((step) => step.id === 'fix')!.payload, ['brief', 'envelope', 'policy:before-work', 'checks.runnable']);
+      assert.deepEqual(def.steps.find((step) => step.id === 'fix')!.payload, ['brief', 'file:envelope', 'policy:before-work', 'checks.runnable']);
       await t.start();
       const change = ruleIds(section(await t.work(), 'policy:before-work'));
       assert.ok(change.includes('common-code/callers') && change.includes('common-design/reuse-before-reimplementing'), change.join(' '));
@@ -817,7 +817,7 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       await t.fx.repo.write('.ambicode/tasks/ord-7/plan.md', '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
       await t.start({ plan: '.ambicode/tasks/ord-7/plan.md' });
       const work = await t.work();
-      assert.match(work, /## request\nfix `total` for an empty list[\s\S]*## brief\nTask ord-7 · iteration 1 of 2[^\n]*\n\n## Iteration 1\nAdd the guard\./);
+      assert.match(work, /## request\nfix `total` for an empty list[\s\S]*## brief\nTask ord-7 · iteration 1 of 2[^\n]*\n\n# Plan\n\n## Iteration 1\nAdd the guard\./);
       assert.doesNotMatch(work, /Seed the reduce/);
     });
   });

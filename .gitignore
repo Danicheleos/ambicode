@@ -50,4 +50,8 @@ gym/planing/new-architecture/cutting-down
 /evals/local/
 /evals/cases/task-real/
 /evals/bare/task-real/
+/evals/cases/suite-real/
+/evals/bare/suite-real/
+/evals/cases/task-chain/
+/evals/bare/task-chain/
 .plugin-master

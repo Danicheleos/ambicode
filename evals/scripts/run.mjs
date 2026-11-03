@@ -1,11 +1,13 @@
 // Runs the suite through `claude plugin eval` and leaves the result in evals/cases/results.
 // Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>]
-//                [--max-cost-usd <usd>] [--series <case1,case2,...>] [--dry-run]
+//                [--max-cost-usd <usd>] [--series <case1,case2,...>] [--dry-run] [--load-check]
 // --series names every case of a series of one-case commands; each command updates results/running.json (see progressOf).
+// --load-check is for a $0 check that a case loads (use it with a fake --model): every file the run would write goes to a scratch folder that is
+// deleted afterwards, so plugin.json, bare.json, running.json and the per-stamp folders are left alone (see runLoadCheck).
 // --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { archiveOf, deliveryLine, harvest, reviewRunsOf } from './context.mjs';
 import { CASES, caseOf } from './cases.mjs';
 import { isRealCase, loadRealCases, realTruth } from './real-cases.mjs';
@@ -57,8 +59,8 @@ export function preflight({ evals = EVALS, env = process.env, limit = ENTRY_LIMI
 }
 
 const VALUE_FLAGS = ['--case', '--tag', '--runs', '--model', '--effort', '--max-cost-usd', '--series'];
-const SWITCHES = ['--bare', '--dry-run'];
-export const USAGE = `Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>] [--max-cost-usd <usd>] [--series <a,b,...>] [--dry-run] [--help]`;
+const SWITCHES = ['--bare', '--dry-run', '--load-check'];
+export const USAGE = `Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>] [--max-cost-usd <usd>] [--series <a,b,...>] [--dry-run] [--load-check] [--help]`;
 
 /** Before anything runs: `--help` prints the usage; an unknown flag, stray word or value flag without a value is an error. An unknown flag once fell through to a full paid run (`--help`, 52 runs, $6.85, 2026-10-23). */
 export function checkArgs(argv) {
@@ -78,11 +80,13 @@ function option(argv, name) {
 }
 
 /** The harness argv and environment of one run; everything is fixed here so the run can be reproduced. */
-export function plan(argv, defaults = DEFAULTS, results = RESULTS) {
+export function plan(argv, defaults = DEFAULTS, results = RESULTS, scratchRoot = path.join(REPO, '.tmp', 'load-check')) {
   const arm = argv.includes('--bare') ? 'bare' : 'plugin';
+  // Per process: two load checks at once must not delete each other's scratch folder.
+  const scratch = argv.includes('--load-check') ? path.join(scratchRoot, `${arm}-${process.pid}`) : null;
   const model = option(argv, '--model') ?? defaults.model;
   const effort = option(argv, '--effort') ?? defaults.effort;
-  const result = path.join(results, `${arm}.json`);
+  const result = path.join(scratch ?? results, `${arm}.json`);
   const out = [
     'plugin', 'eval', arm === 'bare' ? NAKED : REPO,
     '--eval-dir', arm === 'bare' ? 'evals/bare' : 'evals/cases',
@@ -108,7 +112,9 @@ export function plan(argv, defaults = DEFAULTS, results = RESULTS) {
   }
   // The harness has no effort flag; the variable reaches the run's claude child (probed 2026-10-12: `env=[low]`).
   const env = { CLAUDE_CODE_EFFORT_LEVEL: effort };
-  return { arm, argv: out, env, result };
+  // The harness writes <stamp>/report.html under the target's eval dir whatever --json says (probed 2026-10-31).
+  const reports = path.join(arm === 'bare' ? NAKED : REPO, out[out.indexOf('--eval-dir') + 1], 'results');
+  return { arm, argv: out, env, result, scratch, reports };
 }
 
 /** An empty plugin holding a copy of evals/bare, with each scaffold pointed back at this repository's fixtures. */
@@ -140,6 +146,55 @@ const REAL = {
   tracesRoot: path.join(RESULTS, 'traces'),
 };
 
+/** A run's score and pass flag from the graders that count (not scored:false, not skipped); no counting grader is no score (absent, not 0). */
+function rescore(one) {
+  const scored = one.graders.filter((grader) => grader.scored !== false && !isSkipped(grader));
+  const total = scored.reduce((sum, grader) => sum + grader.weight, 0);
+  one.score = total === 0 ? null : scored.filter((grader) => grader.passed).reduce((sum, grader) => sum + grader.weight, 0) / total;
+  one.passed = total === 0 ? null : scored.every((grader) => grader.passed);
+}
+
+function refoldAggregates(evalCase, runs) {
+  const graded = runs.filter((one) => typeof one.score === 'number');
+  evalCase.aggregates = { ...evalCase.aggregates, score: graded.length === 0 ? null : graded.reduce((sum, one) => sum + one.score, 0) / graded.length, passRate: graded.length === 0 ? null : graded.filter((one) => one.passed).length / graded.length };
+}
+
+/** Names of the graders of case `caseName` whose frontmatter says `arm: with-only` (a case.yaml with that name, graders/<name>.md beside it). */
+export function withOnlyNamesOf(caseName, root = path.join(EVALS, 'cases')) {
+  const pending = [root];
+  while (pending.length > 0) {
+    const dir = pending.pop();
+    if (!existsSync(dir)) continue;
+    const entries = readdirSync(dir, { withFileTypes: true });
+    if (entries.some((entry) => entry.name === 'case.yaml') && new RegExp(`^name: "?${caseName}"?\\s*$`, 'm').test(readFileSync(path.join(dir, 'case.yaml'), 'utf8'))) {
+      const graders = path.join(dir, 'graders');
+      if (!existsSync(graders)) return [];
+      return readdirSync(graders).filter((file) => file.endsWith('.md') && /^arm: with-only\s*$/m.test(readFileSync(path.join(graders, file), 'utf8').split(/^---\s*$/m)[1] ?? '')).map((file) => file.replace(/\.md$/, ''));
+    }
+    for (const entry of entries) if (entry.isDirectory()) pending.push(path.join(dir, entry.name));
+  }
+  return [];
+}
+
+/**
+ * Our runs pass `--ablation none`, and the harness (CLI 2.1.312) sets `scored: false` from `arm: with-only` only under
+ * with-without ablation, so in a plugin-arm run those graders counted in the score: the plugin chain run's score was over graders the bare arm
+ * cannot have. They stay in the graders list with their verdict, flagged `withOnly: true, scored: false`, and the score is refolded without them.
+ */
+function markWithOnly(evalCase, names) {
+  if (names.length === 0) return;
+  const runs = Object.values(evalCase.arms ?? {}).flatMap((list) => list ?? []);
+  let changed = false;
+  for (const one of runs) {
+    const hit = (one.graders ?? []).filter((grader) => names.includes(grader.name) && grader.scored !== false);
+    for (const grader of hit) Object.assign(grader, { withOnly: true, scored: false });
+    if (hit.length === 0) continue;
+    changed = true;
+    rescore(one);
+  }
+  if (changed) refoldAggregates(evalCase, runs);
+}
+
 /**
  * Graders the harness skipped for the cost ceiling count as neither passed nor failed: the run's score is recomputed without them, the
  * run is marked `partialGrading` with their names, and a run with nothing left to score has no score (absent, not 0).
@@ -151,17 +206,13 @@ function markPartialGrading(evalCase, log) {
     const skipped = (one.graders ?? []).filter(isSkipped);
     if (skipped.length === 0) return;
     changed = true;
-    const scored = one.graders.filter((grader) => grader.scored !== false && !isSkipped(grader));
-    const total = scored.reduce((sum, grader) => sum + grader.weight, 0);
-    one.score = total === 0 ? null : scored.filter((grader) => grader.passed).reduce((sum, grader) => sum + grader.weight, 0) / total;
-    one.passed = total === 0 ? null : scored.every((grader) => grader.passed);
+    rescore(one);
     one.partialGrading = true;
     one.skippedGraders = skipped.map((grader) => grader.name);
     log(`warning: ${evalCase.name}-${index + 1}: partial grading, not scored: ${one.skippedGraders.join(', ')} (cost ceiling)`);
   });
   if (!changed) return;
-  const graded = runs.filter((one) => typeof one.score === 'number');
-  evalCase.aggregates = { ...evalCase.aggregates, score: graded.length === 0 ? null : graded.reduce((sum, one) => sum + one.score, 0) / graded.length, passRate: graded.length === 0 ? null : graded.filter((one) => one.passed).length / graded.length };
+  refoldAggregates(evalCase, runs);
 }
 
 /** One `claude plugin eval` call: harvest, metrics; leaves run.result holding this call's result. */
@@ -179,7 +230,7 @@ export function runCase(run, deps = REAL) {
   const stamp = String(result.startedAt ?? Date.now()).replace(/[:.]/g, '-');
   // Per suite run: clearing one shared folder lost the traces of every earlier run (2026-10-12).
   const tracesDir = path.join(deps.tracesRoot, run.arm, stamp);
-  deps.harvest(result, tracesDir, { archiveDir: archiveOf(tracesDir), reviewRunsDir: reviewRunsOf(run.arm, stamp) });
+  deps.harvest(result, tracesDir, { archiveDir: archiveOf(tracesDir, deps.env), reviewRunsDir: reviewRunsOf(run.arm, stamp, deps.env) });
   for (const evalCase of result.cases ?? []) {
     Object.values(evalCase.arms ?? {}).forEach((runs) => (runs ?? []).forEach((one, index) => {
       if (one.delivery) (deps.log ?? console.log)(`${evalCase.name}-${index + 1}: ${deliveryLine(one.delivery)}`);
@@ -199,6 +250,7 @@ export function runCase(run, deps = REAL) {
       evalCase.aggregates = { ...evalCase.aggregates, score: all.reduce((sum, one) => sum + one.score, 0) / all.length, passRate: all.filter((one) => one.passed).length / all.length };
     }
   }
+  for (const evalCase of result.cases) markWithOnly(evalCase, (deps.withOnlyNamesOf ?? withOnlyNamesOf)(evalCase.name));
   for (const evalCase of result.cases) markPartialGrading(evalCase, deps.log ?? console.log);
   writeFileSync(run.result, `${JSON.stringify(result, null, 2)}\n`);
   // The viewer reads one copy per run (<results>/<stamp>/); the harness's own copy there lacks our fields, so the viewer
@@ -208,6 +260,39 @@ export function runCase(run, deps = REAL) {
   mkdirSync(path.dirname(own), { recursive: true });
   writeFileSync(own, `${JSON.stringify(result, null, 2)}\n`);
   return { status, result };
+}
+
+const entriesOf = (dir) => (existsSync(dir) ? readdirSync(dir) : []);
+
+/**
+ * A $0 load check: the same harness call as a run, with its result, traces, archive and copies in run.scratch and the harness's own
+ * <stamp> folder removed afterwards, so the shared summaries are not overwritten (two agents lost earlier ones 2026-10-31 and deleted the
+ * leftovers by hand). Prints one proof line per case: prompt, grader count, and each run's error, which for a fake model is the
+ * model's rejection after the scaffold built the workspace. Status 0 only when every case has a prompt and graders and no run died in its scaffold.
+ */
+export function runLoadCheck(run, deps = REAL) {
+  const log = deps.log ?? console.log;
+  const before = new Set(entriesOf(run.reports));
+  mkdirSync(run.scratch, { recursive: true });
+  try {
+    const scoped = { ...deps, tracesRoot: path.join(run.scratch, 'traces'), env: { ...process.env, AMBICODE_EVAL_ARCHIVE: path.join(run.scratch, 'archive') } };
+    const outcome = runCase(run, scoped);
+    const cases = outcome.result?.cases ?? [];
+    let loaded = cases.length > 0;
+    for (const one of cases) {
+      const runs = Object.values(one.arms ?? {}).flatMap((list) => list ?? []);
+      const scaffold = runs.filter((each) => /scaffold/i.test(each.error ?? ''));
+      const ok = (one.promptMarkdown ?? '').length > 0 && (one.graders ?? []).length > 0 && scaffold.length === 0;
+      loaded &&= ok;
+      log(`load check ${run.arm} ${one.name}: ${ok ? 'loaded' : 'NOT loaded'}; prompt ${(one.promptMarkdown ?? '').length} chars, ${(one.graders ?? []).length} graders, ${runs.length} runs reached the harness`);
+      for (const each of runs) log(`  run error: ${each.error ?? 'none'}`);
+    }
+    if (cases.length === 0) log(`load check ${run.arm}: no case ran`);
+    return { status: loaded ? 0 : 1, result: outcome.result };
+  } finally {
+    for (const name of entriesOf(run.reports)) if (!before.has(name)) rmSync(path.join(run.reports, name), { recursive: true, force: true });
+    rmSync(run.scratch, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -343,8 +428,9 @@ function main(argv) {
   const checkedEvals = preflight();
   if (checkedEvals.error) { console.error(checkedEvals.error); return 2; }
   console.log([checkedEvals.line, ...checkedEvals.lines].join('\n'));
-  mkdirSync(RESULTS, { recursive: true });
   if (run.arm === 'bare') buildNaked();
+  if (run.scratch !== null) return runLoadCheck(run).status;
+  mkdirSync(RESULTS, { recursive: true });
   return withProgress(run, argv, () => runCase(run)).status;
 }
 

@@ -42,7 +42,7 @@ const graders = (plugin, id) => [
 ];
 
 /** The bench's HEAD as a one-commit repository in the session directory (no history: a ticket's own merge request is in it), so the truth, corrected at `head`, stays valid. */
-export function scaffold({ bench, head, context, policies = false, seeded = false, checksOff = false }, plugin) {
+export function scaffold({ bench, head, context, policies = false, seeded = false, checksOff = false, remove = [] }, plugin) {
   const link = plugin
     ? `# Plugin arm only: the bench's own config and context, which are gitignored there and so absent from the archive.
 mkdir -p .ambicode
@@ -58,7 +58,7 @@ ${policies ? `[ ! -d ${sq(path.join(bench, '.ambicode', 'policies'))} ] || cp -R
 # The session directory becomes a fresh git repository holding \`git archive ${head}\` of the bench: the session starts in the repository root, as in real use (a repo/ subdirectory made check-citations fail on repo/-prefixed paths).
 set -e
 git -C ${sq(bench)} archive --format=tar ${head} | tar xf -
-git init -q
+${remove.length === 0 ? '' : `# Workspace files a case drops before the commit, in both arms.\nrm -f ${remove.map(sq).join(' ')}\n`}git init -q
 git add -A
 git -c user.name=eval -c user.email=eval@example.invalid commit -q -m bench
 ${link}`;

@@ -131,16 +131,16 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('03b-N9: the read step answers with citations and treats the map as leads, and has the final message saved as the investigation note by the Stop hook', async () => {
     const read = await readFile(path.join(repositoryRoot, 'routes', 'investigate', 'read.md'), 'utf8');
-    assert.match(read, /`path:line`/);
-    assert.match(read, /leads, not answers/);
+    assert.match(read, /`path:line`.*never a bare file name/);
     assert.match(read, /Edit nothing/);
-    assert.match(read, /whole request as written/, '03b-N13: a files answer covers the request, not the minimal fix');
-    assert.match(read, /Existing tests, mocks and fixtures asserting the changed behaviour are edited too; add new tests, types or routes only if needed/, 'a file list names the existing tests the change breaks');
     assert.match(read, /inferred ones marked/);
-    assert.match(read, /Cite anything else \(libraries, external facts\) by its source, or mark it an assumption/);
     assert.match(read, /^Start from the map: open its top rows/, 'the first line, which the header shows as Now:, points at the map');
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
-    assert.match(read, /Give the answer once, as your final message: it is saved as the investigation note/);
+    assert.match(read, /final message is the report, saved once as the investigation note/);
+    const order = ['**Answer**', '**Findings**', '**Code to change and to reuse**', '**Open questions**'].map((name) => read.indexOf(name));
+    assert.ok(order.every((at) => at >= 0) && order.every((at, i) => i === 0 || at > order[i - 1]!), 'the report sections are named once each, in order');
+    // One owner per instruction: the citation form is here; the other evidence rules and the per-question guidance are in SKILL.md.
+    assert.doesNotMatch(read, /leads, not answers|Cite anything else|whole request as written|mocks and fixtures/);
     assert.doesNotMatch(read, /note save/);
     assert.doesNotMatch(read, /route next|\{cli\} (find|refs)/);
     // 07-I1 adds one Diagnostics sentence. Raised from 700 (693 B) for the full-path citation wording (investigate x5:
@@ -160,7 +160,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.doesNotMatch(investigate, /when you stop/);
     // 900 -> 3400 B (file 3292 B), sanctioned: the body carries the work-efficiency, answer-shape and evidence guidance; it is delivered in the
     // user message (transcript fe-vs-6404-downstream-1, 2026-10-25), outside the 8800-char hook budget the read step shares with the map.
-    assert.match(investigate, /Existing tests, mocks and fixtures asserting the changed behaviour are edited too/);
+    assert.match(investigate, /whole request as written/, '03b-N13: a files answer covers the request, not the minimal fix');
+    assert.match(investigate, /A claim about something other than repo code \(a library's behaviour, a standard, an earlier decision\) cites its source, or is marked as an assumption/);
+    assert.match(investigate, /leads until you have read the lines/);
+    assert.doesNotMatch(investigate, /mocks and fixtures|exported function|lib\//, 'examples stay generic: none quotes an eval case or names a grader condition');
+    assert.doesNotMatch(investigate, /Start from the map/, 'map use is owned by the read step');
     assert.ok(Buffer.byteLength(await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')) <= 3400);
   });
 

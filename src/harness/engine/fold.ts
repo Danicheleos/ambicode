@@ -3,6 +3,8 @@ import type { RouteDef, StepDef } from '#types/harness';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Chain } from '#types/modules/evidence';
 import { mrRequirements } from '#modules/requirements/capture/has-requirement';
+import { askedKeys } from '#modules/requirements/envelope/envelope';
+import { sourceId } from '#util/issue-key';
 import { buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
 export { buildChain, exitOf, isBoundAnswer, latestBound, liveHeads };
@@ -39,7 +41,7 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
   return index + 1;
 }
 
-interface FoldContext { args: { iteration?: number | null; headless?: boolean; hasRequirement?: boolean; target?: { mr?: string | null } } }
+interface FoldContext { args: { iteration?: number | null; headless?: boolean; hasRequirement?: boolean; text?: string; requirements?: string[]; target?: { mr?: string | null } }; captured: readonly string[] }
 
 const estimateAsks = (all: readonly LedgerEntry[]): boolean =>
   all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'estimate-step' && entry['status'] === 'completed')?.['asks'] === true;
@@ -49,6 +51,12 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
     case 'args.hasRequirement': return context.args.hasRequirement === true;
     case 'args.hasMergeRequest': return typeof context.args.target?.mr === 'string';
     case 'mr.requirements': return mrRequirements(all).length > 0;
+    // Keys the task's earlier routes captured ride on the head entry; this route's own captures are in its entries.
+    case 'requirements.missing': {
+      if (context.args.hasRequirement !== true && mrRequirements(all).length === 0) return false;
+      const have = new Set([...context.captured, ...all.filter((entry) => entry.kind === 'requirement').map((entry) => String(entry['key']))].map(sourceId));
+      return askedKeys({ requirements: context.args.requirements ?? [], text: context.args.text ?? '' }, all).some((key) => !have.has(sourceId(key)));
+    }
     // The estimate step records whether a refusal needs the human; a route that never ran it asks nothing.
     case 'estimate.asks': return estimateAsks(all);
     case 'estimate.run': return !estimateAsks(all);
@@ -113,7 +121,7 @@ interface Fold {
 
 export function foldRoute(def: RouteDef, chain: Chain): Fold {
   const head = chain.head;
-  const context: FoldContext = { args: (head['args'] ?? {}) as FoldContext['args'] };
+  const context: FoldContext = { args: (head['args'] ?? {}) as FoldContext['args'], captured: Array.isArray(head['captured']) ? head['captured'].map(String) : [] };
   const steps: StepState[] = [];
   let position: StepDef | null = null;
   // A gate's answer is read in its own step's window: a revise to a later step does not unanswer it.

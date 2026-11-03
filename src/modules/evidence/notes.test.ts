@@ -9,7 +9,7 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { acceptPlan, planStatusOf, saveNote } from './notes.ts';
+import { acceptPlan, planBodyOf, planStatusOf, saveNote } from './notes.ts';
 import type { Runtime } from '#types/composition';
 import { LEDGER_FILE, type LedgerEntry, type NoteDeps } from '#types/modules/evidence';
 import type { ConsentResult, CommandContext, RouteView } from '#types/harness';
@@ -309,6 +309,14 @@ describe('plan accept: the plan file, as it is when the user answers, becomes th
       await scenario.draft('  \n');
       await assert.rejects(scenario.accept(), { code: 'plan-draft-missing' });
     });
+  });
+});
+
+describe('plan frontmatter with CRLF line endings', () => {
+  it('is read for its status and dropped from the body', () => {
+    const text = '---\r\nstatus: accepted\r\ntitle: T\r\n---\r\n# Plan A\r\n';
+    assert.equal(planStatusOf(text), 'accepted');
+    assert.equal(planBodyOf(text), '# Plan A\r\n');
   });
 });
 

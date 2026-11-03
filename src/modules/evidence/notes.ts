@@ -71,8 +71,11 @@ export async function saveNote(
   return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), work);
 }
 
-const FRONTMATTER = /^---\n([\s\S]*?)\n---(?:\n|$)/;
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 const STATUS_LINE = /^status:[ \t]*(\S+)[ \t]*$/m;
+
+/** The plan text without its frontmatter. */
+export const planBodyOf = (text: string): string => text.replace(FRONTMATTER, '');
 
 /** The `status:` of a plan file's frontmatter, or null when it has none. */
 export const planStatusOf = (text: string): string | null => STATUS_LINE.exec(FRONTMATTER.exec(text)?.[1] ?? '')?.[1] ?? null;

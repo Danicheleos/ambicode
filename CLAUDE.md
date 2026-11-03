@@ -179,7 +179,7 @@ All of their behaviour lives in a single bundled CLI:
   `routes/<skill>/<step>.md`) and `human` (a gate from `routes/gates.yaml`).
   `routes/README.md` is the full spec of the route language. The build rejects
   a bad route with `route-invalid: …`.
-- Each step appends to `.ambicode/task/<task>/ledger.jsonl` in the target
+- Each step appends to `.ambicode/tasks/<task>/ledger.jsonl` in the target
   repository, and the route's position is folded from that ledger
   (`src/harness/engine/fold.ts`). The ledger is the state; nothing else
   persists between steps.

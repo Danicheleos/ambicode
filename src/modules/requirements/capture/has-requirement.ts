@@ -1,4 +1,4 @@
-import { findIssueKey, isIssueKey } from '#util/issue-key';
+import { findIssueKey, isIssueKey, namesKey } from '#util/issue-key';
 import type { LedgerEntry } from '#types/modules/evidence';
 
 const URL_PATTERN = /https?:\/\/\S+/i;
@@ -31,14 +31,15 @@ const MR_REQUIREMENTS_MAX = 2;
 
 /**
  * The requirement candidates a merge request names: the tracker links GitLab resolved, else the first issue key of its title and of its description, and the
- * description's issue or wiki links, at most MR_REQUIREMENTS_MAX of them. Key formats differ per project, so this is a fallback on the generic key shape, not a Jira rule. The free-text first-word rule does not apply here: a title is a name, not a request.
+ * description's issue or wiki links. The first MR_REQUIREMENTS_MAX are fetched; the rest come back as `omitted` so the route can say so. Key formats differ per project, so this is a fallback on the generic key shape, not a Jira rule. The free-text first-word rule does not apply here: a title is a name, not a request.
  */
-export function requirementsIn(title: string, description: string, links: readonly string[] = []): string[] {
+export function requirementsIn(title: string, description: string, links: readonly string[] = []): { named: string[]; omitted: string[] } {
   // GitLab's own resolved tracker links come first; the key shape is the fallback for an instance that resolves none.
-  if (links.length > 0) return links.slice(0, MR_REQUIREMENTS_MAX);
+  const split = (all: readonly string[]) => ({ named: all.slice(0, MR_REQUIREMENTS_MAX), omitted: all.slice(MR_REQUIREMENTS_MAX) });
+  if (links.length > 0) return split(links);
   const found = (description.match(LINK) ?? []).filter((link) => findIssueKey(link) !== null || REQUIREMENT_LINK.test(link));
-  const keys = [findIssueKey(title), findIssueKey(description)].filter((key): key is string => key !== null && !found.some((link) => link.includes(key)));
-  return [...new Set([...keys, ...found])].slice(0, MR_REQUIREMENTS_MAX);
+  const keys = [findIssueKey(title), findIssueKey(description)].filter((key): key is string => key !== null && !found.some((link) => namesKey(link, key)));
+  return split([...new Set([...keys, ...found])]);
 }
 
 /** What `review.mrFetch` recorded on its step: the candidates its merge request named, empty when it has not run or named none. */

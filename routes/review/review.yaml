@@ -2,7 +2,7 @@ skill: review
 version: 3
 steps:
   - { id: mr-fetch, actor: code, when: args.hasMergeRequest, run: review.mrFetch, onError: "stop:blocked" }   # first: its title, description and discussions decide the fetch step
-  - { id: fetch, actor: model, when: args.hasRequirement or mr.requirements, instruction: file:routes/review/fetch.md, payload: [review.mrFetch] }
+  - { id: fetch, actor: model, when: requirements.missing, instruction: file:routes/review/fetch.md, payload: [review.mrFetch] }
   - { id: ground, actor: code, when: args.hasRequirement or mr.requirements, run: requirements.normalize, produces: [envelope] }
   - { id: estimate-step, actor: code, run: review.estimate }
   - id: estimate

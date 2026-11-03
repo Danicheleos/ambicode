@@ -161,7 +161,7 @@ function write(argv = []) {
     mkdirSync(dir, { recursive: true });
     for (const suite of readdirSync(dir)) {
       // Rendered by their own generators and gitignored: a full regeneration must not delete them.
-      if (['results', 'init-large', 'downstream', 'task-real'].includes(suite)) continue;
+      if (['results', 'init-large', 'downstream', 'task-real', 'suite-real'].includes(suite)) continue;
       if (pattern === null) rmSync(path.join(dir, suite), { recursive: true, force: true });
       else if (selected.some((c) => suiteOf(c.name) === suite)) {
         for (const name of readdirSync(path.join(dir, suite))) if (pattern.test(name)) rmSync(path.join(dir, suite, name), { recursive: true, force: true });

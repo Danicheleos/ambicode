@@ -2,7 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { contentHash } from '#util/hash';
 import { isObject } from '#util/guards';
-import { isIssueKey } from '#util/issue-key';
+import { isIssueKey, namesKey } from '#util/issue-key';
 import type { HookInput } from '#types/hook';
 import type { CaptureDeps } from '#types/modules/requirements';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
@@ -11,7 +11,7 @@ import type { FileSystem } from '#types/platform/ports';
 // A Confluence page body measured 40-90 KB; 256 KB keeps a long spec whole without letting one result fill the task directory.
 const MAX_CONTENT = 256 * 1024;
 
-const CapturedRequirement = z.strictObject({ key: z.string().min(1), url: z.string(), tool: z.string().min(1), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string() });
+const CapturedRequirement = z.strictObject({ key: z.string().min(1), url: z.string(), tool: z.string().min(1), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string(), cutFrom: z.number().nullable() });
 type CapturedRequirement = z.infer<typeof CapturedRequirement>;
 
 const PAGE_PARAM = /^page_?id$/i;
@@ -93,17 +93,19 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
   if (deps.asked.length === 0 || (tool !== 'WebFetch' && !tool.startsWith('mcp__'))) return null;
   const given = JSON.stringify(input.tool_input ?? {});
   const url = typeof input.tool_input?.['url'] === 'string' ? input.tool_input['url'] : '';
-  const asked = deps.asked.find((candidate) => given.includes(candidate) || given.includes(tailOf(candidate)));
+  const asked = deps.asked.find((candidate) => namesKey(given, candidate) || namesKey(given, tailOf(candidate)));
   // A child, parent or linked item is evidence only while the fetch step runs and never stands in for the asked source.
   const key = asked ?? (deps.view.position === FETCH_STEP ? linkedKey(input.tool_input, deps.asked) : null);
-  const content = resultText(input.tool_response).trim().slice(0, MAX_CONTENT);
+  const whole = resultText(input.tool_response).trim();
+  const cut = whole.length > MAX_CONTENT;
+  const content = whole.slice(0, MAX_CONTENT);
   if (key === null || content === '') return null;
   const rawHash = contentHash(content);
   const read = await deps.ledger.read();
   const chain = read.state === 'ok' ? read.entries.filter((entry) => deps.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
   if (chain.some((entry) => entry.kind === 'requirement' && entry['key'] === key && entry['rawHash'] === rawHash)) return null;
-  const text = `${JSON.stringify({ key, url, tool, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content }, null, 2)}\n`;
+  const text = `${JSON.stringify({ key, url, tool, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content, cutFrom: cut ? whole.length : null }, null, 2)}\n`;
   await deps.runtime.fs.mkdirp(deps.dir.requirements);
   await deps.runtime.fs.writeText(fileOf(deps.dir, key), text);
-  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: asked === undefined ? 'linked' : 'asked', capture: 'full' });
+  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: asked === undefined ? 'linked' : 'asked', capture: cut ? 'cut' : 'full' });
 }

@@ -275,6 +275,19 @@ describe('review route: requirements and discussions named by the merge request'
     }
   });
 
+  it('a third candidate is named as not fetched, in the step text, the ledger and the report gaps', async () => {
+    const t = await reviewRouteFixture();
+    try {
+      glabFake(t, glabStubs(mrJson('Fix wizard', 'See https://x.atlassian.net/browse/AB-12 and https://x.atlassian.net/wiki/spaces/S/pages/9 and https://x.atlassian.net/wiki/spaces/S/pages/10')));
+      const start = await t.start({ target: { branch: false, base: null, mr: MR } });
+      assert.match(start.text, /Not fetched, over the limit of 2: https:\/\/x\.atlassian\.net\/wiki\/spaces\/S\/pages\/10;/);
+      assert.deepEqual((await t.kinds('step')).find((entry) => entry['step'] === 'mr-fetch')!['requirementsOmitted'], ['https://x.atlassian.net/wiki/spaces/S/pages/10']);
+      assert.match((await ledgerGaps(t)).join('\n'), /not fetched \(over the limit\): https:\/\/x\.atlassian\.net\/wiki\/spaces\/S\/pages\/10/);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
   it('a merge request naming nothing skips fetch and ground and records no missing requirement', async () => {
     const t = await reviewRouteFixture();
     try {

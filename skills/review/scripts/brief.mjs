@@ -192,24 +192,6 @@ const commitLines = () => {
   if (all.length === 0) return [];
   return [...head, ...all.slice(0, COMMITS_MAX).map((commit) => `- ${commit.sha} ${oneLine(String(commit.author))}: ${oneLine(String(commit.title))}`), ...(all.length > COMMITS_MAX ? [`… (${all.length - COMMITS_MAX} more commits)`] : []), ''];
 };
-// A tracker capture is JSON: its description was about a third of the bytes, the rest wrapper metadata and API URLs.
-// The requirement is the title and the description (or body) found in it; anything that is not JSON, or has neither, stays as captured.
-const adfText = (node) => (typeof node === 'string' ? node : node === null || typeof node !== 'object' ? '' : typeof node.text === 'string' ? node.text : Array.isArray(node.content) ? node.content.map(adfText).join(['paragraph', 'heading', 'listItem', 'bulletList', 'orderedList', 'codeBlock'].includes(node.type) || node.type === 'doc' ? '\n' : '') : '');
-const issuesIn = (value, depth = 0) => {
-  if (value === null || typeof value !== 'object' || depth > 6) return [];
-  const fields = value.fields !== null && typeof value.fields === 'object' ? value.fields : value;
-  const summary = fields.summary ?? fields.title;
-  const body = fields.description ?? fields.body;
-  if ((typeof summary === 'string' || summary === undefined) && (body !== undefined && body !== null) && (typeof body === 'string' || typeof body === 'object')) return [{ key: typeof value.key === 'string' ? value.key : null, summary: summary ?? null, body: adfText(body).trim() }];
-  return Object.values(value).flatMap((child) => issuesIn(child, depth + 1));
-};
-const requirementText = (source) => {
-  let parsed;
-  try { parsed = JSON.parse(source.content); } catch { return source.content; }
-  const found = issuesIn(parsed);
-  if (found.length === 0) return source.content;
-  return found.map((issue) => `${found.length === 1 ? '' : `${issue.key ?? ''} ${issue.summary ?? ''}\n\n`}${issue.body === '' ? '(the ticket has no description)' : issue.body}`).join('\n\n');
-};
 // Claude Code's Read returns at most 25,000 tokens: a 59 KB brief was cut at byte 37,847, so the requirements, rules and discussions after it were never seen.
 // 32 KB is 15% under that point, because tokens per byte vary with the content.
 // A brief over it is written as several parts, each under it, and the work file makes the reviewer read every one: the diff is never cut for size.
@@ -234,7 +216,7 @@ const front = [
   diffOnly ? `This is a merge request whose head is not checked out: the working tree is not its code, so read nothing there; the patch below is all of the change you have. ${LINE_NUMBERS}` : checkoutRoot !== input.repositoryRoot ? `The patch is below; the rest of the code is in the checkout of the merge request head at ${checkoutRoot}: Read, Grep and Glob there, not in the working directory. ${LINE_NUMBERS}` : `The patch is below; the rest of the code is in the checkout. ${LINE_NUMBERS}`,
   'A finding may name only a line listed below, on the side listed. Any other line is dropped with its finding and the review stays partial.', '',
   ...testFileLines(),
-  '## Requirements', '', ...((result.requirements ?? []).length === 0 ? ['(none supplied: quality review)'] : result.requirements.flatMap((source) => [`### ${source.id}: ${source.title}`, requirementText(source), ''])),
+  '## Requirements', '', ...((result.requirements ?? []).length === 0 ? ['(none supplied: quality review)'] : result.requirements.flatMap((source) => [`### ${source.id}: ${source.title}`, source.content, ''])),
   ...commitLines(),
   ...discussionLines(),
   '## Policy rules', '', rules, '',

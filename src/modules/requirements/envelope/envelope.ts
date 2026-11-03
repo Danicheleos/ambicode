@@ -1,7 +1,7 @@
 import { RequirementEvidence, type EnvelopeInput, type EnvelopeSource } from '#types/modules/requirements';
 import { latestBound } from '#modules/evidence/ledger-chain';
 import { contentHash } from '#util/hash';
-import { isIssueKey } from '#util/issue-key';
+import { isIssueKey, namesKey, sourceId } from '#util/issue-key';
 import { readCapture, titleOf } from '../capture/capture.ts';
 import { mrRequirements } from '../capture/has-requirement.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -20,7 +20,7 @@ export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>, entrie
   const first = args.text.trim().split(/\s+/)[0] ?? '';
   const named = [...args.requirements, ...(args.text.match(URL_IN_TEXT) ?? []), ...mrRequirements(entries)];
   // A first-word key that a listed URL already names is the same requirement, not a second one to capture.
-  const sources = isIssueKey(first) && !named.some((source) => source.includes(first)) ? [...named, first] : named;
+  const sources = isIssueKey(first) && !named.some((source) => namesKey(source, first)) ? [...named, first] : named;
   return [...new Set(sources.map((source) => source.trim()))];
 }
 
@@ -29,7 +29,7 @@ async function captured(input: EnvelopeInput, entries: readonly LedgerEntry[]): 
   const found = new Map<string, EnvelopeSource>();
   for (const entry of entries.filter((candidate) => candidate.kind === 'requirement')) {
     const capture = await readCapture(input.runtime.fs, input.dir, String(entry['key']), String(entry['rawHash']));
-    if (capture !== null) found.set(capture.key, { key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, rawHash: capture.rawHash, tool: capture.tool });
+    if (capture !== null) found.set(capture.key, { key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, rawHash: capture.rawHash, tool: capture.tool, cutFrom: capture.cutFrom });
   }
   return found;
 }
@@ -39,8 +39,11 @@ export async function routeEvidence(input: Pick<EnvelopeInput, 'runtime' | 'dir'
   if (entry['builtFrom'] !== 'captures') return null;
   const sources = await envelopeSources(input, entry);
   const asked = Array.isArray(entry['asked']) ? (entry['asked'] as string[]) : [];
-  const urls = sources.filter((source) => asked.includes(source.key)).map((source) => (source.url === '' ? source.key : source.url));
-  if (urls.length === 0) return null;
+  const urlOf = (source: EnvelopeSource): string => (source.url === '' ? source.key : source.url);
+  const named = sources.filter((source) => asked.includes(source.key));
+  if (named.length === 0) return null;
+  // Linked items (children, parents) are part of the requirement text every skill gets, so the reviewer gets them too.
+  const urls = [...named, ...sources.filter((source) => !asked.includes(source.key))].map(urlOf);
   const evidence = RequirementEvidence.parse({
     sources: sources.map((source) => ({ id: source.key, url: source.url === '' ? source.key : source.url, title: source.title, retrievedAt: source.retrievedAt, content: source.content })),
   });
@@ -72,7 +75,9 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
   const fromMr = new Set(mrRequirements(entries));
   // One envelope per task: a route reuses what an earlier route of the task captured instead of starting empty.
   const complete = await captured(input, all);
-  const missingAsked = asked.filter((key) => !complete.has(key));
+  // `.../browse/ORD-1` and `ORD-1` are one source: a route asking by URL after another captured by key does not fetch again.
+  const have = new Set([...complete.keys()].map(sourceId));
+  const missingAsked = asked.filter((key) => !have.has(sourceId(key)));
 
   if (asked.length === 0 && complete.size > 0) {
     const named = all.filter((entry) => entry.kind === 'requirement' && entry['relation'] === 'asked' && complete.has(String(entry['key']))).map((entry) => String(entry['key']));
@@ -89,8 +94,9 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
 
   const fromArgs = (missing: readonly string[]): Promise<EnvelopeResult> =>
     record(input, [], 'args', asked, [...missing]);
-  // Nothing was to be fetched, so a URL in the prose (an image, a link) is not a requirement that went missing.
-  const explicit = new Set([...input.args.requirements.map((source) => source.trim()), ...fromMr]);
+  // Nothing was to be fetched, so a URL in the prose (an image, a link) is not a requirement that went missing; a bare first-word key is one the user asked for.
+  const first = input.args.text.trim().split(/\s+/)[0] ?? '';
+  const explicit = new Set([...input.args.requirements.map((source) => source.trim()), ...fromMr, ...(isIssueKey(first) ? [first] : [])]);
   if (!input.args.hasRequirement) return fromArgs(missingAsked.filter((key) => explicit.has(key)));
   if (latestBound(entries, CAPTURE_GATE)?.['answer'] === 'continue without') return fromArgs(missingAsked);
   if (entries.some((entry) => entry.kind === 'step' && entry['status'] === 'failed' && entry['code'] === 'requirements-not-captured')) return { state: 'raise', gate: CAPTURE_GATE, values: {} };
@@ -107,7 +113,7 @@ export async function envelopeSources(input: Pick<EnvelopeInput, 'runtime' | 'di
   const sources: EnvelopeSource[] = [];
   for (const slim of Array.isArray(entry['sources']) ? (entry['sources'] as { key: string; rawHash?: string | null }[]) : []) {
     const capture = await readCapture(input.runtime.fs, input.dir, slim.key, slim.rawHash ?? null);
-    if (capture !== null) sources.push({ key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, tool: capture.tool });
+    if (capture !== null) sources.push({ key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, tool: capture.tool, cutFrom: capture.cutFrom });
   }
   return sources;
 }

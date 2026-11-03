@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { gapsOf } from '#modules/evidence/report/report';
+import { requirementGapsOf } from '#modules/requirements/envelope/render';
 import { fitMapText } from '#modules/search/map';
 import { shellQuote } from '#modules/checks/run/run';
 import { AmbicodeError } from '#util/errors';
@@ -258,7 +259,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       const payload = await loadPayload(run.runtime.fs, run.dir, chain, key);
       if (payload === null || payload.trim() === '') continue;
       if (resent) unchanged.push(path.relative(run.dir.repositoryRoot, payloadFile(run.dir, chain, key)));
-      else sections.push(pointer ? `## ${key}\nRead ${payloadFile(run.dir, chain, key)} (${Buffer.byteLength(payload)} bytes) with your first reads.` : `## ${key}\n${payload}`);
+      else if (pointer) {
+        // The gap lines ride inline: a step that never opens the file must still see what was not captured.
+        const gaps = key === 'envelope' ? requirementGapsOf(payload) : '';
+        sections.push(`## ${key}\nRead ${payloadFile(run.dir, chain, key)} (${Buffer.byteLength(payload)} bytes) with your first reads.${gaps === '' ? '' : `\n${gaps}`}`);
+      } else sections.push(`## ${key}\n${payload}`);
     }
     if (step.work !== null) {
       await run.runtime.fs.mkdirp(run.dir.steps);

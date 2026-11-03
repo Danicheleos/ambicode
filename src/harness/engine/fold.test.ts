@@ -37,6 +37,35 @@ async function def(yaml = YAML): Promise<RouteDef> {
   return loadRoute('demo.yaml', yaml, { handlers: ['h.a'], readInstruction: async () => '' });
 }
 
+describe('requirements.missing', () => {
+  const fetchYaml = `${HEAD}  - id: fetch\n    actor: code\n    when: requirements.missing\n    run: [h.a]\n  - id: ground\n    actor: code\n    run: [h.a]\n`;
+  const KEY = 'https://x.atlassian.net/browse/ORD-17';
+  const args = { hasRequirement: true, text: 'plan it', requirements: [KEY] };
+  const position = async (head: LedgerEntry, rest: LedgerEntry[] = []): Promise<string | undefined> => foldRoute(await def(fetchYaml), buildChain([head, ...rest], head)).position?.id;
+
+  it('fetch runs while an asked key is not captured and is skipped once the task holds it, from an earlier route or this one', async () => {
+    assert.equal(await position(route('r1', { args })), 'fetch');
+    assert.equal(await position(route('r1', { args, captured: [KEY] })), 'ground');
+    assert.equal(await position(route('r1', { args }), [entry('requirement', { route: 'r1', key: KEY })]), 'ground');
+  });
+
+  it('a key that is captured does not hide one that is not, and a child capture does not stand in for the asked key', async () => {
+    const two = { ...args, requirements: [KEY, 'https://x.atlassian.net/wiki/spaces/E/pages/42/Orders'] };
+    assert.equal(await position(route('r1', { args: two, captured: [KEY] })), 'fetch');
+    assert.equal(await position(route('r1', { args }), [entry('requirement', { route: 'r1', key: 'ORD-170' })]), 'fetch');
+  });
+
+  it('a key captured by key satisfies the same ticket asked by URL, and the reverse', async () => {
+    assert.equal(await position(route('r1', { args, captured: ['ORD-17'] })), 'ground');
+    assert.equal(await position(route('r1', { args: { ...args, requirements: ['ORD-17'] }, captured: [KEY] })), 'ground');
+    assert.equal(await position(route('r1', { args, captured: ['ORD-170'] })), 'fetch');
+  });
+
+  it('nothing asked by a route that names no requirement leaves fetch skipped', async () => {
+    assert.equal(await position(route('r1', { args: { hasRequirement: false, text: 'x', requirements: [] } })), 'ground');
+  });
+});
+
 describe('fold', () => {
   it('03-F1: the chain is the head route and its own entries, never another route\'s, legacy or foreign entries', async () => {
     const entries = [

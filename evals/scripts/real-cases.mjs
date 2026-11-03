@@ -13,6 +13,8 @@ import { seedFiles } from './task-seeds.mjs';
 
 const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REAL_TAG = 'task-real';
+// A second tag for the cases of one suite: its file sets `tag`, and writeReal renders and clears only that tree, so task-real/ is left alone.
+export const SUITE_TAG = 'suite-real';
 export const isRealCase = (name) => name.startsWith('task-real-');
 
 // The cases themselves are data about the bench repositories and live in the gitignored evals/local/real-cases.json (see LOCAL_FILE); nothing
@@ -26,12 +28,15 @@ export const isRealCase = (name) => name.startsWith('task-real-');
 //   kind 'exists': `glob` of files that must exist in the workspace (new files whose name is a free choice);
 //   kind 'diff': `pattern` over the added lines of the run's workspace diff, of the files whose path matches `in` (diff-graders.mjs; scored after the run, so it
 //     sees new files of any name, files written through several edits or by a command). Kept in truth.json, not rendered as a harness grader;
-//   kind 'llm': `rubric`, judged on the final message (weight 1: the final messages of the two arms differ in what they retell).
+//   kind 'llm': `rubric`, judged on the final message (weight 1: the final messages of the two arms differ in what they retell); with `focus: <workspace path>`
+//     it judges that file of the final workspace instead, the same in both arms.
 // A case also carries `plan` and `investigation`, two notes (markdown) a good plan or investigation of the task would have produced; each becomes a variant
 // of the case, `<name>-plan` and `<name>-inv`, whose plugin arm starts from the note in .ambicode/tasks/<slug>/ and whose bare arm has the same text in the prompt;
 // a third variant, `<name>` (tag task-real-raw), is the task prompt alone with nothing seeded.
 // `guard: true` graders must hold on the untouched parent (real-cases.test.mjs measures it against the repository): they forbid the alternative the real
 // change avoided. The others measure the change: they fail on the parent and pass on the real change.
+// Optional file-level keys: `tag` (default task-real), `noRuns` (the sentence both arms get instead of NO_RUNS). Optional case keys: `promptFile` (path relative to the
+// file, read as the prompt as-is; a missing or empty one throws), `remove: [path]` (workspace files deleted before the scaffold's commit, both arms).
 // REAL_CASES_FILE points the generator and its tests at another file (a half-written set, one repository's cases).
 export const LOCAL_FILE = process.env.REAL_CASES_FILE ?? path.join(EVALS, 'local', 'real-cases.json');
 
@@ -39,7 +44,14 @@ export const LOCAL_FILE = process.env.REAL_CASES_FILE ?? path.join(EVALS, 'local
 export function loadRealCases(file = LOCAL_FILE) {
   if (!existsSync(file)) return { repos: {}, cases: [] };
   const data = JSON.parse(readFileSync(file, 'utf8'));
-  return { repos: data.repos ?? {}, cases: data.cases ?? [] };
+  const cases = (data.cases ?? []).map((one) => {
+    if (one.promptFile === undefined) return one;
+    const source = path.resolve(path.dirname(file), one.promptFile);
+    const text = existsSync(source) ? readFileSync(source, 'utf8').trim() : '';
+    if (text === '') throw new Error(`${one.name}: prompt file ${source} is missing or empty`);
+    return { ...one, prompt: text };
+  });
+  return { repos: data.repos ?? {}, cases, ...(data.tag === undefined ? {} : { tag: data.tag }), ...(data.noRuns === undefined ? {} : { noRuns: data.noRuns }) };
 }
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
@@ -62,6 +74,7 @@ export function graderFiles(real, plugin) {
     const weight = `weight: ${g.weight ?? 1}`;
     if (g.kind === 'exists') return grader(g.name, `type: file_exists\npath: ${g.glob}\n${weight}`);
     // The plugin arm's final message is one pointer line: the implementer's report is the file the task route saves; the bare arm has no route, so its message is the report.
+    if (g.kind === 'llm' && g.focus) return { name: g.name, text: `---\ntype: llm\nfocus: { source: file, path: ${g.focus} }\n${weight}\n---\n\n${g.rubric.trim()}\n` };
     if (g.kind === 'llm') return { name: g.name, text: `---\ntype: llm\nfocus: ${plugin ? `{ source: file, path: .ambicode/tasks/${real.slug}/report.md }` : 'last_message'}\n${weight}\n---\n\n${g.rubric.trim()}\n` };
     const pattern = g.wrote ? wroteLine(g.wrote) : g.pattern;
     const target = g.kind === 'trace' ? 'trace' : `{ source: file, path: ${g.file} }`;
@@ -87,28 +100,28 @@ const bareBody = (v) => (v.note === null ? oneLine(v.request) : v.note.kind === 
   : `${oneLine(v.request)}\n\nAn earlier investigation of this code found the following; build on it.\n\n${v.note.text.trim()}`);
 
 /** One variant's files for one arm, keyed below the arm's tree root. */
-export function caseFiles({ real, order, sources, plugin }) {
+export function caseFiles({ real, order, sources, plugin, tag = REAL_TAG, noRuns = NO_RUNS }) {
   const root = `${String(order + 1).padStart(2, '0')}-${real.name}`;
   const files = new Map();
   files.set(`${root}/case.yaml`, `schema_version: "1.1"\nname: ${real.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: real.note !== null, checksOff: true }, plugin));
+  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: real.note !== null, checksOff: true, remove: real.remove }, plugin));
   if (plugin && real.note) for (const [name, text] of Object.entries(seedFiles(real.slug, real.note.kind, real.note.text))) files.set(`${root}/${name}`, text);
   files.set(`${root}/prompt.md`, [
     '---',
     `name: ${real.name}`,
     `description: ${y(real.description)}`,
-    `tags: ["task", "${REAL_TAG}", "${REAL_TAG}-${real.variant}", "${real.kind}"]`,
+    `tags: ["task", "${tag}", "${tag}-${real.variant}", "${real.kind}"]`,
     'runs: 1',
     `max_turns: ${(real.limits ?? LIMITS).max_turns}`,
     `timeout_seconds: ${(real.limits ?? LIMITS).timeout_seconds}`,
     `allowed_tools: [Read, Glob, Grep, Bash, Edit, Write${plugin ? ', Skill, Agent' : ''}]`,
     '---',
     '',
-    plugin ? `/ambicode:task --task ${real.slug} --headless ${oneLine(real.request)} ${NO_RUNS}` : `${bareBody(real)}\n\n${NO_RUNS}`,
+    plugin ? `/ambicode:task --task ${real.slug} --headless ${oneLine(real.request)} ${noRuns}` : `${bareBody(real)}\n\n${noRuns}`,
     '',
   ].join('\n'));
   for (const one of graderFiles(real, plugin)) files.set(`${root}/graders/${one.name}.md`, one.text);
-  const diffGraders = real.graders.filter((g) => g.kind === 'diff').map(({ name, pattern, in: inside, match, weight }) => ({ name, pattern, ...(inside === undefined ? {} : { in: inside }), ...(match === undefined ? {} : { match }), weight: weight ?? 1 }));
+  const diffGraders = real.graders.filter((g) => g.kind === 'diff').map(({ name, pattern, in: inside, match, weight, perFile }) => ({ name, pattern, ...(inside === undefined ? {} : { in: inside }), ...(match === undefined ? {} : { match }), ...(perFile === undefined ? {} : { perFile }), weight: weight ?? 1 }));
   files.set(`${root}/truth.json`, `${JSON.stringify({ name: real.name, source: 'changed', level: 'file', relevant: real.relevant, allowed: real.allowed, ...(diffGraders.length === 0 ? {} : { diffGraders }), bench: { repo: real.repo, commit: real.commit, parent: real.parent } }, null, 2)}\n`);
   return files;
 }
@@ -118,13 +131,13 @@ export function caseFiles({ real, order, sources, plugin }) {
 export const KEEP = { 'task-real-k12-report-settings-plan': 19, 'task-real-k12-celery-email-plan': 22, 'task-real-k12-recognition-notifications': 30 };
 
 /** Rewrites both task-real trees; returns one row per variant. With `keep` ({variant name: directory number}) only those variants are rendered. */
-export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().cases, keep = null }) {
-  for (const tree of ['cases', 'bare']) rmSync(path.join(evalsDir, tree, REAL_TAG), { recursive: true, force: true });
+export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().cases, keep = null, tag = REAL_TAG, noRuns = NO_RUNS }) {
+  for (const tree of ['cases', 'bare']) rmSync(path.join(evalsDir, tree, tag), { recursive: true, force: true });
   const variants = cases.flatMap(variantsOf).map((real, order) => ({ real, order: keep ? (keep[real.name] ?? 0) - 1 : order }));
   return variants.filter(({ order }) => order >= 0).map(({ real, order }) => {
     for (const plugin of [true, false]) {
-      for (const [relative, text] of caseFiles({ real, order, sources, plugin })) {
-        const file = path.join(evalsDir, plugin ? 'cases' : 'bare', REAL_TAG, relative);
+      for (const [relative, text] of caseFiles({ real, order, sources, plugin, tag, noRuns })) {
+        const file = path.join(evalsDir, plugin ? 'cases' : 'bare', tag, relative);
         mkdirSync(path.dirname(file), { recursive: true });
         writeFileSync(file, text, relative.endsWith('.sh') ? { mode: 0o755 } : undefined);
       }
@@ -133,15 +146,18 @@ export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().c
   });
 }
 
-/** truth.json of the rendered task-real case with this name, or null: run.mjs scores `changed` metrics from it. */
+/** truth.json of the rendered task-real case with this name, or null: run.mjs scores `changed` metrics from it. The plan->task chain cases (chain-cases.mjs) are task-real-*-chain and live in cases/task-chain. */
 export function realTruth(name, evalsDir = EVALS) {
-  const root = path.join(evalsDir, 'cases', REAL_TAG);
-  if (!isRealCase(name) || !existsSync(root)) return null;
-  for (const entry of readdirSync(root)) {
-    const file = path.join(root, entry, 'truth.json');
-    if (!existsSync(file)) continue;
-    const truth = JSON.parse(readFileSync(file, 'utf8'));
-    if (truth.name === name) return truth;
+  if (!isRealCase(name)) return null;
+  for (const tree of [REAL_TAG, 'task-chain', SUITE_TAG]) {
+    const root = path.join(evalsDir, 'cases', tree);
+    if (!existsSync(root)) continue;
+    for (const entry of readdirSync(root)) {
+      const file = path.join(root, entry, 'truth.json');
+      if (!existsSync(file)) continue;
+      const truth = JSON.parse(readFileSync(file, 'utf8'));
+      if (truth.name === name) return truth;
+    }
   }
   return null;
 }
@@ -154,7 +170,7 @@ function main(argv, env) {
     else if (argv[at] === '--cases') file = path.resolve(argv[++at]);
     else throw new Error(`unknown argument ${argv[at]}`);
   }
-  const { repos, cases } = loadRealCases(file);
+  const { repos, cases, tag = REAL_TAG, noRuns = NO_RUNS } = loadRealCases(file);
   if (cases.length === 0) throw new Error(`no cases: ${file} is absent or empty`);
   const sources = {};
   for (const [key, names] of Object.entries(repos)) {
@@ -162,7 +178,7 @@ function main(argv, env) {
     const bench = path.resolve(env[names.bench]);
     sources[key] = { bench, context: path.resolve(env[names.context] ?? path.join(bench, '.ambicode', 'context')) };
   }
-  for (const row of writeReal({ evalsDir: evals, sources, cases, keep: KEEP })) console.log(`${row.name}: ${row.relevant} relevant, ${row.allowed} allowed, parent ${row.parent.slice(0, 8)}`);
+  for (const row of writeReal({ evalsDir: evals, sources, cases, keep: tag === REAL_TAG ? KEEP : null, tag, noRuns })) console.log(`${row.name}: ${row.relevant} relevant, ${row.allowed} allowed, parent ${row.parent.slice(0, 8)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

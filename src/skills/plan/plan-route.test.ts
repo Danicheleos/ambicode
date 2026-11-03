@@ -16,7 +16,7 @@ import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 const STEP_TEXT_MAX_CHARS = 2000;
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '429a1b53728152ed03f8b705bc086ea1f2a11f0caef6f3fd26bf9b8ec14806de';
+const CONTRACT_SHA256 = 'ad090f92a8b5e8b5607bc6994ffeff5a405d661114feb190b85b14f8eca8f4a9';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
