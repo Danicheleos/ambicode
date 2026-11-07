@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: investigate-go-label-bay
-context:
-  scaffold_script: scaffold.sh

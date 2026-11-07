@@ -47,12 +47,12 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
     (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), { route: await routeId(), session: SESSION_A, ...fields })).entry;
 
   /** What `check --only` leaves for the tail, then the tail itself. */
-  const check = async (phase: 'red' | 'green', _summary: { ran: number; failed: number } | null, exit = phase === 'red' ? 1 : 0): Promise<StepMessage> => {
+  const check = async (phase: 'green', _summary: { ran: number; failed: number } | null, exit = 0): Promise<StepMessage> => {
     const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
     return next({ cause: 'check', produced: [entry.id] });
   };
   /** What `check` leaves at a delegated step: the check entry and no tail, so nothing advances. */
-  const held = async (phase: 'red' | 'green', exit = phase === 'red' ? 1 : 0): Promise<void> => {
+  const held = async (phase: 'green', exit = 0): Promise<void> => {
     await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
   };
   /** What the route's review pin leaves: the result file and the `review` entry, then the tail. */

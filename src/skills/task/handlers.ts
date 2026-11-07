@@ -9,20 +9,23 @@ import { snapshotTree } from '#modules/review/snapshot/target';
 import { openRepository } from '#platform/git/open';
 import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
-import { chainEntries } from '../common.ts';
-import { planStatusOf } from '#modules/evidence/notes';
+import { chainEntries, failed } from '../common.ts';
+import { markAccepted, planStatusOf } from '#modules/evidence/notes';
 import { briefOf, investigationOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
 import { runnableChecks } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { runApprovedChecks } from '#modules/checks/run/approved';
 import { runScopeChecks } from '#modules/checks/run/scope';
-import { isBoundAnswer } from '#modules/evidence/ledger-chain';
+import { isBoundAnswer, latestBound } from '#modules/evidence/ledger-chain';
 import { GATE as CHECK_GATE, type BaselineEntryFields, type ReviewEntry } from '#types/modules/checks';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 
 const AGAIN_GATE = 'checks-again';
+const PLAN_UNACCEPTED_GATE = 'plan-unaccepted';
+const RUN_ON_DRAFT = 'run on the draft';
+
 /** The option that goes on to the report; `fix` is the other, and acting: only the user sends the implementer round again. */
 const REPORT_GAP = 'report the gap';
 /** One key's output in the fix brief: the tail a runner prints its verdict in, cut so a few red keys fit the work file. */
@@ -78,15 +81,33 @@ async function runnableByProject(input: HandlerInput) {
   return Promise.all(workspace.config.projects.map(async (project) => ({ project, runnable: await runnableChecks(workspace, project) })));
 }
 
+/**
+ * Whether the plan this task would run is not accepted: a plan.md or named plan whose status is anything but `accepted`,
+ * a file with no frontmatter or no `status:` line included. An empty file is no plan.
+ */
+async function isDraftPlan(input: HandlerInput, planPath: string | null): Promise<boolean> {
+  const text = await input.runtime.fs.readText(planPath === null ? input.dir.plan : path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null);
+  return text !== null && text.trim() !== '' && planStatusOf(text) !== 'accepted';
+}
 export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'task.start': async (input) => {
-    const read = await input.ledger.read();
-    const { planPath, iteration, iterations, through, brief } = await briefOf(input, read.state === 'ok' ? read.entries : []);
-    // A plan the user took back to draft by hand is not run; a file named with --plan is the user's own choice and is read as is.
-    const planText = input.args.plan === null && planPath !== null ? await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null) : null;
-    if (planText !== null && planStatusOf(planText) !== 'accepted') {
-      return { state: 'failed', code: 'plan-not-accepted', message: `${planPath} is not status: accepted. Accept it in the plan route, or name the file with --plan to run it as it is.`, recoverable: false };
+    let read = await input.ledger.read();
+    let planFacts = await briefOf(input, read.state === 'ok' ? read.entries : []);
+    // A file named with --plan is the user's own choice and is read as is; any other plan that is not `status: accepted` is asked about once.
+    if (input.args.plan === null && await isDraftPlan(input, planFacts.planPath)) {
+      const answer = latestBound(await chainEntries(input), PLAN_UNACCEPTED_GATE)?.['answer'];
+      if (answer === undefined) return { state: 'raise', gate: PLAN_UNACCEPTED_GATE, values: {} };
+      // `stop` ended the route when it was answered; anything else but the recommended answer must not run the draft.
+      if (answer !== RUN_ON_DRAFT) return { state: 'ok', payload: null, exit: 'blocked', exitDetail: 'The plan was not accepted.' };
+      try {
+        await markAccepted(input.runtime, input.dir, input.ledger, { task: input.view.task, route: input.view.routeId });
+      } catch (error) {
+        return failed(error);
+      }
+      read = await input.ledger.read();
+      planFacts = await briefOf(input, read.state === 'ok' ? read.entries : []);
     }
+    const { planPath, iteration, iterations, through, brief } = planFacts;
     if (iteration > iterations) return { state: 'ok', payload: `Every iteration of ${planPath ?? 'the plan'} is done (${iterations}).`, record: { planPath, iterations }, exit: 'iterations-complete' };
     const record = { planPath, iteration, iterations, through, seeded: brief !== null || (await investigationOf(input, read.state === 'ok' ? read.entries : [])) !== null };
     const head = `Task ${input.view.task} · ${through > iteration ? `iterations ${iteration}-${through}` : `iteration ${iteration}`} of ${iterations}`;

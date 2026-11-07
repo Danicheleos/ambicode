@@ -87,11 +87,20 @@ function withStatus(text: string, status: string): string {
   return `---\n${inner}\n---\n${text.slice(front[0].length)}`;
 }
 
+/** Sets the task's plan.md to `status: accepted` as it is and records the `plan` note; the consent (the user's Accept, or the task route's run-on-the-draft answer) is the caller's. No `anchorsBad` means no check ran. */
+export async function markAccepted(runtime: Runtime, dir: TaskDir, ledger: LockedLedger, input: { task: string; route: string; anchorsBad?: number }): Promise<void> {
+  const text = await runtime.fs.readText(dir.plan).catch(() => null);
+  if (text === null || text.trim() === '') throw planMissing(input.task);
+  const accepted = withStatus(text, 'accepted');
+  await runtime.fs.writeText(dir.plan, accepted);
+  await ledger.append({ kind: 'note', note: 'plan', path: relativeTo(dir, dir.plan), contentHash: contentHash(accepted), ...(input.anchorsBad === undefined ? {} : { anchorsBad: input.anchorsBad }), route: input.route });
+}
+
 /**
  * The predicate of 01-contracts §6: an Accept the user gave turns the plan file, as it is now, into the accepted plan
  * (`status: accepted`) and records its hash. The file is not bound to what the gate printed, so the user's own edits stand.
  */
-export async function acceptPlan(deps: NoteDeps, task: string, anchorsBad: number, policyMissing = 0): Promise<void> {
+export async function acceptPlan(deps: NoteDeps, task: string, anchorsBad: number): Promise<void> {
   const { runtime, session, context } = deps;
   if (session === null) throw notAccepted('no-plan-route', `task ${task} has no live plan route.`);
   if (context === null) throw new AmbicodeError('internal', 'The plan acceptance has no route context to evaluate acceptance against.');
@@ -106,11 +115,7 @@ export async function acceptPlan(deps: NoteDeps, task: string, anchorsBad: numbe
     const honoured = source.answer === 'Accept' && source.unbound !== true && ((source.via === 'hook' && source.instance !== null) || source.via === 'prompt');
     if (!honoured) throw notAccepted('not-accepted', 'the latest plan-accept answer is not an Accept given by the user.');
 
-    const text = await runtime.fs.readText(dir.plan).catch(() => null);
-    if (text === null || text.trim() === '') throw planMissing(task);
-    const accepted = withStatus(text, 'accepted');
-    await runtime.fs.writeText(dir.plan, accepted);
-    await ledger.append({ kind: 'note', note: 'plan', path: relativeTo(dir, dir.plan), contentHash: contentHash(accepted), anchorsBad, ...(policyMissing > 0 ? { policyMissing } : {}), route: view.routeId });
+    await markAccepted(runtime, dir, ledger, { task, route: view.routeId, anchorsBad });
   };
   return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), work);
 }

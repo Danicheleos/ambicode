@@ -48,7 +48,7 @@ describe('a configured check runs unless a pack narrows it', () => {
       await env.start();
       const workspace = await openWorkspace(env.runtime);
       assert.ok(!(await runnableChecks(workspace, workspace.config.projects[0]!)).some((entry) => entry.key === 'test'));
-      await assert.rejects(runCheckOnly(env.deps(), { task: 'ord-7', name: 'test', project: null, files: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [] }), { code: 'check-only-unauthorized' });
+      await assert.rejects(runCheckOnly(env.deps(), { task: 'ord-7', name: 'test', project: null, files: ['src/a.spec.ts'], phase: 'green', approve: [], decline: [] }), { code: 'check-only-unauthorized' });
     } finally {
       await env.fx.dispose();
     }

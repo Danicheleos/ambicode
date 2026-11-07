@@ -24,56 +24,6 @@ const tail = (file) => file.split('/').slice(-2).join('/');
  */
 export const INVESTIGATE_TRUTHS = [
   {
-    name: 'investigate-ts-extend-late-fee', slug: 'inv-extend', fixture: 'ts-service-lendbox',
-    description: 'Work out a late fee from a loan that was extended, across the lending and billing contexts of a bounded-context service.',
-    question: 'A tool is borrowed on 2026-03-02 and its loan is extended three times with the extend use case, then the tool is returned on 2026-04-01. What late fee does the code work out for that return, from which due date, and what happens to the fee afterwards?',
-    relevant: ['src/contexts/lending/application/extend.ts', 'src/contexts/lending/domain/policy.ts', 'src/contexts/lending/domain/loan.ts', 'src/contexts/lending/application/return.ts', 'src/contexts/lending/domain/fees/late.ts', 'src/composition.ts'],
-    allowed: ['src/shared-kernel/time/calendar.ts', 'src/shared-kernel/time/period.ts', 'src/shared-kernel/events/bus.ts', 'src/shared-kernel/events/event.ts', 'src/shared-kernel/money/money.ts', 'src/contexts/lending/application/borrow.ts', 'src/contexts/lending/application/deps.ts', 'src/contexts/lending/index.ts', 'src/contexts/lending/http/routes.ts', 'src/contexts/billing/application/on-loan-returned.ts', 'src/contexts/billing/application/issue-invoice.ts', 'test/fees.test.ts'],
-    decoys: ['src/contexts/lending/domain/fees/waiver.ts', 'src/contexts/lending/domain/fees/damage.ts'],
-    cites: ['src/contexts/lending/application/extend.ts', 'src/contexts/lending/domain/fees/late.ts'],
-    facts: [['fee-100-cents', '\\b100\\b']],
-    verdict: ['uncapped-extensions-fee', `
-PASS if the answer states, in any wording, all three:
-- The fee is 100 cents: two days late at 50 cents a day, counted from the due date after the three extensions (2026-03-30), not from the original due date (2026-03-09).
-- All three extensions take effect: the limit of two extensions (MAX_EXTENSIONS and canExtend in src/contexts/lending/domain/policy.ts) is never checked by the extend use case.
-- The fee leaves lending only as feeCents in the payload of the lending.loan-returned event; nothing subscribes billing to it (src/composition.ts wires no subscriber), so no invoice follows.
-Equivalent wording counts ("the cap is not applied", "nothing consumes the event"). Naming onLoanReturned or issueInvoice as the code that would invoice is fine.
-FAIL if it gives another fee (for example 450 cents from a cap of two extensions, or 350 from the original due date), says the extension limit is enforced, or says the member is invoiced.`],
-    anchors: [['src/contexts/lending/application/extend.ts', 'addDays(loan.dueOn, LOAN_DAYS)'], ['src/contexts/lending/domain/policy.ts', 'MAX_EXTENSIONS = 2'], ['src/contexts/lending/domain/fees/late.ts', 'CENTS_PER_LATE_DAY = 50'], ['src/contexts/lending/application/return.ts', 'lateFee(loan.dueOn, now)'], ['src/shared-kernel/time/period.ts', 'Math.floor']],
-    absent: [{ find: 'canExtend', except: ['src/contexts/lending/domain/policy.ts'] }, { find: 'MAX_EXTENSIONS', except: ['src/contexts/lending/domain/policy.ts'] }, { find: 'extendLoan', except: ['src/contexts/lending/application/extend.ts'] }, { find: 'waive(', except: ['src/contexts/lending/domain/fees/waiver.ts'] }, { find: 'damageFee', except: ['src/contexts/lending/domain/fees/damage.ts'] }, { find: '.subscribe(' }, { find: 'billing', in: 'src/composition.ts' }],
-  },
-  {
-    name: 'investigate-py-unit-adapters', slug: 'inv-units', fixture: 'py-service-tidewatch',
-    description: 'Pick the odd ones out among twelve near-identical feed adapters.',
-    question: 'Which of the gauge feed adapters do not report water levels in millimetres, and how does each of them convert to millimetres?',
-    relevant: ['src/tidewatch/plugins/sources/weir_levels/parse.py', 'src/tidewatch/plugins/sources/jetty_text/parse.py', 'src/tidewatch/domain/units/length.py'],
-    allowed: ['src/tidewatch/plugins/sources/weir_levels/plugin.py', 'src/tidewatch/plugins/sources/jetty_text/plugin.py', 'src/tidewatch/plugins/sources/__init__.py', 'src/tidewatch/plugins/registry.py'],
-    decoys: ['src/tidewatch/domain/units/pressure.py'],
-    cites: ['src/tidewatch/plugins/sources/weir_levels/parse.py', 'src/tidewatch/plugins/sources/jetty_text/parse.py'],
-    facts: [['weir-centimetres', 'centimet|\\bcm\\b'], ['jetty-metres', '\\bmetres?\\b|\\bmeters?\\b']],
-    verdict: null,
-    anchors: [['src/tidewatch/plugins/sources/weir_levels/parse.py', 'int(centimetres) * 10'], ['src/tidewatch/plugins/sources/jetty_text/parse.py', 'mm_from_m(metres)'], ['src/tidewatch/domain/units/pressure.py', 'def mm_head_from_hpa']],
-    absent: [{ find: 'mm_head_from_hpa', except: ['src/tidewatch/domain/units/pressure.py'] }, { find: 'mm_from_m', except: ['src/tidewatch/domain/units/length.py', 'src/tidewatch/plugins/sources/jetty_text/parse.py'] }],
-  },
-  {
-    name: 'investigate-go-label-bay', slug: 'inv-bay', fixture: 'go-module-parcelhub',
-    description: 'Trace every value printed by a command line tool back to where it comes from, across small packages.',
-    question: 'What does `parcelctl PH-7 1200 north` print, and where does each value on its two lines come from?',
-    relevant: ['cmd/parcelctl/main.go', 'cmd/parcelctl/flags.go', 'cmd/parcelctl/print.go', 'internal/labels/label.go', 'internal/pricing/price.go', 'internal/pricing/surcharge.go', 'internal/rates/table.go'],
-    allowed: ['internal/rates/lookup.go', 'internal/core/types.go', 'internal/core/errors.go', 'internal/memstore/store.go', 'internal/memstore/seed.go', 'internal/rates/rates_test.go'],
-    decoys: ['internal/depot/bays.go', 'internal/depot/planner.go', 'internal/routing/zones.go', 'internal/labels/barcode.go'],
-    cites: ['cmd/parcelctl/main.go', 'internal/labels/label.go'],
-    facts: [['price-7-40', '7\\.40|\\b740\\b']],
-    verdict: ['bay-is-zero', `
-PASS if the answer states, in any wording, all three:
-- The first line is "PH-7 | zone north | 1200g | bay 0": the bay is 0 because parcelctl builds the Parcel from its arguments only and nothing assigns a bay (the depot's BayFor and Planner are not called by parcelctl).
-- The zone printed is the argument as typed ("north"); the routing package is not used to derive it.
-- The second line is price 7.40: 620 cents for the band up to 2000 g plus the 120 cent surcharge for a zone other than hub.
-FAIL if it says the bay is a number from 1 to 12 worked out by the depot, says the zone is derived from a postcode by routing, or gives a price other than 7.40.`],
-    anchors: [['cmd/parcelctl/main.go', 'core.Parcel{Tag: opts.tag, Grams: opts.grams, Zone: opts.zone}'], ['internal/labels/label.go', 'bay %d'], ['internal/depot/bays.go', 'func BayFor'], ['internal/routing/zones.go', 'func ZoneFor'], ['internal/rates/table.go', '{UpToGrams: 2000, Cents: 620}'], ['internal/pricing/surcharge.go', 'return 120']],
-    absent: [{ find: 'internal/depot"' }, { find: 'internal/routing"' }, { find: 'ZoneFor(', except: ['internal/routing/zones.go'] }, { find: 'Barcode(', except: ['internal/labels/barcode.go'] }],
-  },
-  {
     name: 'investigate-jvm-viability-rule', slug: 'inv-viab', fixture: 'jvm-gradle-seedvault',
     description: 'Find the rule behind a word used in several places of a hexagonal project.',
     question: 'Which code decides that a seed lot is viable, and where is that decision applied?',
@@ -125,21 +75,6 @@ FAIL if it says a subscriber sends the invoice-created mail, says the receipt is
     absent: [{ find: 'on(TOPICS.INVOICE_CREATED', in: 'src/' }, { find: "on('invoice.created'", in: 'src/' }, { find: 'notifyPaymentLegacy', except: ['src/legacy/payment-hooks.js'] }],
   },
   {
-    name: 'investigate-app-total-legacy', slug: 'inv-total', fixture: 'ts-app-medium',
-    description: 'A total that the repository computes in more than one place.',
-    question: 'How is the total of an invoice worked out, tax and rounding included, and which code does it?',
-    relevant: ['src/invoices/service.js', 'src/invoices/lines.js'],
-    allowed: ['src/shared/money.js', 'src/invoices/routes.js', 'src/invoices/model.js', 'src/invoices/summary.js', 'tests/invoices/service.test.js', 'tests/invoices/lines.test.js'],
-    decoys: ['src/legacy/invoice-total.js', 'src/legacy/invoice-export.js', 'src/reports/service.js', 'src/reports/csv.js'],
-    cites: ['src/invoices/service.js', 'src/invoices/lines.js'],
-    facts: [['tax-in-basis-points', 'taxBps']],
-    verdict: ['current-total-not-legacy', `
-PASS if the answer states, in any wording, that the live total is the sum over the lines of quantity times unitCents (integer cents) plus tax, where tax is the subtotal times taxBps divided by 10000 rounded to a whole cent (half up), computed in src/invoices/service.js. The floating-point legacy total may be mentioned as a separate, unused copy.
-FAIL if it describes the legacy total as the one the application uses, or leaves tax out.`],
-    anchors: [['src/invoices/service.js', 'return subtotal(invoice.lines) + taxFor(invoice);'], ['src/invoices/service.js', 'money.round((subtotal(invoice.lines) * invoice.taxBps) / 10000)'], ['src/invoices/lines.js', 'line.quantity * line.unitCents'], ['src/legacy/invoice-total.js', 'unitCents / 100']],
-    absent: [{ find: 'legacy/invoice-total', in: 'src/app.js' }, { find: "require('./invoice-total')", except: ['src/legacy/invoice-export.js'] }],
-  },
-  {
     name: 'investigate-app-overdue-reminders', slug: 'inv-remind', fixture: 'ts-app-medium',
     description: 'A question about behaviour the repository may not have.',
     question: 'How does the app remind customers about overdue invoices: which job sends the reminder, and after how many days?',
@@ -154,20 +89,6 @@ PASS if the answer states, in any wording, that this repository has no overdue-r
 FAIL if it names a file or function as what sends overdue reminders, states a number of days after which a reminder goes out (the aging buckets are not a reminder schedule), or describes a reminder feature as existing, or answers from general knowledge instead of this repository's code.`],
     anchors: [['src/flags.js', 'overdueReminders: false'], ['src/config.js', 'agingBucketsDays: [30, 60]'], ['src/notifications/queue.js', 'e.g. from a scheduled job']],
     absent: [{ find: 'overdueReminders', except: ['src/flags.js'] }, { find: 'setInterval' }, { find: 'cron' }],
-  },
-  {
-    name: 'investigate-app-optout-files-2', slug: 'inv-optout2', fixture: 'ts-app-medium-deep',
-    description: 'Which files a change to an existing feature would edit, when the request body passes through a layer the obvious file does not show.',
-    question: 'Which files would change to let a customer choose which channel gets their payment receipts (email, sms or both) after the account exists, through PATCH /customers/:customerId with { "receiptChannels": ["sms"] }?',
-    filesRule: 'End your answer with a `## Files` section: one path per line, only the files the change edits.',
-    relevant: ['src/customers/patch.js', 'src/customers/service.js', 'src/notifications/handlers.js', 'tests/customers/service.test.js'],
-    allowed: ['src/customers/model.js', 'src/customers/routes.js', 'tests/customers/routes.test.js', 'tests/notifications/handlers.test.js'],
-    decoys: ['src/flags.js', 'src/legacy/payment-hooks.js', 'src/notifications/service.js', 'src/customers/repository.js'],
-    cites: ['src/customers/patch.js', 'src/notifications/handlers.js'],
-    facts: [['lists-a-test', 'tests/customers/(service|routes)\\.test\\.js']],
-    verdict: null,
-    anchors: [['src/customers/patch.js', 'phone: (value) => value,'], ['src/customers/service.js', 'const next = patchable.pick(patch);'], ['src/customers/routes.js', 'service.update(req.params.customerId, req.body)'], ['src/notifications/handlers.js', 'if (!contact.receipts) return null;'], ['src/notifications/handlers.js', "flags.isEnabled('smsReceipts') && contact.phone"], ['src/customers/service.js', 'function contactFor']],
-    absent: [{ find: 'receipt', in: 'src/customers/patch.js' }, { find: 'receiptChannels' }, { find: 'patchable', except: ['src/customers/service.js'] }, { find: 'patch.js', in: 'src/customers/routes.js' }],
   },
   {
     name: 'investigate-app-segment-flow-2', slug: 'inv-segment2', fixture: 'ts-app-medium-deep',

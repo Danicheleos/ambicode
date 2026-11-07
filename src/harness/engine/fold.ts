@@ -23,8 +23,8 @@ export function matches(entry: LedgerEntry, qualified: Qualified): boolean {
   switch (qualified.kind) {
     case 'note': return entry['note'] === qualified.value;
     case 'policy': return entry['stage'] === qualified.value;
-    // A green needs exit 0 and a red a failing exit: an unproven run keeps the step open until the check limit releases it.
-    case 'check': return entry['phase'] === qualified.value && (entry['exit'] === 0) === (qualified.value === 'green');
+    // A green needs exit 0: an unproven run keeps the step open until the check limit releases it.
+    case 'check': return entry['phase'] === qualified.value && entry['exit'] === 0;
     case 'requirement': return entry['capture'] === qualified.value;
     case 'review': return entry['stage'] === qualified.value;
     default: return true;
@@ -41,7 +41,7 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
   return index + 1;
 }
 
-interface FoldContext { args: { iteration?: number | null; headless?: boolean; hasRequirement?: boolean; text?: string; requirements?: string[]; target?: { mr?: string | null } }; captured: readonly string[] }
+interface FoldContext { args: { iteration?: number | null; headless?: boolean; noReview?: boolean; hasRequirement?: boolean; text?: string; requirements?: string[]; target?: { mr?: string | null } }; captured: readonly string[] }
 
 const estimateAsks = (all: readonly LedgerEntry[]): boolean =>
   all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'estimate-step' && entry['status'] === 'completed')?.['asks'] === true;
@@ -67,6 +67,9 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
     // Only an interactive session is offered anything: a headless one has no one to answer and no review to run, so neither predicate holds for it.
     case 'iteration.named': return typeof context.args.iteration === 'number' && context.args.headless !== true;
     case 'iteration.unnamed': return typeof context.args.iteration !== 'number' && context.args.headless !== true;
+    // The same two, minus `--no-review`: only the review steps ask this; the end checks keep the plain predicates.
+    case 'review.offered': return typeof context.args.iteration === 'number' && context.args.headless !== true && context.args.noReview !== true;
+    case 'review.unasked': return typeof context.args.iteration !== 'number' && context.args.headless !== true && context.args.noReview !== true;
     // Only a full key (no file form) is asked about; the scoped ones run unasked, so a project without one has nothing to offer.
     case 'checks.offer': return typeof context.args.iteration === 'number' && context.args.headless !== true && Number(all.findLast((entry) => entry.kind === 'baseline')?.['full']) > 0;
     // The end checks run without a question where one route covers every iteration, or a headless run named one (nothing else will).

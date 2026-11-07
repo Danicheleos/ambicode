@@ -17,16 +17,22 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
     assert.deepEqual(gapsOf([plan(0)]), []);
   });
 
-  it('a plan accepted with uncited policy rules says how many', () => {
-    const plan = (fields: object) => entry('note', { note: 'plan', path: 'p.md', contentHash: 'h', anchorsBad: 0, ...fields });
-    assert.deepEqual(gapsOf([plan({ policyMissing: 3 })]), ['plan accepted without 3 policy citations']);
-    assert.deepEqual(gapsOf([plan({})]), []);
+  it('a task run on a draft plan says the plan was not accepted; stopping on it lists nothing', () => {
+    const answer = (option: string, kind = 'default-taken') => entry(kind, { route: 'r', gate: 'plan-unaccepted', instance: null, answer: option, via: 'headless' });
+    assert.deepEqual(gapsOf([answer('run on the draft')]), ['plan-unaccepted: default taken, "run on the draft" (headless)', 'plan run without being accepted: its anchors were not checked']);
+    assert.deepEqual(gapsOf([answer('run on the draft')].map((row) => ({ ...row, via: 'unanswered' }))), ['plan-unaccepted: default taken, "run on the draft" (unanswered)', 'plan run without being accepted: its anchors were not checked'], 'an unanswered print took the draft unasked: the gap shows for any via');
+    assert.deepEqual(gapsOf([answer('run on the draft', 'acceptance')]), [], 'a user who chose to run on the draft accepted it: no gap');
+    assert.deepEqual(gapsOf([answer('stop', 'acceptance')]), []);
+  });
+
+  it('a plan note with no anchor count claims nothing', () => {
+    assert.deepEqual(gapsOf([entry('note', { note: 'plan', path: 'p.md', contentHash: 'h' })]), []);
   });
 
 
   it('a nonzero last exit and a declined key are not verified', () => {
     const gaps = gapsOf([
-      check({ key: 'web/e2e', phase: 'red', exit: 2 }),
+      check({ key: 'web/e2e', phase: 'green', exit: 2 }),
       entry('declined', { route: 'r', gate: 'check:web/slow', instance: null, answer: 'no', via: 'flag', reason: 'acting-needs-human' }),
     ]);
     assert.deepEqual(gaps, ['web/e2e: last run exited 2', 'check:web/slow: declined "no" (acting-needs-human)']);
@@ -41,6 +47,27 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
     assert.deepEqual(gaps, ['plan-check: 1 bad anchors: a.ts:9 missing-file', 'rules drafts: 2 check errors']);
   });
 
+  it('a recorded step failure message longer than 160 characters reaches the gaps whole', () => {
+    const message = `scan exited 2: ${'a long line of tool output; '.repeat(12)}end`;
+    assert.ok(message.length > 160);
+    const gaps = gapsOf([entry('step', { route: 'r', step: 'scan', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'script-failed', message })]);
+    assert.deepEqual(gaps, [`scan: ${message}`]);
+  });
+
+  it('a requirements reason, merge request fetch errors and an omitted-requirements list longer than 160 characters reach the gaps whole', () => {
+    const long = `${'a long line of tool output; '.repeat(8)}end`;
+    const keys = Array.from({ length: 30 }, (_, index) => `KEY-${index + 100}`).join(', ');
+    assert.ok(long.length > 160 && keys.length > 160);
+    const gaps = gapsOf([
+      entry('worker', { route: 'r', worker: 'plan-check', summary: { failed: false, anchorsBad: 0, requirementsChecked: false, requirementsReason: long } }),
+      entry('step', { route: 'r', step: 'mr-fetch', actor: 'code', status: 'completed', cause: 'route-next', commitsError: long, discussionsError: long, requirementsOmitted: keys.split(', ') }),
+    ]);
+    assert.ok(gaps.includes(`requirements not checked: ${long}`));
+    assert.ok(gaps.includes(`merge request commits not fetched: ${long}`));
+    assert.ok(gaps.includes(`existing merge request discussions not fetched: ${long}`));
+    assert.ok(gaps.includes(`requirements named by the merge request and not fetched (over the limit): ${keys}`));
+  });
+
   it('a delivery, a completion or an exit code alone is no gap and no test result', () => {
     const entries = [entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }), entry('exit', { route: 'r', reason: 'done' })];
     assert.deepEqual(gapsOf(entries), []);
@@ -49,7 +76,7 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
   });
 
   it('only the last run of a key decides whether it is verified', () => {
-    assert.deepEqual(gapsOf([check({ phase: 'red', exit: 1 }), check({})]), []);
+    assert.deepEqual(gapsOf([check({ phase: 'green', exit: 1 }), check({})]), []);
     assert.deepEqual(gapsOf([check({}), check({ exit: 1 })]), ['web/unit: last run exited 1']);
   });
 });
@@ -113,7 +140,7 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
   });
 
   it('entries that are not current are left out', () => {
-    const old = check({ phase: 'red', exit: 1 });
+    const old = check({ phase: 'green', exit: 1 });
     const stale = entry('declined', { route: 'r', gate: 'g', instance: null, answer: 'no', via: 'flag' });
     const entries = [old, stale, check({ key: 'web/other', exit: 3 })];
     assert.deepEqual(gapsOf(entries, (candidate) => candidate.id !== old.id && candidate.id !== stale.id), ['web/other: last run exited 3']);
@@ -146,7 +173,7 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
 
 describe('the facts the final message copies', () => {
   it('names each check by outcome, never by phase', () => {
-    assert.deepEqual(checkFacts([check({ phase: 'red', exit: 1 }), check({ key: 'web/lint', exit: 1 }), check({})]), ['web/unit: passed', 'web/lint: failed exit 1']);
+    assert.deepEqual(checkFacts([check({ phase: 'green', exit: 1 }), check({ key: 'web/lint', exit: 1 }), check({})]), ['web/unit: passed', 'web/lint: failed exit 1']);
   });
 
   it('counts findings, what the fix rounds took, and how the re-review ended', () => {

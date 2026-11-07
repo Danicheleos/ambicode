@@ -30,6 +30,7 @@ const VALUES: Record<string, Record<string, string[]>> = {
   'check-only-unauthorized': { key: ['unit'], files: ['src/a.ts'] },
   'checks-again': { key: ['app/unit'] },
   'review-again': {},
+  'plan-unaccepted': {},
   'project-ambiguous': { projects: ['app', 'lib'] },
   'decision:db-choice': {},
 };

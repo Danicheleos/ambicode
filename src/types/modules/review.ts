@@ -24,7 +24,7 @@ const count = z.number().int().nonnegative();
 /** One `check` ledger entry of the task, as the review saw it when the bundle was assembled. */
 export const RecordedCheck = z.strictObject({
   key: z.string().min(1),
-  phase: z.enum(['red', 'green']),
+  phase: z.literal('green'),
   exit: z.number().int(),
   files: z.array(z.string()).default([]),
 });

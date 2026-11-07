@@ -69,11 +69,6 @@ describe('the 22 ledger kinds', () => {
     });
   }
 
-  it('a policy entry of stage required carries its ids and nothing else', () => {
-    assert.equal(parseEntry({ ...common, kind: 'policy', stage: 'required', ids: ['common-design/need'] }).ok, true);
-    assert.equal(parseEntry({ ...common, kind: 'policy', stage: 'required' }).ok, false);
-  });
-
   it('02-K1: an id that is not a plain count is rejected (the old L<n> and writer-prefixed forms included), and an unknown kind is skipped, not rejected', () => {
     assert.equal(parseEntry({ ...common, id: 'nope', kind: 'exit', route: 'r', reason: 'x' }).ok, false);
     assert.equal(parseEntry({ ...common, id: 'L3', kind: 'exit', route: 'r', reason: 'x' }).ok, false);

@@ -97,9 +97,15 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
   // A child, parent or linked item is evidence only while the fetch step runs and never stands in for the asked source.
   const key = asked ?? (deps.view.position === FETCH_STEP ? linkedKey(input.tool_input, deps.asked) : null);
   const whole = resultText(input.tool_response).trim();
+  if (key === null || whole === '') return null;
+  return saveRequirement(deps, { key, url, tool, whole, relation: asked === undefined ? 'linked' : 'asked' });
+}
+
+/** Writes one requirement file and its ledger row; null when the route's chain already holds that content under the key. */
+export async function saveRequirement(deps: Pick<CaptureDeps, 'runtime' | 'dir' | 'ledger' | 'view'>, source: { key: string; url: string; tool: string; whole: string; relation: 'asked' | 'linked' }): Promise<LedgerEntry | null> {
+  const { key, url, tool, whole } = source;
   const cut = whole.length > MAX_CONTENT;
   const content = whole.slice(0, MAX_CONTENT);
-  if (key === null || content === '') return null;
   const rawHash = contentHash(content);
   const read = await deps.ledger.read();
   const chain = read.state === 'ok' ? read.entries.filter((entry) => deps.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
@@ -107,5 +113,5 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
   const text = `${JSON.stringify({ key, url, tool, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content, cutFrom: cut ? whole.length : null }, null, 2)}\n`;
   await deps.runtime.fs.mkdirp(deps.dir.requirements);
   await deps.runtime.fs.writeText(fileOf(deps.dir, key), text);
-  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: asked === undefined ? 'linked' : 'asked', capture: cut ? 'cut' : 'full' });
+  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: source.relation, capture: cut ? 'cut' : 'full' });
 }

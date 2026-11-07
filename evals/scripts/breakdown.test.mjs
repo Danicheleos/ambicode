@@ -104,4 +104,37 @@ describe('evals breakdown', () => {
     assert.equal(mean.steps.change, 3);
     assert.equal(mean.steps['review-cmd'], 1);
   });
+  // Shape of evals/cases/results/traces/plugin/2026-11-05T12-57-12-658Z: main delegates to one subagent, whose streamed usage undercounts output.
+  describe('a run that delegates to a subagent', () => {
+    const stamp = (seconds, event) => JSON.stringify({ ...JSON.parse(event), timestamp: new Date(Date.UTC(2026, 10, 5, 12, 0, seconds)).toISOString() });
+    const split = (m5, h1) => ({ cache_creation_input_tokens: m5 + h1, cache_creation: { ephemeral_5m_input_tokens: m5, ephemeral_1h_input_tokens: h1 } });
+    const trace = [
+      stamp(0, call('m1', { output_tokens: 20 }, [use('t1', 'Agent')])),
+      stamp(1, result('u0', 'start', 't1')),
+      stamp(21, call('s1', { output_tokens: 3, ...split(1000, 0) }, [use('u1', 'Read')], 't1')),
+      stamp(22, result('u1', 'file', 't1')),
+      stamp(92, call('s2', { output_tokens: 3, ...split(2000, 0) }, [{ type: 'text', text: 'done' }], 't1')),
+      stamp(93, result('t1', 'report')),
+      stamp(95, call('m2', { output_tokens: 7 }, [{ type: 'text', text: 'ok' }])),
+      JSON.stringify({ type: 'result', duration_ms: 95000, total_cost_usd: 1, usage: { input_tokens: 0, output_tokens: 7, cache_read_input_tokens: 0, ...split(0, 500) }, modelUsage: { 'claude-sonnet-5-5': { inputTokens: 0, outputTokens: 5007, cacheReadInputTokens: 0, cacheCreationInputTokens: 3500, cacheCreationEphemeral5mInputTokens: 3000, cacheCreationEphemeral1hInputTokens: 500 } } }),
+    ].join('\n');
+    const sub = breakdownOf(trace);
+
+    it('counts subagent gaps as model and tool time, not as one Agent wait', () => {
+      assert.equal(sub.timing.byTool.Agent, 1);
+      assert.equal(sub.timing.byTool.Read, 1);
+      assert.equal(sub.timing.modelSeconds, 20 + 70 + 2);
+      assert.ok(sub.timing.modelSeconds + sub.timing.toolSeconds >= 94);
+    });
+
+    it('takes subagent output from the result line modelUsage minus the main session', () => {
+      assert.equal(sub.subagent.outputTokens, 5000);
+    });
+
+    it('prices 5-minute cache writes at 2.50 and 1-hour at 4.00 per Mtok', () => {
+      assert.ok(Math.abs(priceOf({ ...split(1000000, 1000000) }) - 6.5) < 1e-12);
+      assert.ok(Math.abs(priceOf({ cache_creation_input_tokens: 1000000 }) - 4) < 1e-12);
+      assert.ok(Math.abs(sub.mainCostUsd - (7 * 10 + 500 * 4) / 1e6) < 1e-12);
+    });
+  });
 });

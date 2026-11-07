@@ -2,7 +2,7 @@ import { RequirementEvidence, type EnvelopeInput, type EnvelopeSource } from '#t
 import { latestBound } from '#modules/evidence/ledger-chain';
 import { contentHash } from '#util/hash';
 import { isIssueKey, namesKey, sourceId } from '#util/issue-key';
-import { readCapture, titleOf } from '../capture/capture.ts';
+import { readCapture, saveRequirement, titleOf } from '../capture/capture.ts';
 import { mrRequirements } from '../capture/has-requirement.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs } from '#types/harness';
@@ -14,6 +14,7 @@ type EnvelopeResult =
 
 const URL_IN_TEXT = /https?:\/\/[^\s)>\]"']+/g;
 const CAPTURE_GATE = 'requirements-not-captured-twice';
+const REQUEST_KEY = 'request';
 
 /** The keys the route asked for: its `--requirement` values, the URLs in its text, a bare first-word key (03-Q5), and what its merge request named. */
 export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>, entries: readonly LedgerEntry[] = []): string[] {
@@ -69,9 +70,16 @@ async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom
  */
 export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeResult> {
   const read = await input.ledger.read();
-  const all = read.state === 'ok' ? read.entries : [];
+  const all: LedgerEntry[] = read.state === 'ok' ? [...read.entries] : [];
   const entries = all.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? '')));
   const asked = askedKeys(input.args, entries);
+  // A pasted ticket names no key or URL, so nothing else would hold it; the typed text (line breaks kept) becomes the task's requirement once, review excepted: its evidence is the change.
+  const typed = (input.args.rawText ?? input.args.text).trim();
+  // An empty start continues the task and its text is the task's slug, which is no ticket.
+  if (asked.length === 0 && typed !== '' && typed !== input.view.task && input.view.skill !== 'review' && !all.some((entry) => entry.kind === 'requirement')) {
+    const saved = await saveRequirement(input, { key: REQUEST_KEY, url: '', tool: REQUEST_KEY, whole: typed, relation: 'asked' });
+    if (saved !== null) all.push(saved);
+  }
   const fromMr = new Set(mrRequirements(entries));
   // One envelope per task: a route reuses what an earlier route of the task captured instead of starting empty.
   const complete = await captured(input, all);

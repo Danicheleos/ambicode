@@ -7,10 +7,13 @@ import { materialized } from '#testing/fixtures/materialized';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 
-async function check(root: string, body: string | null, params: string[] = [], required: string[] | null = null) {
+async function check(root: string, body: string | null, params: string[] = [], ticket: string[] = []) {
   const steps = path.join(root, '.ambicode/tasks/t/steps');
   await mkdir(steps, { recursive: true });
-  if (required !== null) await writeFile(path.join(steps, '..', 'ledger.jsonl'), `${JSON.stringify({ id: '1', at: 't', kind: 'policy', stage: 'required', ids: required })}\n`);
+  const saved = path.join(root, '.ambicode/tasks/t/requirements');
+  await rm(saved, { recursive: true, force: true });
+  if (ticket.length > 0) await mkdir(saved, { recursive: true });
+  for (const [at, content] of ticket.entries()) await writeFile(path.join(saved, `r${at}.json`), JSON.stringify({ key: `r${at}`, content }));
   if (body !== null) await writeFile(path.join(steps, '..', 'plan.md'), body);
   const outcome = await new NodeProcessRunner().run({
     argv: [process.execPath, path.join(REPO_ROOT, 'skills/plan/scripts/plan-check.mjs')],
@@ -21,7 +24,7 @@ async function check(root: string, body: string | null, params: string[] = [], r
     stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[]; policyMissing?: string[]; policyRepeated?: string[] } }[]; failed?: { code: string; message: string; recoverable?: boolean; revise?: { args: Record<string, string[]> } } };
+  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[]; requirements?: string[]; requirementsBad?: number; requirementsChecked?: boolean; requirementsReason?: string; } }[]; failed?: { code: string; message: string; recoverable?: boolean; revise?: unknown } };
 }
 
 describe('skills/plan/scripts/plan-check.mjs', () => {
@@ -35,7 +38,7 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       assert.equal(bad.failed?.code, 'plan-check-failed');
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
       assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
-      assert.equal(bad.failed?.revise?.args['bad anchors']?.length, 3);
+      assert.equal(bad.failed?.revise, undefined, 'a failed check is recorded, never sent back');
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -49,124 +52,21 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
         assert.equal(out.failed?.code, 'plan-body-missing');
         const where = path.join(root, '.ambicode/tasks/t/plan.md');
         assert.ok(out.failed!.message.includes(where), out.failed!.message);
-        assert.deepEqual(out.failed!.revise, { args: { 'plan body': [out.failed!.message] } });
+        assert.equal(out.failed!.revise, undefined);
       }
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('a bad anchor fails the check with the listed anchors as revise args, and a coverage table is not checked', async () => {
+  it('a bad anchor fails the check with the listed anchors in the summary, and a coverage table is not checked', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       const bad = await check(root, '# Plan\n\n`src/invoices/service.ts:3-6` `src/invoices/service.ts:999`\n\n| requirement | section | code |\n|---|---|---|\n| totals | Iteration 1 | |\n');
       assert.equal(bad.failed?.code, 'plan-check-failed');
       assert.equal(bad.entries[0]!.summary.anchorsBad, 1);
       assert.match(bad.failed!.message, /1 bad anchors: src\/invoices\/service\.ts:999 line-out-of-range/);
-      assert.deepEqual(bad.failed!.revise, { args: { 'bad anchors': bad.entries[0]!.summary.anchors } });
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  const REQUIRED = ['common-design/need', 'common-design/scope'];
-  const ANCHORED = '`src/invoices/service.ts:3-6`';
-
-  it('a delivered rule the Changes paths reach must be cited: a missing id fails with its name, applied-at and not-applicable both pass', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const none = await check(root, `# Plan\n\n${ANCHORED}\n`, [], REQUIRED);
-      assert.equal(none.failed?.code, 'plan-check-failed');
-      assert.deepEqual(none.entries[0]!.summary.policyMissing, REQUIRED);
-      assert.equal(none.entries[0]!.summary.anchorsBad, 0);
-      assert.match(none.failed!.message, /^2 policy rules not cited: common-design\/need, common-design\/scope$/);
-      assert.deepEqual(Object.keys(none.failed!.revise!.args), ['policy citations']);
-      assert.deepEqual(none.failed!.revise!.args['policy citations']!.slice(1), REQUIRED);
-      const one = await check(root, `# Plan\n\n${ANCHORED}\n\n## Policies\n- common-design/need: applied at src/invoices/service.ts:3\n`, [], REQUIRED);
-      assert.deepEqual(one.entries[0]!.summary.policyMissing, ['common-design/scope']);
-      const both = await check(root, `# Plan\n\n${ANCHORED}\n\n## Policies\n- \`common-design/need\`: applied at src/invoices/service.ts:3\n- common-design/scope: not applicable: no new surface\n`, [], REQUIRED);
-      assert.equal(both.failed, undefined);
-      assert.equal(both.entries[0]!.summary.policyMissing, undefined);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a rule cited on two lines fails recoverably through the same revise, naming the id; one line with several locations passes', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const once = await check(root, `# Plan\n\n${ANCHORED}\n\n## Policies\ncommon-design/need: applied at src/invoices/service.ts:3, src/invoices/service.ts:5\ncommon-design/scope: not applicable: none\n`, [], REQUIRED);
-      assert.equal(once.failed, undefined);
-      const twice = await check(root, `# Plan\n\n${ANCHORED}\n\n## Policies\ncommon-design/need: applied at src/invoices/service.ts:3\ncommon-design/need: applied at src/invoices/service.ts:5\ncommon-design/scope: not applicable: none\n`, [], REQUIRED);
-      assert.equal(twice.failed?.code, 'plan-check-failed');
-      assert.equal(twice.failed?.recoverable, true);
-      assert.deepEqual(twice.entries[0]!.summary.policyRepeated, ['common-design/need']);
-      assert.equal(twice.entries[0]!.summary.policyMissing, undefined);
-      assert.match(twice.failed!.message, /^1 policy rules cited on more than one line: common-design\/need$/);
-      assert.deepEqual(Object.keys(twice.failed!.revise!.args), ['policy citations']);
-      const accepted = await check(root, `# Plan\n\n${ANCHORED}\n\ncommon-design/need: applied at src/invoices/service.ts:3\ncommon-design/need: not applicable: x\ncommon-design/scope: not applicable: none\n`, ['accept'], REQUIRED);
-      assert.equal(accepted.failed, undefined);
-      assert.deepEqual(accepted.entries[0]!.summary.policyRepeated, ['common-design/need']);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a rule applied to a file the plan creates is cited by its path alone; an existing file, or a new one the plan never names, still needs path:line', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const plan = (cite: string): string => `# Plan\n\n${ANCHORED} and \`new: src/invoices/csv.ts\`\n\n## Policies\n${cite}\ncommon-design/scope: not applicable: none\n`;
-      const created = await check(root, plan('common-design/need: applied at src/invoices/csv.ts'), [], REQUIRED);
-      assert.equal(created.failed, undefined, JSON.stringify(created.failed));
-      const mixed = await check(root, plan('common-design/need: applied at src/invoices/service.ts:3, src/invoices/csv.ts'), [], REQUIRED);
-      assert.equal(mixed.failed, undefined);
-      const existing = await check(root, plan('common-design/need: applied at src/invoices/service.ts'), [], REQUIRED);
-      assert.deepEqual(existing.entries[0]!.summary.policyMissing, ['common-design/need']);
-      const unnamed = await check(root, `# Plan\n\n${ANCHORED}\n\ncommon-design/need: applied at src/invoices/other.ts\ncommon-design/scope: not applicable: none\n`, [], REQUIRED);
-      assert.deepEqual(unnamed.entries[0]!.summary.policyMissing, ['common-design/need']);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a citation needs an anchor after "applied at" and a reason after "not applicable", and one inside a fence does not count', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const weak = [`# Plan\n\n${ANCHORED}\n`, 'common-design/need: applied', 'common-design/scope: not applicable:', '```', 'common-design/need: not applicable: fenced', '```', ''].join('\n');
-      const out = await check(root, weak, [], REQUIRED);
-      assert.deepEqual(out.entries[0]!.summary.policyMissing, REQUIRED);
-      const prefixed = await check(root, `# Plan\n\n${ANCHORED}\nx/common-design/need: not applicable: other\ncommon-design/scope: not applicable: none\n`, [], REQUIRED);
-      assert.deepEqual(prefixed.entries[0]!.summary.policyMissing, ['common-design/need'], 'an id inside a longer path is not the rule');
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('an applied-at citation with a bad anchor is a bad anchor, and a bad anchor plus a missing citation fail together in one revise', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const body = `# Plan\n\n${ANCHORED}\n\ncommon-design/need: applied at src/invoices/service.ts:999\ncommon-design/scope: not applicable: none\n`;
-      const bad = await check(root, body, [], REQUIRED);
-      assert.equal(bad.entries[0]!.summary.anchorsBad, 1);
-      assert.equal(bad.entries[0]!.summary.policyMissing, undefined);
-      assert.deepEqual(Object.keys(bad.failed!.revise!.args), ['bad anchors']);
-      const mixed = await check(root, `# Plan\n\n${ANCHORED} \`src/invoices/service.ts:999\`\n`, [], REQUIRED);
-      assert.deepEqual(Object.keys(mixed.failed!.revise!.args), ['bad anchors', 'policy citations']);
-      assert.match(mixed.failed!.message, /^1 bad anchors: .*; 2 policy rules not cited: /);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('nothing is required without a recorded required entry or with an empty one, and accept records the missing ids without failing', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      assert.equal((await check(root, `# Plan\n\n${ANCHORED}\n`)).failed, undefined);
-      assert.equal((await check(root, `# Plan\n\n${ANCHORED}\n`, [], [])).failed, undefined);
-      const accepted = await check(root, `# Plan\n\n${ANCHORED}\n`, ['accept'], REQUIRED);
-      assert.equal(accepted.failed, undefined);
-      assert.deepEqual(accepted.entries[0]!.summary.policyMissing, REQUIRED);
-      assert.equal(accepted.entries[0]!.summary.failed, true);
+      assert.equal(bad.entries[0]!.summary.anchors?.length, 1);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -196,8 +96,29 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     const root = await materialized('ts-feature-boundary');
     try {
       const bad = await check(root, '# Plan\n\n`service.ts:4` `nope.ts:1`\n');
-      assert.match(bad.entries[0]!.summary.anchors![0]!, /^service\.ts:4 missing-file \(tracked: .*src\/invoices\/service\.ts/);
+      assert.match(bad.entries[0]!.summary.anchors![0]!, /^service\.ts:4 ambiguous \(candidates: .*src\/invoices\/service\.ts/);
       assert.equal(bad.entries[0]!.summary.anchors![1], 'nope.ts:1 missing-file');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  // k12 1094: `round.py:152` named two tracked files and was reported as missing-file.
+  it('a bare name several tracked files share is ambiguous and lists every candidate, a name with one tracked home stays missing-file', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const homes = ['src/domain/round/round.py', 'src/adapters/round.py', 'src/api/round.py', 'src/cli/round.py', 'src/lib/only.py'];
+      for (const home of homes) {
+        await mkdir(path.dirname(path.join(root, home)), { recursive: true });
+        await writeFile(path.join(root, home), 'x = 1\n');
+      }
+      const git = await new NodeProcessRunner().run({ argv: ['git', 'add', ...homes], cwd: root, timeoutMs: 30_000, maxOutputBytes: 65_536, env: { kind: 'inherited' }, stdin: '' });
+      assert.equal(git.exitCode, 0, git.stderr);
+      const bad = await check(root, '# Plan\n\n`round.py:152` `only.py:900`\n');
+      const [ambiguous, single] = bad.entries[0]!.summary.anchors!;
+      assert.match(ambiguous!, /^round\.py:152 ambiguous \(candidates: /);
+      for (const home of homes.slice(0, 4)) assert.ok(ambiguous!.includes(home), `${home} missing from: ${ambiguous}`);
+      assert.equal(single, 'only.py:900 missing-file (tracked: src/lib/only.py)');
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -240,16 +161,120 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     }
   });
 
-  it('runs as the plan-check step: the failure sends the route back to draft', async () => {
+  it('runs as the plan-check step: the failure is recorded and the route goes on to the gate', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.start();
       await plan.body('# Plan\n\n`src/orders/limit.ts:99`\n');
       const back = await plan.next();
-      assert.equal(back.position, 'draft');
+      assert.equal(back.position, 'plan-accept');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
     } finally {
       await plan.dispose();
+    }
+  });
+});
+
+describe('plan-check requirements word for word', () => {
+  const TICKET = 'The report lists every overdue invoice with its customer name.\nExports   keep the **column order** of the screen.';
+  const plan = (...entries: string[]) => `# Plan\n\n## Requirements\n\n${entries.map((entry) => `- ${entry} (Iteration 1)`).join('\n')}\n\n## Iteration 1: x\n`;
+  const run = async (body: string, ticket: string[] = [TICKET]) => {
+    const root = await materialized('ts-feature-boundary');
+    try { return (await check(root, body, [], ticket)).entries[0]!.summary; } finally { await rm(path.dirname(root), { recursive: true, force: true }); }
+  };
+
+  it('a paraphrased entry is a miss showing the plan entry and the closest ticket sentence, recorded without a redraft', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, plan('"The report shows all invoices that are overdue, with customer names"'), [], [TICKET]);
+      const summary = out.entries[0]!.summary;
+      assert.equal(summary.requirementsBad, 1);
+      assert.equal(summary.requirements?.length, 1);
+      assert.equal(summary.requirements![0], 'requirement not word for word: plan "The report shows all invoices that are overdue, with customer names" vs ticket "The report lists every overdue invoice with its customer name."');
+      assert.equal(summary.anchorsBad, 0);
+      assert.equal(out.failed?.revise, undefined);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a long piece and a long ticket line are shown whole, and every missed requirement and bad anchor is listed (eval ledgers: 4 runs with >3 anchors, 12 with >3 requirements, 8 clipped at 240)', async () => {
+    const long = `${'long ticket sentence '.repeat(20)}end.`;
+    const names = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+    const body = `# Plan\n\n${names.map((n) => `\`src/${n}.ts:1\``).join(' ')}\n\n## Requirements\n\n${names.map((n) => `- "${n} ${long} changed"`).join('\n')}\n\n## Iteration 1: x\n`;
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, body, [], [long]);
+      const message = out.failed!.message;
+      assert.match(message, /^5 bad anchors, 5 requirements not word for word: /);
+      for (const n of names) {
+        assert.ok(message.includes(`src/${n}.ts:1 missing-file`), `${n} anchor listed`);
+        assert.ok(message.includes(`"${n} ${long} changed"`), `${n} requirement whole`);
+      }
+      assert.ok(out.entries[0]!.summary.requirements![0]!.includes(`vs ticket "${long}"`), 'closest ticket line whole');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a verbatim entry passes, as does one that differs only in case, whitespace, emphasis or backticks', async () => {
+    const summary = await run(plan('"The report lists every overdue invoice with its customer name."', '"exports keep the `column order` of the   screen."', '"Exports keep the column order"'));
+    assert.equal(summary.requirementsBad, 0);
+    assert.equal(summary.requirementsChecked, true);
+    assert.equal(summary.failed, false);
+  });
+
+  it('an unquoted bullet is checked as written without its trailing iteration note', async () => {
+    const summary = await run('# Plan\n\n## Requirements\n- Exports keep the column order of the screen. (Iterations 1, 2)\n- Reports show overdue invoices only (Iteration 1)\n\n## Iteration 1: x\n');
+    assert.equal(summary.requirementsBad, 1);
+    assert.match(summary.requirements![0]!, /^requirement not word for word: plan "Reports show overdue invoices only" vs ticket "/);
+  });
+
+  it('an already-met note after the iteration note is stripped like it, quoted or not', async () => {
+    const summary = await run('# Plan\n\n## Requirements\n- "The report lists every overdue invoice with its customer name." (Iteration 1) (already met: src/report.ts:12)\n- Exports keep the column order of the screen. (Iteration 1) (already met: src/export.ts:3)\n\n## Iteration 1: x\n');
+    assert.equal(summary.requirementsBad, 0);
+    assert.equal(summary.requirementsChecked, true);
+  });
+
+  it('a label-prefixed quoted verbatim ticket sentence counts as word for word, with or without the label in the ticket', async () => {
+    const labelled = await run(plan('FR-NOM-1A: "The report lists every overdue invoice with its customer name."'), ['FR-NOM-1A: The report lists every overdue invoice with its customer name.']);
+    assert.equal(labelled.requirementsBad, 0);
+    assert.equal(labelled.requirementsChecked, true);
+    assert.equal((await run(plan('FR-NOM-1A: "The report lists every overdue invoice with its customer name."'))).requirementsBad, 0);
+  });
+
+  it('a bullet with quotes is checked per quoted piece: the plan prose around them (label, connectors, notes) is not checked', async () => {
+    const ticket = ['The report lists every overdue invoice with its customer name.\nExports keep the column order of the screen.\nA failed export shows a retry button.'];
+    const summary = await run(plan('Observed: "The report lists every overdue invoice" and "keep the column order" shown, alongside "A failed export shows a retry button."', '"The report lists" no longer takes district', 'FR-9: "Exports keep the column order of the screen."'), ticket);
+    assert.equal(summary.requirementsBad, 0);
+    assert.equal(summary.requirementsChecked, true);
+  });
+
+  it('a label inside the quote is stripped from that piece, even when the ticket puts a title line between the id and the sentence', async () => {
+    const ticket = ['FR-ADV-9\n**Overdue list**\nThe report lists every overdue invoice with its customer name.'];
+    const summary = await run(plan('"FR-ADV-9: The report lists every overdue invoice with its customer name."'), ticket);
+    assert.equal(summary.requirementsBad, 0);
+  });
+
+  it('a paraphrase still misses: an unquoted reworded bullet, and a quoted piece not in the ticket (one miss per bullet, naming the missed piece)', async () => {
+    const summary = await run(plan('Reports show overdue invoices only', 'Seen: "The report lists" and "shows all invoices that are overdue" and "Exports keep"'));
+    assert.equal(summary.requirementsBad, 2);
+    assert.match(summary.requirements![1]!, /^requirement not word for word: plan "shows all invoices that are overdue" vs ticket "/);
+  });
+
+  it('an empty bullet is no entry: it neither passes through includes("") nor hides a real miss beside it', async () => {
+    const summary = await run('# Plan\n\n## Requirements\n- (Iteration 1)\n- "Reports show overdue invoices only" (Iteration 1)\n');
+    assert.equal(summary.requirementsBad, 1);
+  });
+
+  it('no captured ticket, or no entry under ## Requirements, is reported as not checked, never as passed', async () => {
+    const cases = [[await run(plan('"anything"'), []), 'no captured ticket'], [await run('# Plan\n\nno section\n'), 'no ## Requirements section'], [await run('# Plan\n\n## Requirements\n\nno bullets\n'), 'no entries under ## Requirements'], [await run('# Plan\n\n## Requirements\n- (Iteration 1)\n- ""\n'), 'no entries under ## Requirements']] as const;
+    for (const [summary, reason] of cases) {
+      assert.equal(summary.requirementsReason, reason);
+      assert.equal(summary.requirementsChecked, false);
+      assert.equal(summary.requirementsBad, undefined);
+      assert.equal(summary.failed, false);
     }
   });
 });

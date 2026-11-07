@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { planFixture } from '#testing/fixtures/plan-fixture';
 import { appendLedger } from '#platform/ledger/ledger';
@@ -24,14 +26,123 @@ describe('the task map is seeded from the iteration brief', () => {
   });
 });
 
-describe('a plan the task runs must say status: accepted', () => {
-  it('a plan.md back at status: draft stops the start and says how to run it anyway', async () => {
+const DRAFT = '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total` in `src/orders.ts`.\n';
+const planNote = (t: Awaited<ReturnType<typeof taskFixture>>) => appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
+
+describe('a plan the task finds that was not accepted is asked about once', () => {
+  it('a draft plan.md with no accept on record raises plan-unaccepted; running on it accepts the file and the task goes on with its brief', async () => {
     const t = await taskFixture();
     try {
-      await t.fx.repo.write(PLAN, '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total`.\n');
-      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
-      await assert.rejects(t.start({ text: 'ord-7' }), /not status: accepted.*--plan/);
+      await t.fx.repo.write(PLAN, DRAFT);
+      const first = await t.start({ text: 'ord-7' });
+      assert.match(first.text, /plan-unaccepted/);
       assert.equal((await t.kinds('map')).length, 0);
+      await t.hook('plan-unaccepted', 'run on the draft');
+      assert.match(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), /^---\nstatus: accepted\n---/);
+      assert.equal((await t.kinds('note')).filter((note) => note['note'] === 'plan').length, 1);
+      assert.match(await t.work(), /## brief\n[\s\S]*Guard `total`/);
+      assert.equal((await t.kinds('gate')).filter((print) => print['gate'] === 'plan-unaccepted').length, 1);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a plan accepted and then taken back to draft is asked about the same way, and stop ends the route blocked with the plan named as not accepted', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, DRAFT);
+      await planNote(t);
+      const first = await t.start({ text: 'ord-7' });
+      assert.match(first.text, /plan-unaccepted/);
+      const stopped = await t.hook('plan-unaccepted', 'stop');
+      assert.equal(stopped.position, 'complete');
+      assert.match(stopped.text, /ended: blocked \(plan-unaccepted: stop\)/);
+      const exit = (await t.kinds('exit')).at(-1)!;
+      assert.equal(exit['reason'], 'blocked');
+      assert.match(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), /status: draft/);
+      assert.equal((await t.kinds('map')).length, 0);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a headless start takes the recommended answer, runs on the draft, and lists it as not verified', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, DRAFT);
+      await t.start({ text: 'ord-7', headless: true });
+      assert.match(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), /status: accepted/);
+      const taken = (await t.kinds('default-taken')).filter((entry) => entry['gate'] === 'plan-unaccepted');
+      assert.deepEqual(taken.map((entry) => entry['answer']), ['run on the draft']);
+      assert.match(await t.work(), /## brief\n[\s\S]*Guard `total`/);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('running on the draft records the plan note with no anchor count: no check ran, so none is claimed', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, DRAFT);
+      await t.start({ text: 'ord-7' });
+      await t.hook('plan-unaccepted', 'run on the draft');
+      const note = (await t.kinds('note')).find((entry) => entry['note'] === 'plan')!;
+      assert.equal('anchorsBad' in note, false);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a plan.md with no frontmatter, or none with a status, was never accepted and raises the same question', async () => {
+    for (const text of ['# Plan\n\n## Iteration 1\nGuard `total`.\n', '---\ntitle: x\n---\n# Plan\n\n## Iteration 1\nGuard `total`.\n']) {
+      const t = await taskFixture();
+      try {
+        await t.fx.repo.write(PLAN, text);
+        const first = await t.start({ text: 'ord-7' });
+        assert.match(first.text, /plan-unaccepted/);
+      } finally {
+        await t.fx.dispose();
+      }
+    }
+  });
+
+  it('a plan that cannot be accepted when the answer is run on the draft fails the step instead of throwing', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, DRAFT);
+      await t.start({ text: 'ord-7' });
+      // The plan is read to see it is a draft, then again to accept it: it vanishes between the two.
+      const fs = t.fx.runtime.fs;
+      const read = fs.readText.bind(fs);
+      let plans = 0;
+      fs.readText = (file: string) => (file.endsWith('plan.md') && ++plans === 2 ? Promise.reject(new Error('gone')) : read(file));
+      await assert.rejects(t.hook('plan-unaccepted', 'run on the draft'), { code: 'plan-draft-missing' });
+      const failure = (await t.kinds('step')).findLast((entry) => entry['step'] === 'start' && entry['status'] === 'failed');
+      assert.equal(failure?.['code'], 'plan-draft-missing', 'the failure is on the ledger as the step failing, like its siblings');
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a plan named with --plan is run as it is, with no question', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, DRAFT);
+      await t.start({ text: 'go', plan: PLAN });
+      assert.equal((await t.kinds('gate')).filter((print) => print['gate'] === 'plan-unaccepted').length, 0);
+      assert.match(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), /status: draft/);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('an accepted plan raises nothing', async () => {
+    const t = await taskFixture();
+    try {
+      await t.fx.repo.write(PLAN, DRAFT.replace('draft', 'accepted'));
+      await planNote(t);
+      await t.start({ text: 'ord-7' });
+      assert.equal((await t.kinds('gate')).filter((print) => print['gate'] === 'plan-unaccepted').length, 0);
     } finally {
       await t.fx.dispose();
     }

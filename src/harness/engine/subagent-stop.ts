@@ -42,8 +42,10 @@ export async function subagentStopHook(ports: { runtime: Runtime; routes: RouteR
       await saveNote(deps, { task: route.task, kind: 'changed', body: text, route: route.routeId });
       return;
     }
-    const missing = unstated(gapsOf(chain.entries, currentIn(def, chain)), text);
-    const body = missing.length === 0 ? text : `${text.trimEnd()}\n\nNot verified (left out above)\n${missing.map((gap) => `- ${gap}`).join('\n')}`;
+    // The model sometimes opens with a line of narration before the report; 2 of 6 eval runs saved it above "# Task report".
+    const report = text.replace(/^[\s\S]*?(?=^#{1,6} )/m, '');
+    const missing = unstated(gapsOf(chain.entries, currentIn(def, chain)), report);
+    const body = missing.length === 0 ? report : `${report.trimEnd()}\n\nNot verified (left out above)\n${missing.map((gap) => `- ${gap}`).join('\n')}`;
     await saveNote(deps, { task: route.task, kind: 'report', body, route: route.routeId });
   });
 }

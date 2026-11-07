@@ -76,7 +76,7 @@ async function resolveTarget(workspace: Workspace, options: AssembleOptions): Pr
 export async function recordedChecks(runtime: Runtime, taskDirectory: string | null): Promise<RecordedCheck[]> {
   if (taskDirectory === null) return [];
   return (await readLedger(runtime.fs, taskDirectory)).flatMap((entry) =>
-    entry.kind === 'check' && typeof entry['key'] === 'string' && typeof entry['exit'] === 'number' && (entry['phase'] === 'red' || entry['phase'] === 'green')
+    entry.kind === 'check' && typeof entry['key'] === 'string' && typeof entry['exit'] === 'number' && entry['phase'] === 'green'
       ? [{ key: entry['key'], phase: entry['phase'], exit: entry['exit'], files: Array.isArray(entry['files']) ? (entry['files'] as string[]) : [] }]
       : [],
   );

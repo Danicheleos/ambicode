@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: review-mono-notes-html
-context:
-  scaffold_script: scaffold.sh

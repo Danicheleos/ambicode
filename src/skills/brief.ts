@@ -51,7 +51,7 @@ export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry
     // An iteration ends at the next level-2 heading of any kind: `## Assumptions` after the last one is the plan's, not that iteration's.
     const level2 = [...plan.matchAll(/^##\s+\S.*$/gm)].filter(live).map((heading) => heading.index);
     const endOf = (start: number): number => level2.find((at) => at > start) ?? plan.length;
-    // Every other level-2 section after the first iteration is the plan's, wherever it sits: `## Policies` between two iterations reaches each brief.
+    // Every other level-2 section after the first iteration is the plan's, wherever it sits: `## Assumptions` between two iterations reaches each brief.
     const iterationAt = new Set(headings.map((heading) => heading.index));
     const closing = level2.filter((at) => at > headings[0]!.index && !iterationAt.has(at)).map((at) => plan.slice(at, endOf(at)).trim()).join('\n\n');
     const header = planBodyOf(plan.slice(0, headings[0]!.index)).trim();

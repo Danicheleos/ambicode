@@ -21,13 +21,16 @@ export function canonicalArgs(input: {
   iteration: number | null;
   answers: readonly Answer[];
   headless: boolean;
+  noReview?: boolean;
   hasRequirement: boolean;
   target?: ReviewTargetArgs;
 }): RouteArgs {
   const requirements = [...new Set(input.requirements.map((value) => value.trim()))].sort();
   const answers = input.answers.map((answer) => `${answer.gate}=${answer.option}`).sort();
   const target = input.target === undefined ? {} : { target: input.target };
-  const base = { text: collapse(input.text), requirements, project: input.project, plan: input.plan ?? null, answers, headless: input.headless, ...target };
-  return { ...base, iteration: input.iteration, hasRequirement: input.hasRequirement, hash: contentHash(JSON.stringify(base)) };
+  const text = collapse(input.text);
+  const typed = input.text.replace(/\r\n?/g, '\n').trim();
+  const base = { text, requirements, project: input.project, plan: input.plan ?? null, answers, headless: input.headless, ...(input.noReview === true ? { noReview: true } : {}), ...target };
+  return { ...base, ...(typed === text ? {} : { rawText: typed }), iteration: input.iteration, hasRequirement: input.hasRequirement, hash: contentHash(JSON.stringify(base)) };
 }
 

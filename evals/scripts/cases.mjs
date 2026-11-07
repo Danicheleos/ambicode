@@ -43,7 +43,7 @@ const DONE = (file) => ledger('route-done', '"kind":"exit"[^\\n]*"reason":"done"
 const LIMITS = {
   // 40 turns: the old task cases ran 25-35 (route steps, implementer, format, report); a tighter cap failed runs for budget, not quality.
   task: { max_turns: 40, timeout_seconds: 1200, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'Skill', 'Agent'] },
-  // 30 turns, 900 s: the plan route is ground, draft, check and gate; the huge cases set their own cap (plan-cases.mjs). Edit is the route's fix round; the bare arm keeps the v3 tool set it is compared against.
+  // 30 turns, 900 s: the plan route is ground, draft, check and gate; the large-feature case sets its own cap (plan-cases.mjs). Edit is the route's fix round; the bare arm keeps the v3 tool set it is compared against.
   plan: { max_turns: 30, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'Skill'], bare_allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Skill'] },
   review: { max_turns: 20, timeout_seconds: 900, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
   // 30 turns: the old investigate-trace failed at 12 on a 6-file answer and needed 20; these chains are 5-7 files in 90-120-file repositories.
@@ -63,19 +63,19 @@ export const BUILDERS = { regex, ledger, tool, never, exists, llm, shared, noEdi
 
 export const CASES = [
   // ---------------------------------------------------------------- review
-  // Fourteen cases on the init stacks (review-cases.mjs): same scaffold in both arms, graded per issue.
+  // Five cases on three fixtures (review-cases.mjs): same scaffold in both arms, graded per issue.
   ...reviewCases(BUILDERS),
   // ---------------------------------------------------------------- investigate
-  // Ten tricky questions on the init stacks and five in depth on ts-app-medium, two of them on its ts-app-medium-deep variant (investigate-cases.mjs).
+  // Five questions: two on ts-app-medium, one on its ts-app-medium-deep variant, one on seedvault, one on kiln (investigate-cases.mjs).
   ...investigateCases(BUILDERS),
   // ---------------------------------------------------------------- task
   // Two cases (task-cases.mjs): one after an investigation on the seedvault stack, one on the app fixture.
   ...taskCases(BUILDERS),
   // ---------------------------------------------------------------- plan
-  // Ten cases on the init stacks and five on ts-app-medium (plan-cases.mjs): same request in both arms, the plan graded as text.
+  // Four cases on ts-app-medium-plan (plan-cases.mjs): same request in both arms, the plan graded as text.
   ...planCases(BUILDERS),
   // ---------------------------------------------------------------- rules
-  // One case tagged `rules` (rules-cases.mjs): plan policy delivery.
+  // Two cases tagged `rules` (rules-cases.mjs): plan policy delivery and rules-draft sources.
   ...rulesCases(BUILDERS),
 ];
 

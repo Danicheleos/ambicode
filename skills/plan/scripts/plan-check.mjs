@@ -1,8 +1,8 @@
-// The mechanical part of reviewing a plan draft: every path:line anchor exists, and every delivered rule the Changes paths reach is cited.
+// The mechanical part of reviewing a plan draft: every path:line anchor exists. The result is recorded; nothing here sends the draft back.
 // With the `resolve` param it runs before the draft is saved and completes a partial path that names exactly one
 // tracked file: a bare `service.ts:4` failed the check, and the model patched the body instead of rewriting it.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const started = Date.now();
@@ -17,8 +17,10 @@ try {
 } catch (error) {
   if (error?.code !== 'ENOENT') throw error;
   // A rejected Write leaves no file; an uncaught ENOENT exited 1 and the route sent the model back with nothing to act on.
-  const message = `${bodyFile} does not exist: Write the plan there with the Write tool, then run the Then command.`;
-  process.stdout.write(JSON.stringify({ entries: [], failed: { code: 'plan-body-missing', message, recoverable: true, revise: { args: { 'plan body': [message] } } } }));
+  const message = `${bodyFile} does not exist: the plan was not written there.`;
+  // The worker entry is what the step produces: without it the step re-ran until the engine's turn limit.
+  const entries = [{ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: Date.now() - started, artifact: null, summary: { failed: true, anchorsBad: 0, anchors: [message] } }];
+  process.stdout.write(JSON.stringify({ entries, failed: { code: 'plan-body-missing', message, recoverable: true } }));
   process.exit(0);
 }
 // The first ten bad anchors are listed, enough for one fix round; the count is exact.
@@ -74,12 +76,11 @@ if (input.params?.[0] === 'resolve') {
   process.exit(0);
 }
 
-// A bare name with a few tracked homes is a miss the model can fix in one round when it sees them; more than this is noise.
-const HOMES = 3;
-const homes = (file) => {
-  if (file.includes('/')) return '';
-  const found = tracked().filter((candidate) => candidate === file || candidate.endsWith(`/${file}`));
-  return found.length === 0 || found.length > HOMES ? '' : ` (tracked: ${found.join(', ')})`;
+// A bare name is looked up among the tracked files: several homes make it ambiguous (the file exists), one is a miss with a hint.
+const homes = (file) => (file.includes('/') ? [] : tracked().filter((candidate) => candidate === file || candidate.endsWith(`/${file}`)));
+const missingReason = (file) => {
+  const found = homes(file);
+  return found.length > 1 ? `ambiguous (candidates: ${found.join(', ')})` : found.length === 1 ? `missing-file (tracked: ${found[0]})` : 'missing-file';
 };
 const badAnchors = [];
 let anchorsBad = 0;
@@ -91,56 +92,85 @@ for (const line of body.split('\n')) {
     const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
     const abs = path.resolve(root, file);
     const count = (path.isAbsolute(file) || file.split(/[\\/]/).includes('..') || !(abs + path.sep).startsWith(root + path.sep)) ? undefined : lineCount(abs);
-    const reason = count === undefined ? 'outside-repository' : count === null ? `missing-file${homes(file)}` : inRange(from, to, count) ? null : `line-out-of-range (file has ${count} lines)`;
+    const reason = count === undefined ? 'outside-repository' : count === null ? missingReason(file) : inRange(from, to, count) ? null : `line-out-of-range (file has ${count} lines)`;
     if (reason === null) continue;
     anchorsBad += 1;
     if (badAnchors.length < LISTED) badAnchors.push(`${file}:${spec} ${reason}`);
   }
 }
 
-// `policy.required` (the step's previous call) recorded the delivered rules the plan's Changes paths reach. A rule is cited by a line
-// `<rule-id>: applied at <path:line>` (the anchor is judged above) or `<rule-id>: not applicable: <reason>`; the rule text is not repeated.
-const requiredIds = () => {
-  let ids = [];
-  try {
-    for (const line of readFileSync(path.join(input.taskDir, 'ledger.jsonl'), 'utf8').split('\n')) {
-      if (!line.includes('"required"')) continue;
-      try { const entry = JSON.parse(line); if (entry.kind === 'policy' && entry.stage === 'required' && Array.isArray(entry.ids)) ids = entry.ids.map(String); } catch { /* a torn line */ }
-    }
-  } catch { /* no ledger: nothing required */ }
-  return ids;
+// In the plan's `## Requirements`, every quoted piece (or an unquoted bullet as a whole) must be in the captured ticket; a paraphrase is a miss listed beside the closest ticket line.
+const plain = (text) => text.replace(/[*`]|__/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+const ticketText = () => {
+  const dir = path.join(input.taskDir, 'requirements');
+  let names;
+  try { names = readdirSync(dir).filter((name) => name.endsWith('.json')).sort(); } catch { return ''; }
+  const contents = [];
+  for (const name of names) {
+    try { const { content } = JSON.parse(readFileSync(path.join(dir, name), 'utf8')); if (typeof content === 'string') contents.push(content); } catch { /* an unreadable capture is no ticket */ }
+  }
+  return contents.join('\n');
 };
-const unfenced = [];
+const section = [];
+let inSection = false;
+let hasSection = false;
 fence = false;
 for (const line of body.split('\n')) {
-  if (/^\s*```/.test(line)) { fence = !fence; continue; }
-  if (!fence) unfenced.push(line);
+  if (/^\s*```/.test(line)) fence = !fence;
+  if (!fence && /^##\s/.test(line)) { inSection = /^##\s+Requirements\s*$/i.test(line); hasSection ||= inSection; }
+  else if (inSection && !fence) section.push(line);
 }
-// A file the plan creates has no line (draft.md: "A new file has no line"): a bare path counts when nothing exists there yet and the plan names it on another line.
-// An existing file still needs path:line, which the anchor check above judges.
-const createdByPlan = (file, own) => lineCount(path.resolve(root, file)) === null && unfenced.some((line) => line !== own && line.includes(file));
-const citedLines = (id) => {
-  const head = new RegExp(`(?<![\\w/.-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\`*_]*:\\s*(applied at\\s+[\`(]?(?=${PATH})|not applicable:\\s*\\S)`);
-  const place = new RegExp(`(?<![\\w./-])(${PATH})(:\\d)?`, 'g');
-  return unfenced.filter((line) => {
-    const found = head.exec(line);
-    if (found === null) return false;
-    if (found[1].startsWith('not')) return true;
-    return [...line.slice(found.index + found[0].length).matchAll(place)].some(([, file, lined]) => lined !== undefined || createdByPlan(file, line));
-  }).length;
-};
-const required = requiredIds();
-const missingCitations = required.filter((id) => citedLines(id) === 0);
-// One line per rule with every location on it, so the Policies section is as long as the rule list, not as long as the number of files.
-const repeatedCitations = required.filter((id) => citedLines(id) > 1);
+// A bullet with quotes is its quoted pieces (a leading `LABEL:` inside a piece left out): the plan's own words around them are not checked.
+// An unquoted bullet is its text without the trailing `(Iteration N)` or `(already met: path:line)`: the real paraphrases (eval 22-20-25) were unquoted.
+const entries = section.flatMap((line) => {
+  const bullet = /^\s*[-*]\s+(.+?)\s*$/.exec(line)?.[1];
+  if (bullet === undefined) return [];
+  const quoted = [...bullet.matchAll(/["“](.*?)["”]/g)];
+  const texts = quoted.length > 0 ? quoted.map(([, piece]) => piece.replace(/^\s*[A-Za-z][\w-]*:\s*/, '')) : [bullet.replace(/(?:\s*\((?:Iterations?|already met)\b[^()]*\))+$/i, '')];
+  // An empty piece would pass `includes('')` and count as checked.
+  const pieces = texts.map((text) => text.replace(/\s+/g, ' ').trim()).filter((text) => text !== '');
+  return pieces.length === 0 ? [] : [pieces];
+});
+const ticket = entries.length === 0 ? '' : ticketText();
+const requirementsChecked = entries.length > 0 && ticket.trim() !== '';
+const requirementsReason = requirementsChecked ? null : !hasSection ? 'no ## Requirements section' : entries.length === 0 ? 'no entries under ## Requirements' : 'no captured ticket';
+const requirementsMissing = [];
+const missedEntries = [];
+if (requirementsChecked) {
+  const haystack = plain(ticket);
+  const pieces = ticket.split('\n').flatMap((line) => [line, ...line.split(/(?<=[.!?])\s+/)]).map((piece) => piece.replace(/\s+/g, ' ').trim()).filter((piece) => piece !== '');
+  const words = (text) => new Set(plain(text).split(/[^\p{L}\p{N}]+/u).filter((word) => word !== ''));
+  const closest = (entry) => {
+    const own = words(entry);
+    let best = ''; let bestScore = -1;
+    for (const piece of pieces) {
+      const theirs = words(piece);
+      const shared = [...own].filter((word) => theirs.has(word)).length;
+      const score = shared / (own.size + theirs.size - shared || 1);
+      if (score > bestScore) { best = piece; bestScore = score; }
+    }
+    return best;
+  };
+  // One miss per bullet; the message names the pieces not found.
+  for (const pieces of entries) {
+    const missed = pieces.filter((piece) => !haystack.includes(plain(piece)));
+    if (missed.length === 0) continue;
+    const shown = missed.join('" and "');
+    missedEntries.push(shown);
+    requirementsMissing.push(`requirement not word for word: plan "${shown}" vs ticket "${closest(missed[0])}"`);
+  }
+}
+const requirementsBad = requirementsMissing.length;
 
-const failed = anchorsBad > 0 || missingCitations.length > 0 || repeatedCitations.length > 0;
-const summary = { failed, anchorsBad, ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }), ...(missingCitations.length === 0 ? {} : { policyMissing: missingCitations }), ...(repeatedCitations.length === 0 ? {} : { policyRepeated: repeatedCitations }) };
+const failed = anchorsBad > 0 || requirementsBad > 0;
+// The count is exact (anchorsBad, requirementsBad); an unchecked section is requirementsChecked: false, not a zero.
+const summary = { failed, anchorsBad, requirementsChecked, ...(requirementsChecked ? { requirementsBad } : { requirementsReason }), ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }), ...(requirementsBad === 0 ? {} : { requirements: requirementsMissing.slice(0, LISTED) }) };
 const out = { entries: [{ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
-// At Accept the user has seen the failure (or edited the file since): the count is recorded and the plan accepted, so Accept has no loop.
+// The step records a failure and the route goes on to the gate: nothing here sends the model back, and at Accept the count is recorded and the plan accepted.
 if (failed && input.params?.[0] !== 'accept') {
-  const message = [anchorsBad > 0 ? `${anchorsBad} bad anchors: ${badAnchors.slice(0, 3).join('; ')}` : '', missingCitations.length > 0 ? `${missingCitations.length} policy rules not cited: ${missingCitations.join(', ')}` : '', repeatedCitations.length > 0 ? `${repeatedCitations.length} policy rules cited on more than one line: ${repeatedCitations.join(', ')}` : ''].filter((part) => part !== '').join('; ');
-  const args = { ...(anchorsBad > 0 ? { 'bad anchors': badAnchors } : {}), ...(missingCitations.length + repeatedCitations.length > 0 ? { 'policy citations': [...(missingCitations.length > 0 ? [`Add one line each under Policies: \`<rule-id>: applied at <path:line>\` or \`<rule-id>: not applicable: <reason>\`.`, ...missingCitations] : []), ...(repeatedCitations.length > 0 ? [`Merge into one line per rule, every location on it: \`<rule-id>: applied at <path:line>, <path:line>\`.`, ...repeatedCitations] : [])] } : {}) };
-  out.failed = { code: 'plan-check-failed', message, recoverable: true, revise: { args } };
+  // Both counts lead the message: the counts stay first so a reader of the opening sees both; the report shows the whole message.
+  const head = [anchorsBad > 0 ? `${anchorsBad} bad anchors` : '', requirementsBad > 0 ? `${requirementsBad} requirements not word for word` : ''].filter(Boolean).join(', ');
+  const details = [...badAnchors, ...missedEntries.map((entry) => `"${entry}"`)].join('; ');
+  out.failed = { code: 'plan-check-failed', message: `${head}: ${details}`, recoverable: true };
 }
 process.stdout.write(JSON.stringify(out));

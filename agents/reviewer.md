@@ -66,7 +66,7 @@ verified is discarded and the review is marked partial; the others are kept.
 
 When the same issue occurs in several places, report it once at the clearest and list the others in `supportingLocations` (same shape as `location`, each a line the brief lists) and mention them in the suggested comment.
 
-A person reads a finding at a glance, so it is three short fields, each one sentence of at most 200
+A person reads a finding at a glance, so it is three short fields, each one sentence of at most 300
 characters (a longer one is clipped): `problem` is what is wrong; `impact` is what breaks or what it
 risks, and for whom; `confidenceReason` is why you hold the stated `confidence`, which matters most
 below `high`. Words a judgement as a judgement and a fact as a fact. The suggested comment is what a human might post on the merge request: one or two

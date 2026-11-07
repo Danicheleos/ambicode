@@ -41,9 +41,8 @@ const answered = (root: string, scratchpad: string, question: string, label: str
   tool_response: { answers: { [question]: label } },
 });
 
-const RULES = ['cohesion', 'explicit-surface', 'fix-the-cause', 'need', 'ownership-and-direction', 'reuse-before-reimplementing', 'scope'];
 
-const body = (anchor: string, cited = false): string =>
+const body = (anchor: string): string =>
   [
     '# Plan: invoice discount',
     '',
@@ -55,11 +54,10 @@ const body = (anchor: string, cited = false): string =>
     '- *Checks*: invoices.',
     '- *Leaves out*: reports.',
     '',
-    ...(cited ? ['## Policies', ...RULES.map((id, at) => `common-design/${id}: ${at === 0 ? 'applied at src/invoices/service.ts:3' : 'not applicable: a one-term change'}`), ''] : []),
   ].join('\n');
 
 describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
-  it('06-H2/06-P10: under the real ledger lock, start → draft → decision → failing check sends it back with the anchors → fixed check → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
+  it('06-H2/06-P10: under the real ledger lock, start → draft → decision → failing check is recorded and shown at the gate → human Revise → fixed check → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
@@ -96,10 +94,12 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       await hook('Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']);
 
       const failing = await check(body('src/invoices/service.ts:30'));
-      assert.equal(failing.position, 'draft');
-      assert.match(failing.text, /## bad anchors\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
-      assert.match(failing.text, /## policy citations\n.*\ncommon-design\/cohesion\ncommon-design\/explicit-surface\n/);
-      const passing = await check(body('src/invoices/service.ts:3-6', true));
+      assert.equal(failing.position, 'plan-accept');
+      assert.match(failing.text, /Plan check FAILED: 1 bad anchors\.\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
+      assert.doesNotMatch(failing.text, /not cited|policy citations/);
+      const failedPrint = (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
+      await hook(`Accept this plan? [ambicode gate plan-accept ${failedPrint.id}]`, 'Revise', ['Accept', 'Revise', 'Reject']);
+      const passing = await check(body('src/invoices/service.ts:3-6'));
       assert.equal(passing.position, 'plan-accept');
       assert.doesNotMatch(passing.text, /Plan check FAILED/);
       for (const output of [failing, passing]) assert.ok(output.bytes <= 4096, `${output.bytes}`);
@@ -118,7 +118,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
 
       const decisions = 1;
       const writes = 2;
-      assert.equal(ceremony, 1 + decisions + 1);
+      assert.equal(ceremony, 1 + decisions + 1 + 1, 'one more for the human Revise');
       assert.equal(work, writes);
       assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes + 1, 'one check per write, one more when Accept re-checks the file');
       await rm(scratchpad, { recursive: true, force: true });

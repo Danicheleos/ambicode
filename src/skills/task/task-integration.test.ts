@@ -55,7 +55,7 @@ async function offByOne() {
   const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
   const tail = (cause: 'check', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, produced, scratchpadDir: scratchpad });
-  const check = async (phase: 'red' | 'green') => {
+  const check = async (phase: 'green') => {
     const result = await runCheckOnly(deps, { task: TASK, name: 'unit', project: null, files: [SPEC], phase, approve: [], decline: [] });
     assert.equal(result.outcome, 'ran');
     return tail('check', result.outcome === 'ran' ? [result.entry.id] : []);

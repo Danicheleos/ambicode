@@ -12,7 +12,7 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
     const { ledger, runtime, view, context } = input;
     const check = (await chainEntries(input)).findLast((entry) => entry.kind === 'worker' && entry['worker'] === 'plan-check');
     try {
-      await acceptPlan({ runtime, session: view.session, context, ledger }, view.task, (check?.['summary'] as { anchorsBad?: number } | undefined)?.anchorsBad ?? 0, ((check?.['summary'] as { policyMissing?: string[] } | undefined)?.policyMissing ?? []).length);
+      await acceptPlan({ runtime, session: view.session, context, ledger }, view.task, (check?.['summary'] as { anchorsBad?: number } | undefined)?.anchorsBad ?? 0);
       return { state: 'ok', payload: null };
     } catch (error) {
       return failed(error);

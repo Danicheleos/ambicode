@@ -1,21 +1,20 @@
 ---
 name: task
 description: "Make one bounded code change with the record to prove it — the smallest change with its tests, formatted and checked, an independent review offered, and a report built from the ledger; it never commits, pushes, or publishes. Only when named (/ambicode:task typed, or \"run ambicode:task\" asked by the user, also for a subagent): a plain request to implement or fix something is not this skill."
-argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>]
+argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>] [--no-review]
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
 ---
 
 # Implement a change
 
-A route hands you one step at a time: the change with its tests, format, an independent review
-offered, then the report. Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; with it the review is offered, the checks by file run unasked, and a check that runs the whole project is offered. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; one review follows over the whole change, then the checks run once, over everything the task changed. Do what each step says; the output of the command it ends with brings the next step.
+Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; with it the review is offered, the checks by file run unasked, and a check that runs the whole project is offered. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; one review follows over the whole change, then the checks run once, over everything the task changed. `--no-review` skips the review either way. The output of the command it ends with brings the next step.
 
 ## Your part
 
-The implementer subagent writes the code, runs the checks and writes the report; the route formats and reviews. You launch and relay; at the closing step reply with the one `Task report:` line the hook gives, nothing else. The result depends on what you pass on and leave out.
+The implementer subagent writes the code, runs the checks and writes the report; the route formats and reviews. You launch and relay; at the closing step reply with the one `Task report:` line the hook gives, nothing else.
 
-- Launch the implementer with the prompt the step prints; the work file carries the brief. Do not add requirements the user did not state.
+- Do not add requirements the user did not state.
 - Do not read the code to second-guess the implementer, and do not run tests yourself: a result you ran is not in the record.
 - When the implementer returns `Gaps:` or the review lists findings outside the brief, they stay in the report (code appends any left out) and are the user's to decide.
 - A request that is several unrelated changes, or that hinges on a choice only the user can make, is not one bounded change: say which part you would do first and ask, instead of guessing.

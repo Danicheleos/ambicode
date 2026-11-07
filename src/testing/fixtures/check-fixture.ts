@@ -11,10 +11,10 @@ export const CHECK_TASK = 'ord-7';
 const DEMO = `skill: demo
 version: 3
 steps:
-  - id: red
+  - id: change
     actor: model
-    instruction: "Write the failing test."
-    produces: ["check{red}"]
+    instruction: "Write the test and the fix."
+    produces: ["note{change}"]
   - id: green
     actor: model
     instruction: "Fix it."
@@ -91,7 +91,7 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
   const start = (channel: StartChannel = 'hook', headless = false, extra: object = {}) =>
     fx.engine.start({ skill: 'demo', text: 'fix the total', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel, headless, scratchpadDir: fx.scratchpad, ...extra });
   const check = (input: Partial<CheckOnlyInput> = {}, session: string | null = SESSION_A) =>
-    runCheckOnly(deps(session), { task: CHECK_TASK, name: 'unit', project: null, files: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
+    runCheckOnly(deps(session), { task: CHECK_TASK, name: 'unit', project: null, files: ['src/a.spec.ts'], phase: 'green', approve: [], decline: [], ...input });
   /** The task a creator makes (folder and an empty ledger): standalone checks run on it before any route started it. */
   const folder = async (): Promise<void> => {
     const dir = path.join(fx.repo.root, '.ambicode', 'tasks', CHECK_TASK);

@@ -18,7 +18,7 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'requirements.missing' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'checks.auto' | 'checks.offer' | 'task.seeded' | 'task.unseeded' | 'revised' }
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'requirements.missing' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'review.offered' | 'review.unasked' | 'checks.auto' | 'checks.offer' | 'task.seeded' | 'task.unseeded' | 'revised' }
   | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string }
   | { predicate: 'any'; of: When[] };
 
@@ -46,6 +46,10 @@ export interface ReviewTargetArgs { branch: boolean; base: string | null; mr: st
 /** Persisted in the `route` entry's `args` field (03-E8). */
 export interface RouteArgs {
   text: string;
+  /** The request as typed, line breaks kept; absent when `text` already is it. Not part of the hash. */
+  rawText?: string;
+  /** `--no-review`; absent otherwise, so existing hashes do not move. */
+  noReview?: boolean;
   requirements: readonly string[];
   project: string | null;
   plan: string | null;
@@ -64,7 +68,6 @@ export const HANDLER_NAMES = [
   'requirements.normalize',
   'search.map',
   'policy.stage',
-  'policy.required',
   'policy.enabled',
   'context.list',
   'evidence.plan.accept',
@@ -179,6 +182,8 @@ export interface StartInput {
   requirements: readonly string[];
   task?: string;
   headless?: boolean;
+  /** `--no-review` (task route): no review of the change and no review fix round; part of the args hash when set. */
+  noReview?: boolean;
   project?: string;
   answers?: readonly Answer[];
   cwd: string;

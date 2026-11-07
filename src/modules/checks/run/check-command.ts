@@ -171,7 +171,7 @@ async function repositoryFile(workspace: Workspace, file: string): Promise<strin
 }
 
 export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Promise<CheckOnlyOutcome> {
-  if (input.phase !== 'red' && input.phase !== 'green') throw badArgument('"check" needs --phase red|green.', 'phase');
+  if (input.phase !== 'green') throw badArgument('"check" runs only --phase green.', 'phase');
 
   const workspace = await openWorkspace(deps.runtime);
   const files = await Promise.all(input.files.map((file) => repositoryFile(workspace, file)));
@@ -219,8 +219,8 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
     kind: 'check', ...route, key, files, exit: result.exitCode, phase: input.phase,
     tail: tailOf(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
   })) as CheckEntry;
-  // Red is exit != 0 and green is exit 0; the other combination is recorded as a gap, never as proof.
-  const cause = input.phase === 'red' ? (result.exitCode === 0 ? 'no-failure' : null) : (result.exitCode === 0 ? null : 'nonzero-exit');
+  // A nonzero exit is recorded as a gap, never as proof.
+  const cause = result.exitCode === 0 ? null : 'nonzero-exit';
   if (cause !== null) await unproven(`${input.phase}-unproven`, cause);
   return { outcome: 'ran', entry, proof: cause === null ? { proven: true } : { proven: false, cause } };
 }

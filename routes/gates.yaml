@@ -3,6 +3,10 @@ requirements-not-captured-twice:
   options: ["continue without", "stop"]
   default: "continue without"
   policy: { review: stop }
+plan-unaccepted:
+  question: "This task's plan was not accepted. Run the task on the draft as it is?"
+  options: ["run on the draft", "stop"]
+  default: "run on the draft"
 check-only-unauthorized:
   question: "Run {key} on {files|the whole project}?"
   options: [approve, decline]

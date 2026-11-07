@@ -16,7 +16,7 @@ export async function runCheckCommand(runtime: Runtime, args: ParsedArgs): Promi
   const name = args.value('name');
   if (name === null) throw new AmbicodeError('bad-argument', '"check" needs --name <key>.', { field: 'name' });
   const phase = args.value('phase');
-  if (phase !== 'red' && phase !== 'green') throw new AmbicodeError('bad-argument', '"check" needs --phase red|green.', { field: 'phase' });
+  if (phase !== 'green') throw new AmbicodeError('bad-argument', '"check" needs --phase green.', { field: 'phase' });
   const tools = await routeTools(runtime);
   const { result, delegated } = await tools.engine.command(COMMAND_SPECS.check, { task }, async ({ session, context, view }) => ({
     delegated: delegatedAt(tools, view, await context.entries(task)),
@@ -35,7 +35,7 @@ export function renderCheck(output: CheckOutput): string {
       case 'ran': {
         const { entry, proof } = result;
         const key = entry.key;
-        return `check ${key} ${entry.phase}: exit ${entry.exit} (${entry.phase === 'red' ? 'red = exit != 0' : 'green = exit 0'}) — ${proof.proven ? 'as expected' : `not as expected (${proof.cause})`}\n${entry.tail ?? ''}`.trimEnd();
+        return `check ${key} ${entry.phase}: exit ${entry.exit} (green = exit 0) — ${proof.proven ? 'as expected' : `not as expected (${proof.cause})`}\n${entry.tail ?? ''}`.trimEnd();
       }
       case 'not-run': return `check ${output.name}: not run (${result.status}): ${result.detail}`;
       case 'waiting': return `check ${result.key}: waiting for the user's answer to ${result.gate}; nothing was run.`;

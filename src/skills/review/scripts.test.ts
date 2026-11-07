@@ -38,7 +38,7 @@ describe('review scripts (C7)', () => {
       assert.match(brief, /### ORD-1: Totals\nSum them\./);
       assert.match(brief, /No check recorded for this task: nothing was verified by execution\. That is a gap, not a pass\./);
 
-      await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'red', exit: 1, files: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'] })}\n`);
+      await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'green', exit: 1, files: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'] })}\n`);
       run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
       const withChecks = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       assert.match(withChecks, /- app\/unit: passed; on: a\.spec\.ts/);

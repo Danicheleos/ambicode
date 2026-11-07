@@ -8,4 +8,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-/ambicode:review --task rev-12 --headless --answer estimate=run Cite `path:line` for each claim.
+/ambicode:review --task rev-4 --headless --answer estimate=run Cite `path:line` for each claim.

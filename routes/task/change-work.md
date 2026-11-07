@@ -5,7 +5,7 @@ Run commands from the repository: `cd {repo}`.
 - Write the tests that cover the change, then run them once over all changed files: `{cli} check --task {task} --name <key> --file <file> (repeat --file per file) --phase green`, with a key listed under `checks.runnable` below.
 - A check listed there with no file form is the route's, run at the end: never run it, nor its command through Bash; list it under Gaps.
 - Behaviour added or fixed with no test in the diff is unfinished.
-- Last call, always: `{cli} route next --task {task}`. Follow the step it prints only if it is `write`.
+- Last call, always: `{cli} route next --task {task}`.
 - With several iterations your final message repeats the role file's Changed:/Checks: lines under `Iteration <n>:` for each, then `Gaps:` once.
 
 ## request

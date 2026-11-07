@@ -18,6 +18,8 @@ function onDisk(tree) {
     for (const name of readdirSync(path.join(EVALS, relative))) {
       const child = `${relative}/${name}`;
       // downstream/ is rendered from NDA assets by downstream-cases.mjs, gitignored, and absent on most machines (it made this test fail locally once the cases existed). The map bench inputs live in bench/, outside evals/.
+      // cases/init has no generator since d7ab5349; its five cases are kept on disk as live cases and are not rendered.
+      if (child === 'cases/init') continue;
       if (name === 'results' || name === 'downstream' || name === 'task-real' || name === 'suite-real' || name === 'task-chain' || name.startsWith('.')) continue;
       if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
       else out.push(child);
@@ -45,7 +47,7 @@ describe('skill coverage suite', () => {
     for (const file of disk) assert.equal(readFileSync(path.join(EVALS, file), 'utf8'), FILES.get(file), file);
   });
 
-  // Their old cases were removed; delete the skill from this list when its new cases land. init: its cases graded the context notes init no longer writes (f4eac810) and live in eval-archive.
+  // Their old cases were removed; delete the skill from this list when its new cases land. init: its cases graded the context notes init no longer writes (f4eac810); five are on disk (evals/cases/init) without a generator.
   const WITHOUT_CASES = ['init'];
   it('covers every skill with at least one case, except those awaiting new cases, and only skills that exist', () => {
     assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), SKILLS.filter((s) => !WITHOUT_CASES.includes(s)).sort());
@@ -99,6 +101,7 @@ describe('scaffold commands', () => {
       assert.ok(known.has(fixture), `${file}: unknown fixture ${fixture}`);
       if (flags.includes('--policy')) assert.ok(has('policies', '.yaml', fixture), `${file}: no fixtures/policies file for ${fixture}`);
     }
-    assert.ok(seen > 40, `only ${seen} scaffolds were checked`);
+    // Every rendered scaffold names its fixture through materialize.mjs; a count below that means the regex stopped matching.
+    assert.equal(seen, [...FILES.keys()].filter((file) => file.endsWith('/scaffold.sh')).length, 'every scaffold was checked');
   });
 });

@@ -78,6 +78,45 @@ function option(argv, name) {
   return at >= 0 ? (argv[at + 1] ?? null) : null;
 }
 
+const SKILLS = path.join(REPO, 'skills');
+const GATED = ['Bash', 'Edit', 'Write'];
+
+/** The gated-tool grants (Bash/Edit/Write rules with their patterns) a skill declares in its SKILL.md `allowed-tools`, split on commas outside parentheses. */
+export function skillGrant(skill, skills = SKILLS) {
+  const front = readFileSync(path.join(skills, skill, 'SKILL.md'), 'utf8').split(/^---\s*$/m)[1] ?? '';
+  const line = /^allowed-tools:\s*(.+)$/m.exec(front)?.[1] ?? '';
+  const rules = line.match(/[^,(]+(\([^)]*\))?/g) ?? [];
+  return rules.map((rule) => rule.trim()).filter((rule) => GATED.includes(rule.replace(/\(.*$/, '')));
+}
+
+/** Skill of a case from its prompt.md tags: plan and chain stage-1 cases run /ambicode:plan, investigate cases /ambicode:investigate, anything else is null. */
+const skillOfTags = (tags) => (tags.includes('investigate') ? 'investigate' : tags.includes('plan') || tags.includes('task-chain-plan') ? 'plan' : null);
+
+const globRe = (glob) => new RegExp(`^${glob.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+
+/** Name and tags of every case under `root`'s prompt.md files. */
+function casesOnDisk(root) {
+  return readdirSync(root, { recursive: true }).filter((file) => path.basename(file) === 'prompt.md').map((file) => {
+    const front = readFileSync(path.join(root, file), 'utf8').split(/^---\s*$/m)[1] ?? '';
+    return { name: /^name:\s*"?([^"\n]+?)"?\s*$/m.exec(front)?.[1], tags: [...(/^tags:\s*\[(.*)\]\s*$/m.exec(front)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map((m) => m[1]) };
+  });
+}
+
+/**
+ * The --allow-tools values: the plan and investigate skills' own grants when every selected case belongs to one of them, else the blanket
+ * Bash Edit Write (task cases need full Bash; an unfiltered or mixed selection cannot be narrowed, since one grant covers the whole command).
+ */
+export function grantOf(argv, { cases = path.join(REPO, 'evals', 'cases'), skills = SKILLS } = {}) {
+  const blanket = [...GATED];
+  const glob = option(argv, '--case');
+  const tag = option(argv, '--tag');
+  if (argv.includes('--bare') || (glob === null && tag === null)) return blanket;
+  const chosen = casesOnDisk(cases).filter((one) => (glob === null || globRe(glob).test(one.name)) && (tag === null || one.tags.includes(tag)));
+  const kinds = new Set(chosen.map((one) => skillOfTags(one.tags)));
+  if (chosen.length === 0 || kinds.has(null)) return blanket;
+  return [...new Set([...kinds].flatMap((skill) => skillGrant(skill, skills)))];
+}
+
 /** The harness argv and environment of one run; everything is fixed here so the run can be reproduced. */
 export function plan(argv, defaults = DEFAULTS, results = RESULTS, scratchRoot = path.join(REPO, '.tmp', 'load-check')) {
   const arm = argv.includes('--bare') ? 'bare' : 'plugin';
@@ -94,7 +133,7 @@ export function plan(argv, defaults = DEFAULTS, results = RESULTS, scratchRoot =
     '--keep-temp',
     // One arm per run: a plugin case's prompt types /ambicode:<skill>, which means nothing with no plugin loaded.
     '--ablation', 'none',
-    '--allow-tools', 'Bash', 'Edit', 'Write',
+    '--allow-tools', ...grantOf(argv),
     '--model', model,
     '--runs', option(argv, '--runs') ?? defaults.runs,
     '-j', defaults.concurrency,

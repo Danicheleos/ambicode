@@ -104,20 +104,20 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
     });
   });
 
-  it('a red check in iteration 1 keeps the route at change: no second route', async () => {
+  it('a failed check in iteration 1 keeps the route at change: no second route', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });
       await t.edit();
-      assert.equal((await t.check('red', { ran: 1, failed: 1 })).position, 'change');
+      assert.equal((await t.check('green', null, 1)).position, 'change');
       assert.equal((await routes(t)).length, 1);
     });
   });
 
-  it('a red change released by the check limit ends the loop: no second route', async () => {
+  it('a failed change released by the check limit ends the loop: no second route', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });
       await t.edit();
-      await t.check('red', { ran: 1, failed: 1 });
+      await t.check('green', null, 1);
       await t.append({ kind: 'limit', which: 'check', step: 'change', phase: 'green', count: 5 });
       let message = await t.next();
       for (let round = 0; round < 4 && message.position === 'review-agent'; round += 1) message = await t.review([]);
@@ -140,7 +140,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: TEXT });
       await t.edit();
-      await t.check('red', { ran: 1, failed: 1 });
+      await t.check('green', null, 1);
       await t.fx.engine.stop('ord-7', 'blocked', 'fix limit spent');
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['blocked']);
       assert.equal((await routes(t)).length, 1);

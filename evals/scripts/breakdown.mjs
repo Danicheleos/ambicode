@@ -9,8 +9,9 @@ import { archiveOf } from './context.mjs';
 import { contextTokens, events, mean } from './trace.mjs';
 
 // $/Mtok of claude-sonnet-5-5, fitted to total_cost_usd of 113 bare and 152 plugin traces without a subagent: max error 7e-16.
-// Cache writes are priced at 4 here; a subagent's 5-minute writes are cheaper (2.5), so costs split below are approximate for subagents.
-const PRICE = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 4 };
+// Cache writes: 1-hour (main session) 4.00, 5-minute (subagents) 2.50; refit over 7 traces with a subagent, max residual 3e-16.
+// A usage without the cache_creation split is priced all at the 1-hour rate.
+const PRICE = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 4, cacheWrite5m: 2.5 };
 // Cost of work a bare model would do with its own tools, even though the plugin wraps it: not route plumbing.
 const WORK_VERBS = new Set(['check']);
 const MARKER = /\[ambicode\] [\w-]+ · task [\w-]+ · (?:step ([\w-]+)|(complete))/;
@@ -18,7 +19,12 @@ const MARKER = /\[ambicode\] [\w-]+ · task [\w-]+ · (?:step ([\w-]+)|(complete
 const bytes = (text) => Buffer.byteLength(text ?? '');
 const textOf = (content) => (typeof content === 'string' ? content : (content ?? []).map((part) => part.text ?? (typeof part.content === 'string' ? part.content : '')).join('\n'));
 
-export const priceOf = (usage) => ((usage.input_tokens ?? 0) * PRICE.input + (usage.output_tokens ?? 0) * PRICE.output + (usage.cache_read_input_tokens ?? 0) * PRICE.cacheRead + (usage.cache_creation_input_tokens ?? 0) * PRICE.cacheWrite) / 1e6;
+export function priceOf(usage) {
+  const split = usage.cache_creation;
+  const writes5m = split ? (split.ephemeral_5m_input_tokens ?? 0) : 0;
+  const writes1h = split ? (split.ephemeral_1h_input_tokens ?? 0) : (usage.cache_creation_input_tokens ?? 0);
+  return ((usage.input_tokens ?? 0) * PRICE.input + (usage.output_tokens ?? 0) * PRICE.output + (usage.cache_read_input_tokens ?? 0) * PRICE.cacheRead + writes5m * PRICE.cacheWrite5m + writes1h * PRICE.cacheWrite) / 1e6;
+}
 
 /** `route next`, `review record`, `format`...: the CLI verb of a Bash command that runs ambicode.mjs, or null for any other command. */
 export function verbOf(command) {
@@ -69,7 +75,8 @@ export function breakdownOf(traceText, { ledgerText = null, skillBytes = null } 
   for (const event of events(traceText)) {
     if (event.type === 'result') result = event;
     // Gaps between timestamped main-session events: assistant events are model time, user events are what ran before them (a tool, the hook).
-    const at = event.timestamp && !event.parent_tool_use_id && (event.type === 'assistant' || event.type === 'user') ? Date.parse(event.timestamp) : null;
+    // Subagent events count too: their gaps are the time the main session waits on the Agent call.
+    const at = event.timestamp && (event.type === 'assistant' || event.type === 'user') ? Date.parse(event.timestamp) : null;
     if (at !== null) {
       if (lastAt !== null) {
         const seconds = (at - lastAt) / 1000;
@@ -92,10 +99,13 @@ export function breakdownOf(traceText, { ledgerText = null, skillBytes = null } 
       const into = event.parent_tool_use_id ? sub : main;
       if (!event.parent_tool_use_id && !main.has(id)) steps[current] = (steps[current] ?? 0) + 1;
       into.set(id, event.message.usage); // one API call streams as several events; the last carries the full usage
-      if (event.parent_tool_use_id) continue;
       for (const part of event.message.content ?? []) {
         if (part.type !== 'tool_use' || toolUses.has(part.id)) continue;
         toolUses.set(part.id, part.name);
+        if (event.parent_tool_use_id) {
+          toolNames.set(part.id, part.name);
+          continue;
+        }
         toolCalls++;
         const verb = part.name === 'Bash' ? verbOf(part.input?.command) : null;
         toolNames.set(part.id, verb === null ? part.name : `ambicode ${verb}`);
@@ -127,6 +137,9 @@ export function breakdownOf(traceText, { ledgerText = null, skillBytes = null } 
   const sum = (map, pick) => [...map.values()].reduce((total, usage) => total + pick(usage), 0);
   const usage = result?.usage ?? null;
   const cost = result?.total_cost_usd ?? null;
+  // Streamed snapshots undercount a subagent's output (405 vs 33045 on 2026-11-05T12-57-12-658Z); modelUsage covers every session.
+  const modelOutput = result?.modelUsage ? Object.values(result.modelUsage).reduce((total, m) => total + (m.outputTokens ?? 0), 0) : null;
+  const subOutput = modelOutput !== null && usage ? Math.max(0, modelOutput - (usage.output_tokens ?? 0)) : sum(sub, (u) => u.output_tokens ?? 0);
   const mainCost = usage ? priceOf(usage) : [...main.values()].reduce((total, u) => total + priceOf(u), 0);
   return {
     modelCalls: main.size,
@@ -158,7 +171,7 @@ export function breakdownOf(traceText, { ledgerText = null, skillBytes = null } 
     subagent: {
       calls: sub.size,
       inputTokens: sum(sub, contextTokens),
-      outputTokens: sum(sub, (u) => u.output_tokens ?? 0),
+      outputTokens: subOutput,
       reportedTotalTokens: subTotalTokens,
       spawned: result?.subagent_stats?.spawned ?? 0,
     },

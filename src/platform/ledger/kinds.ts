@@ -58,15 +58,15 @@ const schemas = [
   }),
   entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
   entry('policy', {
-    stage: z.enum(['before-work', 'drafts', 'apply', 'required']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(), activity: text.optional(), ids: optionalList,
+    stage: z.enum(['before-work', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(), activity: text.optional(), ids: optionalList,
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
   }).superRefine((value, context) => {
-    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'], required: ['ids'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
+    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })), runnable: count.optional(), full: count.optional(), tree: text.optional() }),
   entry('check', {
-    key: text, files: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
+    key: text, files: z.array(text), exit: z.number().int(), phase: z.literal('green'),
     tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
   }),
   entry('format', {
@@ -78,12 +78,12 @@ const schemas = [
   }),
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
-    summary: z.object({ failed: z.boolean(), anchorsBad: count }).optional(),
+    summary: z.object({ failed: z.boolean(), anchorsBad: count, requirementsChecked: z.boolean().optional(), requirementsBad: count.optional(), requirementsReason: text.optional(), requirements: z.array(text).optional() }).optional(),
   }),
   entry('init', { what: text, outcome: text }),
   entry('note', {
     note: z.enum(['investigation', 'plan', 'notes', 'result', 'changed', 'report']), path: text, contentHash: text,
-    iteration: z.number().int().min(1).optional(), anchorsBad: count.optional(), policyMissing: count.optional(),
+    iteration: z.number().int().min(1).optional(), anchorsBad: count.optional(),
   }),
 ] as const;
 

@@ -218,7 +218,7 @@ const front = [
   ...commitLines(),
   ...discussionLines(),
   '## Policy rules', '', rules, '',
-  ...(plan === null ? [] : ['## Plan for this iteration', '', plan.trim(), '']),
+  ...(plan === null ? [] : ['## Plan', '', 'Judge the match of the diff with the requirements and the plan, and name each departure from them as a finding.', '', plan.trim(), '']),
   '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key}: ${check.exit === 0 ? 'passed' : `FAILED (exit ${check.exit})`}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : `; last output:\n\`\`\`\n${String(check.tail ?? '').split('\n').slice(-12).join('\n')}\n\`\`\``}`)), '',
 ];
 const related_ = related();

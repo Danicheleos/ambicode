@@ -11,7 +11,7 @@ import { parse } from 'yaml';
 import { fixtureByName } from '../../fixtures/definitions.mjs';
 import { materialize } from '../../fixtures/materialize.mjs';
 import { CASES, caseDir, render } from './cases.mjs';
-import { PLAN_SPECS, goodPlan, outsidePolicies, planBodyWrite } from './plan-cases.mjs';
+import { PLAN_SPECS, goodPlan, outsidePolicies } from './plan-cases.mjs';
 import { finalFiles } from './review-cases.mjs';
 import { APP_PLAN } from '../../fixtures/app-medium.mjs';
 
@@ -36,23 +36,13 @@ const resolve = (repo, name) => repo.tracked.filter((file) => file === name || f
 const lineCount = (repo, file) => readFileSync(path.join(repo.dir, file), 'utf8').split('\n').length - 1;
 
 describe('plan cases', () => {
-  it('are fifteen: at most two per stack fixture, five on ts-app-medium-plan, small and huge ones among the stacks', () => {
-    assert.equal(planCases.length, 15);
-    const stacks = PLAN_SPECS.filter((spec) => spec.size !== 'narrow');
-    assert.equal(stacks.length, 10);
-    for (const fixture of new Set(stacks.map((spec) => spec.fixture))) assert.equal(stacks.filter((spec) => spec.fixture === fixture).length, 2, fixture);
-    assert.equal(stacks.filter((spec) => spec.size === 'small').length, 5);
-    assert.equal(stacks.filter((spec) => spec.size === 'huge').length, 5);
-    assert.deepEqual([...new Set(PLAN_SPECS.filter((spec) => spec.size === 'narrow').map((spec) => spec.fixture))], ['ts-app-medium-plan']);
-    assert.equal(PLAN_SPECS.filter((spec) => spec.size === 'narrow').length, 5);
-    for (const spec of PLAN_SPECS.filter((s) => s.size === 'huge')) assert.ok(spec.limits.max_turns > 30, `${spec.name} gets more turns than the suite default`);
-  });
-
-  it('only the draft case leaves the gate unanswered, and only it has no bare arm', () => {
+  it('are the four app cases on ts-app-medium-plan, each with a bare arm and an answered gate', () => {
+    assert.equal(planCases.length, 4);
+    assert.ok(PLAN_SPECS.every((spec) => spec.size === 'narrow'));
+    assert.deepEqual([...new Set(PLAN_SPECS.map((spec) => spec.fixture))], ['ts-app-medium-plan']);
     for (const c of planCases) {
-      const draft = c.name === 'plan-app-draft';
-      assert.equal(c.prompt.includes('--answer plan-accept=Accept'), !draft, c.name);
-      assert.equal(c.bare === null, draft, c.name);
+      assert.ok(c.prompt.includes('--answer plan-accept=Accept'), c.name);
+      assert.notEqual(c.bare, null, c.name);
     }
   });
 
@@ -99,15 +89,6 @@ describe('plan cases', () => {
         const c = planCases.find((entry) => entry.name === spec.name);
         const slug = /--task (\S+)/.exec(c.prompt)[1];
         assert.equal(slug, spec.slug);
-        if (spec.draft) {
-          // Each check reads the Write of the task's plan.md.
-          for (const [name, pattern] of spec.must) assert.equal(frontmatter(c.graders.find((g) => g.name === name).text).input_match, planBodyWrite(pattern), name);
-          for (const [name, pattern] of spec.mustNot) {
-            const own = frontmatter(c.graders.find((g) => g.name === name).text);
-            assert.deepEqual([own.input_match, own.max], [planBodyWrite(pattern), 0], name);
-          }
-          return;
-        }
         for (const [name, pattern] of [...spec.must, ...spec.mustNot]) {
           const own = graderOf(spec.name, name);
           assert.equal(own.type, 'regex');
@@ -122,17 +103,11 @@ describe('plan cases', () => {
     });
   }
 
-  it('an accepted plan is graded on the route finishing, anchors that resolve and the plan file; the draft on the gate and no promotion', () => {
+  it('an accepted plan is graded on the route finishing, anchors that resolve and the plan file', () => {
     for (const c of planCases) {
       const names = c.graders.map((g) => g.name);
       assert.ok(names.includes('anchors-valid') && !names.includes('coverage-coded'), c.name);
-      if (c.name === 'plan-app-draft') {
-        assert.ok(names.includes('accept-gate-printed') && names.includes('not-promoted') && !names.includes('route-done'));
-        assert.ok(names.includes('plan-file-written') && names.includes('status-draft'));
-        const lastMessage = c.graders.filter((g) => g.name === 'draft-stated' || g.name === 'not-called-accepted');
-        assert.equal(lastMessage.length, 2);
-        assert.ok(lastMessage.every((g) => g.text.includes('target: last_message')));
-      } else assert.ok(names.includes('route-done') && names.includes('plan-written') && names.includes('three-fields') && !names.includes('five-fields'), c.name);
+      assert.ok(names.includes('route-done') && names.includes('plan-written') && names.includes('three-fields') && !names.includes('five-fields'), c.name);
     }
   });
 
@@ -154,26 +129,6 @@ describe('plan cases', () => {
     assert.match(JSON.stringify({ file_path: '/w/repo/src/contexts/lending/domain/fees/late.ts' }), write);
     assert.match(JSON.stringify({ file_path: '/w/repo/internal/httpapi/parcels.go' }), write);
     assert.doesNotMatch(JSON.stringify({ file_path: '/w/repo/.ambicode/tasks/plan-ts-grace/plan.md' }), write);
-  });
-
-  it('the iteration grader counts Goal headings', () => {
-    const c = planCases.find((entry) => entry.name === 'plan-ts-reserve');
-    const iterations = new RegExp(frontmatter(c.graders.find((g) => g.name === '3-iterations').text).pattern);
-    assert.match('Goal a\nGoal b\nGoal c', iterations);
-    assert.doesNotMatch('Goal a\nGoal b', iterations);
-  });
-
-  it('a draft check reads the Write of plan.md, line by line in its JSON, and no other Write', () => {
-    const spec = PLAN_SPECS.find((entry) => entry.draft);
-    const write = (content, file = '/w/repo/.ambicode/tasks/plan-app-draft/plan.md') => JSON.stringify({ file_path: file, content });
-    const good = write(goodPlan(spec));
-    for (const [name, pattern] of spec.must) assert.match(good, new RegExp(planBodyWrite(pattern)), name);
-    for (const [name, pattern, bad, ok] of spec.mustNot) {
-      assert.doesNotMatch(good, new RegExp(planBodyWrite(pattern)), name);
-      assert.match(write(`${goodPlan(spec)}\n${bad}\nGoal: more`), new RegExp(planBodyWrite(pattern)), `${name} misses its bad line`);
-      assert.doesNotMatch(write(`${goodPlan(spec)}\n${ok}\nGoal: more`), new RegExp(planBodyWrite(pattern)), `${name} flags its ok line`);
-    }
-    assert.doesNotMatch(write(goodPlan(spec), '/w/repo/notes.md'), new RegExp(planBodyWrite(spec.must[0][1])));
   });
 
   it('a path check takes a bare answer that drops the leading src/', () => {
@@ -248,26 +203,6 @@ describe('plan cases', () => {
     assert.match('- `src/invoices/service.js:59-62`: add `displayTotal(invoice)`, otherwise `total(invoice)`.', must('plan-app-csv', 'summary-model-reused'));
     assert.doesNotMatch('- For every invoice, the CSV total equals `routes.get(...).body.totalCents / 100` as a decimal. A void invoice shows `0.00`.', mustNot('plan-app-csv', 'policy-no-float-money'));
     assert.match('- **Overdue isn\'t modelled.** The due date is computed in `invoices/terms.js` and printed on the invoice mail, but it isn\'t stored.', must('plan-app-vague', 'no-due-date-noticed'));
-    // p18 run (2026-10-23, 70c4eebb): files cited as the pattern to mirror or as a fact are not planned changes; the generated client stays caught.
-    assert.doesNotMatch('Mirror the existing cross-context pattern (`CatalogApi`, `src/contexts/catalog/index.ts:8-10`, consumed in `src/contexts/lending/application/deps.ts:3,16`): members exposes a small `MembersApi` port from its `index.ts`', mustNot('plan-ts-grace', 'no-unrelated-contexts'));
-    assert.doesNotMatch('- `src/contexts/lending/application/return.ts:13` - get `const grace` and call `lateFee`. The event payload is unchanged (`feeCents`), so billing (`src/contexts/billing/application/on-loan-returned.ts:7-8`) needs no change.', mustNot('plan-ts-grace', 'no-unrelated-contexts'));
-    assert.doesNotMatch('- `src/contexts/reservations/application/on-loan-returned.ts`: handler that promotes the first reservation with `holdUntil = addDays(now, HOLD_DAYS)` (`src/shared-kernel/events/event.ts:4`). Style follows `src/contexts/billing/application/on-loan-returned.ts:6-9`.', mustNot('plan-ts-reserve', 'billing-untouched'));
-    assert.doesNotMatch('- `dashboard/src/views/firing.ts:7`: replace `String(s.targetDc)` and so `Firing.targetDc` (`dashboard/src/lib/engine/types.ts:3`) and the generated client stay in tenths.', mustNot('plan-mono-degrees', 'no-other-projects'));
-    assert.doesNotMatch('- `settings_from_env` is the single place that reads the environment (`src/tidewatch/cli/main.py:10` is its only caller).', mustNot('plan-py-maxage', 'no-unrelated-layers'));
-    assert.match('- `dashboard/src/__generated__/engine-api.ts:1` says it is generated from `engine/openapi.yaml`, which is not in the repository. It is not edited by hand (CONTRIBUTING.md).', mustNot('plan-mono-calibrate', 'generated-and-vendored-untouched'));
-    // p18 mono-calibrate: the same bullet under a findings heading is a fact; under an Iteration heading it is planned work.
-    const calib = mustNot('plan-mono-calibrate', 'generated-and-vendored-untouched');
-    const generated = '- `dashboard/src/__generated__/engine-api.ts:1` says it is generated from `engine/openapi.yaml`, which is not in the repository. It is not edited by hand (CONTRIBUTING.md).';
-    assert.doesNotMatch(`## Iteration 1: x\n\n- \`dashboard/src/a.ts:1\` add a line.\n\n## What the code lacks or already settles\n\n${generated}\n\n## Assumptions\n`, calib);
-    assert.match(`## What the code lacks or already settles\n\n- fact.\n\n## Iteration 2: y\n\n${generated}\n`, calib);
-    assert.match(`## Iteration 1: x\n\n${generated}\n`, calib);
-    // 2026-10-26 baseline: a verb earlier on the line, or "does not change", is not a planned change of the cited file.
-    assert.doesNotMatch('- `src/contexts/members/index.ts:6` — add and export `interface MembersApi { lateGraceDays(memberId: string): Promise<number> }` (same shape/placement as `CatalogApi` at `src/contexts/catalog/index.ts:8`).', mustNot('plan-ts-grace', 'no-unrelated-contexts'));
-    assert.doesNotMatch('- `src/contexts/lending/application/return.ts:14`: add `itemId: loan.itemId` to the `lending.loan-returned` payload. The additions are additive; `src/contexts/billing/application/on-loan-returned.ts:7-8` ignores them.', mustNot('plan-ts-reserve', 'billing-untouched'));
-    assert.doesNotMatch('- `bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt:37` builds `StockReportService(lots)`; the constructor does not change.', mustNot('plan-jvm-bands', 'no-wiring-change'));
-    assert.match('- `src/contexts/billing/application/issue-invoice.ts:1` add a field to the invoice.', mustNot('plan-ts-reserve', 'billing-untouched'));
-    assert.match('- `src/contexts/catalog/index.ts:8`: add `lateGraceDays` to `CatalogApi`.', mustNot('plan-ts-grace', 'no-unrelated-contexts'));
-    assert.match('- `bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt:37` passes the new bands to `StockReportService`.', mustNot('plan-jvm-bands', 'no-wiring-change'));
     const day = must('plan-app-remind', 'business-day');
     assert.doesNotMatch('3. **At most once a day** means one per invoice per UTC calendar day (`clock.today()`).', day);
   });
@@ -323,8 +258,8 @@ describe('plan cases on a fixture that ships stack packs', () => {
   const stacked = planCases.filter((c) => (fixtureByName(c.fixture).stackPacks ?? []).length > 0);
   const GRADERS = ['plan-cites-its-rules', 'plan-cites-each-rule-once', 'plan-check-passed', 'plan-gets-stack-rules'];
 
-  it('are the five app cases; the plugin arm installs the stack packs, the bare arm does not', () => {
-    assert.deepEqual(stacked.map((c) => c.name).sort(), ['plan-app-csv', 'plan-app-draft', 'plan-app-remind', 'plan-app-reuse', 'plan-app-vague']);
+  it('are the four app cases; the plugin arm installs the stack packs, the bare arm does not', () => {
+    assert.deepEqual(stacked.map((c) => c.name).sort(), ['plan-app-csv', 'plan-app-remind', 'plan-app-reuse', 'plan-app-vague']);
     for (const c of stacked) {
       assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /--ambicode-init --stack-packs/, c.name);
       if (c.bare !== null) assert.doesNotMatch(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), /--ambicode-init|--stack-packs/, c.name);

@@ -35,7 +35,7 @@ function failure(command: string, argv: readonly string[], spec: OptionSpec): { 
 
 describe('U27 command line arguments', () => {
   it('accepts every option the usage text documents', () => {
-    assert.equal(parseArgs('check', ['--name', 'unit', '--file', 'a.ts', '--file', 'b.ts', '--phase', 'red'], CHECK_OPTIONS).all('file').length, 2);
+    assert.equal(parseArgs('check', ['--name', 'unit', '--file', 'a.ts', '--file', 'b.ts', '--phase', 'green'], CHECK_OPTIONS).all('file').length, 2);
 
     const review = parseArgs('review', ['--branch', '--base', 'main'], REVIEW_OPTIONS);
     assert.equal(review.flag('branch'), true);

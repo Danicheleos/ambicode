@@ -51,7 +51,7 @@ describe('a check made while the route stands at a delegated step', () => {
     assert.deepEqual(await t.steps(), before);
   });
 
-  it('a red run is recorded and prints its tail, with no "Not done yet" hint and no route text, and the route stays at change', async () => {
+  it('a failing run is recorded and prints its tail, with no "Not done yet" hint and no route text, and the route stays at change', async () => {
     const t = await atChange('node -e "console.log(\'boom 1 failed\');process.exit(1)"');
     const before = await t.steps();
     const out = await t.check();

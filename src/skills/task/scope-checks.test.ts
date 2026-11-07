@@ -7,7 +7,7 @@ import { gapsOf } from '#modules/evidence/report/report';
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
 const PLAN = '.ambicode/tasks/ord-7/plan.md';
-const TWO = '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n';
+const TWO = '---\nstatus: accepted\n---\n# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n';
 const TEXT = 'fix `total` for an empty list';
 const SKIP = 'skip — verification incomplete';
 const REPORT_GAP = 'report the gap';

@@ -15,6 +15,7 @@ describe('check --name (07-C)', () => {
     const { fx, check } = await checkFixture();
     try {
       await assert.rejects(check({ phase: 'blue' as never }), code('bad-argument'));
+      await assert.rejects(check({ phase: 'red' as never }), code('bad-argument'));
       await assert.rejects(check({ name: 'nope' }), code('bad-argument'));
       await assert.rejects(check({ project: 'web' }), code('unknown-project'));
     } finally {
@@ -67,11 +68,12 @@ describe('check --name (07-C)', () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
+      runner.out = { exitCode: 0, stdout: 'Tests:       1 passed, 1 total\n' };
       const result = await check();
       assert.equal(result.outcome, 'ran');
       assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"]]);
       const [entry] = await kinds(fx, 'check');
-      assert.equal(entry?.['phase'], 'red');
+      assert.equal(entry?.['phase'], 'green');
       assert.equal(typeof entry?.['tail'], 'string');
       assert.deepEqual(entry?.['files'], ['src/a.spec.ts']);
       assert.equal(entry?.['key'], 'app/unit');
@@ -103,7 +105,7 @@ describe('check --name (07-C)', () => {
       await start();
       const above = { ...deps(), runtime: { ...deps().runtime, invokedFrom: path.dirname(fx.repo.root) } };
       const typed = path.join(path.basename(fx.repo.root), 'src', 'a.spec.ts');
-      const run = (file: string) => runCheckOnly(above, { task: CHECK_TASK, name: 'unit', project: null, files: [file], phase: 'red', approve: [], decline: [] });
+      const run = (file: string) => runCheckOnly(above, { task: CHECK_TASK, name: 'unit', project: null, files: [file], phase: 'green', approve: [], decline: [] });
       await run(typed);
       await run('src/nope.spec.ts');
       assert.deepEqual(runner.calls[0], ["jest 'src/a.spec.ts'"]);
@@ -137,14 +139,14 @@ describe('check --name (07-C)', () => {
       const result = await check({ phase: 'green' });
       assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'nonzero-exit');
       const limits = await kinds(fx, 'limit');
-      assert.deepEqual(limits.map((entry) => [entry['which'], entry['cause'], entry['step']]), [['green-unproven', 'nonzero-exit', 'red']]);
+      assert.deepEqual(limits.map((entry) => [entry['which'], entry['cause'], entry['step']]), [['green-unproven', 'nonzero-exit', 'change']]);
       assert.deepEqual([limits[0]?.['key'], limits[0]?.['files']], ['app/unit', ['src/a.spec.ts']]);
     } finally {
       await fx.dispose();
     }
   });
 
-  it('07-C4 a timeout appends no check entry, only limit red-unproven not-run', async () => {
+  it('07-C4 a timeout appends no check entry, only limit green-unproven not-run', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
@@ -152,19 +154,19 @@ describe('check --name (07-C)', () => {
       const result = await check();
       assert.equal(result.outcome, 'not-run');
       assert.equal((await kinds(fx, 'check')).length, 0);
-      assert.deepEqual((await kinds(fx, 'limit')).map((entry) => [entry['which'], entry['cause']]), [['red-unproven', 'not-run']]);
+      assert.deepEqual((await kinds(fx, 'limit')).map((entry) => [entry['which'], entry['cause']]), [['green-unproven', 'not-run']]);
     } finally {
       await fx.dispose();
     }
   });
 
-  it('the entry keeps the last 40 output lines and a red that exits 0 is a gap', async () => {
+  it('the entry keeps the last 40 output lines and a nonzero exit is a gap', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      runner.out = { exitCode: 0, stdout: Array.from({ length: 60 }, (_, index) => `line ${index}`).join('\n') };
+      runner.out = { exitCode: 1, stdout: Array.from({ length: 60 }, (_, index) => `line ${index}`).join('\n') };
       const result = await check();
-      assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'no-failure');
+      assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'nonzero-exit');
       const [entry] = await kinds(fx, 'check');
       const tail = String(entry?.['tail']).split('\n');
       assert.equal(tail.length, 40);
@@ -212,7 +214,7 @@ describe('check --name (07-C)', () => {
       assert.deepEqual(await check({ name: 'e2e' }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/e2e' });
       const [gate] = await kinds(fx, 'gate');
       assert.deepEqual(gate?.['values'], { key: ['app/e2e'], files: ['src/a.spec.ts'] });
-      assert.equal(gate?.['raisedBy'], 'red');
+      assert.equal(gate?.['raisedBy'], 'change');
       assert.match(String(gate?.['question']), /Run app\/e2e on src\/a\.spec\.ts\?$/);
       assert.deepEqual(runner.calls, []);
     } finally {

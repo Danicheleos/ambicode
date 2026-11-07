@@ -25,6 +25,19 @@ describe('evaluateReview (07-V)', () => {
   it('07-V3: a finding line is cut to one short line', () => {
     const long = finding({ id: 'f1', problem: `first\n${'x'.repeat(400)}` });
     const out = evaluateReview(reviewEntry(), reviewResult({ kind: 'working', findings: [long] }));
-    assert.ok(out.next === 'revise-fix' && !out.findings[0]!.includes('\n') && out.findings[0]!.length < 200);
+    assert.ok(out.next === 'revise-fix' && !out.findings[0]!.includes('\n') && out.findings[0]!.split(' | suggested: ')[0]!.length < 200);
+  });
+
+  it('07-V5: a suggested comment past 300 characters is cut', () => {
+    const long = finding({ id: 'f1', suggestedComment: 'y'.repeat(900) });
+    const out = evaluateReview(reviewEntry(), reviewResult({ kind: 'working', findings: [long] }));
+    assert.ok(out.next === 'revise-fix' && out.findings[0]!.split(' | suggested: ')[1]!.length === 300);
+  });
+
+  it('07-V4: the fix step also gets the suggested comment, on the same single line', () => {
+    const one = finding({ id: 'f1', suggestedComment: 'Seed the reduce\nwith zero.' });
+    const out = evaluateReview(reviewEntry(), reviewResult({ kind: 'working', findings: [one] }));
+    assert.ok(out.next === 'revise-fix' && !out.findings[0]!.includes('\n'));
+    assert.match(out.next === 'revise-fix' ? out.findings[0]! : '', / \| suggested: Seed the reduce with zero\.$/);
   });
 });

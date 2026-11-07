@@ -52,6 +52,7 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     requirements: args.all('requirement'),
     ...(task === null ? {} : { task: taskSlugFor({ requirementIds: [], task }) ?? task }),
     headless: args.flag('headless'),
+    ...(args.flag('no-review') ? { noReview: true } : {}),
     ...(project === null ? {} : { project }),
     ...(plan === null ? {} : { plan }),
     ...(target === undefined ? {} : { target }),

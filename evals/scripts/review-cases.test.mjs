@@ -21,22 +21,18 @@ const loc = (file, from, to = from) => ({ file, lines: [from, to] });
 const tinyFiles = new Map([['src/a/routes.ts', ''], ['src/b/routes.ts', ''], ['src/b/other.ts', '']]);
 
 describe('review cases', () => {
-  it('are the fourteen of the matrix, named review-<stack>-<topic>, on neutral fixtures, with the two clean controls', () => {
-    assert.equal(reviewCases.length, 14);
+  it('are the five kept, named review-<stack>-<topic>, on neutral fixtures, with the clean control', () => {
+    assert.equal(reviewCases.length, 5);
     for (const c of reviewCases) {
       assert.match(c.name, /^review-(ts|py|go|jvm|mono)-[a-z-]+$/);
       assert.match(c.fixture, /^[a-z0-9-]+-review-\d$/);
       assert.doesNotMatch(c.description, /planted|truth/i);
     }
-    assert.deepEqual(REVIEW_TRUTHS.filter((t) => t.control).map((t) => t.name), ['review-py-clean-plugin', 'review-mono-clean-rust']);
+    assert.deepEqual(REVIEW_TRUTHS.filter((t) => t.control).map((t) => t.name), ['review-mono-clean-rust']);
   });
 
-  it('every category is planted at least twice, on at least two stacks', () => {
-    for (const category of CATEGORIES) {
-      const hits = REVIEW_TRUTHS.flatMap((t) => truthRecords(t).filter((r) => r.category === category).map(() => t.base));
-      assert.ok(hits.length >= 2, `${category}: ${hits.length}`);
-      assert.ok(new Set(hits).size >= 2, `${category} sits on one stack`);
-    }
+  // The twice-on-two-stacks spread of the full matrix cannot hold for five kept cases; only the category names are checked.
+  it('every planted issue names a known category', () => {
     for (const t of REVIEW_TRUTHS) for (const issue of t.issues) assert.ok(CATEGORIES.includes(issue.category), issue.category);
   });
 
@@ -58,7 +54,7 @@ describe('review cases', () => {
       assert.match(c.prompt, /--task rev-\d+ /, c.name);
       assert.doesNotMatch(c.description, /import|name|test|loop|clock|html|escape|bypass|error|query|rule/i, c.description);
     }
-    assert.equal(new Set(reviewCases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, 14);
+    assert.equal(new Set(reviewCases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, 5);
   });
 
   it('the bare prompt and the plugin prompt carry no truth', () => {
@@ -274,32 +270,9 @@ const PROBES = {
     { text: 'chargeLateFees was retested and the latest build is green.', credits: [] },
     { text: 'chargeLateFees has no test.', credits: ['s2'] },
   ],
-  'review-ts-strategy': [
-    { text: 'A unit test would catch a bad FeeStrategy.', credits: [] },
-    { text: 'FeeStrategyFactory has no test.', credits: ['s3'] },
-  ],
-  'review-py-error-codes': [
-    { text: 'ingest is tested with a batch of three readings.', credits: [] },
-    { text: 'ingest leaves the earlier readings already stored when a later one fails.', credits: ['s2'] },
-  ],
-  'review-py-peak-window': [
-    { text: 'tests/test_peaks.py covers the handler for high_water_hours and the latest data.', credits: [] },
-    { text: 'high_water_hours has no test for the last hour.', credits: ['s2'] },
-  ],
-  'review-go-swallowed-error': [
-    { text: 'There is no test where Advance returns an error.', credits: ['s2'] },
-    { text: 'Advance returns an error that is swallowed; a test would have caught it.', credits: ['main'] },
-  ],
-  'review-go-handler-bypass': [
-    { text: 'BayHandler bypasses the planner; a test would have caught it.', credits: ['main'] },
-    { text: 'BayHandler has no test.', credits: ['s1'] },
-  ],
   'review-jvm-retire-rule': [
     { text: 'RetirementRules.check uses an inverted isBefore; a unit test would have caught it.', credits: ['main'] },
     { text: 'RetirementRules has no test.', credits: ['s1'] },
-  ],
-  'review-mono-notes-html': [
-    { text: 'addNote has no test.', credits: ['s2'] },
   ],
 };
 

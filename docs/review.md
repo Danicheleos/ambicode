@@ -7,7 +7,7 @@ diff, lists the checks recorded for the task, and puts both to an independent
 reviewer subagent that reads the diff and the checkout.
 
 The review runs no checks. The model picks the tests that cover the change and
-records each with `ambicode check --task <slug> --name <check> --file <path> --phase red|green`.
+records each with `ambicode check --task <slug> --name <check> --file <path> --phase green`.
 A review with no recorded check says so as a gap.
 
 ## Choosing a target

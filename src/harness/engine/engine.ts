@@ -120,6 +120,9 @@ export function createEngine(deps: EngineDeps): Engine {
       const field = input.target.mr !== null ? '--mr' : input.target.base !== null ? '--base' : '--branch';
       throw new AmbicodeError('bad-argument', `${field} names a review target; route ${def.skill} takes none.`, { field });
     }
+    if (input.noReview === true && def.skill !== 'task') {
+      throw new AmbicodeError('bad-argument', `--no-review skips the review of the task route; route ${def.skill} has none to skip.`, { field: 'no-review' });
+    }
     const answers = input.answers ?? [];
     validateAnswers(def, answers);
     const rt: Runtime = input.cwd === runtime.cwd ? runtime : { ...runtime, cwd: input.cwd };
@@ -147,6 +150,7 @@ export function createEngine(deps: EngineDeps): Engine {
       plan: input.plan ?? null,
       answers,
       headless,
+      ...(input.noReview === true ? { noReview: true } : {}),
       ...(target === undefined ? {} : { target }),
       hasRequirement: hasRequirement({ text, requirements: input.requirements, headless }, { mcpServer: requirementsServer(config.requirements.mcps) }),
     });

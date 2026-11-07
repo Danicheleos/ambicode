@@ -31,14 +31,14 @@ steps:
     actor: model
     instruction: file:routes/task/change.md
     work: file:routes/task/change-work.md
-    payload: [brief, "file:envelope", baseline, map, "policy:before-work", checks.runnable]
+    payload: [brief, envelope, baseline, map, "policy:before-work", checks.runnable]   # inline: the implementer reads the ticket from its work file, not behind a pointer
     produces: ["check{green}"]
   - id: format
     actor: code
     run: [checks.format, checks.approved]         # runs once the green check ends change, before the offer, so a skipped review is still formatted; approved checks run after it
   - id: review-offer
     actor: human
-    when: iteration.named                         # only an interactive run that names an iteration is offered the review; with none named the one review of the whole change runs unasked, and headless runs none
+    when: review.offered                         # only an interactive run that names an iteration is offered the review (never with --no-review); with none named the one review of the whole change runs unasked, and headless runs none
     gate:
       question: "Run the independent review of this change?"
       options: [run, "skip — verification incomplete"]
@@ -54,23 +54,23 @@ steps:
       acting: [run]
   - id: brief
     actor: code
-    when: gate.review-offer.is(run) or iteration.unnamed
+    when: gate.review-offer.is(run) or review.unasked
     run: [review.pin, "policy.stage(before-work, review)", "search.map(context, review)", script(brief)]
     repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
   - id: review-agent
     actor: model
-    when: gate.review-offer.is(run) or iteration.unnamed
+    when: gate.review-offer.is(run) or review.unasked
     instruction: file:routes/review/agent.md
     work: file:routes/review/agent-work.md
     payload: ["script:brief"]
   - id: review-record
     actor: code
-    when: gate.review-offer.is(run) or iteration.unnamed
+    when: gate.review-offer.is(run) or review.unasked
     run: review.record                            # reads the reviewer's answer file; none is a failed review
     produces: ["review{recorded}"]
   - id: review-run
     actor: code
-    when: gate.review-offer.is(run) or iteration.unnamed
+    when: gate.review-offer.is(run) or review.unasked
     run: review.evaluate
     onFail: revise fix                            # review-findings: the first entry to fix
   - id: fix
@@ -78,7 +78,7 @@ steps:
     when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
     instruction: file:routes/task/fix.md
     work: file:routes/task/fix-work.md
-    payload: [brief, "file:envelope", "policy:before-work", checks.runnable]
+    payload: [brief, envelope, "policy:before-work", checks.runnable]   # inline like change: the implementer reads the ticket from its work file
     produces: ["check{green}"]
     repeat: 4                                     # review findings, the end checks' automatic round, then at most two the user asks for (checks-again)
   - id: scope-checks

@@ -106,6 +106,20 @@ describe('the implementer closes its own step and writes the report', { concurre
     }
   });
 
+  it('narration before the first heading is not saved in report.md; a report with no heading is saved as written', async () => {
+    const narrated = `The route says to write the report now.\n\n${REPORT}`;
+    const headless = 'Done: the empty list now totals 0.\nChecks: app/unit: passed';
+    for (const [final, expected] of [[narrated, REPORT], [headless, headless]] as const) {
+      await withTask(async (t, send, file) => {
+        await t.start({ headless: true });
+        await implementerNext(t);
+        await send(stopped(await file('text', final)));
+        const saved = await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8');
+        assert.ok(saved.startsWith(expected), saved);
+      });
+    }
+  });
+
   it('a report that already states the gap is saved as written', async () => {
     await withTask(async (t, send, file) => {
       await t.start({ headless: true });

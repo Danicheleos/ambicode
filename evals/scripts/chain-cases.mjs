@@ -216,7 +216,7 @@ export function caseFiles({ real, sources, arm, seed }) {
   const files = new Map();
   const limits = arm === 'plan' ? PLAN_LIMITS : (real.limits ?? TASK_LIMITS);
   files.set(`${root}/case.yaml`, `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task', checksOff: true, material: real.material }, plugin));
+  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task', checksOff: true, remove: real.remove, material: real.material }, plugin));
   if (arm === 'task') for (const [relative, text] of Object.entries(seed)) files.set(`${root}/${relative}`, text);
   files.set(`${root}/prompt.md`, [
     '---',
@@ -237,7 +237,7 @@ export function caseFiles({ real, sources, arm, seed }) {
   const graders = arm === 'plan' ? planGraders(real) : [...graderFiles(real, plugin).filter((one) => !PLUGIN_ONLY_OLD.has(one.name)), ...(plugin ? routeGraders(real) : [])];
   for (const one of graders) files.set(`${root}/graders/${one.name}.md`, one.text);
   if (arm !== 'plan') {
-    const diffGraders = real.graders.filter((g) => g.kind === 'diff').map(({ name, pattern, in: inside, match, weight }) => ({ name, pattern: DIFF_GRADER_OVERRIDES[real.base]?.[name]?.pattern ?? pattern, ...(DIFF_GRADER_OVERRIDES[real.base]?.[name]?.keptIf === undefined ? {} : { keptIf: DIFF_GRADER_OVERRIDES[real.base][name].keptIf }), ...(DIFF_GRADER_OVERRIDES[real.base]?.[name]?.perFile ? { perFile: true } : {}), ...(inside === undefined ? {} : { in: inside }), ...(match === undefined ? {} : { match }), weight: weight ?? 1 }));
+    const diffGraders = real.graders.filter((g) => g.kind === 'diff').map(({ name, pattern, in: inside, match, weight, perFile }) => ({ name, pattern: DIFF_GRADER_OVERRIDES[real.base]?.[name]?.pattern ?? pattern, ...(DIFF_GRADER_OVERRIDES[real.base]?.[name]?.keptIf === undefined ? {} : { keptIf: DIFF_GRADER_OVERRIDES[real.base][name].keptIf }), ...(DIFF_GRADER_OVERRIDES[real.base]?.[name]?.perFile || perFile ? { perFile: true } : {}), ...(inside === undefined ? {} : { in: inside }), ...(match === undefined ? {} : { match }), weight: weight ?? 1 }));
     files.set(`${root}/truth.json`, `${JSON.stringify({ name: real.name, source: 'changed', level: 'file', relevant: real.relevant, allowed: real.allowed, ...(diffGraders.length === 0 ? {} : { diffGraders }), bench: { repo: real.repo, commit: real.commit, parent: real.parent } }, null, 2)}\n`);
   }
   return files;

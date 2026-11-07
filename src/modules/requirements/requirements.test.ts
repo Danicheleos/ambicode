@@ -261,12 +261,12 @@ describe('envelope', () => {
     }
   });
 
-  it('with nothing to fetch the envelope has no sources and is built from the request', async () => {
+  it('with nothing to fetch the request text is the one source, saved as typed', async () => {
     const s = await session({ skill: 'investigate', requirements: [], text: 'which files?' });
     try {
       const result = await s.normalize();
-      assert.ok(result.state === 'ok' && result.builtFrom === 'args');
-      assert.deepEqual(result.sources, []);
+      assert.ok(result.state === 'ok' && result.builtFrom === 'captures');
+      assert.deepEqual(result.sources.map((source) => [source.key, source.content]), [['request', 'which files?']]);
     } finally {
       await s.fx.dispose();
     }

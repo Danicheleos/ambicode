@@ -11,16 +11,16 @@ const FILES = render();
 const cases = CASES.filter((c) => c.name.startsWith('investigate-'));
 const frontmatter = (text) => parse(text.split('---')[1]);
 const grader = (c, name) => c.graders.find((g) => g.name === name);
-const BROAD = ['ts-service-lendbox', 'py-service-tidewatch', 'go-module-parcelhub', 'jvm-gradle-seedvault', 'monorepo-rust-ts-kiln'];
+const BROAD = ['jvm-gradle-seedvault', 'monorepo-rust-ts-kiln'];
 const passes = (text, spec) => new RegExp(spec.pattern).test(text) === (spec.match !== 'not_contains');
 
 describe('investigate cases', () => {
-  it('are one per stack fixture, three on ts-app-medium and two on its deep variant, one case per truth', () => {
+  it('are one on each of the two kept stack fixtures, two on ts-app-medium and one on its deep variant, one case per truth', () => {
     assert.equal(cases.length, INVESTIGATE_TRUTHS.length);
     for (const fixture of BROAD) assert.equal(cases.filter((c) => c.fixture === fixture).length, 1, fixture);
-    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium').length, 3);
-    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium-deep').length, 2);
-    assert.equal(cases.length, 10);
+    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium').length, 2);
+    assert.equal(cases.filter((c) => c.fixture === 'ts-app-medium-deep').length, 1);
+    assert.equal(cases.length, 5);
     assert.equal(new Set(cases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, cases.length, 'task slugs are unique');
   });
 
@@ -134,13 +134,9 @@ describe('facts and citations accept the right wording and refuse the plausible 
   const pick = (name, grader_) => cases.find((c) => c.name === name).graders.find((g) => g.name === grader_);
   const spec = (name, grader_) => frontmatter(pick(name, grader_).text);
   const wrongAndRight = [
-    ['investigate-go-label-bay', 'price-7-40', 'price: 7.40', 'price: 3.50'],
-    ['investigate-ts-extend-late-fee', 'fee-100-cents', 'two days late is 100 cents', 'nine days late is 450 cents'],
     ['investigate-mono-max-setpoint', 'limit-13000', 'MAX_SETPOINT_DC is 13_000', 'the limit is 1300'],
     ['investigate-app-segment-flow-2', 'gold-threshold', 'gold needs 500000 cents', 'gold needs 5000 cents'],
     ['investigate-app-segment-flow-2', 'window-365', 'a 365 day window', 'a 30 day window'],
-    ['investigate-app-optout-files-2', 'lists-a-test', '- tests/customers/service.test.js', '- src/customers/service.js'],
-    ['investigate-py-unit-adapters', 'weir-centimetres', 'weir_levels reads centimetres', 'weir_levels reads millimetres'],
   ];
   for (const [name, graderName, right, wrong] of wrongAndRight) {
     it(`${name}/${graderName}`, () => {
@@ -148,18 +144,6 @@ describe('facts and citations accept the right wording and refuse the plausible 
       assert.ok(!passes(wrong, spec(name, graderName)), wrong);
     });
   }
-
-  it('a citation grader needs a line number and takes the path with or without a leading directory', () => {
-    const g = spec('investigate-ts-extend-late-fee', 'cites-application-extend-ts');
-    for (const ok of ['src/contexts/lending/application/extend.ts:12', 'repo/src/contexts/lending/application/extend.ts:10-20', '`src/contexts/lending/application/extend.ts:3`']) assert.ok(passes(ok, g), ok);
-    for (const no of ['src/contexts/lending/application/extend.ts has no cap', 'extend.ts:12']) assert.ok(!passes(no, g), no);
-  });
-
-  it('an app answer that lists the legacy export in its files fails the decoy grader; one that cites it in prose passes', () => {
-    const g = spec('investigate-app-total-legacy', 'files-skip-decoys');
-    assert.ok(!passes('## Files\n- src/invoices/service.js\n- src/legacy/invoice-total.js\n', g));
-    assert.ok(passes('src/legacy/invoice-total.js is frozen and unused here.\n## Files\n- src/invoices/service.js\n', g));
-  });
 });
 
 describe('the deep app variant', () => {
@@ -180,23 +164,3 @@ describe('the deep app variant', () => {
     for (const file of deep.keys()) if (file.startsWith('src/') && file !== 'src/customers/patch.js') assert.doesNotMatch(deep.get(file), /receiptChannels/, file);
   });
 });
-
-describe('the decoy grader reads the entries of the Files list, not the prose around it', () => {
-  const g = frontmatter(grader(cases.find((c) => c.name === 'investigate-app-optout-files-2'), 'files-skip-decoys').text);
-  // The shape of the optout-files-2 plugin answer of 2026-10-23: a "Files that change" heading with a numbered list, then decisions in prose that name a ruled-out file.
-  const answer = (tail) => `## Files that change\n1. \`src/customers/patch.js\`: add the field (\`src/customers/patch.js:4-8\`).\n2. \`src/notifications/handlers.js\`: use the chosen channels.\n\n### Decisions\n- The \`smsReceipts\` flag (\`src/flags.js:4\`) may still gate SMS.\n${tail}`;
-
-  it('passes a decoy named only in prose below a "## Files that change" heading', () => {
-    assert.ok(passes(answer('\n## Files\nsrc/customers/patch.js\nsrc/notifications/handlers.js\n'), g));
-    assert.ok(passes(answer(''), g));
-  });
-
-  it('fails a decoy that is an entry of the list, whatever the bullet, number or backticks, and under any heading suffix', () => {
-    for (const entry of ['- src/flags.js', '* `src/flags.js`', '3. src/flags.js: unrelated', '- **src/flags.js**']) {
-      assert.ok(!passes(`## Files that change\n- src/customers/patch.js\n${entry}\n`, g), entry);
-    }
-    assert.ok(!passes(answer('\n## Files\nsrc/customers/patch.js\nsrc/flags.js\n'), g));
-    assert.ok(passes('## Files\n- src/flags.json\n- src/customers/patch.js\n', g), 'a longer name is not the decoy');
-  });
-});
-

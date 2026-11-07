@@ -27,7 +27,7 @@ import type { Omission, TargetSelection } from '#types/modules/review';
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
 const AGAIN_GATE = 'review-again';
 const ESTIMATE_STEP = 'estimate-step';
-/** Beside the pinned result: the plan's section for the iteration under review, read by the brief script. */
+/** Beside the pinned result: the whole plan (header and every iteration), read by the brief script. */
 const PLAN_SECTION = 'plan-iteration.md';
 const NARROW_HINT = 'give the --only/--exclude tokens as your answer';
 
@@ -181,7 +181,7 @@ const pin: Handler = async (input) => {
     }
     const pinned = await pinAssembled(runtime, bundle, { omissions: scope.omissions, ledger: scope.ledger, append: (fields) => input.ledger.append(fields) });
     const started = reviewing ? undefined : chain.find((entry) => entry.kind === 'step' && entry['step'] === 'start');
-    const section = started === undefined ? null : (await briefOf({ ...input, args: { ...input.args, plan: started['planPath'] as string | null, iteration: started['iteration'] as number } }, [], started['through'] as number | undefined)).brief;
+    const section = started === undefined ? null : (await briefOf({ ...input, args: { ...input.args, plan: started['planPath'] as string | null, iteration: null } }, [])).brief;
     if (section !== null) await runtime.fs.writeText(path.join(pinned.bundle.reviewDirectory, PLAN_SECTION), `${section}\n`);
     return { state: 'ok', payload: null };
   } catch (error) {

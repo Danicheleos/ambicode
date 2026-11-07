@@ -22,8 +22,8 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: the 43 cases of cases.mjs (+ downstream once generated)
-npm run evals:bare                  # bare arm: 40 cases of cases.mjs (+ downstream), no plugin
+npm run evals                       # plugin arm: the 18 cases of cases.mjs (+ downstream once generated)
+npm run evals:bare                  # bare arm: 16 cases of cases.mjs (+ downstream), no plugin
 npm run evals -- --case 'review-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
@@ -132,7 +132,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Three cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`) and one `plan` case (`plan-app-draft`); the after-investigate task case has a bare arm that gets the note as prompt text.
+Two cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`); the after-investigate task case has a bare arm that gets the note as prompt text.
 
 ## Suites
 
@@ -140,11 +140,12 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 
 | Suite | Cases | Bare | Source |
 | --- | --- | --- | --- |
-| review | 14 | 14 | `cases.mjs`, see Review cases |
-| investigate | 15: app 5, other stacks 5 (`investigate-<ts|py|go|jvm|mono>-*`), downstream 5 | 15 | 10 in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs` |
-| plan | 15 | 14 | `cases.mjs`: app 5, other stacks 10 |
+| review | 5 (3 jvm, `review-ts-boundary`, `review-mono-clean-rust`) | 5 | `cases.mjs`, see Review cases |
+| investigate | 10: 5 in `cases.mjs` (app 3, `investigate-jvm-viability-rule`, `investigate-mono-max-setpoint`), downstream 5 | 10 | 5 in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs` |
+| plan | 5 (`plan-app-csv`, `-reuse`, `-vague`, `-remind`, `plan-policy-staged`) | 4 | `cases.mjs`: the 4 app cases; `plan-policy-staged` is in `rules-cases.mjs` |
 | task | 2 (`task-app-segments-void`, `task-jvm-after-investigate`; both tag `task-tune`) | 2 | `cases.mjs` (task-cases.mjs); the other 20 are in `../eval-archive/task-cases-2026-10-29` |
 | rules (tag; the cases sit in the rules and plan suites) | 2 | 0 | `rules-cases.mjs` |
+| init | 5 (`cases/init`, on disk only: no generator since d7ab5349, skipped by `suite.test.mjs`) | 0 | none |
 | bench/map | 10 | offline | `map-cases.mjs`, scored by `map-bench.mjs` |
 | evals/local/bench/map-k12 | 5 | offline | `map-k12-cases.mjs`, second stack (Python) |
 
@@ -160,7 +161,7 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 
 ## Review cases
 
-Fourteen cases (`evals/scripts/review-cases.mjs`) review an uncommitted change of 48 to 91 added lines (blank lines included) on the five init stacks (`fixtures/review-changes.mjs`, fixtures `<base>-review-<n>`, numbered so a name says nothing about the defect). Twelve hold one main issue and two or three others, each from a category other than the main's, and every real issue in a diff is in the truth; `py-clean-plugin` and `mono-clean-rust` are clean controls. Both arms get the same scaffold: config (`--ambicode-init`), conventions (`--context`) and, where the matrix assigns a team rule, a project pack (`--policy`, `fixtures/policies/<stack>.yaml`, authority `team`, listed under `policyFiles`). The lift measures the reviewer route, not the material.
+Five kept cases of the fourteen defined by the matrix (`evals/scripts/review-cases.mjs`; the other nine are in `../eval-archive`) review an uncommitted change of 48 to 91 added lines (blank lines included) on the five init stacks (`fixtures/review-changes.mjs`, fixtures `<base>-review-<n>`, numbered so a name says nothing about the defect). Four hold one main issue and two or three others, each from a category other than the main's, and every real issue in a diff is in the truth; `mono-clean-rust` is a clean control. Both arms get the same scaffold: config (`--ambicode-init`), conventions (`--context`) and, where the matrix assigns a team rule, a project pack (`--policy`, `fixtures/policies/<stack>.yaml`, authority `team`, listed under `policyFiles`). The lift measures the reviewer route, not the material.
 
 Each case directory holds `review-truth.json`: `[{id, category, main, what, locations: [{file, lines}], anchors: [{ids, near | gap}]}]`, `[]` for a control. An issue has one or more locations (resolved from `find` strings in the fixture; the first lies inside the added lines of the working-tree diff, checked by `fixtures/review-fixtures.test.mjs`, the others may name code the change leaves alone, like the second limit a new constant duplicates) and anchors. Task names are neutral (`rev-<n>`) and the case description names no defect: the scaffold materializes only `repo/`, so nothing of the case directory is in the run's working directory.
 
@@ -174,17 +175,7 @@ Each case directory holds `review-truth.json`: `[{id, category, main, what, loca
 
 `review-cases.test.mjs` feeds every case synthetic outputs and asserts each deterministic grader: a perfect output (every issue cited as full path, basename, range, list and anchor only) credits every issue in both arms; one issue's exact citation credits only it and the issues it declares overlap with, and its anchor credits no other; the audit probes (a remark about one issue that used to credit another: "retested", "a unit test would have caught it", a generic id and keyword pair) credit only their own issue; an empty output, a clean report, an identifier alone, a citation moved ten lines and a citation of another file credit nothing; a control fails on a medium finding and passes on a low one.
 
-| Category | Count | Where |
-| --- | --- | --- |
-| team-rule | 3 | ts-boundary, go-wall-clock, mono-notes-html (secondary) |
-| naming-comments | 4 | ts-boundary (secondary), ts-strategy (secondary), py-error-codes (secondary), jvm-transfer-use-case (secondary) |
-| tests | 11 | ts-boundary (secondary), ts-strategy (secondary), ts-weak-tests, py-peak-window (secondary), go-handler-bypass (secondary), go-swallowed-error (secondary), go-wall-clock (secondary), jvm-transfer-use-case (secondary), jvm-lot-query (secondary), jvm-retire-rule (secondary), mono-notes-html (secondary) |
-| correctness | 5 | ts-boundary (secondary), ts-weak-tests (secondary), py-error-codes (secondary), py-peak-window, jvm-retire-rule |
-| bloat | 2 | ts-strategy, jvm-lot-query |
-| dead-dup | 6 | ts-strategy (secondary), ts-weak-tests (secondary), py-peak-window (secondary), go-swallowed-error (secondary), go-wall-clock (secondary), jvm-retire-rule (secondary) |
-| collected | 3 | ts-weak-tests (secondary), py-error-codes, jvm-lot-query (secondary) |
-| arch-style | 2 | go-handler-bypass, jvm-transfer-use-case |
-| error-security | 3 | go-handler-bypass (secondary), go-swallowed-error, mono-notes-html |
+The category-by-stack table of the full fourteen-case matrix went with the nine cases removed from the live set; the kept cases cover the categories their `REVIEW_TRUTHS` entries name.
 
 `node evals/scripts/cases.mjs --case 'review-*'` rewrites just these cases. `review-cases.test.mjs` checks them at no cost; no paid run has scored them yet. Each fixture also builds and passes its own tests with the stack's toolchain (go build, vet and test; cargo check, clippy and test; gradle test; tsc and the tests; pytest) apart from the intended defects.
 

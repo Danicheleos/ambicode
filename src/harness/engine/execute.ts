@@ -4,6 +4,7 @@ import { requirementGapsOf } from '#modules/requirements/envelope/render';
 import { fitMapText } from '#modules/search/map';
 import { shellQuote } from '#modules/checks/run/run';
 import { AmbicodeError } from '#util/errors';
+import { contentHash } from '#util/hash';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
 import { currentIn, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
 import { gatePrintText, gateThen, raiseGate } from '../gates/gates.ts';
@@ -101,6 +102,23 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     return parts.length === 0 ? '' : ` Recorded: ${parts.join('; ')}.`;
   }
 
+  /** The Plan block: the plan's path and one line per `## Iteration N: <title>` with the first sentence of its Goal. */
+  async function planSummary(run: Run): Promise<string> {
+    const text = await run.runtime.fs.readText(run.dir.plan).catch(() => null);
+    const status = text === null ? null : /^---\n(?:(?!---\n).*\n)*?status:[ \t]*(\w+)/.exec(text)?.[1] ?? null;
+    const lines = [`Plan${status === null ? '' : ` (${status})`}: ${path.relative(run.dir.repositoryRoot, run.dir.plan).split(path.sep).join('/')}`];
+    if (text !== null) {
+      for (const section of text.split(/^(?=## )/m).filter((part) => part.startsWith('## Iteration '))) {
+        const title = /^## Iteration (\d+):?[ \t]*(.*)$/m.exec(section);
+        if (title === null) continue;
+        const goal = /^\s*(?:[-*]\s*)?\*Goal\*:?\s*(.+)$/m.exec(section)?.[1] ?? '';
+        const sentence = (/^.*?[.!?](?=\s|$)/.exec(goal)?.[0] ?? goal).trim();
+        lines.push(`${title[1]}. ${title[2]!.trim()}${sentence === '' ? '' : `: ${sentence}`}`);
+      }
+    }
+    return `${lines.join('\n')}\n\n`;
+  }
+
   async function finish(run: Run): Promise<Part> {
     const chain = chainOf(run);
     const gaps = gapsOf(chain.entries, currentIn(run.def, chain));
@@ -117,11 +135,12 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     // After `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
     const unverified = gaps.length === 0 ? '' : `Not verified:\n${gaps.map((gap) => `- ${gap}`).join('\n')}\n\nThe Stop hook blocks your final message once if it leaves one of these out.\n\n`;
-    // The plan is already saved and printed; a recap of it was ~560 output tokens plus a repeat turn when it left a gap out.
-    const closing = run.def.skill === 'plan' ? (gaps.length === 0 ? 'one line, `Done.`' : 'only the Not verified items') : `what was done in plain words${gaps.length === 0 ? '' : ', then each Not verified item'}`;
+    // "Done." left the user without the iterations or the plan path; the closing now carries both, so the model copies it and does not retell the plan.
+    const plan = run.def.skill === 'plan' && !status.startsWith('ended') ? await planSummary(run) : '';
+    const closing = run.def.skill === 'plan' ? `the Plan block above as is${gaps.length === 0 ? '' : ', then each Not verified item'}` : `what was done in plain words${gaps.length === 0 ? '' : ', then each Not verified item'}`;
     const body = status.startsWith('ended')
       ? `The route has ended.\n\n${unverified}${after}, saying why it ended.`
-      : `The route is complete.${recordedLine(chain.entries)}\n\n${unverified}${after}: ${closing}.`;
+      : `The route is complete.${recordedLine(chain.entries)}\n\n${plan}${unverified}${after}: ${closing}.`;
     return (await partOf(run, null, header, body)).part;
   }
 
@@ -228,17 +247,21 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'repeated', cause: run.cause });
       }
       prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.\n\n`;
-      // A red check would re-send the whole step, which the model already holds.
+      // A failed check would re-send the whole step, which the model already holds.
       if (run.cause === 'check') return (await partOf(run, step, `[ambicode] ${run.def.skill} · task ${run.task} · step ${step.id} (${step.index + 1}/${run.def.steps.length})`, prefix.trimEnd())).part;
     }
     // The request goes whole into a work file only where its text asks for it: the reviewer judges the code, not the author's goal.
-    const request = ((run.head['args'] ?? {}) as RouteArgs).text.trim();
+    const headArgs = (run.head['args'] ?? {}) as RouteArgs;
+    const typed = (headArgs.rawText ?? headArgs.text).trim();
+    // The ticket captured as the `request` source (by any route of the task, as the envelope reads it) is delivered in the envelope: repeating it here doubled it.
+    const everything = await run.ledger.read();
+    const captured = everything.state === 'ok' && everything.entries.some((entry) => entry.kind === 'requirement' && entry['key'] === 'request' && entry['rawHash'] === contentHash(typed));
+    const request = captured ? 'The ticket as typed is the `request` source under `## envelope` below.' : typed;
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{plan}', run.dir.plan).replaceAll('{policy}', payloadFile(run.dir, chainKey([...chainOf(run).ids]), 'policy:before-work')).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
-    // `Now:` carries the first line whole unless stepHeader clips it (over 160 and no backtick); a heading stays, it is the shape the step asks for.
-    const flat = nowLine.replace(/\s+/g, ' ').trim();
-    const body = /^\s*#/.test(instruction) || (flat.length > 160 && !flat.includes('`')) ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
+    // `Now:` carries the first line whole; a heading stays, it is the shape the step asks for.
+    const body = /^\s*#/.test(instruction) ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
     const launch: string[] = body === '' ? [] : [body];
     // A delegated step's own message only launches the subagent; everything it would have carried goes to the work file.
     const sections: string[] = step.work === null ? launch : [fill(step.work)];
@@ -407,11 +430,9 @@ export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
  */
 export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string; route?: string; iteration?: string }): string {
   const now = input.now.replace(/\s+/g, ' ').trim();
-  // A command in backticks is never cut: a cut one cannot be run.
-  const clipped = now.length <= 160 || now.includes('`') ? now : `${now.slice(0, 157)}…`;
   return [
     `[ambicode] ${input.skill} · task ${input.task}${input.iteration === undefined ? '' : ` · iteration ${input.iteration}`} · step ${input.step} (${input.position}/${input.total})`,
-    `Now: ${clipped}`,
+    `Now: ${now}`,
     `Then: ${input.then}`,
     ...(input.route === undefined ? [] : [`Route: ${input.route}`]),
   ].join('\n');

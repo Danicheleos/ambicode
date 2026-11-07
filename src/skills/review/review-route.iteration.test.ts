@@ -62,7 +62,7 @@ describe('the task route reuses the requirements captured into the task (A2, A8)
     await append({ kind: 'note', route: 'plan-1', note: 'plan', path: PLAN, contentHash: 'sha256:x' });
   }
 
-  it('the envelope is built from the task\'s captures, and the brief shows them and this iteration\'s plan section', async () => {
+  it('the envelope is built from the task\'s captures, and the brief shows them and the whole plan, with the match-to-plan ask', async () => {
     await withTask(async (t) => {
       await capture(t);
       await toReview(t, () => t.edit());
@@ -71,7 +71,9 @@ describe('the task route reuses the requirements captured into the task (A2, A8)
       assert.doesNotMatch(brief, /none supplied/);
       assert.match(brief, new RegExp(BODY));
       assert.match(brief, /Return zero for an empty list/);
-      assert.doesNotMatch(brief, /Unrelated step/);
+      assert.match(brief, /Unrelated step/);
+      assert.match(brief, /## Plan\n/);
+      assert.match(brief, /match of the diff with the requirements and the plan/);
     });
   });
 });

@@ -11,7 +11,6 @@ import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { proseFiles } from '#modules/context/context';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
-import { changesPaths, requiredPlanRules } from '#modules/policy/required';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
@@ -134,6 +133,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     if (result.state === 'raise') return { state: 'raise', gate: result.gate, values: result.values };
     // The request alone is already in the model's context; repeating it as an envelope adds nothing.
     if (result.sources.length === 0 && result.missingAsked.length === 0) return { state: 'ok', payload: null };
+    // Only the task's implementer works from a file, not from the prompt: for the other routes a request this route just saved is not repeated.
+    const savedNow = result.sources.every((source) => source.key === 'request') && (await chainEntries(input)).some((entry) => entry.kind === 'requirement' && entry['key'] === 'request');
+    if (savedNow && result.missingAsked.length === 0 && input.view.skill !== 'task') return { state: 'ok', payload: null };
     // A bare key that nothing fetched because no requirements server is configured is a different gap from a fetch that failed.
     const unfetched = input.args.hasRequirement || requirementsServer((await configOf(input)).requirements.mcps) !== null ? [] : result.missingAsked.filter(isIssueKey);
     return { state: 'ok', payload: renderRequirements(result.sources, result.missingAsked, unfetched) };
@@ -207,22 +209,6 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
       const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity, ...(planless ? { alsoActivity: 'plan' as const } : {}), paths: await stagePaths(input, project, await chainEntries(input), activity), stage });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
       return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
-    } catch (error) {
-      return failed(error);
-    }
-  },
-
-  /** Records which delivered plan rules the draft's Changes paths reach; plan-check then asks for a citation of each. */
-  'policy.required': async (input) => {
-    const config = await configOf(input);
-    const project = await projectOf(input, config);
-    if (isResult(project)) return project;
-    try {
-      const delivered = (await chainEntries(input)).findLast((entry) => entry.kind === 'policy' && entry['stage'] === 'before-work' && entry['activity'] === 'plan')?.['ids'];
-      const plan = await input.runtime.fs.readText(input.dir.plan).catch(() => '');
-      const ids = await requiredPlanRules({ runtime: input.runtime as Runtime, project, paths: changesPaths(plan), delivered: Array.isArray(delivered) ? delivered.map(String) : [] });
-      await input.ledger.append({ kind: 'policy', stage: 'required', route: input.view.routeId, ids });
-      return { state: 'ok', payload: null };
     } catch (error) {
       return failed(error);
     }

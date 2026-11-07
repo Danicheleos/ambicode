@@ -183,7 +183,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(//**/.ambicode/tasks/*/plan.md), Write(//**/.ambicode/tasks/*/plan.md)');
     // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
     const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'draft.md'), 'utf8');
-    for (const judgment of [/ask a material question/i, /reuse what the repository already has/i, /independently reviewable iterations/i]) {
+    for (const judgment of [/ask a material question/i, /independently reviewable iterations/i]) {
       assert.match(steps.replace(/\s+/g, ' '), judgment);
       assert.doesNotMatch(plan, judgment);
     }
@@ -231,11 +231,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('H1: the implementer puts a choice it makes where the brief gave only a count or a partial list under Gaps', async () => {
-    const agent = (await readFile(path.join(repositoryRoot, 'agents', 'implementer.md'), 'utf8')).replace(/\s+/g, ' ');
-    assert.match(agent, /count or a partial list[^.]*you choose the rest[^.]*`Gaps:`/i);
-  });
-
   it('06-S3: plan distinguishes draft from accepted status, and requires explicit human acceptance', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /\bdraft\b/i);
@@ -272,9 +267,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(plan, /never\s+instructions?\s+or\s+authorization/i);
   });
 
-  it('plan has no route start fallback: the /ambicode:plan launch hook starts the route and delivers its first step', async () => {
+  it('plan carries the route start fallback like task: a model or subagent invocation has no launch hook to start the route', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.doesNotMatch(plan, /route start/);
+    assert.ok(plan.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...'));
+    assert.match(plan, /If no step message appeared, start the route yourself/);
+    assert.doesNotMatch(plan, /Before the gate/, 'the final chat message is owned by routes/plan/draft.md');
   });
 
   it('the reviewer role states the three-way authority distinction, and never conflates "observed" with "team" (doc 04 P2.4 correction A5)', async () => {
@@ -327,12 +324,12 @@ describe('P2.3 task skill', () => {
     for (const usage of [...[...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]), hint]) assert.ok(!/--requirements\b/.test(usage), usage);
   });
 
-  it('07-M1 the four judgments are delivered once by the implementer agent and the fix work brief, not repeated in the SKILL.md or the change brief', async () => {
+  it('07-M1 the judgments are delivered once by the implementer agent and the fix work brief, not repeated in the SKILL.md or the change brief', async () => {
     const read = (...parts: string[]): Promise<string> => readFile(path.join(repositoryRoot, ...parts), 'utf8');
     const content = (await task()).replace(/^---[\s\S]*?\n---/, '').replace(/\s+/g, ' ');
     const agent = await read('agents', 'implementer.md');
     const works = (await read('routes', 'task', 'change-work.md')) + (await read('routes', 'task', 'fix-work.md'));
-    for (const judgment of [/smallest change/i, /reuse existing code/i, /never weaken/i]) {
+    for (const judgment of [/smallest change/i]) {
       assert.match(agent, judgment);
       assert.doesNotMatch(works, judgment);
       assert.doesNotMatch(content, judgment);
@@ -577,7 +574,7 @@ describe('09-R3/09-W1: the init skill and the init skill steps', () => {
     assert.match(requiredString(fm, 'description', 'agents/implementer.md'), /never by a natural-language request/);
     assert.equal(requiredString(fm, 'tools', 'agents/implementer.md'), 'Read, Grep, Glob, Edit, Write, Bash');
     const body = text.replace(/\s+/g, ' ');
-    for (const rule of [/only through the `check` command/, /never commit, push or publish/, /never weaken or delete a test/i, /your last call is the work file's `route next`/i, /do not read the ledger or any other file under `\.ambicode\/tasks\/`/, /relative to the repository root, never absolute/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
+    for (const rule of [/only through the `check` command/, /never commit, push or publish/, /your last call is the work file's `route next`/i, /do not read the ledger or any file under `\.ambicode\/tasks\/` that the work file does not name/i, /relative to the repository root, never absolute/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
     // omitClaudeMd stops the agent loading the project CLAUDE.md, which frees far more context than this prompt grows.
     assert.ok(text.length < 3000, `${text.length} bytes`);
   });

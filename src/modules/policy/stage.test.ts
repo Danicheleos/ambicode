@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { REPO_ROOT } from '#testing/paths';
 import { initConfig } from '#testing/fixtures/init-config';
 import { createRuntime } from '#composition/root';
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
@@ -70,6 +73,24 @@ describe('03-P policy stage', () => {
       assert.ok(plan.bytes <= 2496, `plan ${plan.bytes}`);
       assert.ok(task.bytes <= 3008, `task ${task.bytes}`);
       for (const payload of [plan, task]) assert.ok(payload.bytes < review.bytes, `${payload.bytes} vs ${review.bytes}`);
+    } finally {
+      await temp.dispose();
+    }
+  });
+
+  it('reuse-before-reimplementing reaches plan and task, no-check-evasion reaches task: the prompts no longer say either', async () => {
+    const { temp, runtime, project } = await repo();
+    try {
+      for (const activity of ['plan', 'task'] as const) {
+        const payload = await policyStage({ runtime, project, activity, paths: ['src/a.ts'], stage: 'before-work' });
+        assert.match(payload.text, /common-design\/reuse-before-reimplementing: /, activity);
+      }
+      const task = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
+      assert.match(task.text, /common-verification\/no-check-evasion: /);
+      const implementer = await readFile(path.join(REPO_ROOT, 'agents', 'implementer.md'), 'utf8');
+      const draft = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'draft.md'), 'utf8');
+      assert.doesNotMatch(implementer, /reuse existing code|never weaken/i);
+      assert.doesNotMatch(draft, /reuse what the repository already has/i);
     } finally {
       await temp.dispose();
     }

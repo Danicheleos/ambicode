@@ -581,4 +581,19 @@ describe('chain cases: a suite ticket with frozen material and no plan values', 
     assert.deepEqual(realTruth('task-k12-1016-chain', root).diffGraders.map((g) => g.name), ['d-one']);
     assert.equal(realTruth('task-k12-1016-chain-plan', root), null);
   });
+
+  it('the case\'s remove list is dropped before the commit in every chain scaffold, as in suite-real', () => {
+    const own = mkdtempSync(path.join(tmpdir(), 'chain-remove-'));
+    writeChain({ evalsDir: own, sources, cases: [{ ...real, remove: ['.claude/rules/security.md'] }] });
+    for (const [tree, name] of [['cases', '03-task-k12-1016-chain-plan'], ['bare', '03-task-k12-1016-chain']]) assert.match(read(path.join(own, tree, 'task-chain', name), 'scaffold.sh'), /\nrm -f '\.claude\/rules\/security\.md'\ngit init/, name);
+    assert.doesNotMatch(read(dir('bare', '03-task-k12-1016-chain'), 'scaffold.sh'), /rm -f/);
+  });
+
+  it('a suite diff grader\'s perFile reaches the chain truth.json, as it does the suite-real one', () => {
+    const own = mkdtempSync(path.join(tmpdir(), 'chain-perfile-'));
+    const withPer = { ...real, graders: [{ kind: 'diff', name: 'd-per', pattern: 'x', perFile: true }, { kind: 'diff', name: 'd-pool', pattern: 'y' }] };
+    writeChain({ evalsDir: own, sources, cases: [withPer] });
+    const truth = JSON.parse(read(path.join(own, 'bare', 'task-chain', '03-task-k12-1016-chain'), 'truth.json'));
+    assert.deepEqual(truth.diffGraders.map((g) => g.perFile), [true, undefined]);
+  });
 });
