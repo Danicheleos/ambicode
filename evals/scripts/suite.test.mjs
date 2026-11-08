@@ -2,11 +2,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FIXTURES } from '../../fixtures/definitions.mjs';
-import { CASES, EVALS, caseDir, render } from './cases.mjs';
+import { CASES, EVALS, caseDir, render, write } from './cases.mjs';
 
 const ROOT = path.dirname(EVALS);
 const SKILLS = readdirSync(path.join(ROOT, 'skills')).filter((name) => !name.startsWith('.'));
@@ -20,7 +20,7 @@ function onDisk(tree) {
       // downstream/ is rendered from NDA assets by downstream-cases.mjs, gitignored, and absent on most machines (it made this test fail locally once the cases existed). The map bench inputs live in bench/, outside evals/.
       // cases/init has no generator since d7ab5349; its five cases are kept on disk as live cases and are not rendered.
       if (child === 'cases/init') continue;
-      if (name === 'results' || name === 'downstream' || name === 'task-real' || name === 'suite-real' || name === 'task-chain' || name.startsWith('.')) continue;
+      if (name === 'results' || name === 'downstream' || name === 'task-real' || name === 'suite-real' || name === 'suite-investigate' || name === 'task-chain' || name.startsWith('.')) continue;
       if (statSync(path.join(EVALS, child)).isDirectory()) walk(child);
       else out.push(child);
     }
@@ -47,8 +47,26 @@ describe('skill coverage suite', () => {
     for (const file of disk) assert.equal(readFileSync(path.join(EVALS, file), 'utf8'), FILES.get(file), file);
   });
 
+  it('a full generate run deletes only the suites it renders, in a temp tree (init, task-chain survive)', () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'evals-gen-'));
+    const stale = path.join(tmp, 'cases', CASES[0].name.split('-')[0], 'stale-case');
+    const unknown = ['cases/init/keep.txt', 'cases/task-chain/keep.txt', 'bare/init/keep.txt'];
+    for (const file of [...unknown, path.relative(tmp, path.join(stale, 'x.txt'))]) {
+      mkdirSync(path.dirname(path.join(tmp, file)), { recursive: true });
+      writeFileSync(path.join(tmp, file), 'x');
+    }
+    const log = console.log;
+    console.log = () => {};
+    try { write([], tmp); } finally { console.log = log; }
+    for (const file of unknown) assert.ok(existsSync(path.join(tmp, file)), `${file} survives`);
+    assert.ok(!existsSync(stale), 'a stale case of a rendered suite is replaced');
+    assert.ok(existsSync(path.join(tmp, caseDir('cases', CASES[0].name), 'prompt.md')), 'rendered');
+  });
+
   // Their old cases were removed; delete the skill from this list when its new cases land. init: its cases graded the context notes init no longer writes (f4eac810); five are on disk (evals/cases/init) without a generator.
-  const WITHOUT_CASES = ['init'];
+  // task: its two synthetic cases were dropped on 2026-11-08 (plan 01 p3); the live task cases are suite-real and task-chain, which have no generator here.
+  // investigate: its five synthetic cases were dropped (suite-investigate replaces them; it has no generator here).
+  const WITHOUT_CASES = ['init', 'task', 'investigate'];
   it('covers every skill with at least one case, except those awaiting new cases, and only skills that exist', () => {
     assert.deepEqual([...new Set(CASES.map((c) => c.name.split('-')[0]))].sort(), SKILLS.filter((s) => !WITHOUT_CASES.includes(s)).sort());
     for (const skill of WITHOUT_CASES) assert.ok(SKILLS.includes(skill), `${skill} is a skill`);

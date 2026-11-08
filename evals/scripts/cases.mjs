@@ -8,10 +8,8 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { planCases } from './plan-cases.mjs';
-import { investigateCases } from './investigate-cases.mjs';
 import { reviewCases } from './review-cases.mjs';
 import { rulesCases } from './rules-cases.mjs';
-import { taskCases } from './task-cases.mjs';
 
 const y = (value) => `'${String(value).replace(/'/g, "''")}'`;
 
@@ -65,12 +63,6 @@ export const CASES = [
   // ---------------------------------------------------------------- review
   // Five cases on three fixtures (review-cases.mjs): same scaffold in both arms, graded per issue.
   ...reviewCases(BUILDERS),
-  // ---------------------------------------------------------------- investigate
-  // Five questions: two on ts-app-medium, one on its ts-app-medium-deep variant, one on seedvault, one on kiln (investigate-cases.mjs).
-  ...investigateCases(BUILDERS),
-  // ---------------------------------------------------------------- task
-  // Two cases (task-cases.mjs): one after an investigation on the seedvault stack, one on the app fixture.
-  ...taskCases(BUILDERS),
   // ---------------------------------------------------------------- plan
   // Four cases on ts-app-medium-plan (plan-cases.mjs): same request in both arms, the plan graded as text.
   ...planCases(BUILDERS),
@@ -144,20 +136,20 @@ export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
 export const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** `--case <glob>` rewrites only the matching cases and leaves every other directory alone. */
-function write(argv = []) {
+export function write(argv = [], evals = EVALS) {
   const at = argv.indexOf('--case');
   const glob = at >= 0 ? argv[at + 1] : null;
   const pattern = glob === null ? null : new RegExp(`^${glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
   const selected = pattern === null ? CASES : CASES.filter((c) => pattern.test(c.name));
   if (pattern !== null && selected.length === 0) throw new Error(`no case matches ${glob}`);
   for (const tree of ['cases', 'bare']) {
-    const dir = path.join(EVALS, tree);
+    const dir = path.join(evals, tree);
     mkdirSync(dir, { recursive: true });
     for (const suite of readdirSync(dir)) {
-      // Rendered by their own generators and gitignored: a full regeneration must not delete them.
-      if (['results', 'downstream', 'task-real', 'suite-real'].includes(suite)) continue;
+      // Other suites (init, task-chain, suite-real, results...) have their own generators or none: only suites rendered here are touched.
+      if (!selected.some((c) => suiteOf(c.name) === suite)) continue;
       if (pattern === null) rmSync(path.join(dir, suite), { recursive: true, force: true });
-      else if (selected.some((c) => suiteOf(c.name) === suite)) {
+      else {
         for (const name of readdirSync(path.join(dir, suite))) if (pattern.test(name)) rmSync(path.join(dir, suite, name), { recursive: true, force: true });
         if (readdirSync(path.join(dir, suite)).length === 0) rmSync(path.join(dir, suite), { recursive: true, force: true });
       }
@@ -165,7 +157,7 @@ function write(argv = []) {
   }
   const files = render(selected);
   for (const [relative, text] of files) {
-    const file = path.join(EVALS, relative);
+    const file = path.join(evals, relative);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, text, relative.endsWith('.sh') ? { mode: 0o755 } : undefined);
   }

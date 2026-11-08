@@ -86,28 +86,8 @@ export const REVIEW_TRUTHS = [
     ],
   },
   {
-    name: 'review-jvm-retire-rule', n: 3, base: 'jvm-gradle-seedvault', topic: 'retire-rule', policy: false,
-    fine: 'the already-retired check, passing the clock date into RetirementRules.check, and the daysLeftInHold arithmetic and its tests',
-    issues: [
-      { id: 'main', category: 'correctness',
-        what: 'isBefore(today) rejects lots stored more than HOLD_DAYS ago and lets lots inside the hold through',
-        locations: [{ file: 'domain/src/main/kotlin/org/seedvault/domain/lot/RetirementRules.kt', find: 'plusDays(HOLD_DAYS)', lines: 1 }],
-        anchors: [{ ids: ['RetirementRules', 'isBefore'], near: 'invert|inverted|reversed|wrong|backwards|opposite|flipped' }] },
-      { id: 's1', category: 'tests', overlaps: ['main'],
-        what: 'RetirementRules.check has no test, and the retire flow has none either',
-        locations: [
-          { file: 'application/src/main/kotlin/org/seedvault/application/usecase/lot/RetireLotService.kt', find: 'RetirementRules.check(', lines: 1 },
-          { file: 'domain/src/main/kotlin/org/seedvault/domain/lot/RetirementRules.kt', find: 'fun check(lot', lines: 5 },
-        ],
-        anchors: [{ ids: ['RetirementRules', 'RetireLotService'], gap: true }] },
-      { id: 's2', category: 'dead-dup',
-        what: 'daysLeftInHold has no caller outside its own test',
-        locations: [{ file: 'domain/src/main/kotlin/org/seedvault/domain/lot/HoldPeriod.kt', find: 'fun daysLeftInHold', lines: 1 }],
-        anchors: [{ ids: ['daysLeftInHold'], near: 'unused|dead|never|unreferenced|uncalled' }] },
-    ],
-  },
-  {
-    name: 'review-mono-clean-rust', n: 2, base: 'monorepo-rust-ts-kiln', topic: 'clean-rust', policy: true, control: true,
+    // slug pinned: the retire-rule case sat before this one at rev-4, and the dropped case must not renumber the kept one's task.
+    name: 'review-mono-clean-rust', slug: 'rev-5', n: 2, base: 'monorepo-rust-ts-kiln', topic: 'clean-rust', policy: true, control: true,
     fine: 'the expect calls with invariant messages, the _dc suffixes, count_over_target_dc and the new report text',
     issues: [],
   },
@@ -236,7 +216,7 @@ export function reviewCases(b) {
   const { regex, ledger, tool, llm, shared, noEdits, DONE } = b;
   const CITE = 'Cite `path:line` for each claim.';
   return REVIEW_TRUTHS.map((truth, index) => {
-    const slug = `rev-${index + 1}`;
+    const slug = truth.slug ?? `rev-${index + 1}`;
     const R = (file) => `.ambicode/reviews/${slug}/${file}`;
     const flags = `--ambicode-init${truth.policy ? ' --policy' : ''}`;
     const records = truthRecords(truth);

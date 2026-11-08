@@ -6,7 +6,7 @@ import type { FolderRow } from './search-index.ts';
  * Convention evidence for the init scout, counted from the search index rows and the module tree: deterministic, no model.
  * The scout used to open source files to see how names, layers and placement go; counts say it for $0 and let it open
  * only the representative files. A "group" is the module at the shallowest tree level that has two or more modules (a lone
- * `src/` is not a layer), capped at MAX_GROUPS by the module cap the tree already applies.
+ * `src/` is not a layer), bounded by the module cap the tree already applies; the import summary keeps at most MAX_GROUPS * 4 distinct groups.
  */
 const MAX_GROUPS = 12;
 /** A suffix borne by fewer files is a coincidence, not a convention: 3 is the least that shows a repeat beyond a pair. */

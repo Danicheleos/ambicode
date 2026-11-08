@@ -9,7 +9,7 @@ import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
 // A Confluence page body measured 40-90 KB; 256 KB keeps a long spec whole without letting one result fill the task directory.
-const MAX_CONTENT = 256 * 1024;
+export const MAX_CONTENT = 256 * 1024;
 
 const CapturedRequirement = z.strictObject({ key: z.string().min(1), url: z.string(), tool: z.string().min(1), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string(), cutFrom: z.number().nullable() });
 type CapturedRequirement = z.infer<typeof CapturedRequirement>;

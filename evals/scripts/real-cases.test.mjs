@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { NO_RUNS, REAL_TAG, SUITE_TAG, graderFiles, isRealCase, loadRealCases, realTruth, variantsOf, wroteLine, writeReal } from './real-cases.mjs';
+import { INVESTIGATE_TAG, NO_RUNS, REAL_TAG, SUITE_TAG, graderFiles, isRealCase, loadRealCases, realTruth, variantsOf, wroteLine, writeReal } from './real-cases.mjs';
 import { gradeOne } from './diff-graders.mjs';
 import { regradeStamp, runCase } from './run.mjs';
 
@@ -367,5 +367,78 @@ describe('real-change cases of a suite file: own tag, prompt files, no-runs sent
 
   it('perFile reaches truth.json, so a per-file diff grader keeps its meaning at run time', () => {
     assert.deepEqual(JSON.parse(read(root('cases'), 'truth.json')).diffGraders, [{ name: 'every-file', pattern: 'x', match: 'not_contains', perFile: true, weight: 1 }]);
+  });
+});
+
+describe('investigate cases of a suite file: question prompt, read-only tools, answer graders, files-section truth', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'real-investigate-'));
+  const spec = {
+    name: 'investigate-r1-alpha', skill: 'investigate', repo: 'r1', kind: 'trace', slug: 'iv-alpha', commit: sha('a'), parent: sha('b'),
+    description: 'an invented question', prompt: 'Where is the limit enforced?', relevant: ['src/a.ts'], allowed: ['src/b.ts'],
+    plan: 'ignored note', investigation: 'ignored note',
+    graders: [
+      { kind: 'ledger', name: 'note-saved', pattern: '"kind":"note"' },
+      { kind: 'answer', name: 'cites-a', pattern: 'a\\.ts:\\d+' },
+      { kind: 'answer', name: 'no-decoy', pattern: 'decoy', match: 'not_contains' },
+      { kind: 'never', name: 'no-edit', tool: 'Edit', input_match: '.' },
+      { kind: 'llm', name: 'verdict', rubric: 'PASS if right. FAIL if not.', weight: 2 },
+    ],
+  };
+  const nofiles = { ...spec, name: 'investigate-r1-beta', slug: 'iv-beta', files: false };
+  mkdirSync(path.join(dir, `${INVESTIGATE_TAG}-material`, spec.name, '.ambicode'), { recursive: true });
+  mkdirSync(path.join(dir, `${INVESTIGATE_TAG}-material`, nofiles.name, '.ambicode'), { recursive: true });
+  const file = path.join(dir, 'investigate.json');
+  writeFileSync(file, JSON.stringify({ tag: INVESTIGATE_TAG, repos: {}, cases: [spec, nofiles] }));
+  const loaded = loadRealCases(file);
+  const evalsDir = path.join(dir, 'evals');
+  writeReal({ evalsDir, sources, cases: loaded.cases, tag: loaded.tag });
+  const root = (arm, name = '01-investigate-r1-alpha') => path.join(evalsDir, arm, INVESTIGATE_TAG, name);
+  const body = (arm, name) => read(root(arm, name), 'prompt.md').replace(/^---[\s\S]*?---\n\n/, '').trim();
+  const CITE = 'Cite `path:line` for each claim.';
+  const FILES = 'End your answer with a `## Files` section: one path per line, only the files that take part in the answer.';
+
+  it('an investigate case has one variant, whatever notes the spec carries', () => {
+    assert.deepEqual(variantsOf(spec).map((v) => [v.name, v.variant, v.note]), [['investigate-r1-alpha', 'raw', null]]);
+    assert.deepEqual(readdirSync(path.join(evalsDir, 'cases', INVESTIGATE_TAG)), ['01-investigate-r1-alpha', '02-investigate-r1-beta']);
+  });
+
+  it('the plugin prompt types /ambicode:investigate with the task slug, the bare prompt is the same question; neither says anything about running checks or headless', () => {
+    assert.equal(body('cases'), `/ambicode:investigate --task iv-alpha Where is the limit enforced? ${CITE} ${FILES}`);
+    assert.equal(body('bare'), `Where is the limit enforced? ${CITE} ${FILES}`);
+    assert.equal(body('cases', '02-investigate-r1-beta'), `/ambicode:investigate --task iv-beta Where is the limit enforced? ${CITE}`);
+    assert.doesNotMatch(body('cases'), /headless|Do not run/);
+  });
+
+  it('tools are read-only, the limits are the investigate ones, the tags name the skill', () => {
+    const plugin = read(root('cases'), 'prompt.md');
+    assert.match(plugin, /tags: \["investigate", "suite-investigate", "suite-investigate-raw", "trace"\]/);
+    assert.match(plugin, /max_turns: 30\ntimeout_seconds: 900\nallowed_tools: \[Read, Glob, Grep, Bash, Skill\]/);
+    assert.match(read(root('bare'), 'prompt.md'), /allowed_tools: \[Read, Glob, Grep, Bash\]/);
+  });
+
+  it('answer and no-edit graders read the same in both arms on the final message; ledger graders and route-done exist in the plugin arm only; the llm judge reads the final message in both', () => {
+    const names = (arm) => readdirSync(path.join(root(arm), 'graders')).sort();
+    assert.deepEqual(names('cases'), ['cites-a.md', 'no-decoy.md', 'no-edit.md', 'note-saved.md', 'route-done.md', 'verdict.md']);
+    assert.deepEqual(names('bare'), ['cites-a.md', 'no-decoy.md', 'no-edit.md', 'verdict.md']);
+    assert.match(read(root('cases'), 'graders/cites-a.md'), /type: regex\npattern: 'a\\.ts:\\d\+'\nmatch: contains\ntarget: last_message\nweight: 1/);
+    assert.match(read(root('cases'), 'graders/no-decoy.md'), /match: not_contains\ntarget: last_message/);
+    assert.equal(read(root('bare'), 'graders/cites-a.md'), read(root('cases'), 'graders/cites-a.md'));
+    assert.match(read(root('cases'), 'graders/note-saved.md'), /target: \{ source: file, path: \.ambicode\/tasks\/iv-alpha\/ledger\.jsonl \}/);
+    assert.match(read(root('cases'), 'graders/no-edit.md'), /type: tool_used\ntool: Edit\ninput_match: '\.'\nmin: 0\nmax: 0/);
+    for (const arm of ['cases', 'bare']) assert.match(read(root(arm), 'graders/verdict.md'), /focus: last_message\nweight: 2/);
+  });
+
+  it('truth.json scores the files section (the citations when the question has no files list), carries no diff graders, and realTruth finds it under the new tag', () => {
+    const truth = JSON.parse(read(root('cases'), 'truth.json'));
+    assert.deepEqual([truth.source, truth.level, truth.relevant, truth.allowed, truth.diffGraders], ['files-section', 'file', ['src/a.ts'], ['src/b.ts'], undefined]);
+    assert.equal(JSON.parse(read(root('cases', '02-investigate-r1-beta'), 'truth.json')).source, 'citations');
+    assert.equal(realTruth('investigate-r1-alpha', evalsDir).source, 'files-section');
+  });
+
+  it('the scaffold archives the parent; the plugin arm starts from the frozen .ambicode and has its checks off, the bare arm has none', () => {
+    const plugin = read(root('cases'), 'scaffold.sh');
+    assert.match(plugin, new RegExp(`archive --format=tar ${sha('b')}`));
+    assert.ok(plugin.includes(`cp -R '${path.join(dir, `${INVESTIGATE_TAG}-material`, spec.name, '.ambicode')}'/. .ambicode/\n`));
+    assert.doesNotMatch(read(root('bare'), 'scaffold.sh'), /\.ambicode/);
   });
 });

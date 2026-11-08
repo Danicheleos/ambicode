@@ -1,4 +1,4 @@
-// The /ambicode:plan cases: four on ts-app-medium-plan (reuse, a legacy decoy, a large feature, a vague request). cases.mjs spreads
+// The /ambicode:plan cases: one on ts-app-medium-plan (a vague request). cases.mjs spreads
 // `planCases`; PLAN_SPECS is also what plan-cases.test.mjs reads, so every file a check names is verified against the fixture.
 //
 // Both arms are asked for the plan as their answer and graded on the same artefact: the plugin's plan.md, the bare arm's
@@ -29,15 +29,9 @@ const FACTORY = String.raw`tests/factory\.js|\bmake(Invoice|Customer|Payment)\b|
 // Not paymentTermsDays: a plan that never opened terms.js invents that name (the bare remind plan of 2026-10-23 did).
 const TERMS = String.raw`dueDateFor|terms\.js`;
 const GRACE = String.raw`overdueGraceDays`;
-// A line that puts invoice reads in a notifications file or the notifications feature (the bare remind plan of 2026-10-23:
-// "put it in the notifications feature and call `invoices/service`"). A line where notifications is the callee passes.
-const INVOICE_READ = String.raw`invoices/(service|repository)|invoices\.(list|get|outstanding|all\w*)\(|reports/repository|require\([^)\n]*invoices`;
-const NOTIFICATIONS_READ_INVOICES = `(notifications/[\\w-]+\\.js|notifications (feature|module|folder|directory))${LINE}{0,160}(${INVOICE_READ})`;
 // Checks that need two facts joined, not one name found (each v2 plan found every name and still missed these):
 // Finance's day is clock.businessDay (docs/architecture.md, Days); every v2 plan counted overdue in clock.today().
 const BUSINESS_DAY = String.raw`businessDay|Europe/Berlin|config\.timeZone`;
-// A validator name that src/shared/validation does not export yet.
-const NEW_VALIDATOR = String.raw`\bvalidate(?!(Range|Date|Cents|Email|Id|Required|String|Boolean)\b)\w+`;
 // Where the due date comes from is a decision the plan must make aloud: kept on the invoice at create (the back office can change a
 // customer's terms later, customers/patch.js, so a day derived again is not the day the mail printed), or derived from the terms
 // (dueDateFor, terms.js). The request names neither. Not planned(): "not stored; derived from terms" is a decision too. All twelve
@@ -71,90 +65,6 @@ export const PLAN_SPECS = [
   // src/notifications from requiring invoices. `policy-` checks grade CONTRIBUTING.md.
   // Weights: 3 for a check that needs two facts joined, 2 for an existing mechanism to find, 1 for the rest. The v2 run
   // passed every weight-1 check in all nine plans, so they only set the floor.
-  {
-    name: 'plan-app-reuse', slug: 'plan-app-overdue', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
-    weights: { 'policy-validation-shared': 3, 'page-shows-due-date': 3, 'no-parallel-validator': 2, 'business-day': 2, 'terms-reused': 2, 'invoice-mail-follows': 2, 'grace-days-honoured': 2 },
-    request: 'Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each.',
-    description: 'A feature the repository half has: payment terms already compute a pay-by day for the invoice mail, config holds the overdue grace, validateRange compares days, the invoice page is a view that drops unknown fields and days count in Finance\'s zone; a payment-plan dueDate and a legacy total are decoys.',
-    must: [
-      ['policy-validation-shared', String.raw`validateRange`, 'validateRange (src/shared/validation/range.js:4) with { min: issuedAt } rejects an earlier dueDate'],
-      ['terms-reused', TERMS, "the default is dueDateFor(issuedAt, customer.paymentTermsDays) (src/invoices/terms.js:6), the day the mail already promises"],
-      ['invoice-mail-follows', String.raw`sendInvoiceCreated|invoiceCreated|payableBy|notifications/(service|templates)\.js|(mail|line 41|service\.js:41)${LINE}{0,100}(stored|invoice\.dueDate)|(stored|invoice\.dueDate)${LINE}{0,100}mail`, 'src/invoices/service.js:41 passes the stored dueDate to sendInvoiceCreated instead of recomputing it'],
-      // The invoice page (src/invoices/routes.js view) lists its fields: a dueDate on the record alone never reaches it.
-      ['page-shows-due-date', planned(String.raw`\bview\b|invoices/routes\.js|\bpage\b${LINE}{0,80}dueDate\b|dueDate\b${LINE}{0,80}\bpage\b`), 'view (src/invoices/routes.js:8) gains dueDate so the invoice page shows it'],
-      ['grace-days-honoured', GRACE, 'overdue means dueDate plus config.overdueGraceDays (src/config.js:9) is before the as-of day'],
-      ['business-day', BUSINESS_DAY, 'the as-of day defaults to clock.businessDay() (src/shared/clock.js:9), Finance\'s day'],
-      ['outstanding-reused', String.raw`outstanding\(|invoices?\.outstanding|unpaidInvoices|outstandingCents`, 'invoices.outstanding (src/invoices/service.js:64) gives the amount still owed'],
-      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice takes dueDate'],
-      ['policy-tests-next-to-module', String.raw`tests/(invoices|reports)/[\w-]+\.test\.js`, 'tests/invoices/service.test.js and tests/reports/service.test.js get the cases'],
-    ],
-    mustNot: [
-      // Also a validator added to an existing shared/validation file with no `new:` (the v3 bare plan: "`src/shared/validation/date.js`
-      // and `index.js`: add `validateDateNotBefore(`"); calling an existing one is fine.
-      ['no-parallel-validator', String.raw`new:\s*(src/)?shared/(validation/|dates?\b)|shared/validation${LINE}{0,120}\badd\w*${LINE}{0,40}${NEW_VALIDATOR}|\badd\w*${LINE}{0,40}${NEW_VALIDATOR}${LINE}{0,80}shared/validation`,
-        'src/shared/validation/date.js and index.js: add `validateDateNotBefore(value, notBefore, field)`',
-        'src/invoices/service.js: add validateRange(dueDate, { min: issuedAt }) from src/shared/validation/range.js:4'],
-      ['no-decoy-due-date', planned(String.raw`addMonths|nextDue|installments\.js:\d`), 'src/payments/installments.js:5 addMonths gives the due day', 'the dueDate of src/payments/installments.js:1 belongs to payment plans and is unrelated'],
-      ['legacy-untouched', legacyAnchored, 'src/legacy/invoice-total.js:4 is reused'],
-      ['policy-no-bare-error', BARE_ERROR, "src/invoices/service.js:27 throws new Error('dueDate before issuedAt')", 'never throw new Error; validateRange throws a ValidationError'],
-      ['policy-no-float-money', FLOAT_MONEY, 'the report prints (outstandingCents / 100).toFixed(2)', 'amounts stay in cents, no toFixed'],
-    ],
-  },
-  {
-    name: 'plan-app-csv', slug: 'plan-app-csv', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
-    weights: { 'served-live': 3, 'page-total-used': 3, 'decimal-helper-reused': 2, 'download-helper-reused': 2 },
-    request: 'Finance wants a CSV download of the invoices: one line per invoice with id, customer id, status and the total, and a grand total line at the end. The amounts must match what the invoice page shows.',
-    description: 'A revenue CSV download already exists (shared/http.attachment, money.toDecimal, reports/csv.toCsv) beside a frozen legacy export with floating-point totals; the gateway caches /reports for an hour and the invoice page shows a void invoice at 0, so matching the page means a live path and the page\'s total.',
-    must: [
-      // Any existing source of the invoice numbers: the v3 plugin plan took the page's own rule (displayTotal over service.total).
-      ['summary-model-reused', String.raw`invoices/summary\.js|summarize|\bview\b|displayTotal|(service|invoices)\.total\b`,'summarize (src/invoices/summary.js:6) has the id, customer and status of each line, in cents'],
-      // docs/architecture.md: the gateway caches /reports for an hour, so an export that must match the live page sits elsewhere.
-      ['served-live', String.raw`(^|\W)/invoices(\.csv\b|/[\w.-]*(csv|export|download)|\?format=csv)`, 'GET /invoices.csv in src/invoices/routes.js:30, live, since /reports is cached for an hour (docs/architecture.md:8)'],
-      // The page is view (src/invoices/routes.js), which shows a void invoice at 0; summarize and invoices.total do not.
-      ['page-total-used', planned(String.raw`\bview\b|[Vv]oid${LINE}{0,120}(\b0\b|0\.00|zero)|(\b0\b|0\.00|zero)${LINE}{0,120}[Vv]oid`), 'each total is the page\'s view (src/invoices/routes.js:16), so a void invoice prints 0'],
-      ['decimal-helper-reused', String.raw`toDecimal`, 'money.toDecimal (src/shared/money.js:35) writes each amount'],
-      ['download-helper-reused', String.raw`attachment\(|http\.attachment|\battachment\b[^\n;]{0,60}(shared/http|http\.js)|(shared/http|http\.js)[^\n]{0,60}\battachment\b(?!;)|revenueCsv|revenue\.csv`, 'served like revenueCsv (src/reports/routes.js:5) through attachment (src/shared/http.js:8)'],
-      ['policy-money-helper', String.raw`money\.(sum|toDecimal)|shared/money`, 'the grand total is money.sum of the cents (src/shared/money.js:18), formatted once'],
-      ['policy-tests-next-to-module', String.raw`tests/(reports|invoices|shared)/[\w-]+\.test\.js`, 'tests/reports/routes.test.js gets the invoice CSV case'],
-      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice builds the rows'],
-    ],
-    mustNot: [
-      ['legacy-untouched', legacyAnchored, 'src/legacy/invoice-export.js:5 exportCsv is reused'],
-      ['policy-no-float-money', FLOAT_MONEY, 'each line writes (totalCents / 100).toFixed(2)', 'src/legacy/invoice-export.js uses toFixed, which this plan avoids'],
-      ['policy-routes-thin', planned(String.raw`routes\.js[^\n]{0,80}\b(toCsv|summarize|money\.\w+|\.map|\.reduce)\(`), 'src/reports/routes.js:5 maps summarize(invoice) into rows and calls toCsv(rows)', "src/reports/routes.js:5 stays thin: attachment(service.invoicesCsv(), { filename: 'invoices.csv' })"],
-      ['policy-no-bare-error', BARE_ERROR, "throw new Error('empty export')", 'no bare Error is thrown'],
-    ],
-  },
-  {
-    name: 'plan-app-remind', slug: 'plan-app-remind', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
-    weights: { 'due-date-decided': 3, 'business-day': 3, 'grace-days-honoured': 2, 'opt-out-in-patch': 2 },
-    request: 'Send customers an email reminder when an invoice is overdue. A reminder for an invoice goes out at most once a day while it is unpaid and overdue. Customers can switch reminders off and on themselves, separately from receipts. It ships switched off.',
-    description: 'A large multi-step feature across invoices, customers and notifications: the due date comes from the payment terms and must be kept since terms change, overdue from the configured grace, days in Finance\'s zone, the preference must pass the PATCH whitelist, the flag already exists, and src/notifications must not require invoices.',
-    limits: { max_turns: 40, timeout_seconds: 1200 },
-    iterations: 3,
-    must: [
-      ['policy-flag-reused', String.raw`overdueReminders`, 'the overdueReminders flag (src/flags.js:5) already exists and is off'],
-      ['due-date-decided', DUE_DECIDED, 'the plan says where the due date comes from: stored on the invoice at create (src/invoices/model.js:3), or derived by dueDateFor (src/invoices/terms.js:6)'],
-      ['grace-days-honoured', GRACE, 'overdue means past the due day plus config.overdueGraceDays (src/config.js:9)'],
-      ['business-day', BUSINESS_DAY, 'once a day and overdue count in clock.businessDay() (src/shared/clock.js:9), not the UTC day'],
-      ['opt-out-in-patch', String.raw`customers/patch\.js|FIELDS|patchable|\bpick\(`, 'FIELDS (src/customers/patch.js:4) gains reminders, or PATCH drops it'],
-      ['policy-validation-shared', String.raw`validateBoolean`, "validateBoolean (src/shared/validation/boolean.js:3) checks it, as receipts does"],
-      ['opt-out-in-contact', String.raw`contactFor`, 'contactFor (src/customers/service.js:35) returns the reminders preference'],
-      ['once-a-day-record', String.raw`last\w*[Rr]emind\w*|[Rr]emind\w*(At|On|Day|Date)\b|forCustomer|notifications/repository\.js|sentAt`, 'lastRemindedOn on the invoice, compared with clock.today(), keeps it to one a day'],
-      ['policy-test-factory', FACTORY, 'tests/factory.js:21 makeInvoice takes dueDate'],
-    ],
-    mustNot: [
-      ['legacy-untouched', legacyAnchored, 'src/legacy/payment-hooks.js:5 is extended'],
-      ['policy-no-bare-error', BARE_ERROR, "throw new Error('reminders are off')", 'a ValidationError, never new Error'],
-      ['policy-no-float-money', FLOAT_MONEY, 'the mail shows (outstanding / 100).toFixed(2)', 'the mail uses money.format, no toFixed'],
-      ['policy-no-manual-reset', planned(String.raw`\b(db|flags|clock|bus|channels)\.(reset|clear|clearOutbox)\(`, String.raw`setup\.js|already`), 'beforeEach(() => flags.reset())', 'tests/setup.js already runs flags.reset() before each test'],
-      // docs/architecture.md:12 and tests/architecture.test.js: nothing under src/notifications requires invoices. A job in invoices
-      // that calls a notifications service function, or an event a notifications handler subscribes to, passes.
-      ['policy-feature-boundary', planned(NOTIFICATIONS_READ_INVOICES, String.raw`(called|invoked|used) (from|by)`),
-        'new: src/notifications/reminders.js runOverdueReminders lists invoices through invoices/service',
-        'src/invoices/service.js:64 selects the overdue invoices and calls sendOverdueReminder in src/notifications/service.js:10'],
-    ],
-  },
   {
     name: 'plan-app-vague', slug: 'plan-app-vague', fixture: 'ts-app-medium-plan', size: 'narrow', version: 4,
     weights: { 'due-date-decided': 2, 'business-day': 2, 'terms-found': 2, 'overdue-rule-found': 2 },

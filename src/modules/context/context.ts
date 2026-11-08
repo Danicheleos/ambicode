@@ -145,11 +145,6 @@ function groupByBase(modulePath: string, files: readonly string[], names: Readon
   return groups;
 }
 
-/**
- * Every module of the tree with its level, the base names of the files it owns and the entities they declare. A file in a folded
- * directory below the module is keyed with its path inside the module, so a base name is unique per folder. Companions are out
- * through isModuleSource, as in Key files.
- */
 /** Module source files by the deepest module directory that contains them. */
 function ownedFiles(moduleDirs: ReadonlySet<string>, sourceFiles: readonly string[]): Map<string, string[]> {
   const owned = new Map<string, string[]>();
@@ -163,6 +158,11 @@ function ownedFiles(moduleDirs: ReadonlySet<string>, sourceFiles: readonly strin
   return owned;
 }
 
+/**
+ * Every module of the tree with its level, the base names of the files it owns and the entities they declare. A file in a folded
+ * directory below the module is keyed with its path inside the module, so a base name is unique per folder. Companions are out
+ * through isModuleSource.
+ */
 export async function allFolders(fs: FileSystem, root: string, result: TreeResult, sourceFiles: readonly string[]): Promise<LevelFolder[]> {
   const byPath = new Map(result.modules.map((module) => [module.path, module]));
   const levelOf = (module: TreeModule): number => (module.parent === null ? 1 : levelOf(byPath.get(module.parent)!) + 1);

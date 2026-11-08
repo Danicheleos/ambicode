@@ -1079,70 +1079,6 @@ class RetestReportService(
 `,
 };
 
-const JVM_RETIRE_RULE = {
-  [`${DOMAIN}/lot/RetirementRules.kt`]: src`package org.seedvault.domain.lot
-
-import org.seedvault.domain.shared.Outcome
-import java.time.LocalDate
-
-const val HOLD_DAYS = 30L
-
-object RetirementRules {
-    fun check(lot: SeedLot, today: LocalDate): Outcome<SeedLot> {
-        if (lot.status == LotStatus.Retired) return Outcome.Rejected("lot $\{lot.id.value} is already retired")
-        if (lot.storedOn.plusDays(HOLD_DAYS).isBefore(today)) return Outcome.Rejected("lot $\{lot.id.value} is still in its $HOLD_DAYS day hold")
-        return Outcome.Ok(lot)
-    }
-}
-`,
-  [`${DOMAIN}/lot/HoldPeriod.kt`]: src`package org.seedvault.domain.lot
-
-import java.time.LocalDate
-import java.time.temporal.ChronoUnit
-
-fun daysLeftInHold(lot: SeedLot, today: LocalDate): Long = maxOf(0L, HOLD_DAYS - ChronoUnit.DAYS.between(lot.storedOn, today))
-`,
-  'domain/src/test/kotlin/org/seedvault/domain/lot/HoldPeriodTest.kt': src`package org.seedvault.domain.lot
-
-import org.seedvault.domain.shared.LotId
-import org.seedvault.domain.shared.SpeciesId
-import java.time.LocalDate
-import kotlin.test.Test
-import kotlin.test.assertEquals
-
-class HoldPeriodTest {
-    private val today = LocalDate.of(2026, 3, 1)
-
-    private fun lotStored(daysAgo: Long) = SeedLot(LotId("L-1"), SpeciesId("rye"), today.minusDays(daysAgo), Viability(90))
-
-    @Test
-    fun fullHoldOnTheDayOfStorage() {
-        assertEquals(HOLD_DAYS, daysLeftInHold(lotStored(0), today))
-    }
-
-    @Test
-    fun countsDownEachDay() {
-        assertEquals(20L, daysLeftInHold(lotStored(10), today))
-    }
-
-    @Test
-    fun noneLeftOnceTheHoldHasPassed() {
-        assertEquals(0L, daysLeftInHold(lotStored(45), today))
-    }
-}
-`,
-  [`${MAIN}/usecase/lot/RetireLotService.kt`]: edit(
-    JVM_GRADLE_FILES,
-    `${MAIN}/usecase/lot/RetireLotService.kt`,
-    ['import org.seedvault.domain.lot.LotStatus\n', 'import org.seedvault.domain.lot.LotStatus\nimport org.seedvault.domain.lot.RetirementRules\n'],
-    ['import java.time.Clock\n', 'import java.time.Clock\nimport java.time.LocalDate\n'],
-    [
-      '        val retired = lot.copy(status = LotStatus.Retired)\n',
-      '        val checked = RetirementRules.check(lot, LocalDate.now(clock))\n        if (checked is Outcome.Rejected) return checked\n        val retired = lot.copy(status = LotStatus.Retired)\n',
-    ],
-  ),
-};
-
 // ---------------------------------------------------------------- monorepo-rust-ts-kiln
 const MONO_NOTES_HTML = {
   'dashboard/src/services/notes.ts': src`const notes = new Map<string, string[]>();
@@ -1371,7 +1307,6 @@ export const REVIEW_FIXTURES = [
   change('go-module-parcelhub', '3', GO_WALL_CLOCK),
   change('jvm-gradle-seedvault', '1', JVM_TRANSFER_USE_CASE),
   change('jvm-gradle-seedvault', '2', JVM_LOT_QUERY),
-  change('jvm-gradle-seedvault', '3', JVM_RETIRE_RULE),
   change('monorepo-rust-ts-kiln', '1', MONO_NOTES_HTML),
   change('monorepo-rust-ts-kiln', '2', MONO_CLEAN_RUST),
 ];

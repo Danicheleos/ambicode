@@ -9,7 +9,7 @@ const titlesOf = (plan: string): string[] => [...plan.matchAll(ITERATION_HEADING
 
 /**
  * A failed check is recorded, never sent back: it prints here, before the question, and stays offered to Accept as
- * not verified. A user-set headless run takes its draft as it is, so Revise is not offered, since nobody is there to ask for one.
+ * not verified. In a user-set headless run Revise is not offered, since nobody is there to ask for one; the gate records its default (Reject) without printing.
  * The details go to the chat before the question: the path alone on the first line, so the terminal makes it clickable.
  */
 onGatePrint('plan-accept', async ({ runtime, dir, chain }) => {

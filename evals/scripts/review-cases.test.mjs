@@ -21,8 +21,8 @@ const loc = (file, from, to = from) => ({ file, lines: [from, to] });
 const tinyFiles = new Map([['src/a/routes.ts', ''], ['src/b/routes.ts', ''], ['src/b/other.ts', '']]);
 
 describe('review cases', () => {
-  it('are the five kept, named review-<stack>-<topic>, on neutral fixtures, with the clean control', () => {
-    assert.equal(reviewCases.length, 5);
+  it('are the four kept, named review-<stack>-<topic>, on neutral fixtures, with the clean control', () => {
+    assert.equal(reviewCases.length, 4);
     for (const c of reviewCases) {
       assert.match(c.name, /^review-(ts|py|go|jvm|mono)-[a-z-]+$/);
       assert.match(c.fixture, /^[a-z0-9-]+-review-\d$/);
@@ -31,7 +31,7 @@ describe('review cases', () => {
     assert.deepEqual(REVIEW_TRUTHS.filter((t) => t.control).map((t) => t.name), ['review-mono-clean-rust']);
   });
 
-  // The twice-on-two-stacks spread of the full matrix cannot hold for five kept cases; only the category names are checked.
+  // The twice-on-two-stacks spread of the full matrix cannot hold for the kept cases; only the category names are checked.
   it('every planted issue names a known category', () => {
     for (const t of REVIEW_TRUTHS) for (const issue of t.issues) assert.ok(CATEGORIES.includes(issue.category), issue.category);
   });
@@ -54,7 +54,7 @@ describe('review cases', () => {
       assert.match(c.prompt, /--task rev-\d+ /, c.name);
       assert.doesNotMatch(c.description, /import|name|test|loop|clock|html|escape|bypass|error|query|rule/i, c.description);
     }
-    assert.equal(new Set(reviewCases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, 5);
+    assert.equal(new Set(reviewCases.map((c) => c.prompt.match(/--task (\S+)/)[1])).size, 4);
   });
 
   it('the bare prompt and the plugin prompt carry no truth', () => {
@@ -269,10 +269,6 @@ const PROBES = {
   'review-ts-boundary': [
     { text: 'chargeLateFees was retested and the latest build is green.', credits: [] },
     { text: 'chargeLateFees has no test.', credits: ['s2'] },
-  ],
-  'review-jvm-retire-rule': [
-    { text: 'RetirementRules.check uses an inverted isBefore; a unit test would have caught it.', credits: ['main'] },
-    { text: 'RetirementRules has no test.', credits: ['s1'] },
   ],
 };
 

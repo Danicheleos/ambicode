@@ -36,8 +36,8 @@ const resolve = (repo, name) => repo.tracked.filter((file) => file === name || f
 const lineCount = (repo, file) => readFileSync(path.join(repo.dir, file), 'utf8').split('\n').length - 1;
 
 describe('plan cases', () => {
-  it('are the four app cases on ts-app-medium-plan, each with a bare arm and an answered gate', () => {
-    assert.equal(planCases.length, 4);
+  it('is the vague app case on ts-app-medium-plan, with a bare arm and an answered gate', () => {
+    assert.deepEqual(planCases.map((c) => c.name), ['plan-app-vague']);
     assert.ok(PLAN_SPECS.every((spec) => spec.size === 'narrow'));
     assert.deepEqual([...new Set(PLAN_SPECS.map((spec) => spec.fixture))], ['ts-app-medium-plan']);
     for (const c of planCases) {
@@ -120,7 +120,7 @@ describe('plan cases', () => {
     // A failed first check followed by a clean one after the fix round is one clean run.
     assert.match(`${entry('{"failed":true,"anchorsBad":1}')}\n${entry('{"failed":false,"anchorsBad":0}')}`, anchors);
     const edit = new RegExp(frontmatter(c.graders.find((g) => g.name === 'no-edit').text).input_match);
-    assert.doesNotMatch(JSON.stringify({ file_path: '/w/repo/.ambicode/tasks/plan-app-csv/plan.md', old_string: 'a', new_string: 'b' }), edit);
+    assert.doesNotMatch(JSON.stringify({ file_path: '/w/repo/.ambicode/tasks/plan-app-vague/plan.md', old_string: 'a', new_string: 'b' }), edit);
     assert.match(JSON.stringify({ file_path: '/w/repo/src/invoices/service.js', old_string: 'a', new_string: 'b' }), edit);
     const checks = new RegExp(frontmatter(c.graders.find((g) => g.name === 'no-checks-run').text).input_match);
     for (const command of ['npm test', 'cd repo && npx jest', 'uv run pytest', 'go test ./...', './gradlew test', 'cargo clippy --all-targets']) assert.match(JSON.stringify({ command }), checks, command);
@@ -131,17 +131,11 @@ describe('plan cases', () => {
     assert.doesNotMatch(JSON.stringify({ file_path: '/w/repo/.ambicode/tasks/plan-ts-grace/plan.md' }), write);
   });
 
-  it('a path check takes a bare answer that drops the leading src/', () => {
-    const reuse = PLAN_SPECS.find((spec) => spec.name === 'plan-app-reuse');
-    const page = reuse.must.find(([name]) => name === 'page-shows-due-date')[1];
-    assert.match('- `invoices/routes.js`: the page lists dueDate', new RegExp(page));
-  });
-
   // 2026-10-26, twelve plans (plugin 20-34-49, 20-35-40, 21-02-10, 21-03-00; bare 16-41-43, 16-43-03): all derived the due date, none stored
   // it, and the old due-date-stored grader failed them for it. Each line below is the line of that plan that states where the day comes from.
   it('due-date-decided takes a stored day and a derived one, and refuses a plan that never says where the day comes from', () => {
     const must = (case_, name) => new RegExp(PLAN_SPECS.find((spec) => spec.name === case_).must.find(([n]) => n === name)[1]);
-    const decided = [must('plan-app-remind', 'due-date-decided'), must('plan-app-vague', 'due-date-decided')];
+    const decided = [must('plan-app-vague', 'due-date-decided')];
     const plans = [
       '- Nothing stores a due date. `invoices/terms.dueDateFor(issuedAt, customer.paymentTermsDays)` computes it.',
       '1. **"Overdue"** means the business day is later than `dueDateFor(issuedAt, customer.paymentTermsDays) + config.overdueGraceDays`. Due dates are not stored',
@@ -187,45 +181,15 @@ describe('plan cases', () => {
 
   // The v2 run (2026-10-23): every plan found each named mechanism; these checks need two facts joined, and the v2 lines
   // that missed them must stay misses.
-  it('the joined-fact checks take the designs that join the facts and refuse the v2 lines that did not', () => {
+  it('no-due-date-noticed takes the line of a plan that says the due date is computed, not stored', () => {
     const must = (case_, name) => new RegExp(PLAN_SPECS.find((spec) => spec.name === case_).must.find(([n]) => n === name)[1]);
-    const live = must('plan-app-csv', 'served-live');
-    for (const line of ['GET /invoices.csv', '`GET /invoices/export.csv`', 'GET /invoices?format=csv']) assert.match(line, live, line);
-    assert.doesNotMatch('- `GET /reports/invoices.csv`: thin handler', live);
-    const total = must('plan-app-csv', 'page-total-used');
-    assert.match('- each total comes from `view` in invoices/routes.js', total);
-    assert.match('- a void invoice prints a total of 0, as on its page', total);
-    assert.doesNotMatch('- Assumption: void invoices are included, with their total, because the invoice page still shows a total for them.', total);
-    // v3 run (2026-10-23): one false pass and three false fails, each pinned to its plan line.
-    const mustNot = (case_, name) => new RegExp(PLAN_SPECS.find((spec) => spec.name === case_).mustNot.find(([n]) => n === name)[1]);
-    assert.match('- `src/shared/validation/date.js` and `index.js`: add `validateDateNotBefore(value, notBefore, field)`. It calls `validateDate`.', mustNot('plan-app-reuse', 'no-parallel-validator'));
-    assert.doesNotMatch('  - Compute `dueDate` as `validateRange(validateDate(input.dueDate), { min: issuedAt })`, reusing `validateRange` (src/shared/validation/range.js:4).', mustNot('plan-app-reuse', 'no-parallel-validator'));
-    assert.match('- `src/invoices/service.js:59-62`: add `displayTotal(invoice)`, otherwise `total(invoice)`.', must('plan-app-csv', 'summary-model-reused'));
-    assert.doesNotMatch('- For every invoice, the CSV total equals `routes.get(...).body.totalCents / 100` as a decimal. A void invoice shows `0.00`.', mustNot('plan-app-csv', 'policy-no-float-money'));
     assert.match('- **Overdue isn\'t modelled.** The due date is computed in `invoices/terms.js` and printed on the invoice mail, but it isn\'t stored.', must('plan-app-vague', 'no-due-date-noticed'));
-    const day = must('plan-app-remind', 'business-day');
-    assert.doesNotMatch('3. **At most once a day** means one per invoice per UTC calendar day (`clock.today()`).', day);
   });
 
-  it('the app cases have no llm judge; the boundary check catches the bare remind shape and spares the allowed designs', () => {
+  it('the app cases have no llm judge', () => {
     for (const c of planCases.filter((entry) => entry.name.startsWith('plan-app-'))) assert.ok(c.graders.every((g) => !g.text.includes('type: llm')), c.name);
-    const remind = PLAN_SPECS.find((spec) => spec.name === 'plan-app-remind');
-    const boundary = new RegExp(remind.mustNot.find(([name]) => name === 'policy-feature-boundary')[1]);
-    assert.match('  - It needs both invoices and notifications, so I would put it in the notifications feature and call `invoices/service`, as `handlers.js` already calls `customers/service`.', boundary);
-    assert.match('- `src/notifications/reminders.js`: require invoices/repository and filter the overdue ones', boundary);
-    for (const ok of [
-      '- `src/invoices/reminders.js`: select overdue invoices with invoices.list() and emit invoice.overdue on src/shared/events/bus.js',
-      '- `src/notifications/handlers.js`: onInvoiceOverdue renders the template from the event payload',
-      '- `src/notifications/service.js`: sendOverdueReminder is called from src/invoices/service.js with the amounts',
-      '- `src/notifications/reminders.js` must not require invoices/service (tests/architecture.test.js)',
-    ]) assert.doesNotMatch(ok, boundary, ok);
   });
 
-  it('the once-a-day check takes a stored last-reminder day as well as the notification record', () => {
-    const remind = PLAN_SPECS.find((spec) => spec.name === 'plan-app-remind');
-    const once = new RegExp(remind.must.find(([name]) => name === 'once-a-day-record')[1]);
-    for (const design of ['I store `lastReminderOn` (a day string) on the invoice', 'add `lastRemindedOn`', 'forCustomer (src/notifications/repository.js:7) shows one went out today']) assert.match(design, once, design);
-  });
 });
 
 describe('the plan app variant', () => {
@@ -258,8 +222,8 @@ describe('plan cases on a fixture that ships stack packs', () => {
   const stacked = planCases.filter((c) => (fixtureByName(c.fixture).stackPacks ?? []).length > 0);
   const GRADERS = ['plan-cites-its-rules', 'plan-cites-each-rule-once', 'plan-check-passed', 'plan-gets-stack-rules'];
 
-  it('are the four app cases; the plugin arm installs the stack packs, the bare arm does not', () => {
-    assert.deepEqual(stacked.map((c) => c.name).sort(), ['plan-app-csv', 'plan-app-remind', 'plan-app-reuse', 'plan-app-vague']);
+  it('is the vague app case; the plugin arm installs the stack packs, the bare arm does not', () => {
+    assert.deepEqual(stacked.map((c) => c.name).sort(), ['plan-app-vague']);
     for (const c of stacked) {
       assert.match(FILES.get(`${caseDir('cases', c.name)}/scaffold.sh`), /--ambicode-init --stack-packs/, c.name);
       if (c.bare !== null) assert.doesNotMatch(FILES.get(`${caseDir('bare', c.name)}/scaffold.sh`), /--ambicode-init|--stack-packs/, c.name);
@@ -276,13 +240,13 @@ describe('plan cases on a fixture that ships stack packs', () => {
         assert.equal(graderOf(c.name, grader).weight, 1, `${c.name} ${grader}`);
         assert.equal(FILES.has(`${caseDir('bare', c.name)}/graders/${grader}.md`), false, `${c.name} ${grader} must not grade the bare arm`);
       }
-      assert.equal(graderOf(c.name, 'plan-cites-each-rule-once').pattern, graderOf('plan-app-csv', 'plan-cites-each-rule-once').pattern);
+      assert.equal(graderOf(c.name, 'plan-cites-each-rule-once').pattern, graderOf('plan-app-vague', 'plan-cites-each-rule-once').pattern);
     }
   });
 
   it('grade a plan on its own text: one line per id passes, a second line fails, any pack id counts', () => {
-    const cites = new RegExp(graderOf('plan-app-csv', 'plan-cites-its-rules').pattern);
-    const once = new RegExp(graderOf('plan-app-csv', 'plan-cites-each-rule-once').pattern);
+    const cites = new RegExp(graderOf('plan-app-vague', 'plan-cites-its-rules').pattern);
+    const once = new RegExp(graderOf('plan-app-vague', 'plan-cites-each-rule-once').pattern);
     assert.ok(cites.test('## Policies\n- express-http/single-response: applied at src/reports/routes.js:5\n'));
     assert.ok(cites.test('common-design/need: not applicable: no new surface'));
     assert.ok(!cites.test('## Policies\nexpress-http/single-response is relevant\n'));
@@ -292,10 +256,10 @@ describe('plan cases on a fixture that ships stack packs', () => {
   });
 
   it('read the ledger: the check passed once, and a plan-stage policy row carries a stack pack rule', () => {
-    const passed = new RegExp(graderOf('plan-app-csv', 'plan-check-passed').pattern);
+    const passed = new RegExp(graderOf('plan-app-vague', 'plan-check-passed').pattern);
     assert.ok(passed.test('{"kind":"worker","worker":"plan-check","outcome":"ran","ms":3,"artifact":null,"summary":{"failed":false,"anchorsBad":0}}'));
     assert.ok(!passed.test('{"kind":"worker","worker":"plan-check","outcome":"ran","ms":3,"artifact":null,"summary":{"failed":true,"anchorsBad":0,"policyRepeated":["a/b"]}}'));
-    const stack = new RegExp(graderOf('plan-app-csv', 'plan-gets-stack-rules').pattern);
+    const stack = new RegExp(graderOf('plan-app-vague', 'plan-gets-stack-rules').pattern);
     assert.ok(stack.test('{"kind":"policy","route":"plan","activity":"plan","ids":["common-design/need","express-http/single-response"]}'));
     assert.ok(!stack.test('{"kind":"policy","route":"plan","activity":"review","ids":["express-http/single-response"]}'));
     assert.ok(!stack.test('{"kind":"policy","route":"plan","activity":"plan","ids":["common-design/need"]}'));
@@ -303,23 +267,14 @@ describe('plan cases on a fixture that ships stack packs', () => {
 });
 
 describe('plan-quality graders read the plan, not its citations', () => {
-  const CITE = '- common-design/explicit-surface: applied at src/notifications/service.js:27-38, src/invoices/service.js:81';
-  const CLEAN = '## Iteration 1\n- *Goal*: remind.\n- *Changes*: `src/notifications/reminders.js:1` reads overdue invoices through `src/invoices/index.js:3`.\n';
-
-  it('a citation line under ## Policies does not trip the feature-boundary check, the same words in an iteration still do', () => {
-    const boundary = new RegExp(graderOf('plan-app-remind', 'policy-feature-boundary').pattern);
-    assert.ok(!boundary.test(`${CLEAN}\n## Policies\n${CITE}\n`));
-    assert.ok(boundary.test(`## Iteration 1\n- *Changes*: \`src/notifications/service.js:27\` calls \`src/invoices/service.js:81\`\n\n## Policies\n`));
-  });
-
   it('a must check is not satisfied by a citation line either', () => {
-    const grace = new RegExp(graderOf('plan-app-reuse', 'grace-days-honoured').pattern);
+    const grace = new RegExp(graderOf('plan-app-vague', 'overdue-rule-found').pattern);
     assert.ok(!grace.test('## Policies\ncommon-design/need: applied at src/config.js:3 overdueGraceDays\n'));
     assert.ok(grace.test('## Iteration 1\noverdueGraceDays is read from src/config.js:3\n'));
   });
 
   it('the test-factory check accepts the helper named in backticks, with or without a call', () => {
-    const factory = new RegExp(graderOf('plan-app-remind', 'policy-test-factory').pattern);
+    const factory = new RegExp(graderOf('plan-app-vague', 'policy-test-factory').pattern);
     for (const line of ['- *Tests*: use `makeInvoice` with a dueDate', 'makeCustomer({ id })', 'build it with makePayment in the test', 'tests/factory.js:21']) assert.ok(factory.test(line), line);
     assert.ok(!factory.test('- *Tests*: builds invoices by hand with createInvoice'));
   });

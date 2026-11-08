@@ -15,6 +15,8 @@ const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REAL_TAG = 'task-real';
 // A second tag for the cases of one suite: its file sets `tag`, and writeReal renders and clears only that tree, so task-real/ is left alone.
 export const SUITE_TAG = 'suite-real';
+// The investigate cases of the same benches: their own tag, so rendering them clears neither task-real/ nor suite-real/.
+export const INVESTIGATE_TAG = 'suite-investigate';
 export const isRealCase = (name) => name.startsWith('task-real-');
 
 // The cases themselves are data about the bench repositories and live in the gitignored evals/local/real-cases.json (see LOCAL_FILE); nothing
@@ -37,6 +39,10 @@ export const isRealCase = (name) => name.startsWith('task-real-');
 // change avoided. The others measure the change: they fail on the parent and pass on the real change.
 // Optional file-level keys: `tag` (default task-real), `noRuns` (the sentence both arms get instead of NO_RUNS). Optional case keys: `promptFile` (path relative to the
 // file, read as the prompt as-is; a missing or empty one throws), `remove: [path]` (workspace files deleted before the scaffold's commit, both arms).
+// `skill: 'investigate'` makes a case a question about the code at `parent`: `prompt` is the question (the generator appends the citation and `## Files` rules, as
+// the retired synthetic investigate cases did; `files: false` drops the Files rule and scores citations), one variant, read-only tools, the investigate limits, the final message as the answer.
+// Its truth is `relevant`/`allowed` scored on the answer, no diff. Grader kinds besides `llm` (judged on the final message): 'answer' (`pattern` over the final message, both arms),
+// 'ledger' (`pattern` over the task ledger, plugin arm only), 'never' (`tool`, `input_match`: a tool_used grader with max 0, both arms).
 // A file with a `tag` is a suite: its plugin arm copies <file dir>/<tag>-material/<case name>/.ambicode (a missing one throws) instead of the bench's.
 // REAL_CASES_FILE points the generator and its tests at another file (a half-written set, one repository's cases).
 export const LOCAL_FILE = process.env.REAL_CASES_FILE ?? path.join(EVALS, 'local', 'real-cases.json');
@@ -63,6 +69,12 @@ const grader = (name, frontmatter) => ({ name, text: `---\n${frontmatter}\n---\n
 const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
 // 40 turns ran short for a large repository: the task route alone takes 3 main turns and an implementer subagent. A case sized beyond one file sets its own `limits`.
 const LIMITS = { max_turns: 60, timeout_seconds: 1500 };
+// cases.mjs LIMITS.investigate: 30 turns failed none of its 6-7 file chains; a case on a larger repository sets its own `limits`.
+const INVESTIGATE_LIMITS = { max_turns: 30, timeout_seconds: 900 };
+const CITE = 'Cite `path:line` for each claim.';
+const FILES = 'End your answer with a `## Files` section: one path per line, only the files that take part in the answer.';
+const isInvestigate = (real) => real.skill === 'investigate';
+const askOf = (real) => `${real.prompt} ${CITE}${real.files === false ? '' : ` ${FILES}`}`;
 
 // Every case, both arms: the eval measures the code a run writes, not the project's builds, tests or reviews. The plugin arm also gets every configured
 // check set to null (config-checks-off.mjs) and `--headless` with no iteration named: every plan iteration runs and the review-offer gate defaults to skip.
@@ -74,12 +86,16 @@ export const wroteLine = (tokens) => `(?<=^|\\n)${tokens.map((token) => `(?=[^\\
 
 /** The regex graders of one case, as the harness frontmatter. The route-done one reads the ledger and exists in the plugin arm only. */
 export function graderFiles(real, plugin) {
-  const out = real.graders.filter((g) => g.kind !== 'diff').map((g) => {
+  const out = real.graders.filter((g) => g.kind !== 'diff' && (plugin || g.kind !== 'ledger')).map((g) => {
     const weight = `weight: ${g.weight ?? 1}`;
+    if (g.kind === 'answer') return grader(g.name, `type: regex\npattern: ${y(g.pattern)}\nmatch: ${g.match ?? 'contains'}\ntarget: last_message\n${weight}`);
+    if (g.kind === 'ledger') return grader(g.name, `type: regex\npattern: ${y(g.pattern)}\nmatch: ${g.match ?? 'contains'}\ntarget: { source: file, path: .ambicode/tasks/${real.slug}/ledger.jsonl }\n${weight}`);
+    if (g.kind === 'never') return grader(g.name, `type: tool_used\ntool: ${g.tool}\ninput_match: ${y(g.input_match)}\nmin: 0\nmax: 0\n${weight}`);
     if (g.kind === 'exists') return grader(g.name, `type: file_exists\npath: ${g.glob}\n${weight}`);
     // The plugin arm's final message is one pointer line: the implementer's report is the file the task route saves; the bare arm has no route, so its message is the report.
     if (g.kind === 'llm' && g.focus) return { name: g.name, text: `---\ntype: llm\nfocus: { source: file, path: ${g.focus} }\n${weight}\n---\n\n${g.rubric.trim()}\n` };
-    if (g.kind === 'llm') return { name: g.name, text: `---\ntype: llm\nfocus: ${plugin ? `{ source: file, path: .ambicode/tasks/${real.slug}/report.md }` : 'last_message'}\n${weight}\n---\n\n${g.rubric.trim()}\n` };
+    // An investigate case's answer is the final message in both arms; a task's plugin arm ends on a pointer line, so its judge reads the report.
+    if (g.kind === 'llm') return { name: g.name, text: `---\ntype: llm\nfocus: ${plugin && !isInvestigate(real) ? `{ source: file, path: .ambicode/tasks/${real.slug}/report.md }` : 'last_message'}\n${weight}\n---\n\n${g.rubric.trim()}\n` };
     const pattern = g.wrote ? wroteLine(g.wrote) : g.pattern;
     const target = g.kind === 'trace' ? 'trace' : `{ source: file, path: ${g.file} }`;
     return grader(g.name, `type: regex\npattern: ${y(pattern)}\nmatch: ${g.match ?? 'contains'}\ntarget: ${target}\n${weight}`);
@@ -91,6 +107,7 @@ export function graderFiles(real, plugin) {
 
 /** The variants of a case: `<name>-plan` (an accepted plan) and `<name>-inv` (an investigation) start from a note; `<name>` itself is raw, the task prompt alone with nothing seeded. */
 export function variantsOf(real) {
+  if (isInvestigate(real)) return [{ ...real, variant: 'raw', note: null, request: askOf(real) }];
   const out = [];
   if (real.plan) out.push({ ...real, name: `${real.name}-plan`, slug: `${real.slug}p`, variant: 'plan', note: { kind: 'plan', text: real.plan }, request: 'Go ahead with the plan.' });
   if (real.investigation) out.push({ ...real, name: `${real.name}-inv`, slug: `${real.slug}i`, variant: 'inv', note: { kind: 'investigation', text: real.investigation }, request: real.prompt });
@@ -114,19 +131,19 @@ export function caseFiles({ real, order, sources, plugin, tag = REAL_TAG, noRuns
     '---',
     `name: ${real.name}`,
     `description: ${y(real.description)}`,
-    `tags: ["task", "${tag}", "${tag}-${real.variant}", "${real.kind}"]`,
+    `tags: ["${isInvestigate(real) ? 'investigate' : 'task'}", "${tag}", "${tag}-${real.variant}", "${real.kind}"]`,
     'runs: 1',
-    `max_turns: ${(real.limits ?? LIMITS).max_turns}`,
-    `timeout_seconds: ${(real.limits ?? LIMITS).timeout_seconds}`,
-    `allowed_tools: [Read, Glob, Grep, Bash, Edit, Write${plugin ? ', Skill, Agent' : ''}]`,
+    `max_turns: ${(real.limits ?? (isInvestigate(real) ? INVESTIGATE_LIMITS : LIMITS)).max_turns}`,
+    `timeout_seconds: ${(real.limits ?? (isInvestigate(real) ? INVESTIGATE_LIMITS : LIMITS)).timeout_seconds}`,
+    `allowed_tools: [${isInvestigate(real) ? 'Read, Glob, Grep, Bash' : 'Read, Glob, Grep, Bash, Edit, Write'}${plugin ? (isInvestigate(real) ? ', Skill' : ', Skill, Agent') : ''}]`,
     '---',
     '',
-    plugin ? `/ambicode:task --task ${real.slug} --headless ${oneLine(real.request)} ${noRuns}` : `${bareBody(real)}\n\n${noRuns}`,
+    isInvestigate(real) ? `${plugin ? `/ambicode:investigate --task ${real.slug} ` : ''}${oneLine(real.request)}` : plugin ? `/ambicode:task --task ${real.slug} --headless ${oneLine(real.request)} ${noRuns}` : `${bareBody(real)}\n\n${noRuns}`,
     '',
   ].join('\n'));
   for (const one of graderFiles(real, plugin)) files.set(`${root}/graders/${one.name}.md`, one.text);
   const diffGraders = real.graders.filter((g) => g.kind === 'diff').map(({ name, pattern, in: inside, match, weight, perFile }) => ({ name, pattern, ...(inside === undefined ? {} : { in: inside }), ...(match === undefined ? {} : { match }), ...(perFile === undefined ? {} : { perFile }), weight: weight ?? 1 }));
-  files.set(`${root}/truth.json`, `${JSON.stringify({ name: real.name, source: 'changed', level: 'file', relevant: real.relevant, allowed: real.allowed, ...(diffGraders.length === 0 ? {} : { diffGraders }), bench: { repo: real.repo, commit: real.commit, parent: real.parent } }, null, 2)}\n`);
+  files.set(`${root}/truth.json`, `${JSON.stringify({ name: real.name, source: isInvestigate(real) ? (real.files === false ? 'citations' : 'files-section') : 'changed', level: 'file', relevant: real.relevant, allowed: real.allowed, ...(diffGraders.length === 0 ? {} : { diffGraders }), bench: { repo: real.repo, commit: real.commit, parent: real.parent } }, null, 2)}\n`);
   return files;
 }
 
@@ -152,7 +169,7 @@ export function writeReal({ evalsDir = EVALS, sources, cases = loadRealCases().c
 
 /** truth.json of the rendered case with this name (any name: a suite's cases are not all task-real-*), or null: run.mjs scores `changed` metrics from it. The plan->task chain cases (chain-cases.mjs) are task-real-*-chain and live in cases/task-chain. */
 export function realTruth(name, evalsDir = EVALS) {
-  for (const tree of [REAL_TAG, 'task-chain', SUITE_TAG]) {
+  for (const tree of [REAL_TAG, 'task-chain', SUITE_TAG, INVESTIGATE_TAG]) {
     const root = path.join(evalsDir, 'cases', tree);
     if (!existsSync(root)) continue;
     for (const entry of readdirSync(root)) {

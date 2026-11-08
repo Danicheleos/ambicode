@@ -1,5 +1,5 @@
 // The mechanical part of reviewing a plan draft: every path:line anchor exists. The result is recorded; nothing here sends the draft back.
-// With the `resolve` param it runs before the draft is saved and completes a partial path that names exactly one
+// With the `resolve` param it runs after the model's Write of the draft and completes a partial path that names exactly one
 // tracked file: a bare `service.ts:4` failed the check, and the model patched the body instead of rewriting it.
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -23,7 +23,7 @@ try {
   process.stdout.write(JSON.stringify({ entries, failed: { code: 'plan-body-missing', message, recoverable: true } }));
   process.exit(0);
 }
-// The first ten bad anchors are listed, enough for one fix round; the count is exact.
+// The first ten bad anchors, and the first ten requirements not word for word, are listed, enough for one fix round; the counts are exact.
 const LISTED = 10;
 
 const PATH = '[\\w@./\\\\-]+\\.[A-Za-z0-9]+';

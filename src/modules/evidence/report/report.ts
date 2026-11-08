@@ -1,5 +1,6 @@
 import { newestReviews } from '#modules/review/answer/captured';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
+import { MAX_CONTENT } from '#modules/requirements/capture/capture';
 import { mrRequirements } from '#modules/requirements/capture/has-requirement';
 import type { LedgerEntry } from '#types/modules/evidence';
 
@@ -115,7 +116,7 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   for (const entry of of('policy').filter((policy) => policy.stage === 'drafts' && Number(policy.errors) > 0)) gaps.push(`rules drafts: ${entry.errors} check errors`);
   const mrNamed = new Set(mrRequirements(entries));
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${clip(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${clip(missing)}`);
-  for (const entry of of('requirement').filter((capture) => capture.capture === 'cut')) gaps.push(`Requirement ${clip(entry.key)} was cut at 256 KB: the rest of it was not captured`);
+  for (const entry of of('requirement').filter((capture) => capture.capture === 'cut')) gaps.push(`Requirement ${clip(entry.key)} was cut at ${MAX_CONTENT / 1024} KB: the rest of it was not captured`);
   for (const entry of of('route')) if ((entry.args as { noReview?: boolean } | undefined)?.noReview === true) gaps.push('review skipped (--no-review)');
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);
   // A route that stopped short is a gap in itself; done, iterations-complete and interrupted (superseded by a new start) are not.

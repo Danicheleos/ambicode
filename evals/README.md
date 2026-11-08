@@ -1,9 +1,9 @@
 # Evals: skill coverage
 
-Forty-three synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 40 of them also run with no plugin
-loaded, which is the baseline. One generator outside `cases.mjs` adds five more runnable cases (`downstream`), and two offline map bench suites outside `evals/` (`bench/map`, `evals/local/bench/map-k12`) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
-here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
-and are not run any more.
+Seven synthetic cases in `scripts/cases.mjs`, each checking one behaviour; 5 of them also run with no plugin
+loaded, which is the baseline (`CASES.length` and the cases whose `bare` is not null). The live tree holds 28 plugin and 20 bare case directories (`find evals/cases -name case.yaml | wc -l`, and the same for `evals/bare`): the 7 and 5 that `CASES` holds now, `init/` (5, no generator), and the gitignored `suite-investigate/` (5 each), `suite-real/` (5 each) and `task-chain/` (6 plugin, 5 bare) (7 + 5 + 5 + 5 + 6 = 28 plugin; 5 + 5 + 5 + 5 = 20 bare). `suite-investigate/`, `suite-real/` and `task-chain/` are real project data (gitignored, rendered by `real-cases.mjs` and `chain-cases.mjs` from `evals/local/`); every other case runs on a fixture from `fixtures/definitions.mjs` and is in git. `scripts/downstream-cases.mjs` can add five more runnable cases (`downstream`), rendered from a bench checkout into the gitignored `evals/cases/downstream/`; that directory is absent here. Two offline map bench suites (`bench/map`, and `evals/local/bench/map-k12` once `map-k12-cases.mjs` has written it) score `search map` without a model; `claude plugin eval` and the plugin-master Evals view see only the session cases under `evals/`. The previous benchmark suites are in `../eval-archive/evals/` (outside the repository) and are not run any more.
+
+Grader rules: see [GRADERS.md](GRADERS.md) before writing or changing any case or grader. The blind-judge protocol that decides quality and the gate is `evals/local/judge/PROTOCOL.md` (gitignored); `node evals/scripts/judge-inputs.mjs <stamp>...` lists each run's judge inputs.
 
 ```
 evals/
@@ -13,7 +13,7 @@ evals/
   scripts/run.mjs         runs one arm through `claude plugin eval` and leaves the result in `cases/results/`
   scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
   scripts/trace.mjs       trace parsing and `mean`, shared by the scripts below
-  scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`; source `changed` scores the workspace diff that harvest snapshots, the task-tune cases)
+  scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`; source `changed` scores the workspace diff that harvest snapshots, as the `task-real` cases do)
   scripts/breakdown.mjs   where a run's calls, tokens, seconds and injected bytes go (`npm run evals:breakdown -- <trace.jsonl | dir>`)
   cases/results/          raw output of the last run per arm, and traces/<arm>/<stamp>/<case>-<n>.jsonl (gitignored); each run's `.ambicode` workspace copy (ledgers, `context/`) goes to `../eval-archive/` at the same relative path, or `$AMBICODE_EVAL_ARCHIVE` (inside the repo they pushed evals/ past the 20,000-entry limit of `claude plugin eval`)
 ```
@@ -22,8 +22,8 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: the 18 cases of cases.mjs (+ downstream once generated)
-npm run evals:bare                  # bare arm: 16 cases of cases.mjs (+ downstream), no plugin
+npm run evals                       # plugin arm: the 12 cases of cases.mjs (+ downstream once `downstream-cases.mjs` rendered it; none in this tree)
+npm run evals:bare                  # bare arm: 10 cases of cases.mjs (+ downstream when rendered), no plugin
 npm run evals -- --case 'review-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
@@ -119,8 +119,9 @@ Read the result files, not the exit code. The harness exits 1 whenever any case 
    - `regex` on the ledger (`repo/.ambicode/tasks/<slug>/ledger.jsonl`), on a produced file, or on the final message.
    - `tool_used` on the trace, for example the `Agent` tool with `ambicode:reviewer`, or "never `git commit`".
    - `file_exists` for files the run created.
-   - `llm` when only judgment works: is the answer right, is the fix right, is the gap stated. Haiku judges with
-     three votes.
+   - `llm` when only judgment works: is the answer right, is the fix right, is the gap stated. The harness judges with
+     three votes (`judgeVotes` in `aggregate-result.json`) on its default judge model, haiku (`claude plugin eval --help`:
+     `--judge-model`, default haiku; the runner does not pass the flag).
 4. **Score.** The weighted share of graders that passed.
 
 ## Plugin against bare
@@ -132,7 +133,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-Two cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`); the after-investigate task case has a bare arm that gets the note as prompt text.
+Two cases of `cases.mjs` have no bare arm because what they test belongs to the plugin: the two `rules` cases (`rules-cases.mjs`).
 
 ## Suites
 
@@ -140,14 +141,14 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 
 | Suite | Cases | Bare | Source |
 | --- | --- | --- | --- |
-| review | 5 (3 jvm, `review-ts-boundary`, `review-mono-clean-rust`) | 5 | `cases.mjs`, see Review cases |
-| investigate | 10: 5 in `cases.mjs` (app 3, `investigate-jvm-viability-rule`, `investigate-mono-max-setpoint`), downstream 5 | 10 | 5 in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs` |
-| plan | 5 (`plan-app-csv`, `-reuse`, `-vague`, `-remind`, `plan-policy-staged`) | 4 | `cases.mjs`: the 4 app cases; `plan-policy-staged` is in `rules-cases.mjs` |
-| task | 2 (`task-app-segments-void`, `task-jvm-after-investigate`; both tag `task-tune`) | 2 | `cases.mjs` (task-cases.mjs); the other 20 are in `../eval-archive/task-cases-2026-10-29` |
+| review | 4 (2 jvm, `review-ts-boundary`, `review-mono-clean-rust`) | 4 | `cases.mjs`, see Review cases |
+| investigate | 5 (downstream) | 5 | none in `cases.mjs`; the 5 downstream cases from `downstream-cases.mjs`; the live investigate cases are `suite-investigate` |
+| plan | 2 (`plan-app-vague`, `plan-policy-staged`) | 1 | `plan-cases.mjs`: `plan-app-vague`; `plan-policy-staged` is in `rules-cases.mjs` |
+| task | 0 (the two synthetic cases were dropped 2026-11-08; the live task cases are `suite-real` and `task-chain`, gitignored, below) | 0 | none in `cases.mjs`; the other 20 older ones are in `../eval-archive/task-cases-2026-10-29` |
 | rules (tag; the cases sit in the rules and plan suites) | 2 | 0 | `rules-cases.mjs` |
 | init | 5 (`cases/init`, on disk only: no generator since d7ab5349, skipped by `suite.test.mjs`) | 0 | none |
 | bench/map | 10 | offline | `map-cases.mjs`, scored by `map-bench.mjs` |
-| evals/local/bench/map-k12 | 5 | offline | `map-k12-cases.mjs`, second stack (Python) |
+| evals/local/bench/map-k12 | 5 once written; absent here | offline | `map-k12-cases.mjs <checkout>`, second stack (Python) |
 
 `bench/map` and `downstream` are gitignored and regenerated from a bench checkout; `evals:generate` does not touch them.
 
@@ -161,7 +162,7 @@ Counts come from `scripts/cases.mjs` (`CASES`) and the generated trees, not from
 
 ## Review cases
 
-Five kept cases of the fourteen defined by the matrix (`evals/scripts/review-cases.mjs`; the other nine are in `../eval-archive`) review an uncommitted change of 48 to 91 added lines (blank lines included) on the five init stacks (`fixtures/review-changes.mjs`, fixtures `<base>-review-<n>`, numbered so a name says nothing about the defect). Four hold one main issue and two or three others, each from a category other than the main's, and every real issue in a diff is in the truth; `mono-clean-rust` is a clean control. Both arms get the same scaffold: config (`--ambicode-init`), conventions (`--context`) and, where the matrix assigns a team rule, a project pack (`--policy`, `fixtures/policies/<stack>.yaml`, authority `team`, listed under `policyFiles`). The lift measures the reviewer route, not the material.
+Four kept cases of the fourteen defined by the matrix (`evals/scripts/review-cases.mjs`; the other ten are in `../eval-archive` or dropped, `review-jvm-retire-rule` on 2026-11-08) review an uncommitted change of 48 to 91 added lines (blank lines included) on three init stacks (ts, jvm, monorepo) (`fixtures/review-changes.mjs`, fixtures `<base>-review-<n>`, numbered so a name says nothing about the defect). Three hold one main issue and two or three others, each from a category other than the main's, and every real issue in a diff is in the truth; `mono-clean-rust` is a clean control. Both arms get the same scaffold: config (`--ambicode-init`), conventions (`--context`) and, where the matrix assigns a team rule, a project pack (`--policy`, `fixtures/policies/<stack>.yaml`, authority `team`, listed under `policyFiles`). The lift measures the reviewer route, not the material.
 
 Each case directory holds `review-truth.json`: `[{id, category, main, what, locations: [{file, lines}], anchors: [{ids, near | gap}]}]`, `[]` for a control. An issue has one or more locations (resolved from `find` strings in the fixture; the first lies inside the added lines of the working-tree diff, checked by `fixtures/review-fixtures.test.mjs`, the others may name code the change leaves alone, like the second limit a new constant duplicates) and anchors. Task names are neutral (`rev-<n>`) and the case description names no defect: the scaffold materializes only `repo/`, so nothing of the case directory is in the run's working directory.
 
@@ -169,13 +170,13 @@ Each case directory holds `review-truth.json`: `[{id, category, main, what, loca
   - A location is the shortest trailing path that names one file of the repository (down to the basename), then a line, an `a-b` range or an `a, b` list that reaches the location's lines widened by three (`f.ts:12`, `f.ts (line 12)`, `f.ts:5-40`, `f.ts#L12-L20`).
   - An anchor is one of its identifiers (exact case, whole word) within 200 characters of one of its keywords (any case, standing alone: "latest" and a path such as `tests/test_x.py` are not "test"; an identifier may not supply its own keyword), in either order, for the report that names the problem without a line. A tests issue uses a gap anchor instead: the identifier and a phrase saying a test is absent ("no test", "untested", "tests missing"), so a remark that only mentions a test credits nothing. Issues whose windows share lines in one file declare it with `overlaps`.
   - The plugin arm reads `repo/.ambicode/reviews/<slug>/1/report.txt`, because the final message paraphrases the report and has dropped locations; the bare arm reads the final message. The same pattern runs in both arms.
-- `main-nature`, `no-false-claim`: llm graders, shared. `no-false-claim` shows the judge the touched files, the real issues and the sound parts, and defines a false claim as a finding about a sound part, a claimed passing check that is not listed, or a finding outside the touched files. The harness runs 3 votes of one word on haiku (`claude-haiku-4-5`) and keeps no reasoning.
+- `main-nature`, `no-false-claim`: llm graders, shared. `no-false-claim` shows the judge the touched files, the real issues and the sound parts, and defines a false claim as a finding about a sound part, a claimed passing check that is not listed, or a finding outside the touched files. The harness runs 3 votes of one word on its default judge model (haiku; the exact id is not recorded in the results) and keeps no reasoning. The offline re-grade below is a different judge (`claude-haiku-5-5`, 5 votes).
 - Controls: `no-high-risk-finding` (plugin only, `not_contains` a medium or high `risk` in `answer.json`) and the shared llm `no-defect-claimed`, which defines a false alarm as a finding of medium or high risk or a claim that the change is verified when no check ran.
 - Plugin only: `reviewer-invoked`, `review-recorded`, `route-done`, `finding-recorded` (defect cases).
 
 `review-cases.test.mjs` feeds every case synthetic outputs and asserts each deterministic grader: a perfect output (every issue cited as full path, basename, range, list and anchor only) credits every issue in both arms; one issue's exact citation credits only it and the issues it declares overlap with, and its anchor credits no other; the audit probes (a remark about one issue that used to credit another: "retested", "a unit test would have caught it", a generic id and keyword pair) credit only their own issue; an empty output, a clean report, an identifier alone, a citation moved ten lines and a citation of another file credit nothing; a control fails on a medium finding and passes on a low one.
 
-The category-by-stack table of the full fourteen-case matrix went with the nine cases removed from the live set; the kept cases cover the categories their `REVIEW_TRUTHS` entries name.
+The category-by-stack table of the full fourteen-case matrix went with the ten cases removed from the live set; the kept cases cover the categories their `REVIEW_TRUTHS` entries name.
 
 `node evals/scripts/cases.mjs --case 'review-*'` rewrites just these cases. `review-cases.test.mjs` checks them at no cost; no paid run has scored them yet. Each fixture also builds and passes its own tests with the stack's toolchain (go build, vet and test; cargo check, clippy and test; gradle test; tsc and the tests; pytest) apart from the intended defects.
 

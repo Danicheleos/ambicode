@@ -62,7 +62,7 @@ interface MapResult {
   collisions: string[];
   limitations: string[];
   omitted: number;
-  /** The first line is the layer list; the rest is compact JSON. At most MAP_LIMIT_BYTES. */
+  /** MAP_LEGEND (three lines), then compact JSON. At most MAP_LIMIT_BYTES. */
   text: string;
   bytes: number;
   /** The `map` ledger entry's fields. */

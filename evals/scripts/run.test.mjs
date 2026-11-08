@@ -30,8 +30,10 @@ describe('result copy', () => {
   it('a case with the changed source is scored on the run\'s workspace diff, not on its trace', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'run-changed-'));
     const result = path.join(root, 'plugin.json');
-    const raw = { startedAt: '2026-10-27T10:00:00.000Z', cases: [{ name: 'task-app-segments-void', arms: { with: [{ graders: [], changed: ['src/customers/segments.js', 'src/customers/statement.js', 'tests/customers/segments.test.js', 'src/elsewhere.js'] }, { graders: [], changed: null }] } }] };
-    const deps = { tracesRoot: path.join(root, 'traces'), harvest: () => {}, spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } };
+    const raw = { startedAt: '2026-10-27T10:00:00.000Z', cases: [{ name: 'task-with-truth', arms: { with: [{ graders: [], changed: ['src/customers/segments.js', 'src/customers/statement.js', 'tests/customers/segments.test.js', 'src/elsewhere.js'] }, { graders: [], changed: null }] } }] };
+    // The truth is injected: a case with a `changed` truth.json is a gitignored suite case, absent on CI.
+    const realTruthOf = () => ({ source: 'changed', relevant: ['src/customers/segments.js', 'src/customers/statement.js', 'tests/customers/segments.test.js'], allowed: ['src/invoices/status.js'] });
+    const deps = { tracesRoot: path.join(root, 'traces'), harvest: () => {}, realTruthOf, spawn: () => { writeFileSync(result, JSON.stringify(raw)); return 0; } };
     runCase({ argv: [], env: {}, result, arm: 'plugin' }, deps);
     const [full, none] = JSON.parse(readFileSync(result, 'utf8')).cases[0].arms.with.map((one) => one.metrics);
     assert.equal(full.recall, 1);
@@ -165,10 +167,10 @@ describe('evals runner', () => {
   it('plan and investigate cases get the grant their SKILL.md declares; task, mixed, unfiltered and bare selections keep the blanket', () => {
     const grant = (args) => { const argv = plan(args).argv; const at = argv.indexOf('--allow-tools') + 1; return argv.slice(at, argv.findIndex((arg, i) => i >= at && arg.startsWith('--'))); };
     const planRules = ['Bash(node *ambicode.mjs*)', 'Edit(//**/.ambicode/tasks/*/plan.md)', 'Write(//**/.ambicode/tasks/*/plan.md)'];
-    assert.deepEqual(grant(['--case', 'plan-app-csv']), planRules);
+    assert.deepEqual(grant(['--case', 'plan-app-vague']), planRules);
     assert.deepEqual(grant(['--case', 'task-k12-1016-chain-plan']), planRules);
     assert.deepEqual(grant(['--tag', 'investigate']), ['Bash(node *ambicode.mjs*)']);
-    for (const args of [[], ['--case', 'task-*'], ['--tag', 'task'], ['--case', 'no-such-case'], ['--bare', '--case', 'plan-app-csv']]) assert.deepEqual(grant(args), ['Bash', 'Edit', 'Write'], args.join(' '));
+    for (const args of [[], ['--case', 'task-*'], ['--tag', 'task'], ['--case', 'no-such-case'], ['--bare', '--case', 'plan-app-vague']]) assert.deepEqual(grant(args), ['Bash', 'Edit', 'Write'], args.join(' '));
   });
 
   it('skillGrant keeps the gated rules with their patterns and drops the ungated ones', () => {
