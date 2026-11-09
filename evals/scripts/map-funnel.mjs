@@ -1,7 +1,7 @@
 // $0 per-case funnel of the map on the map bench: for each truth folder, was a file of it in the ranked pool, printed, in the top N;
 // and which extracted terms produced the printed folders that the truth does not accept (noise). map-bench.mjs stores the same stages in its result JSON.
 //   node evals/scripts/map-funnel.mjs --bench <repo> [--split tune|hold|all] [--case <substring>] [--top 8]
-//   node evals/scripts/map-funnel.mjs --spec evals/local/real-cases.suite.json --case <exact name> [--extra <file>]...   (replay mode, below)
+//   node evals/scripts/map-funnel.mjs --spec evals/local/real-cases.suite.json --case <exact name>   (replay mode, below)
 // It calls buildMap in-process with the request the investigate route builds for a headless prompt, in the same scratch clone the bench uses.
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, globSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -155,7 +155,7 @@ export function caseScratch(bench, parent, material) {
 }
 
 /** The map of one suite case as the plan route's first stage built it, and each truth file's and extra file's stage. */
-export async function runReplay({ spec, name, env = process.env, extras = [], material = MATERIAL, archive = ARCHIVE, stamps = STAGE1_R1 }) {
+export async function runReplay({ spec, name, env = process.env, material = MATERIAL, archive = ARCHIVE, stamps = STAGE1_R1 }) {
   const suite = JSON.parse(readFileSync(spec, 'utf8'));
   const entry = suite.cases.find((candidate) => candidate.name === name);
   if (entry === undefined) throw new Error(`${name} is not a case of ${spec}`);
@@ -173,7 +173,7 @@ export async function runReplay({ spec, name, env = process.env, extras = [], ma
     const project = projectForRequest(workspace.config, null, []);
     const { layers, source } = resolveLayers('prompt');
     const map = await buildMap(runtime, { project, mode: 'prompt', layers, layersSource: source, terms: [], request, paths: [], symbols: [] });
-    const files = [...entry.relevant.map((file) => ({ file, kind: 'truth' })), ...[...(EXTRA_FILES[name] ?? []), ...extras].map((file) => ({ file, kind: 'extra' }))]
+    const files = [...entry.relevant.map((file) => ({ file, kind: 'truth' })), ...(EXTRA_FILES[name] ?? []).map((file) => ({ file, kind: 'extra' }))]
       .map((item) => ({ ...item, ...fileStage(item.file, map), above: [] }));
     for (const item of files) if (item.stage === 'cut') item.above = rowsAbove(item.file, map);
     return { name, stamp, requestChars: request.length, delivered: map.candidates.length, candidates: map.entry.candidates, pool: map.pool.length, bytes: map.bytes, row1: map.candidates[0]?.path ?? null, files };
@@ -197,8 +197,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (specFile !== null) {
     const name = argOf('--case', null);
     if (name === null) throw new Error('--spec needs --case <exact case name>');
-    const extras = process.argv.flatMap((arg, at) => (arg === '--extra' ? [process.argv[at + 1]] : []));
-    printReplay(await runReplay({ spec: path.resolve(specFile), name, extras }));
+    printReplay(await runReplay({ spec: path.resolve(specFile), name }));
     process.exit(0);
   }
   const bench = argOf('--bench', process.env.NAV_BENCH);
