@@ -1,18 +1,37 @@
 // $0 per-case funnel of the map on the map bench: for each truth folder, was a file of it in the ranked pool, printed, in the top N;
 // and which extracted terms produced the printed folders that the truth does not accept (noise). map-bench.mjs stores the same stages in its result JSON.
 //   node evals/scripts/map-funnel.mjs --bench <repo> [--split tune|hold|all] [--case <substring>] [--top 8]
+//   node evals/scripts/map-funnel.mjs --spec evals/local/real-cases.suite.json --case <exact name> [--extra <file>]...   (replay mode, below)
 // It calls buildMap in-process with the request the investigate route builds for a headless prompt, in the same scratch clone the bench uses.
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, globSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '#composition/root';
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
 import { buildMap, resolveLayers } from '#modules/search/map';
+import { titleOf } from '#modules/requirements/capture/capture';
 import { halvesOf, promptOf, scratchOf } from './map-bench.mjs';
 import { truthFolders } from './folder-truth.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CASES = path.join(REPO, 'bench', 'map');
+const MATERIAL = path.join(REPO, 'evals', 'local', 'suite-real-material');
+const ARCHIVE = path.resolve(REPO, '..', 'eval-archive', 'evals', 'cases', 'results', 'traces', 'plugin');
+/** Run 1 of each case's two 2026-11-07 stage-1 plan runs (.plugin-master/backlog-resources/plan-gate-analysis/00-data.md:15-24). */
+export const STAGE1_R1 = {
+  'task-k12-1016': '2026-11-07T11-36-37-890Z',
+  'task-k12-1094': '2026-11-07T11-47-00-607Z',
+  'task-real-fe-vs-5945-nom-admin-defaults': '2026-11-07T11-55-02-584Z',
+  'task-real-fe-vs-6545-reba-submit': '2026-11-07T12-01-47-735Z',
+  'task-real-fe-vs-5915-ge-adv-autolaunch': '2026-11-07T12-06-07-923Z',
+};
+/** Files the plan gate analysis names beyond the truth list (00-data.md:86); 1016 district.py is already in that case's truth. */
+export const EXTRA_FILES = {
+  'task-real-fe-vs-5945-nom-admin-defaults': ['main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.ts'],
+  'task-real-fe-vs-6545-reba-submit': ['main/features/score-types/rula-reba/reba/services/reba-manual-assessment-form.service.spec.ts'],
+};
 
 const under = (dir, folder) => dir === folder || dir.startsWith(`${folder}/`);
 /** The quoted term of a reason, or its kind when there is none. */
@@ -99,8 +118,89 @@ function print(rows, top) {
   }
 }
 
+/**
+ * Where one file fell in a buildMap result: folded (a companion merged into `into`), absent (not in the pool), spread, floor, cut (byte cut) or printed.
+ * `rank` and `score` are the file's own pool position, or the row's it folded into; `row` is the printed row number of the file or of that row.
+ */
+export function fileStage(file, map) {
+  const poolOf = (name) => map.pool.findIndex((candidate) => candidate.path === name);
+  const rowOf = (name) => { const at = map.candidates.findIndex((candidate) => candidate.path === name); return at === -1 ? null : at + 1; };
+  const at = (name) => { const index = poolOf(name); return index === -1 ? { rank: null, score: null } : { rank: index + 1, score: map.pool[index].score }; };
+  const into = map.debug.folded[file];
+  if (into !== undefined) return { stage: 'folded', into, row: into === null ? null : rowOf(into), ...(into === null ? { rank: null, score: null } : at(into)) };
+  if (poolOf(file) === -1) return { stage: 'absent', row: null, rank: null, score: null, into: null };
+  const stage = map.debug.spreadDropped.includes(file) ? 'spread' : map.debug.floorDropped.includes(file) ? 'floor' : rowOf(file) === null ? 'cut' : 'printed';
+  return { stage, row: rowOf(file), ...at(file), into: null };
+}
+
+/** The printed rows whose pool rank is above the file's own: what the byte cut kept instead. */
+export const rowsAbove = (file, map) => {
+  const own = map.pool.findIndex((candidate) => candidate.path === file);
+  return own === -1 ? [] : map.candidates.map((candidate, at) => ({ row: at + 1, path: candidate.path, score: candidate.score, rank: map.pool.findIndex((row) => row.path === candidate.path) + 1 })).filter((row) => row.rank <= own);
+};
+
+/** The plan route's request string (src/skills/common.ts:167) for the captured sources of an archived run: `${title}\n${content}` joined by a newline. */
+export function requestOf(requirementsDir) {
+  const sources = readdirSync(requirementsDir).sort().filter((name) => name.endsWith('.json')).map((name) => JSON.parse(readFileSync(path.join(requirementsDir, name), 'utf8')));
+  return sources.map((source) => `${titleOf(source.content, source.key)}\n${source.content}`).join('\n');
+}
+
+/** A clone of the case's bench at the case's parent commit with the frozen .ambicode material; the checkout happens in the clone only. */
+export function caseScratch(bench, parent, material) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'map-replay-'));
+  execFileSync('git', ['clone', '-q', '--local', '--no-hardlinks', bench, dir], { stdio: 'pipe' });
+  execFileSync('git', ['checkout', '-q', '--detach', parent], { cwd: dir, stdio: 'pipe' });
+  cpSync(path.join(material, '.ambicode'), path.join(dir, '.ambicode'), { recursive: true });
+  return dir;
+}
+
+/** The map of one suite case as the plan route's first stage built it, and each truth file's and extra file's stage. */
+export async function runReplay({ spec, name, env = process.env, extras = [], material = MATERIAL, archive = ARCHIVE, stamps = STAGE1_R1 }) {
+  const suite = JSON.parse(readFileSync(spec, 'utf8'));
+  const entry = suite.cases.find((candidate) => candidate.name === name);
+  if (entry === undefined) throw new Error(`${name} is not a case of ${spec}`);
+  const variable = suite.repos[entry.repo].bench;
+  if (!env[variable]) throw new Error(`env ${variable} is required for ${name}`);
+  const stamp = stamps[name];
+  if (stamp === undefined) throw new Error(`no archived stage-1 run is known for ${name}`);
+  const [runDir] = globSync(path.join(archive, stamp, `${name}-chain-plan-1.ambicode`, '.ambicode', 'tasks', '*', 'requirements'));
+  if (runDir === undefined) throw new Error(`no requirements/ in the archived run ${stamp} of ${name}`);
+  const request = requestOf(runDir);
+  const scratch = caseScratch(env[variable], entry.parent, path.join(material, name));
+  try {
+    const runtime = await createRuntime({ cwd: scratch });
+    const workspace = await openWorkspace(runtime);
+    const project = projectForRequest(workspace.config, null, []);
+    const { layers, source } = resolveLayers('prompt');
+    const map = await buildMap(runtime, { project, mode: 'prompt', layers, layersSource: source, terms: [], request, paths: [], symbols: [] });
+    const files = [...entry.relevant.map((file) => ({ file, kind: 'truth' })), ...[...(EXTRA_FILES[name] ?? []), ...extras].map((file) => ({ file, kind: 'extra' }))]
+      .map((item) => ({ ...item, ...fileStage(item.file, map), above: [] }));
+    for (const item of files) if (item.stage === 'cut') item.above = rowsAbove(item.file, map);
+    return { name, stamp, requestChars: request.length, delivered: map.candidates.length, candidates: map.entry.candidates, pool: map.pool.length, bytes: map.bytes, row1: map.candidates[0]?.path ?? null, files };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function printReplay(result) {
+  console.log(`\n## ${result.name}: delivered/candidates ${result.delivered}/${result.candidates}, pool ${result.pool}, ${result.bytes} B, row 1 ${result.row1}; request from ${result.stamp} (run 1), ${result.requestChars} chars`);
+  console.log('file | truth/extra | pool rank | stage | row | score');
+  for (const item of result.files) {
+    console.log(`${item.file} | ${item.kind} | ${item.rank ?? '-'} | ${item.stage}${item.stage === 'folded' ? ` into ${item.into ?? '(no source in folder: dropped)'}` : ''} | ${item.row ?? '-'} | ${item.score ?? '-'}`);
+    if (item.above.length > 0) console.log(`  printed above it: ${item.above.map((row) => `${row.row}:${row.path}(${row.score})`).join(' ')}`);
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argOf = (name, fallback) => { const at = process.argv.indexOf(name); return at === -1 ? fallback : process.argv[at + 1]; };
+  const specFile = argOf('--spec', null);
+  if (specFile !== null) {
+    const name = argOf('--case', null);
+    if (name === null) throw new Error('--spec needs --case <exact case name>');
+    const extras = process.argv.flatMap((arg, at) => (arg === '--extra' ? [process.argv[at + 1]] : []));
+    printReplay(await runReplay({ spec: path.resolve(specFile), name, extras }));
+    process.exit(0);
+  }
   const bench = argOf('--bench', process.env.NAV_BENCH);
   if (!bench) throw new Error('--bench <repo> is required');
   const top = Number(argOf('--top', '8'));

@@ -62,6 +62,8 @@ interface MapResult {
   collisions: string[];
   limitations: string[];
   omitted: number;
+  /** Where each pool stage dropped or moved a file; the offline replay reads it. Not in `entry`, not printed. */
+  debug: { folded: Record<string, string | null>; spreadDropped: string[]; floorDropped: string[] };
   /** MAP_LEGEND (three lines), then compact JSON. At most MAP_LIMIT_BYTES. */
   text: string;
   bytes: number;
@@ -392,6 +394,7 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   for (const file of files) if (isModuleSource(file)) sourceIn.set(folderOf(file), [...(sourceIn.get(folderOf(file)) ?? []), file]);
   const seedPaths = new Set(input.paths ?? []);
   const aboutCompanions = namesCompanionKind(input.request ?? '');
+  const folded: Record<string, string | null> = {};
   for (const candidate of aboutCompanions ? [] : [...candidates.values()]) {
     if (isModuleSource(candidate.path) || seedPaths.has(candidate.path)) continue;
     candidates.delete(candidate.path);
@@ -399,6 +402,7 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
     const stem = (file: string): string => file.slice(folder.length).split('.')[0]!;
     const siblings = sourceIn.get(folder) ?? [];
     const target = siblings.find((file) => stem(file) === stem(candidate.path)) ?? siblings[0];
+    folded[candidate.path] = target ?? null;
     if (target !== undefined) merge([{ ...candidate, path: target }]);
   }
   for (const file of input.exclude ?? []) candidates.delete(file);
@@ -415,9 +419,12 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
     return perDirectory.get(folder)! <= (seedFolders.has(folder) ? MAX_PER_SEED_DIRECTORY : MAX_PER_DIRECTORY);
   });
   if (spread.length < sorted.length) limitations.push(`${sorted.length - spread.length} more file(s) in folders already listed`);
+  const spreadKept = new Set(spread);
+  const spreadDropped = sorted.filter((candidate) => !spreadKept.has(candidate)).map((candidate) => candidate.path);
   const scored = spread.map((candidate) => ({ ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2) }));
   // The list is as long as the scores say: rows far below the best are noise the reader has to wade through, and one row that stands out is the whole answer.
   const ordered = mode === 'prompt' ? scored.filter((candidate) => candidate.score >= LIST_FLOOR * (scored[0]?.score ?? 0)) : scored;
+  const floorDropped = scored.filter((candidate) => !ordered.includes(candidate)).map((candidate) => candidate.path);
   if (ordered.length < scored.length) limitations.push(`${scored.length - ordered.length} candidate(s) scored under ${Math.round(LIST_FLOOR * 100)}% of the top row are not listed`);
   await spansOf(git, ordered, [...new Set([...pass1, ...pass2, ...(input.symbols ?? [])])]);
   const head = MAP_LEGEND;
@@ -437,7 +444,7 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const bytes = Buffer.byteLength(text);
   const reported = ordered.length === kept.length ? limitations : [...limitations, `${ordered.length - kept.length} lower-ranked candidate(s) cut to fit ${MAP_LIMIT_BYTES} bytes`];
   return {
-    mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: kept, pool, symbols, collisions, limitations: reported, omitted: ordered.length - kept.length, text, bytes,
+    mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: kept, pool, symbols, collisions, limitations: reported, omitted: ordered.length - kept.length, debug: { folded, spreadDropped, floorDropped }, text, bytes,
     entry: { mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: ordered.length, limitations: reported, bytes, ...(collisions.length === 0 ? {} : { collisions }), ...(retrieved === null ? {} : { retrieved }) },
   };
 }

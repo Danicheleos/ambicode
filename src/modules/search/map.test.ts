@@ -184,6 +184,23 @@ describe('map', () => {
     }
   });
 
+  it('debug names the fold, the spread losses and the floor losses without changing the printed map', async () => {
+    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`src/wide/w${index}.ts`, 'export const sharedword = 1;\n'])) });
+    try {
+      const found = await map(fx, PROMPT, ['discount', 'sharedword']);
+      assert.equal(found.debug.folded['src/cart/discount.spec.ts'], 'src/cart/discount.ts');
+      assert.equal(found.debug.spreadDropped.length, 12, 'one wide file stays, the other 11 and the second cart file are spread losses');
+      assert.ok(found.debug.spreadDropped.includes('src/wide/w11.ts') && found.debug.spreadDropped.every((path) => found.pool.some((row) => row.path === path)));
+      assert.deepEqual(found.debug.floorDropped, ['src/wide/w0.ts'], 'the one wide file left scores 0.86 against 8.28 on top');
+      assert.ok(!found.candidates.some((row) => row.path === 'src/wide/w0.ts' || row.path.endsWith('.spec.ts')));
+      assert.equal(found.entry['candidates'], found.candidates.length + found.omitted);
+      assert.equal(found.text.includes('floorDropped') || found.text.includes('spreadDropped'), false);
+      assert.deepEqual(found.text, (await map(fx, PROMPT, ['discount', 'sharedword'])).text);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('keeps spec and config rows on their own file when the request is about them, and moves them otherwise', async () => {
     const fx = await repo({ 'tests/discount.test.ts': 'import { applyDiscount } from "../src/cart/discount";\n', 'src/settings/discount.config.ts': 'export default { rate: 1 };\n' });
     try {
