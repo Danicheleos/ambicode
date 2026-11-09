@@ -145,12 +145,15 @@ describe('map', () => {
     }
   });
 
-  it('lists one file per folder and says how many it folded; a rarer term outranks a broad one', async () => {
-    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n' });
+  it('lists one row per entity: two unrelated files of one folder both appear, the files of one entity collapse to one row and the collapse is counted', async () => {
+    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', 'src/cart/discount.model.ts': 'export const applyDiscount = 1;\n' });
     try {
       const found = await map(fx, ['shortlist'], ['discount', 'export']);
-      assert.equal(found.candidates.filter((candidate) => candidate.path.startsWith('src/cart/')).length, 1);
-      assert.ok(found.limitations.some((note) => /more file\(s\) in folders already listed/.test(note)));
+      const cart = found.candidates.map((candidate) => candidate.path).filter((path) => path.startsWith('src/cart/'));
+      assert.ok(cart.includes('src/cart/cart.service.ts') && cart.some((path) => path.startsWith('src/cart/discount.')), cart.join('|'));
+      assert.equal(cart.filter((path) => path.startsWith('src/cart/discount.')).length, 1, 'discount.ts and discount.model.ts are one entity');
+      assert.ok(found.limitations.some((note) => /more file\(s\) in entities already listed/.test(note)));
+      assert.ok(found.debug.spreadDropped.length > 0);
       const seeded = await buildMap(fx.runtime, { project, mode: 'context', layers: ['shortlist'], terms: ['discount'], paths: ['src/cart/cart.service.ts'] });
       assert.ok(seeded.candidates.some((candidate) => candidate.path === 'src/cart/cart.service.ts'), 'a path the caller named is never folded');
       const rare = await map(fx, ['shortlist'], ['checkout', 'unrelated']);
@@ -185,14 +188,14 @@ describe('map', () => {
   });
 
   it('debug names the fold, the spread losses and the floor losses without changing the printed map', async () => {
-    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`src/wide/w${index}.ts`, 'export const sharedword = 1;\n'])) });
+    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`src/wide/w.a${index}.ts`, 'export const sharedword = 1;\n'])) });
     try {
       const found = await map(fx, PROMPT, ['discount', 'sharedword']);
       assert.equal(found.debug.folded['src/cart/discount.spec.ts'], 'src/cart/discount.ts');
-      assert.equal(found.debug.spreadDropped.length, 12, 'one wide file stays, the other 11 and the second cart file are spread losses');
-      assert.ok(found.debug.spreadDropped.includes('src/wide/w11.ts') && found.debug.spreadDropped.every((path) => found.pool.some((row) => row.path === path)));
-      assert.deepEqual(found.debug.floorDropped, ['src/wide/w0.ts'], 'the one wide file left scores 0.86 against 8.28 on top');
-      assert.ok(!found.candidates.some((row) => row.path === 'src/wide/w0.ts' || row.path.endsWith('.spec.ts')));
+      assert.equal(found.debug.spreadDropped.length, 11, 'the 12 wide files are one entity: one stays, 11 are spread losses');
+      assert.ok(found.debug.spreadDropped.includes('src/wide/w.a11.ts') && found.debug.spreadDropped.every((path) => found.pool.some((row) => row.path === path)));
+      assert.deepEqual(found.debug.floorDropped, ['src/wide/w.a0.ts'], 'the one wide file left scores 0.86 against 8.28 on top');
+      assert.ok(!found.candidates.some((row) => row.path === 'src/wide/w.a0.ts' || row.path.endsWith('.spec.ts')));
       assert.equal(found.entry['candidates'], found.candidates.length + found.omitted);
       assert.equal(found.text.includes('floorDropped') || found.text.includes('spreadDropped'), false);
       assert.deepEqual(found.text, (await map(fx, PROMPT, ['discount', 'sharedword'])).text);
@@ -205,8 +208,8 @@ describe('map', () => {
     const fx = await repo({ 'tests/discount.test.ts': 'import { applyDiscount } from "../src/cart/discount";\n', 'src/settings/discount.config.ts': 'export default { rate: 1 };\n' });
     try {
       const listed = async (request: string): Promise<string[]> => (await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], terms: ['discount'], request })).candidates.map((candidate) => candidate.path);
-      assert.deepEqual(await listed('Why is the discount wrong?'), ['src/cart/discount.ts']);
-      assert.deepEqual(await listed('Why is the discount build target wrong?'), ['src/cart/discount.ts'], 'build output directories are not companions');
+      assert.deepEqual((await listed('Why is the discount wrong?')).filter((path) => !path.endsWith('cart.service.ts')), ['src/cart/discount.ts']);
+      assert.deepEqual((await listed('Why is the discount build target wrong?')).filter((path) => !path.endsWith('cart.service.ts')), ['src/cart/discount.ts'], 'build output directories are not companions');
       assert.ok((await listed('Which tests cover the discount?')).includes('tests/discount.test.ts'));
       assert.ok((await listed('Where is the discount config read?')).includes('src/settings/discount.config.ts'));
     } finally {
@@ -215,11 +218,11 @@ describe('map', () => {
   });
 
   it('renders only the limitations the model can act on; the ledger entry keeps all of them', async () => {
-    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', 'src/assets/i18n.json': '{ "label": "ZebraCrossing" }\n' });
+    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', 'src/cart/discount.model.ts': 'export const applyDiscount = 1;\n', 'src/assets/i18n.json': '{ "label": "ZebraCrossing" }\n' });
     try {
       const found = await map(fx, ['shortlist', 'retrieve'], ['discount', 'export', 'ZebraCrossing', 'qqNoSuchWord']);
       const shown = JSON.parse(found.text.split('\n').find((line) => line.startsWith('{"candidates"'))!) as { limitations?: string[] };
-      assert.ok(found.limitations.some((note) => /more file\(s\) in folders already listed/.test(note)));
+      assert.ok(found.limitations.some((note) => /more file\(s\) in entities already listed/.test(note)));
       assert.ok(found.limitations.some((note) => /^search index built now, \d+ ms$/.test(note)));
       assert.equal(shown.limitations?.length, 3, shown.limitations?.join('|'));
       assert.match(shown.limitations![0]!, /^"export" matched \d+ of \d+ files; ignored$/);

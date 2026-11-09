@@ -30,10 +30,10 @@ const PASS2_NAMES = 4;
 /** A request word found only in json, html or markdown is listed with this many files, for this many words: enough to open the right one, not a second map. */
 const ELSEWHERE_PATHS = 3;
 const ELSEWHERE_TERMS = 3;
-/** One file per folder: the answer unit is the folder. One 10-case bench on one repository: all-returned F1 .203 -> .227, with the weighting below .253; chosen on all 10 cases. */
-const MAX_PER_DIRECTORY = 1;
-/** A folder holding a named file lists 2: the files beside the change are the ones whose convention it follows or breaks (the review brief's per-file same-folder count). */
-const MAX_PER_SEED_DIRECTORY = 2;
+/** One row per entity (folder + file name before the first dot): the answer unit is the entity, so unrelated files of one folder each get a row. 10-case bench of one repository: F1 .384 -> .387, recall .509 -> .493, precision .370 -> .376, rows 15.9 -> 16.0. */
+const MAX_PER_ENTITY = 1;
+/** An entity holding a named file lists 2: the files beside the change are the ones whose convention it follows or breaks (the review brief's per-file same-folder count). */
+const MAX_PER_SEED_ENTITY = 2;
 /** Rows scoring under this share of the best row are not listed (prompt mode). One 10-case bench of a JS/TS repository and 28 cases of three small repositories of other stacks, offline on the one-per-folder list: .12 gave F1 .438 on the first (from .462; 3571 .566 -> .481, 5164 .308 -> .255) and .319 on the others (from .189), printed rows 19.5 -> 17.2 and 21.4 -> 9.7; .10 .456/.290, .15 .439/.338, .20 .433/.392, .30 .384/.461 (offline for .10 and .30). */
 const LIST_FLOOR = 0.12;
 const SPANS = 3;
@@ -391,6 +391,7 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   // A spec, mock or config file names the folder it sits in but is not what a question is about: its row moves to the folder's source file of the same stem, else the first source file, and is dropped when the folder has none. A request that names such a file kind keeps them.
   const sourceIn = new Map<string, string[]>();
   const folderOf = (file: string): string => file.slice(0, file.lastIndexOf('/') + 1);
+  const entityOf = (file: string): string => folderOf(file) + file.slice(folderOf(file).length).split('.')[0]!;
   for (const file of files) if (isModuleSource(file)) sourceIn.set(folderOf(file), [...(sourceIn.get(folderOf(file)) ?? []), file]);
   const seedPaths = new Set(input.paths ?? []);
   const aboutCompanions = namesCompanionKind(input.request ?? '');
@@ -398,10 +399,8 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   for (const candidate of aboutCompanions ? [] : [...candidates.values()]) {
     if (isModuleSource(candidate.path) || seedPaths.has(candidate.path)) continue;
     candidates.delete(candidate.path);
-    const folder = folderOf(candidate.path);
-    const stem = (file: string): string => file.slice(folder.length).split('.')[0]!;
-    const siblings = sourceIn.get(folder) ?? [];
-    const target = siblings.find((file) => stem(file) === stem(candidate.path)) ?? siblings[0];
+    const siblings = sourceIn.get(folderOf(candidate.path)) ?? [];
+    const target = siblings.find((file) => entityOf(file) === entityOf(candidate.path)) ?? siblings[0];
     folded[candidate.path] = target ?? null;
     if (target !== undefined) merge([{ ...candidate, path: target }]);
   }
@@ -409,16 +408,16 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const ranked = [...candidates.values()];
   const sorted = ranked.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
   const pool = sorted.map((candidate) => ({ ...candidate, reasons: [...candidate.reasons] }));
-  const perDirectory = new Map<string, number>();
+  const perEntity = new Map<string, number>();
   const seeds = new Set(input.paths ?? []);
-  const seedFolders = new Set([...seeds].map(folderOf));
+  const seedEntities = new Set([...seeds].map(entityOf));
   const spread = sorted.filter((candidate) => {
     if (seeds.has(candidate.path)) return true;
-    const folder = folderOf(candidate.path);
-    perDirectory.set(folder, (perDirectory.get(folder) ?? 0) + 1);
-    return perDirectory.get(folder)! <= (seedFolders.has(folder) ? MAX_PER_SEED_DIRECTORY : MAX_PER_DIRECTORY);
+    const entity = entityOf(candidate.path);
+    perEntity.set(entity, (perEntity.get(entity) ?? 0) + 1);
+    return perEntity.get(entity)! <= (seedEntities.has(entity) ? MAX_PER_SEED_ENTITY : MAX_PER_ENTITY);
   });
-  if (spread.length < sorted.length) limitations.push(`${sorted.length - spread.length} more file(s) in folders already listed`);
+  if (spread.length < sorted.length) limitations.push(`${sorted.length - spread.length} more file(s) in entities already listed`);
   const spreadKept = new Set(spread);
   const spreadDropped = sorted.filter((candidate) => !spreadKept.has(candidate)).map((candidate) => candidate.path);
   const scored = spread.map((candidate) => ({ ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2) }));
