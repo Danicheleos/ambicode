@@ -55,12 +55,12 @@ const task = (sources, captures, ledgerExtra = []) => {
 const jira = { key: 'VS-1', content: JSON.stringify({ fields: { summary: 'Fix it' } }) };
 const plain = { key: 'request', content: 'plain text' };
 
-test('archivedRequest joins the sources in the order of the ledger envelope, not of the file names', () => {
+test('archivedRequest joins the sources in the order of the ledger envelope, not of the file names, each reduced as the route reduces it (a ticket to title and description)', () => {
   // file names sort request.* before VS-1.* but the envelope lists VS-1 first
   const dir = task([{ key: 'VS-1', rawHash: contentHash(jira.content) }, { key: 'request', rawHash: contentHash(plain.content) }], { 'request.aa.json': plain, 'VS-1.bb.json': jira });
   try {
     const found = archivedRequest(dir);
-    assert.equal(found.request, `Fix it\n${jira.content}\nrequest\nplain text`);
+    assert.equal(found.request, 'Fix it\nrequest\nplain text');
     assert.deepEqual(found.sources.map((source) => source.key), ['VS-1', 'request']);
     assert.equal(found.hash, contentHash(found.request));
   } finally {

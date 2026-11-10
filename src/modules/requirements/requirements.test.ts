@@ -306,4 +306,17 @@ describe('mapTextOf', () => {
   it('a Confluence page gives its title and its storage body as text', () => {
     assert.equal(mapTextOf(JSON.stringify({ title: 'Orders', body: { storage: { value: '<p>Rules</p>' } } }), 'Orders'), 'Orders\nRules');
   });
+
+  it('a Jira REST v3 description in ADF reaches the map as text', () => {
+    const adf = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Total is the sum.' }] }] };
+    assert.equal(mapTextOf(JSON.stringify({ fields: { summary: 'Cart', description: adf } }), 'Cart'), 'Cart\nTotal is the sum.');
+  });
+
+  it('a GitHub or GitLab issue gives its title and string body', () => {
+    assert.equal(mapTextOf(JSON.stringify({ title: 'Fix cart', body: 'GitHub body text' }), 'Fix cart'), 'Fix cart\nGitHub body text');
+  });
+
+  it('JSON with no summary or title keeps the raw capture after the key', () => {
+    assert.equal(mapTextOf('{"id":7,"note":"x"}', 'ORD-17'), 'ORD-17\n{"id":7,"note":"x"}');
+  });
 });

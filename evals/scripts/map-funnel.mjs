@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { createRuntime } from '#composition/root';
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
 import { buildMap, resolveLayers } from '#modules/search/map';
-import { titleOf } from '#modules/requirements/capture/capture';
+import { mapTextOf, titleOf } from '#modules/requirements/capture/capture';
 import { contentHash } from '#util/hash';
 import { halvesOf, promptOf, scratchOf } from './map-bench.mjs';
 import { truthFolders } from './folder-truth.mjs';
@@ -173,7 +173,7 @@ export function ledgerMap(taskDir) {
 
 /**
  * The plan route's request string (src/skills/common.ts:157,164-168) rebuilt from an archived task: the sources of the ledger's last envelope in its order
- * (envelope.ts:120-127), each from its capture file with the ledger's content hash checked, `${title}\n${content}`, plus the noted investigation text, joined by a newline.
+ * (envelope.ts:120-127), each from its capture file with the ledger's content hash checked and reduced by mapTextOf as the route does, plus the noted investigation text, joined by a newline.
  * `root` is the archived repository root the investigation path is relative to. The envelope's own hash is not of this string, so only the sources are proven.
  */
 export function archivedRequest(taskDir, root = taskDir) {
@@ -193,7 +193,7 @@ export function archivedRequest(taskDir, root = taskDir) {
     if (!existsSync(file)) throw new Error(`investigation ${saved} is not in the archive`);
     sources.push({ key: 'investigation', title: '', content: readFileSync(file, 'utf8') });
   }
-  const request = sources.map((source) => `${source.title}\n${source.content}`).join('\n');
+  const request = sources.map((source) => (source.key === 'investigation' ? `\n${source.content}` : mapTextOf(source.content, source.title))).join('\n');
   return { request, hash: contentHash(request), sources: sources.map((source) => ({ key: source.key, chars: source.content.length })) };
 }
 

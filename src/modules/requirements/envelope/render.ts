@@ -34,7 +34,7 @@ const adfNode = (node: unknown): string => {
   const joined = children.map(adfNode).join('');
   return BLOCK_NODES.has(String(node['type'])) ? `${joined}\n` : joined;
 };
-const adfText = (node: unknown): string => adfNode(node).replace(/\n{2,}/g, '\n');
+export const adfText = (node: unknown): string => adfNode(node).replace(/\n{2,}/g, '\n');
 
 /** Confluence storage format and rendered bodies are HTML: keep the words and the line and cell breaks. */
 export const htmlText = (html: string): string =>
@@ -47,7 +47,7 @@ export const htmlText = (html: string): string =>
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-const isAdf = (value: unknown): boolean => isObject(value) && typeof value['type'] === 'string' && Array.isArray(value['content']);
+export const isAdf = (value: unknown): boolean => isObject(value) && typeof value['type'] === 'string' && Array.isArray(value['content']);
 
 function lines(value: unknown, label: string, out: string[], depth = 0): void {
   if (value === null || value === undefined || depth > 12) return;
