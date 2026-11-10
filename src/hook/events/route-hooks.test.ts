@@ -304,7 +304,7 @@ describe('D5 tool record', () => {
 
 describe('03-H6 MCP capture with a route', () => {
   it('records the result of a call that names an asked key, whatever server returned it', async () => {
-    const plan = await planFixture({ config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian') });
+    const plan = await planFixture({ config: CONFIG });
     try {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
@@ -320,7 +320,7 @@ describe('03-H6 MCP capture with a route', () => {
 
 describe('03-H6 linked requirements read in the fetch step', () => {
   it('a child read after the asked ticket was captured, while fetch is still the step, is captured as linked', async () => {
-    const plan = await planFixture({ config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian'), shipped: true });
+    const plan = await planFixture({ config: CONFIG, shipped: true });
     try {
       const launched = await prompt(plan, '/ambicode:plan https://example.atlassian.net/browse/ORD-17 add a limit --task ORD-17');
       assert.match(context(launched), /step fetch/);
