@@ -400,7 +400,10 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   }
   for (const file of input.exclude ?? []) candidates.delete(file);
   const ranked = [...candidates.values()];
-  const sorted = ranked.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  // Equal scores go to the file whose own name carries request words: 6545 had 83 rows tied at 4.40 and path order cut both truth files; map-bench F1 .3839 -> .3978.
+  const requestStems = new Set([...pass1, ...pass2].flatMap((term) => wordsOf(term).map(stem)));
+  const named = new Map(ranked.map((candidate) => [candidate.path, wordsOf((candidate.path.split('/').pop() ?? '').replace(/\.[^.]+$/, '')).map(stem).filter((word) => requestStems.has(word)).length]));
+  const sorted = ranked.sort((a, b) => b.score - a.score || named.get(b.path)! - named.get(a.path)! || a.path.localeCompare(b.path));
   const pool = sorted.map((candidate) => ({ ...candidate, reasons: [...candidate.reasons] }));
   const perEntity = new Map<string, number>();
   const seeds = new Set(input.paths ?? []);

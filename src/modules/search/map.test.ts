@@ -520,6 +520,22 @@ describe('map in-pool ranking', () => {
     }
   });
 
+  it('of two rows with the same score the one whose own file name carries another request word ranks first, whatever the path order', async () => {
+    const fx = await repo({
+      'src/basalt/aaa.ts': 'export const a = 1;\n',
+      'src/basalt/zzz-export.ts': 'export const z = 1;\n',
+    });
+    try {
+      const found = await map(fx, ['shortlist'], ['basalt', 'export']);
+      const score = (path: string) => found.pool.find((candidate) => candidate.path === path)?.score;
+      assert.equal(score('src/basalt/zzz-export.ts'), score('src/basalt/aaa.ts'), 'the two rows tie');
+      const paths = found.pool.map((candidate) => candidate.path);
+      assert.ok(paths.indexOf('src/basalt/zzz-export.ts') < paths.indexOf('src/basalt/aaa.ts'), paths.join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('with one request term every row stays behind it and the scores are untouched', async () => {
     const fx = await repo();
     try {
