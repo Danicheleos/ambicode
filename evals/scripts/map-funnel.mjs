@@ -45,6 +45,9 @@ export const reachedBy = (reasons) => ({
   labelOnly: reasons.some((reason) => reason.startsWith('retrieved:') && /\blabel "/.test(reason) && !/\b(?:path|name|file) "/.test(reason)),
 });
 
+/** The request the route builds for a headless prompt: the envelope source `request` as `${title}\n${content}` (src/skills/common.ts:167; the handler is inline, so not importable). */
+export const benchRequest = (text) => `${titleOf(text, 'request')}\n${text}`;
+
 /** One row per case: the extracted terms, each truth folder's stage (absent, cut, printed, top) and the terms behind the printed noise and the truth-folder hits. */
 export async function runFunnel({ bench, split = 'all', filter = null, top = 8, cases = CASES }) {
   const scratch = scratchOf(bench);
@@ -60,7 +63,7 @@ export async function runFunnel({ bench, split = 'all', filter = null, top = 8, 
       const half = halves.get(entry);
       if ((filter !== null && !entry.includes(filter)) || (split !== 'all' && split !== half)) continue;
       const truth = JSON.parse(readFileSync(path.join(cases, entry, 'truth.json'), 'utf8'));
-      const request = promptOf(readFileSync(path.join(cases, entry, 'prompt.md'), 'utf8'));
+      const request = benchRequest(promptOf(readFileSync(path.join(cases, entry, 'prompt.md'), 'utf8')));
       const map = await buildMap(runtime, { project, mode: 'prompt', layers, layersSource: source, terms: [], request, paths: [], symbols: [] });
       const targets = truthFolders(truth.relevant);
       const accepted = truthFolders([...truth.relevant, ...(truth.allowed ?? [])]);

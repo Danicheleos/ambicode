@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { contentHash } from '#util/hash';
-import { archivedRequest, fileStage, replayMarkdown, rowsAbove } from './map-funnel.mjs';
+import { archivedRequest, benchRequest, fileStage, replayMarkdown, rowsAbove } from './map-funnel.mjs';
 
 const row = (file, score) => ({ path: file, score, reasons: [] });
 /** A pool of seven files: two printed, one cut by bytes, one spread loss, one floor loss, plus a spec folded into the first row and one folded with no source. */
@@ -100,4 +100,14 @@ test('replayMarkdown prints the ledger count check and one row per file, with th
   assert.match(md, /case-a \| a\/six\.ts \| truth \| 6 \| spread\+floor\* \| - \| 0\.40/);
   assert.match(md, /case-a \| c\/three\.ts \| truth \| 3 \| cut \| - \| 6\.00/);
   assert.match(md, /printed above c\/three\.ts: 1 a\/one\.ts 10\.00; 2 b\/two\.ts 8\.00/);
+});
+
+test('the bench request equals the route request: `request\n` then the prompt', () => {
+  const dir = task([{ key: 'request', rawHash: contentHash(plain.content) }], { 'request.aa.json': plain });
+  try {
+    assert.equal(benchRequest(plain.content), archivedRequest(dir).request);
+    assert.equal(benchRequest('Fix the thing'), 'request\nFix the thing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
