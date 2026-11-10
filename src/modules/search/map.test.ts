@@ -187,7 +187,7 @@ describe('map', () => {
     }
   });
 
-  it('debug names the fold, the spread losses and the floor losses without changing the printed map', async () => {
+  it('debug names the fold, the spread losses and the floor losses, and none of them reach the printed map', async () => {
     const wideCount = 12;
     const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: wideCount }, (_, index) => [`src/wide/w.a${index}.ts`, 'export const sharedword = 1;\n'])) });
     try {
@@ -204,7 +204,7 @@ describe('map', () => {
       assert.ok(!found.candidates.some((row) => wide(row.path) || row.path.endsWith('.spec.ts')));
       assert.equal(found.entry['candidates'], found.candidates.length + found.omitted);
       assert.equal(found.text.includes('floorDropped') || found.text.includes('spreadDropped'), false);
-      assert.deepEqual(found.text, (await map(fx, PROMPT, ['discount', 'sharedword'])).text);
+      assert.deepEqual(found.text, (await map(fx, PROMPT, ['discount', 'sharedword'])).text, 'the printed map is the same on a second run');
     } finally {
       await fx.dispose();
     }
@@ -231,12 +231,21 @@ describe('map', () => {
       const shown = JSON.parse(found.text.split('\n').find((line) => line.startsWith('{"candidates"'))!) as { limitations?: string[] };
       assert.ok(found.limitations.some((note) => /more file\(s\) in entities already listed/.test(note)));
       assert.ok(found.limitations.some((note) => /^search index built now, \d+ ms$/.test(note)));
-      const shownNotes = shown.limitations ?? [];
-      assert.ok(shownNotes.some((note) => /^"export" matched \d+ of \d+ files; ignored$/.test(note)), 'a term ignored for matching too many files is shown');
-      assert.ok(shownNotes.some((note) => /^no file matches the term "qqNoSuchWord"/.test(note)), 'a term matching nothing is shown');
-      assert.ok(shownNotes.some((note) => /"ZebraCrossing" is in no code file, only in src\/assets\/i18n\.json/.test(note)), 'a term found only outside code is shown with where');
-      assert.ok(!shownNotes.some((note) => /entities already listed|^search index built/.test(note)), 'internal notes stay in the ledger entry');
+      const kindOf = (note: string): string => /^"[^"]+" matched \d+ of \d+ files; ignored$/.test(note) ? 'ignored' : /^no file matches the term "qqNoSuchWord"/.test(note) ? 'no match' : /^"ZebraCrossing" is in no code file, only in src\/assets\/i18n\.json$/.test(note) ? 'outside code' : `internal: ${note}`;
+      assert.deepEqual(new Set((shown.limitations ?? []).map(kindOf)), new Set(['ignored', 'no match', 'outside code']), 'exactly the notes about request words are shown: no entity, floor, byte-cut or index note');
+      assert.equal(shown.limitations?.length, 3, 'each actionable note once');
       assert.deepEqual(found.entry['limitations'], found.limitations);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('a request word does not match a file whose name only starts like it', async () => {
+    const fx = await repo({ 'src/ui/user-facade.ts': 'export const mock = 1;\n', 'src/ui/face-list.ts': 'export const list = 1;\n' });
+    try {
+      const found = await map(fx, ['shortlist'], ['faces', 'facing']);
+      assert.ok(found.pool.some((row) => row.path === 'src/ui/face-list.ts'), 'the word still finds its own forms');
+      assert.ok(!found.pool.some((row) => row.path === 'src/ui/user-facade.ts'), 'faces and facing do not list a facade file');
     } finally {
       await fx.dispose();
     }

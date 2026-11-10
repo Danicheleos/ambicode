@@ -3,9 +3,7 @@ import assert from 'node:assert/strict';
 import { holdsWords, stem } from './words.ts';
 
 describe('stem', () => {
-  it('a short stem does not match an unrelated word', () => {
-    assert.equal(stem('faces'), stem('face'));
-    assert.notEqual(stem('facade'), stem('face'));
+  it('a word that merely starts like another does not meet it', () => {
     assert.equal(holdsWords('user-facade.mocks.ts', 'faces'), false);
     assert.equal(holdsWords('user-facade.mocks.ts', 'facing'), false);
   });
@@ -14,7 +12,7 @@ describe('stem', () => {
     for (const form of ['archive', 'archived', 'archiving']) assert.equal(holdsWords('src/archive/list.ts', form), true, form);
     assert.equal(holdsWords('src/complete-form.ts', 'completed'), true);
     assert.equal(holdsWords('src/files/list.ts', 'file'), true);
-    assert.equal(holdsWords('src/assess/list.ts', 'assess'), true, 'a double-s word is not cut');
+    for (const [word, form] of [['class', 'classes'], ['status', 'statuses']]) assert.equal(holdsWords(`src/${form}/list.ts`, word), true, `${word}/${form}`);
   });
 
   const same = ([a, b]: readonly [string, string]) => stem(a) === stem(b);
