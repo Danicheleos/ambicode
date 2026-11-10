@@ -272,11 +272,6 @@ function retrieve(rows: readonly FolderRow[], terms: readonly string[], files: R
   return found;
 }
 
-/** A request word that, written into a path (`word/`, `x.word.ts`, `x_word.ts`), makes the path a companion by the classifier that drops companions: `tests`, `spec`, `mocks`, `config`. Build output and vendored directories are not companions (`build`, `target`). No word list of its own. */
-function namesCompanionKind(request: string): boolean {
-  return [...new Set(wordsOf(request).flatMap((word) => [word, stem(word)]))].filter((word) => word.length >= MIN_TERM_LENGTH).some((word) => [`${word}/x.ts`, `x.${word}.ts`, `x_${word}.ts`].some((probe) => isSearchable(probe) && !isModuleSource(probe)));
-}
-
 export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapResult> {
   const unknown = input.layers.filter((layer) => !(LAYER_NAMES as readonly string[]).includes(layer));
   if (unknown.length > 0) throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}.`] });
@@ -388,15 +383,14 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
     const ceiling = Math.max(...behindOne.map((candidate) => candidate.score));
     if (ceiling >= floor) for (const candidate of behindOne) candidate.score *= (floor * UNDER_FLOOR) / ceiling;
   }
-  // A spec, mock or config file names the folder it sits in but is not what a question is about: its row moves to the folder's source file of the same stem, else the first source file, and is dropped when the folder has none. A request that names such a file kind keeps them.
+  // A spec, mock or config file names the folder it sits in but is not what a question is about: its row moves to the folder's source file of the same stem, else the first source file, and is dropped when the folder has none.
   const sourceIn = new Map<string, string[]>();
   const folderOf = (file: string): string => file.slice(0, file.lastIndexOf('/') + 1);
   const entityOf = (file: string): string => folderOf(file) + file.slice(folderOf(file).length).split('.')[0]!;
   for (const file of files) if (isModuleSource(file)) sourceIn.set(folderOf(file), [...(sourceIn.get(folderOf(file)) ?? []), file]);
   const seedPaths = new Set(input.paths ?? []);
-  const aboutCompanions = namesCompanionKind(input.request ?? '');
   const folded: Record<string, string | null> = {};
-  for (const candidate of aboutCompanions ? [] : [...candidates.values()]) {
+  for (const candidate of [...candidates.values()]) {
     if (isModuleSource(candidate.path) || seedPaths.has(candidate.path)) continue;
     candidates.delete(candidate.path);
     const siblings = sourceIn.get(folderOf(candidate.path)) ?? [];
