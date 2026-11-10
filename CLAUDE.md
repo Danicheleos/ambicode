@@ -201,7 +201,7 @@ types, util  <  platform  <  modules  <  harness  <  skills  <  composition  <  
 
 - `platform/` holds adapters: git, the ledger, the GitLab provider, Claude
   transcripts, and `ports/` (filesystem, process runner, clock, ids, stdin,
-  http-host, reviewer).
+  http-host).
 - `modules/` holds the domain: checks, config, context, evidence, policy,
   requirements, review (including the local review page server), search.
 - `harness/` is the route engine: DSL validation, executing and folding
