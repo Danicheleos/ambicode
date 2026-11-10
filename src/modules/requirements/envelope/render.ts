@@ -37,7 +37,7 @@ const adfNode = (node: unknown): string => {
 const adfText = (node: unknown): string => adfNode(node).replace(/\n{2,}/g, '\n');
 
 /** Confluence storage format and rendered bodies are HTML: keep the words and the line and cell breaks. */
-const htmlText = (html: string): string =>
+export const htmlText = (html: string): string =>
   html
     .replace(/<\/(p|div|li|tr|h[1-6]|pre|blockquote|ac:parameter)>|<br\s*\/?>/gi, '\n')
     .replace(/<\/(td|th)>/gi, ' | ')

@@ -14,6 +14,7 @@ import { policyStage } from '#modules/policy/stage';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
+import { mapTextOf } from '#modules/requirements/capture/capture';
 import { renderRequirements } from '#modules/requirements/envelope/render';
 import { requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { isIssueKey } from '#util/issue-key';
@@ -163,8 +164,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/gim, '') : undefined;
     const seedText = review?.text ?? brief ?? investigation?.text ?? null;
     const files = seedText === null ? [] : await git.listFiles(null);
-    const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];
-    const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
+    // The map searches each source's title and description, not the raw tracker JSON; the envelope and review evidence keep the raw capture.
+    const sources = [...envelopeSourcesOf.map((source) => mapTextOf(source.content, source.title)), ...(seedText === null ? [] : [`\n${seedText}`])];
+    const request = (sources.length === 0 ? [`\n${input.args.text}`] : sources).join('\n');
     const { layers, source } = resolveLayers(mode);
     try {
       const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText), ...(review === null ? {} : { exclude: review.files, checkout: review.checkout }) });

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { contentHash } from '#util/hash';
 import { isObject } from '#util/guards';
+import { htmlText } from '../envelope/render.ts';
 import { isIssueKey, namesKey } from '#util/issue-key';
 import type { HookInput } from '#types/hook';
 import type { CaptureDeps } from '#types/modules/requirements';
@@ -40,17 +41,27 @@ function linkedKey(input: Record<string, unknown> | undefined, asked: readonly s
 /** The last path segment of a URL, so a call that names only the issue key still matches the URL the route asked for. */
 const tailOf = (asked: string): string => asked.split(/[?#]/)[0]!.split('/').filter((segment) => segment !== '').at(-1) ?? asked;
 
-const findText = (value: unknown, name: string, depth = 0): string | null => {
-  if (depth > 6 || !isObject(value) && !Array.isArray(value)) return null;
-  for (const [field, child] of Object.entries(value)) {
-    if (field === name && typeof child === 'string' && child.trim() !== '') return child.trim();
-    const inner = typeof child === 'object' && child !== null ? findText(child, name, depth + 1) : null;
-    if (inner !== null) return inner;
+// Breadth-first: a ticket's own `summary` must win over `parent.fields.summary`, which depth-first returned when `parent` came first.
+const findOwner = (value: unknown, name: string): Record<string, unknown> | null => {
+  let level: unknown[] = [value];
+  for (let depth = 0; depth <= 6 && level.length > 0; depth++) {
+    const next: unknown[] = [];
+    for (const node of level) {
+      if (!isObject(node) && !Array.isArray(node)) continue;
+      if (isObject(node) && typeof node[name] === 'string' && node[name].trim() !== '') return node;
+      for (const child of Object.values(node)) if (typeof child === 'object' && child !== null) next.push(child);
+    }
+    level = next;
   }
   return null;
 };
 
-/** A captured result's own name: the first `summary` (Jira) or `title` (Confluence) string in its JSON, else the key. The key stands in for it when the tool returned prose. */
+const findText = (value: unknown, name: string): string | null => {
+  const owner = findOwner(value, name);
+  return owner === null ? null : (owner[name] as string).trim();
+};
+
+/** A captured result's own name: the shallowest `summary` (Jira) or `title` (Confluence) string in its JSON, else the key. The key stands in for it when the tool returned prose. */
 export function titleOf(content: string, key: string): string {
   try {
     const parsed: unknown = JSON.parse(content);
@@ -58,6 +69,22 @@ export function titleOf(content: string, key: string): string {
   } catch {
     return key;
   }
+}
+
+/** What the map searches for one captured source: JSON gives its title plus the description (or Confluence storage body) of the object that holds that title, so an issuetype or status description never stands in; prose keeps today's `title+newline+content` form. */
+export function mapTextOf(content: string, title: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return `${title}\n${content}`;
+  }
+  if (!isObject(parsed) && !Array.isArray(parsed)) return `${title}\n${content}`;
+  const owner = findOwner(parsed, 'summary') ?? findOwner(parsed, 'title');
+  const storage = owner !== null && isObject(owner['body']) && isObject(owner['body']['storage']) ? owner['body']['storage']['value'] : undefined;
+  const description = owner?.['description'];
+  const text = typeof description === 'string' && description.trim() !== '' ? description.trim() : typeof storage === 'string' && htmlText(storage) !== '' ? htmlText(storage) : null;
+  return text === null ? title : `${title}\n${text}`;
 }
 
 export const fileOf = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key.replace(/[^\w.-]+/g, '_').slice(0, 80)}.${contentHash(key).replace(/^sha256:/, '').slice(0, 8)}.json`);

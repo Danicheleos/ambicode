@@ -6,7 +6,7 @@ import { jira, mcp, session } from '#testing/fixtures/requirements-session';
 import { contentHash } from '#util/hash';
 import { hasRequirement, requirementsIn } from './capture/has-requirement.ts';
 import { namesKey, sourceId } from '#util/issue-key';
-import { readCapture, titleOf } from './capture/capture.ts';
+import { mapTextOf, readCapture, titleOf } from './capture/capture.ts';
 import { gapsOf } from '#modules/evidence/report/report';
 import { askedKeys } from './envelope/envelope.ts';
 
@@ -279,5 +279,31 @@ describe('titleOf', () => {
     assert.equal(titleOf(JSON.stringify({ results: [{ id: '9', title: 'Orders page' }] }), 'p'), 'Orders page');
     assert.equal(titleOf('plain prose, not JSON', 'ORD-17'), 'ORD-17');
     assert.equal(titleOf('{"fields":{"summary":"  "}}', 'ORD-17'), 'ORD-17');
+  });
+});
+
+const nested = (key: string, summary: string, description: string | null, extra: Record<string, unknown> = {}): string => JSON.stringify({ key, fields: { parent: { fields: { summary: 'PARENT-SUMMARY' } }, issuetype: { description: 'ISSUETYPE-DESC' }, status: { description: 'STATUS-DESC' }, summary, description, ...extra } });
+
+describe('mapTextOf', () => {
+  it('an own summary and description win over nested parent, issuetype and status ones', () => {
+    assert.equal(titleOf(nested('VS-1', 'Own title', 'Own body'), 'VS-1'), 'Own title');
+    assert.equal(mapTextOf(nested('VS-1', 'Own title', 'Own body'), 'Own title'), 'Own title\nOwn body');
+  });
+
+  it('an asked issue and a linked child each reduce to title and description, joined', () => {
+    const sources = [nested('VS-1', 'Asked', 'Asked body'), nested('VS-2', 'Child', 'Child body')];
+    assert.equal(sources.map((content) => mapTextOf(content, titleOf(content, 'k'))).join('\n'), 'Asked\nAsked body\nChild\nChild body');
+  });
+
+  it('a typed request and prose are unchanged', () => {
+    assert.equal(mapTextOf('where is the cart total computed?', 'request'), 'request\nwhere is the cart total computed?');
+  });
+
+  it('JSON with no description gives the title only', () => {
+    assert.equal(mapTextOf(JSON.stringify({ key: 'VS-1', fields: { issuetype: { description: 'ITYPE' }, summary: 'Only title', description: null } }), 'Only title'), 'Only title');
+  });
+
+  it('a Confluence page gives its title and its storage body as text', () => {
+    assert.equal(mapTextOf(JSON.stringify({ title: 'Orders', body: { storage: { value: '<p>Rules</p>' } } }), 'Orders'), 'Orders\nRules');
   });
 });
