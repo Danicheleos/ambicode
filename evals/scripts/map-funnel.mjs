@@ -45,7 +45,7 @@ export const reachedBy = (reasons) => ({
   labelOnly: reasons.some((reason) => reason.startsWith('retrieved:') && /\blabel "/.test(reason) && !/\b(?:path|name|file) "/.test(reason)),
 });
 
-/** The request the route builds for a headless prompt: the envelope source `request` as `${title}\n${content}` (src/skills/common.ts:168, mapTextOf for prose; the handler is inline, so not importable). */
+/** The request the route builds for a headless prompt: the envelope source `request` as `${title}\n${content}` (src/skills/common.ts:168-169: the source goes through mapTextOf, which gives `${title}\n${content}` for prose; the handler is inline, so not importable). */
 export const benchRequest = (text) => `${titleOf(text, 'request')}\n${text}`;
 
 /** One row per case: the extracted terms, each truth folder's stage (absent, cut, printed, top) and the terms behind the printed noise and the truth-folder hits. */
@@ -172,7 +172,7 @@ export function ledgerMap(taskDir) {
 }
 
 /**
- * The plan route's request string (src/skills/common.ts:157,164-168) rebuilt from an archived task: the sources of the ledger's last envelope in its order
+ * The plan route's request string (src/skills/common.ts:158,165-169) rebuilt from an archived task: the sources of the ledger's last envelope in its order
  * (envelope.ts:120-127), each from its capture file with the ledger's content hash checked and reduced by mapTextOf as the route does, plus the noted investigation text, joined by a newline.
  * `root` is the archived repository root the investigation path is relative to. The envelope's own hash is not of this string, so only the sources are proven.
  */

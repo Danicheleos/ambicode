@@ -67,7 +67,7 @@ describe('search index freshness', () => {
     return { repo, runtime, deps };
   };
   const options = { roots: [], maxModules: 50 };
-  const meta = async (runtime: { fs: { readText(file: string): Promise<string> } }, root: string) => JSON.parse((await runtime.fs.readText(path.join(root, SEARCH_INDEX_FILE))).split('\n')[0]!) as { head: string; buildMs: number; folders: number };
+  const meta = async (runtime: { fs: { readText(file: string): Promise<string> } }, root: string) => JSON.parse((await runtime.fs.readText(path.join(root, SEARCH_INDEX_FILE))).split('\n')[0]!) as { head: string; buildMs: number; folders: number; version: number };
 
   it('builds an absent index when the repository has an AMBICODE directory and says so; without one it only says the index is absent', async () => {
     const { repo, runtime, deps } = await setUp(true);
@@ -93,10 +93,10 @@ describe('search index freshness', () => {
     const { repo, runtime, deps } = await setUp(true);
     try {
       await searchIndexFor(deps, options);
-      const head = (await meta(runtime, repo.root)).head;
+      const { head, version } = await meta(runtime, repo.root);
       const file = path.join(repo.root, SEARCH_INDEX_FILE);
       const rows = (await runtime.fs.readText(file)).split('\n').slice(1).join('\n');
-      const stale = (buildMs: number) => runtime.fs.writeText(file, `${JSON.stringify({ kind: 'meta', head: 'abc123', roots: [], folders: 4, files: 5, builtAt: '', buildMs, version: 3 })}\n${rows}`);
+      const stale = (buildMs: number) => runtime.fs.writeText(file, `${JSON.stringify({ kind: 'meta', head: 'abc123', roots: [], folders: 4, files: 5, builtAt: '', buildMs, version })}\n${rows}`);
       await stale(6000);
       assert.equal((await searchIndexFor(deps, options)).limitation, `search index built at abc123, HEAD is ${head}`);
       await stale(10);
