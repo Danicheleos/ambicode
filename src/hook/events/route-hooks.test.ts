@@ -318,6 +318,23 @@ describe('03-H6 MCP capture with a route', () => {
   });
 });
 
+describe('03-H6 linked requirements read in the fetch step', () => {
+  it('a child read after the asked ticket was captured, while fetch is still the step, is captured as linked', async () => {
+    const plan = await planFixture({ config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian'), shipped: true });
+    try {
+      const launched = await prompt(plan, '/ambicode:plan https://example.atlassian.net/browse/ORD-17 add a limit --task ORD-17');
+      assert.match(context(launched), /step fetch/);
+      const read = (key: string) => ({ hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_input: { issueIdOrKey: key, cloudId: 'inseer.atlassian.net' }, tool_response: { content: [{ type: 'text', text: JSON.stringify({ key, fields: { summary: `Issue ${key}` } }) }] } });
+      await hook(plan, read('ORD-17'));
+      await hook(plan, read('ORD-18'));
+      const rows = await plan.fx.kinds(PLAN_TASK, 'requirement');
+      assert.deepEqual(rows.map((row) => [row['key'], row['relation']]), [['https://example.atlassian.net/browse/ORD-17', 'asked'], ['ORD-18', 'linked']]);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
 describe('04-B hook binding', () => {
   it('04-B2: with no server configured a call naming an asked key is captured', async () => {
     const plan = await planFixture();

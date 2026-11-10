@@ -51,10 +51,10 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
     case 'args.hasRequirement': return context.args.hasRequirement === true;
     case 'args.hasMergeRequest': return typeof context.args.target?.mr === 'string';
     case 'mr.requirements': return mrRequirements(all).length > 0;
-    // Keys the task's earlier routes captured ride on the head entry; this route's own captures are in its entries.
+    // Only keys the task's earlier routes captured count (they ride on the head entry): this route's own captures would close fetch before its linked reads (live run vs-6735).
     case 'requirements.missing': {
       if (context.args.hasRequirement !== true && mrRequirements(all).length === 0) return false;
-      const have = new Set([...context.captured, ...all.filter((entry) => entry.kind === 'requirement').map((entry) => String(entry['key']))].map(sourceId));
+      const have = new Set(context.captured.map(sourceId));
       return askedKeys({ requirements: context.args.requirements ?? [], text: context.args.text ?? '' }, all).some((key) => !have.has(sourceId(key)));
     }
     // The estimate step records whether a refusal needs the human; a route that never ran it asks nothing.

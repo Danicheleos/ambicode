@@ -43,10 +43,13 @@ describe('requirements.missing', () => {
   const args = { hasRequirement: true, text: 'plan it', requirements: [KEY] };
   const position = async (head: LedgerEntry, rest: LedgerEntry[] = []): Promise<string | undefined> => foldRoute(await def(fetchYaml), buildChain([head, ...rest], head)).position?.id;
 
-  it('fetch runs while an asked key is not captured and is skipped once the task holds it, from an earlier route or this one', async () => {
+  it('fetch runs while an asked key is not captured and is skipped once an earlier route of the task holds it', async () => {
     assert.equal(await position(route('r1', { args })), 'fetch');
     assert.equal(await position(route('r1', { args, captured: [KEY] })), 'ground');
-    assert.equal(await position(route('r1', { args }), [entry('requirement', { route: 'r1', key: KEY })]), 'ground');
+  });
+
+  it('fetch stays open in the route that captured the key, so the reads that follow it are still in the fetch step', async () => {
+    assert.equal(await position(route('r1', { args }), [entry('requirement', { route: 'r1', key: KEY })]), 'fetch');
   });
 
   it('a key that is captured does not hide one that is not, and a child capture does not stand in for the asked key', async () => {
