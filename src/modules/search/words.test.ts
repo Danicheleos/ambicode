@@ -12,7 +12,7 @@ describe('stem', () => {
     for (const form of ['archive', 'archived', 'archiving']) assert.equal(holdsWords('src/archive/list.ts', form), true, form);
     assert.equal(holdsWords('src/complete-form.ts', 'completed'), true);
     assert.equal(holdsWords('src/files/list.ts', 'file'), true);
-    for (const [word, form] of [['class', 'classes'], ['status', 'statuses']]) assert.equal(holdsWords(`src/${form}/list.ts`, word), true, `${word}/${form}`);
+    for (const [word, form] of [['class', 'classes'], ['status', 'statuses']] as const) assert.equal(holdsWords(`src/${form}/list.ts`, word), true, `${word}/${form}`);
   });
 
   const same = ([a, b]: readonly [string, string]) => stem(a) === stem(b);
