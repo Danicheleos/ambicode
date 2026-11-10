@@ -12,12 +12,19 @@ export function wordsOf(term: string): string[] {
 }
 
 const INFLECTIONS: readonly (readonly [string, string])[] = [['ies', 'y'], ['ing', ''], ['ion', ''], ['ed', ''], ['es', ''], ['s', '']];
-/** A word without its plural, past or `-ing`/`-ion` ending, and without a final `e` that those endings replace: `completed`, `completion` and `complete` all give `complet`. Shortest stem 3 (MIN_TERM_LENGTH), chosen on all 10 cases of one repository: combined F1 .324 against .315 for 4 and 5. */
+/** Shortest stem: 3-letter stems collide with unrelated words. `faces` and `facing` gave `fac`, which `includes` found in `user-facade.mocks.ts`, a mocks file that became row 1 of a case. */
+const STEM_MIN = 4;
+/** A word without a final `e`, then without its plural, past or `-ing`/`-ion` ending, each leaving at least STEM_MIN letters: `faces` and `face` give `face`, `complete` and `completed` give `complet`, `facing` stays `facing`. Against the 3-letter rule on the 10 map-bench cases: F1 .386 to .389, recall .493 to .499, precision .377 to .369. */
 export function stem(word: string): string {
+  const bare = word.length - 1 >= STEM_MIN && word.endsWith('e') ? word.slice(0, -1) : word;
   for (const [suffix, base] of INFLECTIONS) {
-    if (word.endsWith(suffix) && word.length - suffix.length >= MIN_TERM_LENGTH) return (word.slice(0, -suffix.length) + base).replace(/e$/, '');
+    if (suffix === 's' && bare.endsWith('ss')) continue;
+    if (bare.endsWith(suffix) && bare.length - suffix.length >= STEM_MIN) {
+      const cut = bare.slice(0, -suffix.length) + base;
+      return cut.endsWith('e') && cut.length - 1 >= STEM_MIN ? cut.slice(0, -1) : cut;
+    }
   }
-  return word;
+  return bare;
 }
 
 /** Whether the text holds the term's words as whole words in a row: `est` is in `a EST list` and `RebaWizard` (parts), not in `test` or `destroy`. Both sides are split and stemmed as the search index's are. */
