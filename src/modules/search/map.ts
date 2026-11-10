@@ -203,6 +203,7 @@ const UNDER_FLOOR = 0.999;
 /** A folder that has a hit of its own and sits one import or mention away from one of the 8 best-scored rows takes half that row's score. 10 cases of one repository: F1 .419 -> .452, top8 .381 -> .410, absent/cut/printed/top 20/51/25/30 (weights .3 gave .444/.390 and sources 3 .432-.441, .8 gave .439). */
 const NEIGHBOUR_SOURCES = 8;
 const NEIGHBOUR_BOOST = 0.5;
+const namedWords = (name: string, stems: ReadonlySet<string>): number => wordsOf(name.replace(/\.[^.]+$/, '')).map(stem).filter((word) => stems.has(word)).length;
 /**
  * Folder rows of the search index scored against the request's words: idf over rows, field weights, phrase bonuses and
  * the module gate; one candidate file per retrieved folder, the best at SCORE.directory and the rest in proportion.
@@ -266,7 +267,7 @@ function retrieve(rows: readonly FolderRow[], terms: readonly string[], files: R
     const choices = entry.row.files.map((file) => `${folder}/${file}`).filter((file) => files.has(file));
     if (choices.length === 0) continue;
     // The file whose own name carries the most request words stands for the folder; without any, the first by name.
-    const path = choices.map((file) => ({ file, named: wordsOf(file.slice(folder.length + 1).replace(/\.[^.]+$/, '')).map(stem).filter((word) => hits.has(word)).length })).sort((a, b) => b.named - a.named || (a.file < b.file ? -1 : 1))[0]!.file;
+    const path = choices.map((file) => ({ file, named: namedWords(file.slice(folder.length + 1), hits) })).sort((a, b) => b.named - a.named || (a.file < b.file ? -1 : 1))[0]!.file;
     found.push({ path, score: (SCORE.directory * score) / ranked[0]!.score, reasons: [`retrieved: ${reasons.slice(0, 3).join(', ')}`], terms: behind });
   }
   return found;
@@ -401,8 +402,8 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   for (const file of input.exclude ?? []) candidates.delete(file);
   const ranked = [...candidates.values()];
   // Equal scores go to the file whose own name carries request words: 6545 had 83 rows tied at 4.40 and path order cut both truth files; map-bench F1 .3839 -> .3978.
-  const requestStems = new Set([...pass1, ...pass2].flatMap((term) => wordsOf(term).map(stem)));
-  const named = new Map(ranked.map((candidate) => [candidate.path, wordsOf((candidate.path.split('/').pop() ?? '').replace(/\.[^.]+$/, '')).map(stem).filter((word) => requestStems.has(word)).length]));
+  const requestStems = new Set([...pass1, ...pass2].flatMap((term) => wordsOf(term).map(stem)).filter((word) => word.length >= MIN_TERM_LENGTH && !STOPWORDS.has(word)));
+  const named = new Map(ranked.map((candidate) => [candidate.path, namedWords(candidate.path.split('/').pop() ?? '', requestStems)]));
   const sorted = ranked.sort((a, b) => b.score - a.score || named.get(b.path)! - named.get(a.path)! || a.path.localeCompare(b.path));
   const pool = sorted.map((candidate) => ({ ...candidate, reasons: [...candidate.reasons] }));
   const perEntity = new Map<string, number>();
