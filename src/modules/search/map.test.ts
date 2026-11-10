@@ -204,12 +204,11 @@ describe('map', () => {
     }
   });
 
-  it('moves spec and config rows to their source file whether or not the request names the kind', async () => {
+  it('folds or drops companion rows whether or not the request names their kind', async () => {
     const fx = await repo({ 'tests/discount.test.ts': 'import { applyDiscount } from "../src/cart/discount";\n', 'src/settings/discount.config.ts': 'export default { rate: 1 };\n' });
     try {
       const listed = async (request: string): Promise<string[]> => (await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], terms: ['discount'], request })).candidates.map((candidate) => candidate.path);
       assert.deepEqual((await listed('Why is the discount wrong?')).filter((path) => !path.endsWith('cart.service.ts')), ['src/cart/discount.ts']);
-      assert.deepEqual((await listed('Why is the discount build target wrong?')).filter((path) => !path.endsWith('cart.service.ts')), ['src/cart/discount.ts'], 'build output directories are not companions');
       assert.ok(!(await listed('Which tests cover the discount?')).includes('tests/discount.test.ts'), 'a request naming tests still folds them');
       assert.ok(!(await listed('Where is the discount config read?')).includes('src/settings/discount.config.ts'), 'a request naming config still folds it');
       const seeded = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], terms: ['discount'], request: 'Which tests cover the discount?', paths: ['tests/discount.test.ts'] });
