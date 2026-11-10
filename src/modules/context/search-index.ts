@@ -10,7 +10,7 @@ import { baseNameOf, buildModuleTree, isModuleSource, referenceOwners } from './
 
 /** The machine layer of the search: one row per source folder, read by `map`'s retrieve layer and never sent to a model. */
 export const SEARCH_INDEX_FILE = `${CONTEXT_DIR}/search/folders.jsonl`;
-const VERSION = 2;
+const VERSION = 3;
 /** A rebuild at map time is worth its wait only below this; a slower repository keeps a stale index and says so. */
 const REBUILD_UNDER_MS = 5000;
 const MAX_NAMES = 24;

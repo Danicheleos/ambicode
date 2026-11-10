@@ -96,7 +96,7 @@ describe('search index freshness', () => {
       const head = (await meta(runtime, repo.root)).head;
       const file = path.join(repo.root, SEARCH_INDEX_FILE);
       const rows = (await runtime.fs.readText(file)).split('\n').slice(1).join('\n');
-      const stale = (buildMs: number) => runtime.fs.writeText(file, `${JSON.stringify({ kind: 'meta', head: 'abc123', roots: [], folders: 4, files: 5, builtAt: '', buildMs, version: 2 })}\n${rows}`);
+      const stale = (buildMs: number) => runtime.fs.writeText(file, `${JSON.stringify({ kind: 'meta', head: 'abc123', roots: [], folders: 4, files: 5, builtAt: '', buildMs, version: 3 })}\n${rows}`);
       await stale(6000);
       assert.equal((await searchIndexFor(deps, options)).limitation, `search index built at abc123, HEAD is ${head}`);
       await stale(10);
