@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { contentHash } from '#util/hash';
 import { isObject } from '#util/guards';
 import { adfText, htmlText, isAdf } from '../envelope/render.ts';
-import { isIssueKey, namesKey } from '#util/issue-key';
+import { isIssueKey, sourceId } from '#util/issue-key';
 import type { HookInput } from '#types/hook';
 import type { CaptureDeps } from '#types/modules/requirements';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
@@ -121,33 +121,77 @@ function resultText(response: unknown): string {
   return response === undefined || response === null ? '' : JSON.stringify(response);
 }
 
+/** The issues a result holds: its root when that is one keyed issue, else the first non-empty array (breadth-first) whose elements are all keyed issues. */
+function itemsOf(text: string): Record<string, unknown>[] | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const keyed = (value: unknown): value is Record<string, unknown> => isObject(value) && typeof value['key'] === 'string' && isIssueKey(value['key']);
+  if (keyed(root)) return [root];
+  let level: unknown[] = [root];
+  for (let depth = 0; depth <= 6 && level.length > 0; depth++) {
+    const next: unknown[] = [];
+    for (const node of level) {
+      if (Array.isArray(node) && node.length > 0 && node.every(keyed)) return node;
+      if (isObject(node) || Array.isArray(node)) next.push(...Object.values(node));
+    }
+    level = next;
+  }
+  return null;
+}
+
+// sourceId alone would match free text that merely mentions the key (a jql), so it applies to a whole key or URL only.
+const isAskedAs = (candidate: string, value: string): boolean =>
+  candidate === value || tailOf(candidate) === value || ((isIssueKey(value) || /^https?:\/\//.test(value)) && sourceId(candidate) === sourceId(value));
+
 /**
- * Stores the raw result of a `mcp__*` or WebFetch call under `requirements/<key>.json` while the route asked for
- * requirements. The key is the asked key whose text or last path segment the call's input names, else the
- * call's own url or issue key; a call naming none is not a requirement read.
+ * Stores the raw result of a `mcp__*` or WebFetch call under `requirements/<key>.json` while the route asked for requirements.
+ * A result holding issues is keyed by them, never by the call's input (a search whose jql mentions the asked key returns other
+ * issues): an item the route asked for is `asked` under the key as asked, any other is `linked` while the fetch step runs.
+ * A result without issues is keyed by the asked key one whole input value names, else (fetch step) a whole-value key or tracker URL.
  */
-export async function captureRequirement(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry | null> {
+export async function captureRequirement(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry[]> {
   const tool = input.tool_name ?? '';
-  if (deps.asked.length === 0 || (tool !== 'WebFetch' && !tool.startsWith('mcp__'))) return null;
-  const given = JSON.stringify(input.tool_input ?? {});
-  const url = typeof input.tool_input?.['url'] === 'string' ? input.tool_input['url'] : '';
-  const asked = deps.asked.find((candidate) => namesKey(given, candidate) || namesKey(given, tailOf(candidate)));
-  // A child, parent or linked item is evidence only while the fetch step runs and never stands in for the asked source.
-  const key = asked ?? (deps.view.position === FETCH_STEP ? linkedKey(input.tool_input, deps.asked) : null);
+  if (deps.asked.length === 0 || (tool !== 'WebFetch' && !tool.startsWith('mcp__'))) return [];
   const whole = resultText(input.tool_response).trim();
-  if (key === null || whole === '') return null;
-  return saveRequirement(deps, { key, url, tool, whole, relation: asked === undefined ? 'linked' : 'asked' });
+  if (whole === '') return [];
+  const url = typeof input.tool_input?.['url'] === 'string' ? input.tool_input['url'] : '';
+  const inFetch = deps.view.position === FETCH_STEP;
+  const items = itemsOf(whole);
+  const saved: LedgerEntry[] = [];
+  if (items !== null) {
+    const several = items.length > 1;
+    for (const item of items) {
+      const itemKey = item['key'] as string;
+      const asked = deps.asked.find((candidate) => isAskedAs(candidate, itemKey));
+      if (asked === undefined && !inFetch) continue;
+      // Only a single-issue result is the ticket's own read; a search row never replaces a stored capture of the same key.
+      const entry = await saveRequirement(deps, { key: asked ?? itemKey, url: several ? '' : url, tool, whole: several ? JSON.stringify(item) : whole, relation: asked === undefined ? 'linked' : 'asked', keepExisting: several });
+      if (entry !== null) saved.push(entry);
+    }
+    return saved;
+  }
+  const values = Object.values(input.tool_input ?? {}).filter((value): value is string => typeof value === 'string');
+  const asked = deps.asked.find((candidate) => values.some((value) => isAskedAs(candidate, value)));
+  // A child, parent or linked item is evidence only while the fetch step runs and never stands in for the asked source.
+  const key = asked ?? (inFetch ? linkedKey(input.tool_input, deps.asked) : null);
+  if (key === null) return [];
+  const entry = await saveRequirement(deps, { key, url, tool, whole, relation: asked === undefined ? 'linked' : 'asked' });
+  return entry === null ? [] : [entry];
 }
 
 /** Writes one requirement file and its ledger row; null when the route's chain already holds that content under the key. */
-export async function saveRequirement(deps: Pick<CaptureDeps, 'runtime' | 'dir' | 'ledger' | 'view'>, source: { key: string; url: string; tool: string; whole: string; relation: 'asked' | 'linked' }): Promise<LedgerEntry | null> {
+export async function saveRequirement(deps: Pick<CaptureDeps, 'runtime' | 'dir' | 'ledger' | 'view'>, source: { key: string; url: string; tool: string; whole: string; relation: 'asked' | 'linked'; keepExisting?: boolean }): Promise<LedgerEntry | null> {
   const { key, url, tool, whole } = source;
   const cut = whole.length > MAX_CONTENT;
   const content = whole.slice(0, MAX_CONTENT);
   const rawHash = contentHash(content);
   const read = await deps.ledger.read();
   const chain = read.state === 'ok' ? read.entries.filter((entry) => deps.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
-  if (chain.some((entry) => entry.kind === 'requirement' && entry['key'] === key && entry['rawHash'] === rawHash)) return null;
+  if (chain.some((entry) => entry.kind === 'requirement' && entry['key'] === key && (source.keepExisting === true || entry['rawHash'] === rawHash))) return null;
   const text = `${JSON.stringify({ key, url, tool, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content, cutFrom: cut ? whole.length : null }, null, 2)}\n`;
   await deps.runtime.fs.mkdirp(deps.dir.requirements);
   await deps.runtime.fs.writeText(fileOf(deps.dir, key), text);

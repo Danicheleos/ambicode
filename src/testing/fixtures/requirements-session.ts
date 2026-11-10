@@ -62,13 +62,15 @@ export async function session(options: SessionOptions = {}) {
       const view = (await openRouteView(fx.runtime, fx.routes, task, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });
-  const capture = (tool: string, response: unknown, extra: { asked?: string[]; input?: Record<string, unknown> } = {}) =>
+  const captureAll = (tool: string, response: unknown, extra: { asked?: string[]; input?: Record<string, unknown> } = {}) =>
     under((deps) => captureRequirement(
       { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, tool_input: extra.input ?? { issueIdOrKey: /[A-Z][A-Z0-9]+-\d+/.exec(JSON.stringify(response))?.[0] ?? '' } } as never,
       { ...deps, asked: extra.asked ?? [task] },
     ));
+  /** The first row a call saved, or null when it saved none. */
+  const capture = async (...call: Parameters<typeof captureAll>) => (await captureAll(...call))[0] ?? null;
   const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, ...overrides }));
   const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(task, 'exit')).map((entry) => String(entry['reason']));
-  return { fx, dir, args, started, under, capture, normalize, next, exits, task };
+  return { fx, dir, args, started, under, capture, captureAll, normalize, next, exits, task };
 }

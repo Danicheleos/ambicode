@@ -174,6 +174,91 @@ describe('envelope', () => {
     }
   });
 
+  describe('a search result is keyed by the issues it returns, never by the keys its query names', () => {
+    const SEARCH = 'mcp__atlassian__searchJiraIssuesUsingJql';
+    /** The shape both getJiraIssue and the search return: issues.nodes holds one node per issue. */
+    const found = (...keys: string[]): string => JSON.stringify({ context: {}, issues: { nodes: keys.map((key) => ({ expand: '', fields: { summary: `Summary ${key}`, description: `Body of ${key}` }, id: key.replace(/\D/g, ''), key, self: '', webUrl: '' })), pageInfo: { hasNextPage: false }, webUrl: '' } });
+    const search = (s: Awaited<ReturnType<typeof session>>, jql: string, text: string) => s.captureAll(SEARCH, mcp(text), { input: { jql, cloudId: 'x.atlassian.net' }, asked: [TICKET] });
+    const rows = async (s: Awaited<ReturnType<typeof session>>) => (await s.fx.kinds(s.task, 'requirement')).map((row) => [row['key'], row['relation']]);
+    const ticketText = async (s: Awaited<ReturnType<typeof session>>) => (await readCapture(s.fx.runtime.fs, s.dir, TICKET, null))?.content;
+    const readTicket = (s: Awaited<ReturnType<typeof session>>) => s.captureAll(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] });
+
+    it('a search naming the asked ticket leaves its capture whole and links the children it returns, and the envelope holds all three', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await readTicket(s);
+        await search(s, 'parent = ORD-17 OR key in (ORD-18, ORD-19)', found('ORD-18', 'ORD-19'));
+        assert.equal(await ticketText(s), jira('ORD-17'));
+        assert.deepEqual(await rows(s), [[TICKET, 'asked'], ['ORD-18', 'linked'], ['ORD-19', 'linked']]);
+        const result = await s.normalize();
+        assert.ok(result.state === 'ok');
+        assert.deepEqual(result.sources.map((source) => source.key).sort(), ['ORD-18', 'ORD-19', TICKET]);
+        assert.deepEqual(result.missingAsked, []);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('during fetch a search that does not name the asked key still links the issues it returns', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await search(s, 'key in (ORD-18, ORD-19)', found('ORD-18', 'ORD-19'));
+        assert.deepEqual(await rows(s), [['ORD-18', 'linked'], ['ORD-19', 'linked']]);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('after the fetch step the same search saves nothing', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await readTicket(s);
+        await s.fx.engine.advance({ task: s.task, cause: 'route-next', scratchpadDir: s.fx.scratchpad });
+        await search(s, 'key in (ORD-18, ORD-19)', found('ORD-18', 'ORD-19'));
+        assert.deepEqual(await rows(s), [[TICKET, 'asked']]);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('a search returning the asked item and a child leaves the asked capture as read and links the child', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await readTicket(s);
+        await search(s, 'key = ORD-17 OR parent = ORD-17', found('ORD-17', 'ORD-18'));
+        assert.equal(await ticketText(s), jira('ORD-17'));
+        assert.deepEqual(await rows(s), [[TICKET, 'asked'], ['ORD-18', 'linked']]);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('a search naming the asked key that returns no issues, or prose, saves nothing and keeps the asked capture', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await readTicket(s);
+        await search(s, 'parent = ORD-17', JSON.stringify({ context: {}, issues: { nodes: [], pageInfo: {} } }));
+        await search(s, 'parent = ORD-17', 'No issues matched parent = ORD-17');
+        assert.equal(await ticketText(s), jira('ORD-17'));
+        assert.deepEqual(await rows(s), [[TICKET, 'asked']]);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('a plain issue whose fields list subtasks is one capture under the asked key, whole', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        const body = jira('ORD-17', { subtasks: [{ key: 'ORD-18', fields: { summary: 'a' } }, { key: 'ORD-19', fields: { summary: 'b' } }] });
+        await s.captureAll(GET, mcp(body), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] });
+        assert.deepEqual(await rows(s), [[TICKET, 'asked']]);
+        assert.equal(await ticketText(s), body);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+  });
+
   it('a failed asked fetch plus an unrelated page read leaves the requirement not captured', async () => {
     const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
