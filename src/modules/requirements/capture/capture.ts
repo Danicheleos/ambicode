@@ -121,7 +121,7 @@ function resultText(response: unknown): string {
   return response === undefined || response === null ? '' : JSON.stringify(response);
 }
 
-/** The issues a result holds: its root when that is one keyed issue, else the first non-empty array (breadth-first) whose elements are all keyed issues. */
+/** The issues a result holds: at the shallowest level (breadth-first) where either appears, one keyed object or a non-empty array of keyed objects. */
 function itemsOf(text: string): Record<string, unknown>[] | null {
   let root: unknown;
   try {
@@ -130,11 +130,11 @@ function itemsOf(text: string): Record<string, unknown>[] | null {
     return null;
   }
   const keyed = (value: unknown): value is Record<string, unknown> => isObject(value) && typeof value['key'] === 'string' && isIssueKey(value['key']);
-  if (keyed(root)) return [root];
   let level: unknown[] = [root];
   for (let depth = 0; depth <= 6 && level.length > 0; depth++) {
     const next: unknown[] = [];
     for (const node of level) {
+      if (keyed(node)) return [node];
       if (Array.isArray(node) && node.length > 0 && node.every(keyed)) return node;
       if (isObject(node) || Array.isArray(node)) next.push(...Object.values(node));
     }
@@ -164,12 +164,13 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
   const saved: LedgerEntry[] = [];
   if (items !== null) {
     const several = items.length > 1;
+    const given = Object.values(input.tool_input ?? {}).filter((value): value is string => typeof value === 'string');
     for (const item of items) {
       const itemKey = item['key'] as string;
       const asked = deps.asked.find((candidate) => isAskedAs(candidate, itemKey));
       if (asked === undefined && !inFetch) continue;
-      // Only a single-issue result is the ticket's own read; a search row never replaces a stored capture of the same key.
-      const entry = await saveRequirement(deps, { key: asked ?? itemKey, url: several ? '' : url, tool, whole: several ? JSON.stringify(item) : whole, relation: asked === undefined ? 'linked' : 'asked', keepExisting: several });
+      // Only a call whose whole input value names the issue is its own read; a search row never replaces a stored capture of the same key.
+      const entry = await saveRequirement(deps, { key: asked ?? itemKey, url: several ? '' : url, tool, whole: several ? JSON.stringify(item) : whole, relation: asked === undefined ? 'linked' : 'asked', keepExisting: !given.some((value) => isAskedAs(itemKey, value)) });
       if (entry !== null) saved.push(entry);
     }
     return saved;

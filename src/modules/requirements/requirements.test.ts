@@ -246,6 +246,44 @@ describe('envelope', () => {
       }
     });
 
+    it('an issue under a wrapper object that lists subtasks is read whole as the asked capture, outside fetch too (the subtasks are not split off)', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await readTicket(s);
+        await s.fx.engine.advance({ task: s.task, cause: 'route-next', scratchpadDir: s.fx.scratchpad });
+        const body = JSON.stringify({ issue: { key: 'ORD-17', fields: { summary: 'S', subtasks: [{ key: 'ORD-18' }, { key: 'ORD-19' }] } } });
+        await s.captureAll(GET, mcp(body), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] });
+        assert.deepEqual(await rows(s), [[TICKET, 'asked'], [TICKET, 'asked']]);
+        assert.equal(await ticketText(s), body);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('a one-node search for the asked ticket does not replace its direct read', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        await readTicket(s);
+        await search(s, 'key = ORD-17', found('ORD-17'));
+        assert.equal(await ticketText(s), jira('ORD-17'));
+        assert.deepEqual(await rows(s), [[TICKET, 'asked']]);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
+    it('a one-node search for the asked ticket with no earlier capture is saved as the asked source', async () => {
+      const s = await session({ skill: 'investigate', requirements: [TICKET] });
+      try {
+        const text = found('ORD-17');
+        await search(s, 'key = ORD-17', text);
+        assert.deepEqual(await rows(s), [[TICKET, 'asked']]);
+        assert.equal(await ticketText(s), text);
+      } finally {
+        await s.fx.dispose();
+      }
+    });
+
     it('a plain issue whose fields list subtasks is one capture under the asked key, whole', async () => {
       const s = await session({ skill: 'investigate', requirements: [TICKET] });
       try {
