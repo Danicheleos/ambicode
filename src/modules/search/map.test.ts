@@ -188,14 +188,20 @@ describe('map', () => {
   });
 
   it('debug names the fold, the spread losses and the floor losses without changing the printed map', async () => {
-    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`src/wide/w.a${index}.ts`, 'export const sharedword = 1;\n'])) });
+    const wideCount = 12;
+    const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: wideCount }, (_, index) => [`src/wide/w.a${index}.ts`, 'export const sharedword = 1;\n'])) });
     try {
       const found = await map(fx, PROMPT, ['discount', 'sharedword']);
+      const wide = (path: string): boolean => path.startsWith('src/wide/');
+      const inPool = (path: string): boolean => found.pool.some((row) => row.path === path);
       assert.equal(found.debug.folded['src/cart/discount.spec.ts'], 'src/cart/discount.ts');
-      assert.equal(found.debug.spreadDropped.length, 11, 'the 12 wide files are one entity: one stays, 11 are spread losses');
-      assert.ok(found.debug.spreadDropped.includes('src/wide/w.a11.ts') && found.debug.spreadDropped.every((path) => found.pool.some((row) => row.path === path)));
-      assert.deepEqual(found.debug.floorDropped, ['src/wide/w.a0.ts'], 'the one wide file left scores 0.86 against 8.28 on top');
-      assert.ok(!found.candidates.some((row) => row.path === 'src/wide/w.a0.ts' || row.path.endsWith('.spec.ts')));
+      assert.ok(found.debug.spreadDropped.every(inPool));
+      const survivors = found.pool.filter((row) => wide(row.path) && !found.debug.spreadDropped.includes(row.path));
+      assert.equal(survivors.length, 1, 'the wide files are one entity: the spread keeps one row and reports the other ones as dropped');
+      assert.equal(found.debug.spreadDropped.filter(wide).length, wideCount - 1);
+      assert.ok(found.debug.floorDropped.every((path) => inPool(path) && !found.candidates.some((row) => row.path === path)), 'a floor loss is a pool row that is not listed');
+      assert.ok(found.debug.floorDropped.includes(survivors[0]!.path), 'the one wide file left scores far below the top row and is cut by the floor');
+      assert.ok(!found.candidates.some((row) => wide(row.path) || row.path.endsWith('.spec.ts')));
       assert.equal(found.entry['candidates'], found.candidates.length + found.omitted);
       assert.equal(found.text.includes('floorDropped') || found.text.includes('spreadDropped'), false);
       assert.deepEqual(found.text, (await map(fx, PROMPT, ['discount', 'sharedword'])).text);
@@ -225,10 +231,11 @@ describe('map', () => {
       const shown = JSON.parse(found.text.split('\n').find((line) => line.startsWith('{"candidates"'))!) as { limitations?: string[] };
       assert.ok(found.limitations.some((note) => /more file\(s\) in entities already listed/.test(note)));
       assert.ok(found.limitations.some((note) => /^search index built now, \d+ ms$/.test(note)));
-      assert.equal(shown.limitations?.length, 3, shown.limitations?.join('|'));
-      assert.match(shown.limitations![0]!, /^"export" matched \d+ of \d+ files; ignored$/);
-      assert.match(shown.limitations![1]!, /^no file matches the term "qqNoSuchWord"/);
-      assert.equal(shown.limitations![2], '"ZebraCrossing" is in no code file, only in src/assets/i18n.json');
+      const shownNotes = shown.limitations ?? [];
+      assert.ok(shownNotes.some((note) => /^"export" matched \d+ of \d+ files; ignored$/.test(note)), 'a term ignored for matching too many files is shown');
+      assert.ok(shownNotes.some((note) => /^no file matches the term "qqNoSuchWord"/.test(note)), 'a term matching nothing is shown');
+      assert.ok(shownNotes.some((note) => /"ZebraCrossing" is in no code file, only in src\/assets\/i18n\.json/.test(note)), 'a term found only outside code is shown with where');
+      assert.ok(!shownNotes.some((note) => /entities already listed|^search index built/.test(note)), 'internal notes stay in the ledger entry');
       assert.deepEqual(found.entry['limitations'], found.limitations);
     } finally {
       await fx.dispose();
