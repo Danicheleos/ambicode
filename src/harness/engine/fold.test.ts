@@ -159,7 +159,6 @@ describe('fold', () => {
     assert.equal(matches(entry('policy', { stage: 'before-work' }), { kind: 'policy', value: 'before-report' }), false);
     assert.equal(isGreen(entry('check', { exit: 0, summary: { ran: 3, failed: 0 } })), true);
     assert.equal(matches(entry('check', { exit: 1, summary: { ran: 1, failed: 1 } }), { kind: 'check', value: 'green' }), false);
-    assert.equal(matches(entry('requirement', { capture: 'list' }), { kind: 'requirement', value: 'full' }), false);
   });
 
   it('07-D4 check{green} needs phase green and exit 0; an unproven run keeps the step open', () => {

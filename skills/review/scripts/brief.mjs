@@ -203,7 +203,7 @@ const RELATED_INTRO = 'Related code the patch does not show, for comparison: dup
 // A merge request leaves its test files out of the diff; without this list the reviewer saw no spec and reported "no test covers it" for changes that added several.
 const TEST_FILES_MAX = 30;
 const testFileLines = () => {
-  const tests = (result.changedFiles ?? []).filter((file) => typeof file.exclusionReason === 'string' && file.exclusionReason.startsWith('test code'));
+  const tests = (result.changedFiles ?? []).filter((file) => file.exclusionCode === 'test-file');
   if (tests.length === 0) return [];
   return ['## Test files changed in this merge request (not under review, content not shown)', '', ...tests.slice(0, TEST_FILES_MAX).map((file) => `- ${file.newPath ?? file.oldPath} +${file.addedLines}/-${file.removedLines}`), ...(tests.length > TEST_FILES_MAX ? [`… (${tests.length - TEST_FILES_MAX} more)`] : []), ''];
 };

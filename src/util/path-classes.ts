@@ -42,6 +42,10 @@ export const TEST_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)(__tests__|__mocks__|tests|test|spec|e2e|cypress)\//,
 ];
 
+/** Files Claude Code loads into every session itself: a rule drafted from one is a second copy of text the model has. Shared with the rules scripts as sources, which cannot import src/. */
+export const AUTO_LOADED_PATTERNS: readonly RegExp[] = [/(^|\/)(CLAUDE|CLAUDE\.local)\.md$/, /^\.claude\/rules\//];
+export const autoLoaded = (file: string): boolean => AUTO_LOADED_PATTERNS.some((pattern) => pattern.test(file));
+
 /** Prose, data, markup and style files: they mention names without using them, so a name search skips them. */
 const NON_CODE_EXTENSIONS = new Set(['md', 'mdx', 'txt', 'rst', 'adoc', 'json', 'yaml', 'yml', 'toml', 'lock', 'csv', 'xml', 'svg', 'html', 'htm', 'css', 'scss', 'sass', 'less']);
 

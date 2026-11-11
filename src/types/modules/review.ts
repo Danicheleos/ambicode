@@ -122,6 +122,8 @@ export const ReviewResult = z.strictObject({
         addedLines: count,
         removedLines: count,
         exclusionReason: z.string().nullable().default(null),
+        /** The classifier's code for the same exclusion (`ExclusionReason`): code reads this, a person reads the prose above. */
+        exclusionCode: z.string().nullable().default(null),
       }),
     )
     .default([]),

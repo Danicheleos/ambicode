@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { projectById } from '#modules/config/workspace';
 import { DRAFTS_DIR, type Diagnostic, type LoadedPack, type DraftsCheck } from '#types/modules/policy';
-import { pathExclusionReason } from '#util/path-classes';
+import { autoLoaded, pathExclusionReason } from '#util/path-classes';
 import { matchesGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
@@ -15,9 +15,6 @@ const MIN_QUOTE_CHARS = 20;
 /** A problem that keeps a draft from being applied (09-T5). A red check now reaches the table, so an unverified quote must not go live. */
 export const blockingProblem = (check: DraftsCheck, root: string, file: string): Diagnostic | undefined =>
   check.diagnostics.find((diagnostic) => diagnostic.where === path.join(root, file) && (diagnostic.severity === 'error' || diagnostic.code === 'pack-glob-matches-nothing'));
-
-/** Files Claude Code loads into every session itself. Mirrors `autoLoaded` in skills/rules/scripts/sources.mjs. */
-const autoLoaded = (location: string): boolean => /(^|\/)(CLAUDE|CLAUDE\.local)\.md$/.test(location) || location.startsWith('.claude/rules/');
 
 // Measured on 7,000+ rule pairs (one large frontend repository: 55 drafts, 34 live rules; 47 shipped rules): every pair judged a different
 // requirement scored at most 0.23; the two judged the same requirement in other words scored 0.29 and 0.50. 0.25 sits in that gap.

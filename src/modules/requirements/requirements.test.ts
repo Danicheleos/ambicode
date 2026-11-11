@@ -6,8 +6,7 @@ import { jira, mcp, session } from '#testing/fixtures/requirements-session';
 import { contentHash } from '#util/hash';
 import { hasRequirement, requirementsIn } from './capture/has-requirement.ts';
 import { namesKey, sourceId } from '#util/issue-key';
-import { mapTextOf, readCapture, titleOf } from './capture/capture.ts';
-import { gapsOf } from '#modules/evidence/report/report';
+import { fileOf, mapTextOf, readCapture, titleOf } from './capture/capture.ts';
 import { askedKeys } from './envelope/envelope.ts';
 
 const GET = 'mcp__atlassian__getJiraIssue';
@@ -46,19 +45,19 @@ describe('keys', () => {
   });
 
   it('a merge request description link to ORD-12 does not hide the title\'s ORD-1', () => {
-    assert.deepEqual(requirementsIn('ORD-1 fix', 'see https://x/browse/ORD-12', []).named, ['ORD-1', 'https://x/browse/ORD-12']);
+    assert.deepEqual(requirementsIn('ORD-1 fix', 'see https://x/browse/ORD-12', []), ['ORD-1', 'https://x/browse/ORD-12']);
   });
 });
 
 describe('capture stores the raw result text', () => {
-  it('an MCP call is stored under its key with url, tool, retrievedAt, rawHash and the whole text; no step, no map', async () => {
+  it('an MCP call is stored under its key with url, retrievedAt, rawHash (the tool is the ledger via) and the whole text; no step, no map', async () => {
     const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
       const body = jira('ORD-17', { description: 'The cart holds 50 items.' });
       const entry = await s.capture(GET, mcp(body), { input: { issueIdOrKey: 'ORD-17' } });
-      assert.equal(entry?.['key'], 'ORD-17');
+      assert.deepEqual([entry?.['key'], entry?.['via']], ['ORD-17', GET]);
       const stored = await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null);
-      assert.deepEqual(stored && { key: stored.key, tool: stored.tool, content: stored.content, rawHash: stored.rawHash }, { key: 'ORD-17', tool: GET, content: body, rawHash: contentHash(body) });
+      assert.deepEqual(stored && { key: stored.key, content: stored.content, rawHash: stored.rawHash }, { key: 'ORD-17', content: body, rawHash: contentHash(body) });
       assert.deepEqual((await s.fx.ledger(s.task)).map((e) => e.kind).filter((kind) => kind === 'requirement' || kind === 'map'), ['requirement']);
     } finally {
       await s.fx.dispose();
@@ -102,18 +101,33 @@ describe('capture stores the raw result text', () => {
     }
   });
 
-  it('a result over 256 KB is cut to 256 KB and its hash is of what is stored; an edited file no longer reads', async () => {
+  it('a result over 256 KB is saved and read back whole; an edited file no longer reads', async () => {
     const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
       await s.capture(GET, mcp('a'.repeat(300 * 1024)), { input: { issueIdOrKey: 'ORD-17' } });
       const stored = await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null);
-      assert.equal(stored?.content.length, 256 * 1024);
-      assert.equal(stored?.cutFrom, 300 * 1024);
-      assert.equal((await s.fx.kinds(s.task, 'requirement'))[0]!['capture'], 'cut');
-      assert.match(gapsOf(await s.fx.ledger(s.task)).join('\n'), /Requirement ORD-17 was cut at 256 KB/);
+      assert.equal(stored?.content.length, 300 * 1024);
+      assert.equal(stored?.rawHash, contentHash('a'.repeat(300 * 1024)));
+      assert.equal(Object.hasOwn((await s.fx.kinds(s.task, 'requirement'))[0]!, 'capture'), false);
+      const saved = JSON.parse(await readFile(path.join(s.dir.requirements, (await s.fx.runtime.fs.readdir(s.dir.requirements))[0]!.name), 'utf8')) as Record<string, unknown>;
+      assert.deepEqual(Object.keys(saved), ['key', 'url', 'retrievedAt', 'rawHash', 'content']);
       const file = path.join(s.dir.requirements, (await s.fx.runtime.fs.readdir(s.dir.requirements))[0]!.name);
       await s.fx.runtime.fs.writeText(file, (await readFile(file, 'utf8')).replace('"aaaa', '"bbbb'));
       assert.equal(await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null), null);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a capture saved with the old `cutFrom` key still reads, without the key', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
+    try {
+      const content = 'plain text';
+      await s.fx.runtime.fs.mkdirp(s.dir.requirements);
+      await s.fx.runtime.fs.writeText(fileOf(s.dir, 'request'), JSON.stringify({ key: 'request', url: '', tool: 'request', retrievedAt: '2026-11-07T12:09:34.950Z', rawHash: contentHash(content), content, cutFrom: null }));
+      const stored = await readCapture(s.fx.runtime.fs, s.dir, 'request', null);
+      assert.equal(stored?.content, content);
+      assert.equal(Object.hasOwn(stored!, 'cutFrom'), false);
     } finally {
       await s.fx.dispose();
     }

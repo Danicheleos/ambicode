@@ -35,8 +35,8 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   limit: { valid: { route: 'a1b2c3d4-1', which: 'repeat', count: 2, step: 'ground' }, invalid: { route: 'a1b2c3d4-1', which: 'repeat' } },
   exit: { valid: { route: 'a1b2c3d4-1', reason: 'done' }, invalid: { reason: 'done' } },
   requirement: {
-    valid: { key: 'ORD-17', via: 'mcp', rawHash: 'sha256:x', bytes: 10, relation: 'asked', capture: 'requirements/ORD-17.json', derivedFrom: null },
-    invalid: { key: 'ORD-17', via: 'mcp', rawHash: 'sha256:x', bytes: 10, capture: 'requirements/ORD-17.json' },
+    valid: { key: 'ORD-17', via: 'mcp', rawHash: 'sha256:x', bytes: 10, relation: 'asked', derivedFrom: null },
+    invalid: { key: 'ORD-17', via: 'mcp', rawHash: 'sha256:x', bytes: 10 },
   },
   envelope: {
     valid: { sources: [], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], hash: 'sha256:x' },
@@ -93,6 +93,11 @@ describe('the 22 ledger kinds', () => {
     assert.equal(parseEntry(legacyReview).ok, true);
     assert.equal(parseEntry({ ...legacyReview, statusReason: null }).ok, true, 'the review writer records a null statusReason');
     assert.equal(parseEntry({ ...common, kind: 'note', ...TABLE.note.valid }).ok, true);
+  });
+
+  it('a requirement row written with the old `capture` field still parses and keeps it', () => {
+    const parsed = parseEntry({ ...common, kind: 'requirement', key: 'ORD-17', via: 'mcp', rawHash: 'sha256:x', bytes: 10, relation: 'asked', capture: 'full' });
+    assert.equal(parsed.ok && parsed.entry['capture'], 'full');
   });
 
   it('02-K5: a field outside the schema is preserved on read and grants nothing', () => {

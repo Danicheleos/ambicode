@@ -1,5 +1,6 @@
 import { buildChain, exitOf } from '#modules/evidence/ledger-chain';
 import { checkFacts, gapsOf, reviewFact } from './report.ts';
+import { iterationHeadings } from '#modules/evidence/task/iterations';
 import type { Chain, LedgerEntry } from '#types/modules/evidence';
 
 const MAX_QUOTED = 2000;
@@ -46,10 +47,8 @@ export async function renderSummary(task: string, entries: readonly LedgerEntry[
   const intro = lines.slice(lines.findIndex((line) => /^#\s/.test(line)) + 1);
   const goal = intro.slice(0, Math.max(0, intro.findIndex((line) => line.startsWith('#')))).find((line) => line.trim() !== '');
   // The task route's `next` step ends the route before its final message runs, so most rows have none; the plan's own title says what the row was.
-  const titles = new Map(lines.flatMap((line) => {
-    const found = /^##\s+Iteration\s+(\d+)\s*[:\u2014-]\s*(.+?)\s*$/i.exec(line);
-    return found === null ? [] : [[Number(found[1]), found[2]!] as [number, string]];
-  }));
+  const headings = plan === null ? [] : iterationHeadings(plan);
+  const titles = new Map(headings.filter((heading) => heading.title !== '').map((heading) => [heading.number, heading.title] as [number, string]));
   const decisions = chains.filter((chain) => chain.head['skill'] === 'plan').flatMap((chain) => chain.entries.filter((entry) => entry.kind === 'acceptance' && entry['via'] !== 'never-asked').flatMap((entry) => {
     const print = chain.entries.find((candidate) => candidate.id === entry['instance'] && candidate['class'] === 'decision');
     return print === undefined ? [] : [`${text(print['question']).replace(/\[ambicode gate [^\]]*\]/, '').trim().split('\n')[0]} → ${text(entry['answer'])}`];
@@ -83,7 +82,7 @@ export async function renderSummary(task: string, entries: readonly LedgerEntry[
     ...(keys.length === 0 ? [] : [`Requirement: ${keys.join(', ')}`]),
     `Plan: ${planFile ?? 'none'}`,
     ...(unformatted ? ['No formatter configured.'] : []),
-    ...(title === undefined ? [] : ['', '## Plan', title, ...(goal === undefined ? [] : [goal.trim()]), ...lines.filter((line) => /^##\s+Iteration\s+\d+/i.test(line)).map((line) => `- ${line.replace(/^#+\s+/, '')}`), ...(decisions.length === 0 ? [] : ['Decisions:', ...decisions.map((line) => `- ${line}`)])]),
+    ...(title === undefined ? [] : ['', '## Plan', title, ...(goal === undefined ? [] : [goal.trim()]), ...headings.map((heading) => `- ${plan!.slice(heading.index).split('\n', 1)[0]!.replace(/^#+\s+/, '').trimEnd()}`), ...(decisions.length === 0 ? [] : ['Decisions:', ...decisions.map((line) => `- ${line}`)])]),
     ...(rows.length === 0 ? [] : ['', '## Iterations', ...iterationBlocks.flat()]),
     ...(others.length === 0 ? [] : ['', '## Routes', ...routeBlocks.flat()]),
     ...(inits.length === 0 ? [] : ['', '## Init', ...inits.map((entry) => `- ${text(entry['what'])}: ${text(entry['outcome'])}`)]),

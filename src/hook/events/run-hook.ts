@@ -38,7 +38,7 @@ const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDi
 
 /**
  * Never throws: any failure is a no-op, because a hook is advisory and must never block or alter the tool call that
- * already happened. The reason goes to stderr, so a silent no-op leaves a trace.
+ * already happened. The reason goes to stderr, and into the ledger of the session's live route, so a no-op leaves a trace.
  */
 export async function runHook(runtime: Runtime, rawStdin: string, injected?: HookDeps): Promise<unknown> {
   const deps = injected ?? defaultHookDeps(runtime);
@@ -100,7 +100,22 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
     }
   } catch (error) {
     process.stderr.write(`ambicode hook ${input.hook_event_name}: ${error instanceof Error ? (error.stack ?? error.message).split('\n').slice(0, 3).join(' | ') : String(error)}\n`);
+    await recordHookFailure(runtime, input, error instanceof Error ? error.message : String(error));
     return EMPTY_HOOK_OUTPUT;
+  }
+}
+
+/** A live route keeps the failure in its ledger, where the report lists it; this runs in the catch, so it never throws. */
+async function recordHookFailure(runtime: Runtime, input: HookInput, message: string): Promise<void> {
+  try {
+    const found = await repositoryOf(runtime, input);
+    if (typeof found === 'string') return;
+    const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now());
+    if (active === null) return;
+    const dir = taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill));
+    await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), (ledger) => ledger.append({ kind: 'limit', route: active.routeId, which: 'hook-error', count: 1, event: input.hook_event_name, message }));
+  } catch (inner) {
+    process.stderr.write(`ambicode hook ${input.hook_event_name}: failure not recorded, ${inner instanceof Error ? inner.message : String(inner)}\n`);
   }
 }
 

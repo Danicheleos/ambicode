@@ -46,7 +46,7 @@ ambicode review \
 repeatable. The result is then labelled `requirement-based`.
 
 On a route (`/ambicode:review`, `investigate`, `plan`, `task`) you only call the MCP tools: the hook stores each response whole under
-`.ambicode/tasks/<task>/requirements/<key>.json` (url, tool, retrievedAt, rawHash, content up to 256 KB) and `requirements normalize` builds the
+`.ambicode/tasks/<task>/requirements/<key>.<hash>.json` (named by the sanitized key plus an 8-character hash of the key; key, url, retrievedAt, rawHash, content) and `requirements normalize` builds the
 envelope from those files. The JSON envelope below is for a standalone `review --evidence`.
 
 **The helper never retrieves anything.** It has no Atlassian client, no

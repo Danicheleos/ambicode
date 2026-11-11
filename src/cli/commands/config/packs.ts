@@ -12,6 +12,7 @@ import { mostSpecificRoot, normalizeRelative } from '#util/paths';
 import type { FileSystem } from '#types/platform/ports';
 import type { ProjectConfig } from '#types/modules/config';
 import type { CliCommand } from '../../types/cli.ts';
+import { toPosix } from '#util/glob';
 
 const LIVE_DIR = '.ambicode/policies';
 
@@ -50,7 +51,7 @@ async function listedCopy(fs: FileSystem, repositoryRoot: string, listed: readon
 async function copyBuiltin(fs: FileSystem, builtinDirectory: string, repositoryRoot: string, listed: readonly string[], sourcePath: string, id: string): Promise<CopyPackResult> {
   const source = await fs.readText(sourcePath);
   const builtin = PolicyPack.parse(parseYaml(source));
-  const relative = `${LIVE_DIR}/${path.relative(builtinDirectory, sourcePath).split(path.sep).join('/')}`;
+  const relative = `${LIVE_DIR}/${toPosix(path.relative(builtinDirectory, sourcePath))}`;
   const existing = await listedCopy(fs, repositoryRoot, listed, id);
   const where = existing ?? relative;
   const target = path.join(repositoryRoot, where);

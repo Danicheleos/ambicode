@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { anchorPattern } from './anchors.mjs';
 
 const started = Date.now();
 const input = JSON.parse(readFileSync(0, 'utf8'));
@@ -12,9 +13,7 @@ const body = note === undefined ? '' : readFileSync(path.resolve(root, note.path
 // The first ten bad citations are listed in the summary; the count is exact.
 const LISTED = 10;
 
-// An extension holds a letter: `v1.2:3` and `10.0.0.1:80` are versions and addresses, not files, and failed as missing-file.
-const PATH = '[\\w@./\\\\-]+\\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]+';
-const CITATION = new RegExp(`(?<![\\w./-])(${PATH}):(\\d+(?:\\s*[-–]\\s*\\d+)?)`, 'g');
+const CITATION = anchorPattern();
 // A model cites from the session directory, which can be the parent of the repository: `repo/src/x.ts`.
 const sessionDir = typeof input.cwd === 'string' ? path.resolve(input.cwd) : null;
 const fromSession = (file) => {

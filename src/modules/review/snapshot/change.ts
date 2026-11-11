@@ -1,6 +1,7 @@
 import { AmbicodeError } from '#util/errors';
 import { totalChangedLines } from '#platform/git/diff';
 import { describeExclusion, isExcludedFromReview } from '#util/path-classes';
+import type { ExclusionReason } from '#types/util';
 import type { AmbicodeConfig } from '#types/modules/config';
 import type { DiffFile } from '#types/platform/git';
 import type { MeasuredInput } from '#types/modules/review';
@@ -10,13 +11,13 @@ import type { OperatorPatterns } from '../types/snapshot.ts';
 export const byteLength = (value: string): number => Buffer.byteLength(value, 'utf8');
 
 /** The excluded part leaves the patch and the file list, so a `.env` cannot reach the model through the diff. */
-export function partitionChange(files: readonly DiffFile[], operator: OperatorPatterns = {}): { files: DiffFile[]; excluded: { path: string; reason: string }[]; patch: string } {
+export function partitionChange(files: readonly DiffFile[], operator: OperatorPatterns = {}): { files: DiffFile[]; excluded: { path: string; reason: string; code: ExclusionReason }[]; patch: string } {
   const included: DiffFile[] = [];
-  const excluded: { path: string; reason: string }[] = [];
+  const excluded: { path: string; reason: string; code: ExclusionReason }[] = [];
   for (const file of files) {
     const reason = isExcludedFromReview(file.oldPath, file.newPath, operator);
     if (reason === null) included.push(file);
-    else excluded.push({ path: file.newPath ?? file.oldPath ?? '(unnamed)', reason: `not reviewed because it is ${describeExclusion(reason)}` });
+    else excluded.push({ path: file.newPath ?? file.oldPath ?? '(unnamed)', reason: `not reviewed because it is ${describeExclusion(reason)}`, code: reason });
   }
   const patch = included.map((file) => (file.patchSection.endsWith('\n') ? file.patchSection : `${file.patchSection}\n`)).join('');
   return { files: included, excluded, patch };

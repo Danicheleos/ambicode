@@ -5,9 +5,9 @@ import type { Chain } from '#types/modules/evidence';
 import { mrRequirements } from '#modules/requirements/capture/has-requirement';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { sourceId } from '#util/issue-key';
-import { buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
+import { answeredAfter, buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
-export { buildChain, exitOf, isBoundAnswer, latestBound, liveHeads };
+export { answeredAfter, buildChain, exitOf, isBoundAnswer, latestBound, liveHeads };
 
 /** The latest `route` entry written by this session. */
 export function latestRouteOf(all: readonly LedgerEntry[], session: string): LedgerEntry | null {
@@ -25,7 +25,6 @@ export function matches(entry: LedgerEntry, qualified: Qualified): boolean {
     case 'policy': return entry['stage'] === qualified.value;
     // A green needs exit 0: an unproven run keeps the step open until the check limit releases it.
     case 'check': return entry['phase'] === qualified.value && entry['exit'] === 0;
-    case 'requirement': return entry['capture'] === qualified.value;
     case 'review': return entry['stage'] === qualified.value;
     default: return true;
   }

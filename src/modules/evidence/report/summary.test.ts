@@ -149,4 +149,9 @@ describe('summary.md reads like a result, not an audit trail', () => {
     const text = await renderSummary('ord-17', ledger(), async (file) => files[file] ?? null);
     assert.deepEqual([...text.matchAll(/^- Iteration (\d) of 3(?: \((.*)\))?: (.*)$/gm)].map((row) => [row[1], row[2], row[3]]), [['1', 'Guard the empty list', 'done'], ['2', 'Seed the reduce', 'done'], ['3', undefined, 'done']]);
   });
+  it('an iteration heading inside a fenced code block does not title a row', async () => {
+    const files: Record<string, string> = { ...FILES, [PLAN]: '# Refund\n\n## Iteration 1: Guard the empty list\nx\n\n```md\n## Iteration 3: Example only\n```\n' };
+    const text = await renderSummary('ord-17', ledger(), async (file) => files[file] ?? null);
+    assert.doesNotMatch(text, /Example only/);
+  });
 });

@@ -3,6 +3,7 @@ import { AmbicodeError } from '#util/errors';
 import { isSearchable, isTestPath } from '#util/path-classes';
 import { harvest } from '#modules/search/harvest';
 import type { FileSystem } from '#types/platform/ports';
+import { toPosix } from '#util/glob';
 
 const MAX_NAMES_PER_FILE = 8;
 
@@ -13,10 +14,6 @@ const MAX_NAMES_PER_FILE = 8;
  * 0.78, 8 gave 0.91 (recall 0.90), 12 gave 0.99 (recall 0.83); uniqueness (2 to 100 owners allowed) changed nothing there.
  */
 const MIN_REFERENCE_NAME = 8;
-/** The real imports average 8.4 modules per module; a cap of 8 kept recall 0.63 at precision 0.95, 6 gave 0.51 and 4 gave 0.37. */
-const MAX_DEPENDS = 8;
-/** A bullet names the referenced files of one module: the two most mentioned keep it one line, since a bullet per file would multiply the lines the cap of 8 already bounds. */
-const MAX_DEPENDS_FILES = 2;
 
 /** Name (file name without its last extension) to the one module whose own files carry it and the file; names under MIN_REFERENCE_NAME or borne by two modules are left out. */
 export function referenceOwners(own: ReadonlyMap<string, readonly string[]>): Map<string, { module: string; file: string }> {
@@ -197,7 +194,7 @@ export function repoRelativeRoots(repositoryRoot: string, roots: readonly string
   return roots.map((given) => {
     const relative = path.relative(repositoryRoot, path.resolve(repositoryRoot, given));
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new AmbicodeError('bad-argument', `--root ${given} is outside the repository`, { field: 'root' });
-    return relative.split(path.sep).join('/');
+    return toPosix(relative);
   });
 }
 

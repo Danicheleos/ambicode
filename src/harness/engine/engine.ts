@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { loadConfig } from '#modules/config/load';
+import { latestCaptures } from '#modules/requirements/capture/capture';
 import { hasRequirement, requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { saveNote } from '#modules/evidence/notes';
@@ -164,7 +165,7 @@ export function createEngine(deps: EngineDeps): Engine {
         kind: 'route',
         skill: def.skill,
         args: inputArgs,
-        captured: entries.filter((entry) => entry.kind === 'requirement').map((entry) => String(entry['key'])),
+        captured: [...(await latestCaptures(rt.fs, dir, entries)).keys()],
         mode: headless ? 'headless' : 'interactive',
         channel: input.channel,
         trusted,

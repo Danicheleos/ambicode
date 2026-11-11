@@ -19,6 +19,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FileSystem } from '#types/platform/ports';
+import { toPosix } from '#util/glob';
 
 export const nodeFileSystem: FileSystem = {
   readText: (absolutePath) => readFile(absolutePath, 'utf8'),
@@ -65,7 +66,7 @@ export const nodeFileSystem: FileSystem = {
   realpath: (absolutePath) => realpath(absolutePath),
   glob: async (pattern, cwd) => {
     const found: string[] = [];
-    for await (const entry of glob(pattern, { cwd })) found.push(entry.split(path.sep).join('/'));
+    for await (const entry of glob(pattern, { cwd })) found.push(toPosix(entry));
     return found;
   },
   setTimes: (absolutePath, time) => utimes(absolutePath, time, time),

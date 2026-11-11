@@ -7,6 +7,7 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteKind, type SaveKind } from '#types/modules/evidence';
+import { toPosix } from '#util/glob';
 
 interface SavedNote {
   task: string;
@@ -18,7 +19,7 @@ interface SavedNote {
 }
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
-const relativeTo = (dir: TaskDir, file: string): string => path.relative(dir.repositoryRoot, file).split(path.sep).join('/');
+const relativeTo = (dir: TaskDir, file: string): string => toPosix(path.relative(dir.repositoryRoot, file));
 const shown = (dir: TaskDir, relative: string): string => (dir.where === '.' ? relative : `${dir.where}/${relative}`);
 
 const notAccepted = (reason: string, why: string): AmbicodeError =>

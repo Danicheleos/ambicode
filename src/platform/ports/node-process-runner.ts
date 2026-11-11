@@ -19,7 +19,7 @@ export class NodeProcessRunner implements ProcessRunner {
     const environment = resolveEnvironment(request.env, this.baseEnv);
     if (request.detached === true) return startDetached(executable, args, request, environment);
 
-    const limit = Math.max(0, request.maxOutputBytes);
+    const limit = request.maxOutputBytes === undefined ? Infinity : Math.max(0, request.maxOutputBytes);
     const kept: Record<'stdout' | 'stderr', Buffer[]> = { stdout: [], stderr: [] };
     let retained = 0;
     let truncated = false;

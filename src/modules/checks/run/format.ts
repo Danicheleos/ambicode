@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import type { ProjectConfig } from '#types/modules/config';
 import { normalizeRelative } from '#util/paths';
@@ -61,7 +60,6 @@ export async function runFormat(deps: CheckDeps, input: { task: string; waiting:
       argv: shellArgv(commandFor(template, relative)),
       cwd: path.join(workspace.repositoryRoot, normalizeRelative(project.root)),
       timeoutMs: workspace.config.skills.task.checkTimeoutSeconds * 1000,
-      maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
       env: { kind: 'inherited' },
     });
     const after = await hashes();

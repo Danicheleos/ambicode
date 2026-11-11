@@ -83,15 +83,14 @@ export function renderRequirement(content: string): string {
  * The task's requirements text: what was not captured first, then each captured source whole. `unfetched` are the
  * asked keys that were never fetched because no requirements server is configured; they are gaps too.
  */
-export function renderRequirements(sources: readonly Pick<EnvelopeSource, 'key' | 'url' | 'content' | 'cutFrom'>[], missingAsked: readonly string[], unfetched: readonly string[] = []): string {
+export function renderRequirements(sources: readonly Pick<EnvelopeSource, 'key' | 'url' | 'content'>[], missingAsked: readonly string[], unfetched: readonly string[] = []): string {
   const failed = missingAsked.filter((key) => !unfetched.includes(key));
   const missing = [
     ...(failed.length === 0 ? [] : [`Not captured: ${failed.join(', ')}; list it under Not verified.`]),
     ...unfetched.filter((key) => missingAsked.includes(key)).map((key) => `${key} looks like a ticket key; no requirements server is configured, so it was not fetched; list it under Not verified.`),
   ].join('\n');
   const body = sources.map((source) => {
-    const cut = source.cutFrom == null ? '' : `\n[cut: the capture kept ${source.content.length} of ${source.cutFrom} characters; the rest of this source was not captured and goes under Not verified]`;
-    return `## ${source.key}${source.url === '' ? '' : ` ${source.url}`}${cut}\n${renderRequirement(source.content)}`;
+    return `## ${source.key}${source.url === '' ? '' : ` ${source.url}`}\n${renderRequirement(source.content)}`;
   });
   return [missing, ...body].filter((part) => part !== '').join('\n\n');
 }

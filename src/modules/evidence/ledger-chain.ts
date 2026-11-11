@@ -24,6 +24,11 @@ export function isBoundAnswer(entry: LedgerEntry): boolean {
   return !(entry.kind === 'declined' && (entry['reason'] === 'acting-needs-human' || entry['reason'] === 'option-not-offered'));
 }
 
+/** Whether a bound answer to the print's gate follows it in the chain. */
+export function answeredAfter(entries: readonly LedgerEntry[], print: LedgerEntry): boolean {
+  return entries.slice(entries.indexOf(print) + 1).some((entry) => isBoundAnswer(entry) && entry['gate'] === print['gate']);
+}
+
 export function latestBound(window: readonly LedgerEntry[], gate: string): LedgerEntry | null {
   return window.findLast((entry) => isBoundAnswer(entry) && entry['gate'] === gate) ?? null;
 }

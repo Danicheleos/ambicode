@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
 import type { ResolvedPolicy } from '#types/modules/policy';
 import type { ProjectConfig } from '#types/modules/config';
+import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { runOne, shellArgv, shellQuote } from './run.ts';
 import { commandFor } from './check-command.ts';
@@ -37,6 +39,13 @@ describe('runOne', () => {
     const broken = await outcome({ kind: 'spawn-failed', failure: 'EACCES permission denied' });
     assert.deepEqual([broken.status, broken.exitCode], ['error', null]);
     assert.match(broken.detail ?? '', /could not be started/);
+  });
+
+  it('keeps the verdict at the tail of an output over 256 KiB', async () => {
+    const command = `node -e "process.stdout.write('x'.repeat(300000) + '\\nVERDICT-TAIL 3 failed')"`;
+    const result = await runOne({ runner: new NodeProcessRunner(), clock, repositoryRoot: tmpdir(), project: { ...project, root: '.' }, policy: policy('run'), commandId: 'unit', key: 'web/unit', command, form: 'file', timeoutSeconds: 60 });
+    assert.deepEqual([result.status, result.exitCode], ['passed', 0]);
+    assert.match(result.output, /VERDICT-TAIL 3 failed/);
   });
 });
 

@@ -121,8 +121,8 @@ describe('review scripts (C7)', () => {
   });
 
   it('brief lists the test files the merge request changed, with counts, before the diff, although it shows none of their content', async () => {
-    const changed = (file: string, added: number, removed: number, exclusionReason: string | null) => ({ oldPath: file, newPath: file, changeKind: 'modified', addedLines: added, removedLines: removed, exclusionReason });
-    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [], changedFiles: [changed('a.ts', 1, 1, null), changed('src/auth.service.spec.ts', 40, 2, 'test code, which merge-request review leaves out unless --with-tests is passed'), changed('dist/x.js', 3, 0, 'inside a dependency, build output, or version-control directory')] });
+    const changed = (file: string, added: number, removed: number, exclusionReason: string | null, exclusionCode: string | null = null) => ({ oldPath: file, newPath: file, changeKind: 'modified', addedLines: added, removedLines: removed, exclusionReason, exclusionCode });
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [], changedFiles: [changed('a.ts', 1, 1, null), changed('src/auth.service.spec.ts', 40, 2, 'worded however the classifier words it', 'test-file'), changed('dist/x.js', 3, 0, 'inside a dependency, build output, or version-control directory', 'excluded-directory')] });
     try {
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');

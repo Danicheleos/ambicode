@@ -148,6 +148,19 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
     }
   });
 
+  it('an anchor that would be bad but sits inside a ~~~ fence is not checked by the route\'s plan-check step', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan);
+      const out = await planCheck(plan, '# Plan\n\n~~~\n`src/orders/limit.ts:999`\n~~~\n');
+      assert.doesNotMatch(out.text, /Plan check FAILED/);
+      const summary = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!['summary'] as { anchorsBad: number };
+      assert.equal(summary.anchorsBad, 0);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
   it('06-P6: the line after the last one is an append point and passes; two past the end fails', async () => {
     const plan = await shipped();
     try {
@@ -174,9 +187,7 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
     for (const [body, head] of [[REQ, /Plan check FAILED: 1 requirements not word for word\./], [`${REQ}\`src/orders/limit.ts:40\`\n`, /Plan check FAILED: 1 bad anchors, 1 requirements not word for word\./]] as const) {
       const plan = await shipped();
       try {
-        await toDesign(plan);
-        await mkdir(path.join(taskDir(plan), 'requirements'), { recursive: true });
-        await writeFile(path.join(taskDir(plan), 'requirements', 'request.json'), JSON.stringify({ key: 'request', content: 'The list shows all rows at once.' }));
+        await toDesign(plan, { text: 'The list shows all rows at once.' });
         const out = await planCheck(plan, body);
         assert.equal(out.position, 'plan-accept');
         assert.match(out.text, head);
@@ -188,12 +199,41 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
     }
   });
 
+  it('a second typed request in one task is not a new requirement: it is not saved, and plan-check compares the plan against the first', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan, { text: 'The list shows all rows at once.' });
+      await plan.fx.engine.stop(PLAN_TASK, 'blocked', 'test');
+      await plan.start({ text: 'Cap the order total at 500.' });
+      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'requirement')).map((row) => row['key']), ['request']);
+      const saved = JSON.parse(await readFile(path.join(taskDir(plan), 'requirements', (await readdir(path.join(taskDir(plan), 'requirements')))[0]!), 'utf8')) as { content: string };
+      assert.equal(saved.content, 'The list shows all rows at once.');
+      const out = await planCheck(plan, '# Plan\n\n## Requirements\n- "The list shows all rows at once." (Iteration 1)\n');
+      assert.doesNotMatch(out.text, /not word for word/);
+      const summary = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!['summary'] as { requirementsChecked: boolean; requirementsBad: number };
+      assert.deepEqual([summary.requirementsChecked, summary.requirementsBad], [true, 0]);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('plan-check does not take a requirement file whose content no longer matches what was recorded as the ticket', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan, { text: 'The list shows all rows at once.' });
+      const file = path.join(taskDir(plan), 'requirements', (await readdir(path.join(taskDir(plan), 'requirements')))[0]!);
+      await writeFile(file, (await readFile(file, 'utf8')).replace('all rows at once', 'every row'));
+      const out = await planCheck(plan, '# Plan\n\n## Requirements\n- "The list shows every row." (Iteration 1)\n');
+      assert.match(out.text, /requirements not checked: no captured ticket/);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
   it('a plan accepted with a requirement miss carries the miss into the report gaps', async () => {
     const plan = await shipped();
     try {
-      await toDesign(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      await mkdir(path.join(taskDir(plan), 'requirements'), { recursive: true });
-      await writeFile(path.join(taskDir(plan), 'requirements', 'request.json'), JSON.stringify({ key: 'request', content: 'The list shows all rows at once.' }));
+      await toDesign(plan, { text: 'The list shows all rows at once.', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       await planCheck(plan, '# Plan\n\n## Requirements\n- "The list shows every row" (Iteration 1)\n');
       assert.match(gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n'), /plan-check: 1 requirements not word for word: "The list shows every row"$/m);
     } finally {
@@ -204,9 +244,7 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
   it('a check that misses anchors and requirements leads its failure message with both counts, ahead of the listed anchors', async () => {
     const plan = await shipped();
     try {
-      await toDesign(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      await mkdir(path.join(taskDir(plan), 'requirements'), { recursive: true });
-      await writeFile(path.join(taskDir(plan), 'requirements', 'request.json'), JSON.stringify({ key: 'request', content: 'The list shows all rows at once.' }));
+      await toDesign(plan, { text: 'The list shows all rows at once.', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       await planCheck(plan, `# Plan\n\n## Requirements\n- "The list shows every row" (Iteration 1)\n\n\`src/orders/limit.ts:40\` \`src/nowhere/a-very-long-directory-name/another-long-directory-name/file-with-a-long-name.ts:1\`\n`);
       const gap = gapsOf(await plan.fx.ledger(PLAN_TASK)).find((line) => line.startsWith('plan-check:'))!;
       assert.match(gap, /^plan-check: 2 bad anchors, 1 requirements not word for word: src\/orders\/limit\.ts:40 /);
@@ -495,8 +533,48 @@ describe('06-R8/06-R9/06-H4 acting authority', { concurrency: 4 }, () => {
       await planCheck(plan, BAD);
       const print = (await plan.fx.kinds(PLAN_TASK, 'gate')).findLast((entry) => entry['gate'] === 'plan-accept')!;
       assert.deepEqual(print['options'], ['Accept', 'Reject']);
-      assert.match(String(print['details']), /Plan check FAILED: 1 bad anchors\..*Headless: this draft is accepted or rejected as it is, never revised\./s);
+      assert.match(String(print['details']), /Plan check FAILED: 1 bad anchors\./);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).filter((entry) => entry['via'] === 'gate').length, 0);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('a plan saved with CRLF line endings shows its status in the Plan line', async () => {
+    const plan = await shipped();
+    try {
+      await plan.toGate();
+      const print = await lastPrint(plan);
+      await plan.body('---\r\nstatus: draft\r\n---\r\n# Plan\r\n\r\n## Iteration 1: Add the limit\r\n- *Goal*: Orders over the limit are refused.\r\n');
+      const done = await plan.hook('plan-accept', 'Reject', print.id);
+      assert.match(done.text, /\nPlan \(draft\): /);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('an iteration heading inside a fenced code block is example text and not listed in the closing', async () => {
+    const plan = await shipped();
+    try {
+      await plan.toGate();
+      const print = await lastPrint(plan);
+      await plan.body('# Plan\n\n## Iteration 1: Add the limit\n- *Goal*: Orders over the limit are refused.\n\n```md\n## Iteration 9: Example only\n```\n');
+      const done = await plan.hook('plan-accept', 'Reject', print.id);
+      assert.match(done.text, /\n1\. Add the limit: Orders over the limit are refused\.\n\n/);
+      assert.doesNotMatch(done.text, /Example only/);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('a fenced level-2 heading inside an iteration does not end it: the Goal after the fence is still listed', async () => {
+    const plan = await shipped();
+    try {
+      await plan.toGate();
+      const print = await lastPrint(plan);
+      await plan.body('# Plan\n\n## Iteration 1: Add the limit\nExample:\n\n```md\n## fake\n```\n- *Goal*: Orders over the limit are refused.\n');
+      const done = await plan.hook('plan-accept', 'Reject', print.id);
+      assert.match(done.text, /\n1\. Add the limit: Orders over the limit are refused\.\n\n/);
     } finally {
       await plan.dispose();
     }
@@ -515,6 +593,17 @@ describe('06-R8/06-R9/06-H4 acting authority', { concurrency: 4 }, () => {
     }
   });
 
+  it('a headless run that took the default says so in the closing Recorded line', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan, { headless: true });
+      const done = await planCheck(plan, GOOD);
+      assert.equal(done.position, 'complete');
+      assert.match(done.text, /Recorded: plan-accept: Reject/);
+    } finally {
+      await plan.dispose();
+    }
+  });
 });
 
 describe('06-H3 without hook support', { concurrency: 4 }, () => {

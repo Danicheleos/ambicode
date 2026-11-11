@@ -4,6 +4,7 @@ import { projectForRequest } from '#modules/config/workspace';
 import { buildMap, resolveLayers } from '#modules/search/map';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
 import { briefOf, investigationOf } from './brief.ts';
+import { iterationHeadings } from '#modules/evidence/task/iterations';
 import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import { policyStage } from '#modules/policy/stage';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
-import { mapTextOf } from '#modules/requirements/capture/capture';
+import { latestCaptures, mapTextOf } from '#modules/requirements/capture/capture';
 import { renderRequirements } from '#modules/requirements/envelope/render';
 import { requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { isIssueKey } from '#util/issue-key';
@@ -45,6 +46,9 @@ export async function chainEntries(input: HandlerInput): Promise<LedgerEntry[]> 
   const read = await input.ledger.read();
   return read.state === 'ok' ? read.entries.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
 }
+
+export const withoutIterationHeadings = (brief: string | null): string | undefined =>
+  brief === null ? undefined : iterationHeadings(brief).reduceRight((text, { index }) => text.slice(0, index) + text.slice(text.indexOf('\n', index) === -1 ? text.length : text.indexOf('\n', index) + 1), brief);
 
 export const failed = (error: unknown): HandlerResult => {
   if (error instanceof AmbicodeError) return { state: 'failed', code: error.code, message: error.message, recoverable: false };
@@ -135,7 +139,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     // The request alone is already in the model's context; repeating it as an envelope adds nothing.
     if (result.sources.length === 0 && result.missingAsked.length === 0) return { state: 'ok', payload: null };
     // Only the task's implementer works from a file, not from the prompt: for the other routes a request this route just saved is not repeated.
-    const savedNow = result.sources.every((source) => source.key === 'request') && (await chainEntries(input)).some((entry) => entry.kind === 'requirement' && entry['key'] === 'request');
+    const savedNow = result.sources.every((source) => source.key === 'request') && (await latestCaptures(input.runtime.fs, input.dir, await chainEntries(input))).has('request');
     if (savedNow && result.missingAsked.length === 0 && input.view.skill !== 'task') return { state: 'ok', payload: null };
     // A bare key that nothing fetched because no requirements server is configured is a different gap from a fetch that failed.
     const unfetched = input.args.hasRequirement || requirementsServer((await configOf(input)).requirements.mcps) !== null ? [] : result.missingAsked.filter(isIssueKey);
@@ -161,7 +165,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const all = read.state === 'ok' ? read.entries : [];
     // Investigating again starts from the code, not from its own earlier report; plan and task build on it.
     const investigation = !reviewing && input.view.skill !== 'investigate' ? await investigationOf(input, all) : null;
-    const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? (await briefOf(input, all)).brief?.replace(/^##\s+Iteration\s+\d+.*\n?/gim, '') : undefined;
+    const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? withoutIterationHeadings((await briefOf(input, all)).brief) : undefined;
     const seedText = review?.text ?? brief ?? investigation?.text ?? null;
     const files = seedText === null ? [] : await git.listFiles(null);
     // The map searches each source's title and description, not the raw tracker JSON; the envelope and review evidence keep the raw capture.

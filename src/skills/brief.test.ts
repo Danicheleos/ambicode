@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { briefOf } from './brief.ts';
+import { withoutIterationHeadings } from './common.ts';
 import type { HandlerInput } from '#types/harness';
 
 const PLAN = `---
@@ -87,5 +88,12 @@ describe('briefOf delivers the plan frame with every iteration', () => {
 
   it('a plan without iteration headings is the one brief, as written', async () => {
     assert.equal(await brief(null, 'Just do it.\n'), 'Just do it.');
+  });
+});
+
+describe('withoutIterationHeadings', () => {
+  it('drops the iteration heading lines of a brief but keeps a heading inside a code fence', () => {
+    const text = '# Plan\n\n## Iteration 1: guard\nExample:\n```md\n## Iteration 9: fake\n```\n\n## Iteration 2: rate\nApply it.';
+    assert.equal(withoutIterationHeadings(text), '# Plan\n\nExample:\n```md\n## Iteration 9: fake\n```\n\nApply it.');
   });
 });

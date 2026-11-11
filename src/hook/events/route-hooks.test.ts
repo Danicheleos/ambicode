@@ -80,6 +80,18 @@ describe('03-H3 launch', () => {
     }
   });
 
+  it('options that do not parse fail the launch with the parse error and start no route', async () => {
+    const plan = await planFixture();
+    try {
+      const output = await prompt(plan, '/ambicode:plan --headless=yes add a limit --task ORD-17');
+      assert.match(context(output), /AMBICODE could not start the plan route: bad-argument: .*headless/);
+      assert.doesNotMatch(context(output), /\[ambicode\] plan/);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 0);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
   it('03-H2: a subagent launches nothing and re-injects nothing', async () => {
     const plan = await planFixture();
     try {
@@ -310,7 +322,7 @@ describe('03-H6 MCP capture with a route', () => {
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
       assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' }, tool_response: response }), {});
       const [entry] = await plan.fx.kinds(PLAN_TASK, 'requirement');
-      assert.deepEqual([entry!['key'], entry!['relation'], entry!['capture']], ['ORD-17', 'asked', 'full']);
+      assert.deepEqual([entry!['key'], entry!['relation']], ['ORD-17', 'asked']);
       assert.equal(entry!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
     } finally {
       await plan.dispose();

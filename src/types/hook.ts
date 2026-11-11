@@ -67,5 +67,3 @@ export interface HookDeps {
   /** The engine is built on the session's repository root, or on the process cwd when the session has none. */
   load(repositoryRoot: string | null): Promise<RouteHookDeps>;
 }
-
-export const MAX_HOOK_INPUT_BYTES = 1_048_576;

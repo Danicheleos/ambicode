@@ -25,6 +25,20 @@ describe('dropIgnoredGlobResults', () => {
     assert.equal(dropIgnoredGlobResults(response(['node_modules/x/b.js']), { cwd: root, repositoryRoot: root, projects, searchPath: '/work/repo/node_modules' }), null);
   });
 
+  it('does not count an entry as named when the call only contains its text inside another segment', () => {
+    const dist = [{ root: '.', ignored: ['dist/'] }];
+    const drop = (names: string[], extra: { pattern?: string; searchPath?: string }) => dropIgnoredGlobResults(response(names), { cwd: root, repositoryRoot: root, projects: dist, ...extra })?.filenames;
+    assert.deepEqual(drop(['dist/out.js', 'src/b.js'], { pattern: '**/distribution/*.js' }), ['src/b.js']);
+    assert.deepEqual(drop(['dist/a.ts', 'src/b.ts'], { pattern: '**/distance*.ts' }), ['src/b.ts']);
+    assert.deepEqual(drop(['dist/a.ts', 'src/b.ts'], { searchPath: '/work/repo/src/redistribute' }), ['src/b.ts']);
+  });
+
+  it('counts an entry named inside brace syntax as named', () => {
+    const dist = [{ root: '.', ignored: ['dist/'] }];
+    assert.equal(dropIgnoredGlobResults(response(['dist/a.js']), { cwd: root, repositoryRoot: root, projects: dist, pattern: '{dist,src}/**' }), null);
+    assert.equal(dropIgnoredGlobResults(response(['dist/a.js']), { cwd: root, repositoryRoot: root, projects: dist, pattern: 'src/{dist,x}/*.js' }), null);
+  });
+
   it('matches a file entry exactly and a directory entry by prefix only', () => {
     const out = dropIgnoredGlobResults(response(['dist/out.js', 'dist/out.js.map', 'node_modules_extra/a.js', 'node_modules/a.js']), { cwd: root, repositoryRoot: root, projects });
     assert.deepEqual(out?.filenames, ['dist/out.js.map', 'node_modules_extra/a.js']);

@@ -60,7 +60,7 @@ function postToolUse(options: {
 }
 
 describe('G/H: ambicode hook', () => {
-  it('PostToolUse on Glob drops git-ignored results under the configured entries, from a cwd above the repository', async () => {
+  it('PostToolUse on Glob drops git-ignored results under the configured entries', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {
       const configPath = path.join(repo.root, '.ambicode', 'config.yaml');

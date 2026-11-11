@@ -27,9 +27,9 @@ describe('renderRequirement keeps every field with text', () => {
     assert.equal(renderRequirement('plain <b>prose</b>'), 'plain <b>prose</b>');
   });
 
-  it('names what was not captured first and marks a capture the 256 KB cap cut', () => {
-    const text = renderRequirements([{ key: 'ORD-17', url: '', content: 'abc', cutFrom: 300000 }], ['ORD-9']);
-    assert.match(text, /^Not captured: ORD-9; list it under Not verified\.\n\n## ORD-17\n\[cut: the capture kept 3 of 300000 characters/);
+  it('names what was not captured first', () => {
+    const text = renderRequirements([{ key: 'ORD-17', url: '', content: 'abc' }], ['ORD-9']);
+    assert.match(text, /^Not captured: ORD-9; list it under Not verified\.\n\n## ORD-17\nabc/);
   });
 });
 
@@ -65,6 +65,20 @@ describe('a large ticket reaches the model whole', () => {
       assert.notEqual(again.position, 'fetch');
       assert.deepEqual((await s.fx.kinds(s.task, 'envelope')).map((entry) => entry['route']).length, 2);
       assert.match((await loadPayload(s.fx.runtime.fs, s.dir, head['id'] as string, 'envelope'))!, /Whole body\./);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a route started after the held ticket file was deleted fetches it again, and its head lists no capture', async () => {
+    const s = await session({ skill: 'investigate', shipped: true, requirements: [TICKET], text: 'ORD-17 which files?' });
+    try {
+      await s.capture(GET, mcp(jira('ORD-17', { description: 'Whole body.' })), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] });
+      await s.next();
+      await Promise.all((await s.fx.runtime.fs.readdir(s.dir.requirements)).map((file) => s.fx.runtime.fs.remove(path.join(s.dir.requirements, file.name))));
+      const again = await s.fx.engine.start({ skill: 'investigate', text: 'ORD-17 and the other files?', requirements: [TICKET], task: s.task, cwd: s.fx.repo.root, session: 'bbbbbbbb-2222-4222-8222-222222222222', channel: 'hook', scratchpadDir: s.fx.scratchpad });
+      assert.deepEqual((await s.fx.kinds(s.task, 'route')).at(-1)!['captured'], []);
+      assert.equal(again.position, 'fetch');
     } finally {
       await s.fx.dispose();
     }
@@ -156,7 +170,7 @@ describe('Atlassian rich text keeps its links, mentions, tables and breaks', () 
 
 describe('the gap lines of a rendered requirements text', () => {
   it('a bare key with no requirements server is its own gap, apart from a failed capture, and both lead the text', () => {
-    const rendered = renderRequirements([{ key: 'ORD-1', url: '', content: 'body', cutFrom: null }], ['ORD-17', 'ORD-9'], ['ORD-17']);
+    const rendered = renderRequirements([{ key: 'ORD-1', url: '', content: 'body' }], ['ORD-17', 'ORD-9'], ['ORD-17']);
     assert.match(rendered, /^Not captured: ORD-9; list it under Not verified\.\nORD-17 looks like a ticket key; no requirements server is configured, so it was not fetched; list it under Not verified\.\n\n## ORD-1/);
     assert.equal(requirementGapsOf(rendered).split('\n').length, 2);
     assert.equal(requirementGapsOf('## ORD-1\nbody'), '');

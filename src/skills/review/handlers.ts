@@ -133,12 +133,11 @@ const mrFetch: Handler = async (input) => {
       commitsError = (error as Error).message;
       await input.runtime.fs.writeText(path.join(input.dir.root, MR_COMMITS), `${JSON.stringify({ error: commitsError })}\n`);
     }
-    const { named: requirements, omitted } = requirementsIn(mr.title, mr.description, mr.links);
-    const omittedLine = omitted.length === 0 ? '' : ` Not fetched, over the limit of ${requirements.length}: ${omitted.join(', ')}; list them under Not verified.`;
+    const requirements = requirementsIn(mr.title, mr.description, mr.links);
     return {
       state: 'ok',
-      payload: requirements.length === 0 ? null : `The merge request names these requirements in its title or description: ${requirements.join(', ')}.${omittedLine}`,
-      record: { ...(requirements.length === 0 ? {} : { requirements }), ...(omitted.length === 0 ? {} : { requirementsOmitted: omitted }), ...(discussionsError === null ? {} : { discussionsError: discussionsError.slice(0, 300) }), ...(commitsError === null ? {} : { commitsError: commitsError.slice(0, 300) }) },
+      payload: requirements.length === 0 ? null : `The merge request names these requirements in its title or description: ${requirements.join(', ')}.`,
+      record: { ...(requirements.length === 0 ? {} : { requirements }), ...(discussionsError === null ? {} : { discussionsError: discussionsError.slice(0, 300) }), ...(commitsError === null ? {} : { commitsError: commitsError.slice(0, 300) }) },
     };
   } catch (error) {
     return failed(error);

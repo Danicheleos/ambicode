@@ -59,7 +59,8 @@ export interface ProcessRequest {
   argv: readonly string[];
   cwd: string;
   timeoutMs: number;
-  maxOutputBytes: number;
+  /** Absent keeps the whole output. */
+  maxOutputBytes?: number;
   env: EnvironmentPolicy;
   stdin?: string;
   /** The child outlives this process; the outcome is its first stdout line, then its pipes are closed. */
@@ -81,11 +82,8 @@ export interface ProcessRunner {
 }
 
 export interface StandardInput {
-  /**
-   * `null`, never a truncated string, when the stream exceeds `maxBytes`: the hook must stay a
-   * silent no-op on an oversized payload, while a requirement envelope must fail loudly.
-   */
-  read(maxBytes: number): Promise<string | null>;
+  /** `null`, never a truncated string, when the stream exceeds `maxBytes`; without `maxBytes` the whole stream. */
+  read(maxBytes?: number): Promise<string | null>;
 }
 
 export interface HttpRequest {

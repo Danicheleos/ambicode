@@ -5,6 +5,8 @@ import path from 'node:path';
 import { routeFixture, type RouteFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { runHook } from './run-hook.ts';
 import type { HookDeps } from '#types/hook';
+import { MAX_NOTE_BYTES } from '#types/modules/evidence';
+import { gapsOf } from '#modules/evidence/report/report';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'ORD-17';
@@ -110,6 +112,34 @@ describe('the final message states the gaps, and needs no Evidence block', () =>
       assert.ok(note !== undefined);
       assert.equal((await readFile(path.join(s.fx.repo.root, note), 'utf8')).trim(), message.trim());
     });
+  });
+
+  it('a final message that could not be saved is a gap in the report, not only a line on stderr', async () => {
+    await withStop(async (s) => {
+      await s.say(`${HEADING}${'x'.repeat(MAX_NOTE_BYTES)}`);
+      assert.deepEqual(await s.stop(), {});
+      assert.deepEqual(await saved(s), []);
+      const gaps = (await s.fx.kinds(TASK, 'limit')).filter((entry) => entry['which'] === 'note-not-saved');
+      assert.equal(gaps.length, 1, 'the unsaved final message is recorded in the ledger');
+      assert.ok(gapsOf(await s.fx.kinds(TASK, 'limit')).some((gap) => gap.includes('over 262144 bytes')), 'and the report lists it');
+    });
+  });
+
+  it('a hook that throws while a route is live leaves a gap in the ledger; with no live route it writes nothing', async () => {
+    const s = await stopper();
+    try {
+      const broken: HookDeps = { load: async () => Promise.reject(new Error('engine failed to load')) };
+      const input = JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: s.fx.repo.root, scratchpad_dir: s.fx.scratchpad, last_assistant_message: 'done' });
+      assert.deepEqual(await runHook(s.fx.runtime, input, broken), {});
+      const entries = (await s.fx.kinds(TASK, 'limit')).filter((entry) => entry['which'] === 'hook-error');
+      assert.equal(entries.length, 1, 'the failed hook is recorded in the ledger');
+      assert.ok(gapsOf(entries).some((gap) => gap.includes('Stop') && gap.includes('engine failed to load')), 'and the report lists it');
+      await stopRoute(s.fx, TASK, A, 'done');
+      await runHook(s.fx.runtime, input, broken);
+      assert.equal((await s.fx.kinds(TASK, 'limit')).filter((entry) => entry['which'] === 'hook-error').length, 1, 'a closed route gets no entry');
+    } finally {
+      await s.dispose();
+    }
   });
 
   it('a message that states the gap in its own words around the generated line passes, whatever its markup', async () => {

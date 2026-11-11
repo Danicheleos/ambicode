@@ -9,11 +9,9 @@ import type { CaptureDeps } from '#types/modules/requirements';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
-// A Confluence page body measured 40-90 KB; 256 KB keeps a long spec whole without letting one result fill the task directory.
-export const MAX_CONTENT = 256 * 1024;
-
-const CapturedRequirement = z.strictObject({ key: z.string().min(1), url: z.string(), tool: z.string().min(1), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string(), cutFrom: z.number().nullable() });
-type CapturedRequirement = z.infer<typeof CapturedRequirement>;
+// Not strict: a file saved before a field was dropped (`cutFrom`, `tool`) reads with that key stripped.
+const CapturedRequirement = z.object({ key: z.string().min(1), url: z.string(), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string() });
+export type CapturedRequirement = z.infer<typeof CapturedRequirement>;
 
 const PAGE_PARAM = /^page_?id$/i;
 // The fetch step's id in every shipped route; elsewhere the model reads for its own reasons and no read is a requirement.
@@ -110,6 +108,16 @@ export async function readCapture(fs: FileSystem, dir: TaskDir, key: string, raw
   }
 }
 
+/** The latest capture of each key among these ledger rows whose file still holds what was recorded: the one answer to "what is captured". */
+export async function latestCaptures(fs: FileSystem, dir: TaskDir, entries: readonly LedgerEntry[]): Promise<Map<string, CapturedRequirement>> {
+  const found = new Map<string, CapturedRequirement>();
+  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement')) {
+    const capture = await readCapture(fs, dir, String(entry['key']), String(entry['rawHash']));
+    if (capture !== null) found.set(capture.key, capture);
+  }
+  return found;
+}
+
 /** The text a tool returned: a string, MCP text parts joined, or the JSON of anything else. */
 function resultText(response: unknown): string {
   if (typeof response === 'string') return response;
@@ -187,14 +195,14 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
 /** Writes one requirement file and its ledger row; null when the route's chain already holds that content under the key. */
 export async function saveRequirement(deps: Pick<CaptureDeps, 'runtime' | 'dir' | 'ledger' | 'view'>, source: { key: string; url: string; tool: string; whole: string; relation: 'asked' | 'linked'; keepExisting?: boolean }): Promise<LedgerEntry | null> {
   const { key, url, tool, whole } = source;
-  const cut = whole.length > MAX_CONTENT;
-  const content = whole.slice(0, MAX_CONTENT);
-  const rawHash = contentHash(content);
+  const rawHash = contentHash(whole);
   const read = await deps.ledger.read();
   const chain = read.state === 'ok' ? read.entries.filter((entry) => deps.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
-  if (chain.some((entry) => entry.kind === 'requirement' && entry['key'] === key && (source.keepExisting === true || entry['rawHash'] === rawHash))) return null;
-  const text = `${JSON.stringify({ key, url, tool, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content, cutFrom: cut ? whole.length : null }, null, 2)}\n`;
+  // A row whose file is gone does not count: skipping would leave the key recorded but unreadable.
+  const held = chain.find((entry) => entry.kind === 'requirement' && entry['key'] === key && (source.keepExisting === true || entry['rawHash'] === rawHash));
+  if (held !== undefined && (await readCapture(deps.runtime.fs, deps.dir, key, String(held['rawHash']))) !== null) return null;
+  const text = `${JSON.stringify({ key, url, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content: whole }, null, 2)}\n`;
   await deps.runtime.fs.mkdirp(deps.dir.requirements);
   await deps.runtime.fs.writeText(fileOf(deps.dir, key), text);
-  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: source.relation, capture: cut ? 'cut' : 'full' });
+  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: source.relation });
 }

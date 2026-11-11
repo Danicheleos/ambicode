@@ -137,6 +137,19 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
     });
   });
 
+  it('a long red check tail reaches the revise args whole, with its FAIL line', async () => {
+    await withTask(async (t) => {
+      const trailer = `${'at frame '.repeat(300)}end-of-trace\n`;
+      t.runner.outFor = (command) => (command.startsWith('jest') ? { exitCode: 1, stdout: `${FAIL}${trailer}` } : null);
+      await t.start({ text: TEXT.replace(' iteration 1', ''), headless: true });
+      await t.edit();
+      await green(t);
+      const args = (await t.kinds('revise')).find((entry) => entry['reason'] === 'scope-checks: checks-red')?.['args'] as Record<string, string[]> | undefined;
+      assert.ok(trailer.length > 1500);
+      assert.match(args?.['Failing checks']?.join('\n') ?? '', /FAIL src\/orders\.spec\.ts\n {2}expected 0 received NaN\n(at frame )+end-of-trace/);
+    });
+  });
+
   it('a second red round needs the user: fix goes back to the implementer, report the gap goes on to the report with the red key as a gap', async () => {
     const toSecondRound = async (t: Fixture) => {
       t.runner.outFor = (command) => (command.startsWith('jest') ? { exitCode: 1, stdout: FAIL } : null);

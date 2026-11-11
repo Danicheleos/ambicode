@@ -88,10 +88,10 @@ don't assert** and **Before anything destructive**.
   check still reports as a gap in verification. A skipped step still downgrades
   the status. An absent result is reported as absent, not as an empty one.
 - Checks, guards and caps with no observed failure are removed with the tests
-  that only pin them; each removal is named in the report. A red test after a
-  change is examined, not obeyed: the test may be the wrong one.
+  that only pin them; each removal is named in the report.
 - After a behaviour change, grep every text stating it (skills, routes, agents,
   prompts, hooks, docs, tests); update it in the same change or report the gap.
+- When a size cap forces a cut, report every sentence removed.
 - Tests describe the behaviour the requirement expects; a bug fix ships with
   the reproduction that failed before it.
 - Typecheck after every structural edit; run targeted tests per change and the
@@ -144,7 +144,8 @@ makes measurement cheap in that project.
 - `npm run build` validates the route files, then esbuild bundles
   `src/cli/main.ts` into `scripts/ambicode.mjs` (with code-split `chunks/`) and
   `src/hook/guard/guard.ts` into `scripts/guard.mjs`. `scripts/` is
-  generated and gitignored; `bin/ambicode` and `bin/ambicode.cmd` are tracked. Edit `src/`, never `scripts/`.
+  generated and gitignored; `bin/ambicode` and `bin/ambicode.cmd` are
+  tracked. Edit `src/`, never `scripts/`.
 - `validate:plugin` (and so `verify`) shells out to the `claude` CLI.
 - `npm run bump` raises the patch version; the `version` lifecycle runs
   `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
@@ -157,8 +158,8 @@ makes measurement cheap in that project.
   `evals/README.md` explains the arms.
 
 CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
-native Windows `cmd`; the LF line-endings check runs on Windows only. Paths, separators and
-spawned processes must work on all three.
+native Windows `cmd`; the LF line-endings check runs on Windows only. Paths,
+separators and spawned processes must work on all three.
 
 ### Architecture
 
@@ -180,8 +181,8 @@ All of their behaviour lives in a single bundled CLI:
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start <skill>`.
 - `routes/<skill>/<skill>.yaml` declares the route's ordered steps. Actors are
   `code` (CLI handlers), `model` (instruction text from
-  `routes/<skill>/<step>.md`) and `human` (a gate declared on the step, or a reusable one in `routes/gates.yaml`).
-  `routes/README.md` is the full spec of the route language. The build rejects
+  `routes/<skill>/<step>.md`) and `human` (a gate declared on the step, or a
+  reusable one in `routes/gates.yaml`). `routes/README.md` is the full spec of the route language. The build rejects
   a bad route with `route-invalid: …`.
 - Each step appends to its run's ledger in the target repository
   (`.ambicode/tasks/<task>/` or `.ambicode/reviews/<run>/`), and the route's

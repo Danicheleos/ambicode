@@ -47,7 +47,7 @@ const schemas = [
   entry('limit', { route: text, which: text, count, step: text.optional() }),
   entry('exit', { route: text, reason: text, detail: present.optional(), complete: z.boolean().optional(), unverified: count.optional() }),
   entry('requirement', {
-    key: text, via: text, rawHash: text, bytes: count, relation: present, capture: present, derivedFrom: text.nullable().optional(),
+    key: text, via: text, rawHash: text, bytes: count, relation: present, derivedFrom: text.nullable().optional(),
   }),
   entry('envelope', {
     sources: z.array(z.unknown()), builtFrom: z.enum(['captures', 'args']), asked: z.array(text), missingAsked: z.array(text), hash: text,

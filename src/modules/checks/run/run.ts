@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
 import { normalizeRelative } from '#util/paths';
 import { authorizeCommand } from '../selection/authorize.ts';
 import type { ProjectConfig } from '#types/modules/config';
@@ -47,7 +46,6 @@ export async function runOne(options: RunOneOptions): Promise<CheckRun> {
     argv: shellArgv(options.command),
     cwd: path.join(options.repositoryRoot, normalizeRelative(options.project.root)),
     timeoutMs: options.timeoutSeconds * 1000,
-    maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
     env: { kind: 'inherited' },
   });
   const ms = Math.round(options.clock.elapsed() - started);

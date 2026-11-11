@@ -106,7 +106,11 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
     }
     // A route whose answer is already its note keeps one copy.
     if (!def.steps.some(answersAsNote)) {
-      await saveNote({ runtime, session, context: null, ledger }, { task: target.task, kind: 'result', body: message, route: target.routeId }).catch((error: unknown) => void process.stderr.write(`ambicode stop: final message not saved, ${error instanceof Error ? error.message : String(error)}\n`));
+      await saveNote({ runtime, session, context: null, ledger }, { task: target.task, kind: 'result', body: message, route: target.routeId }).catch(async (error: unknown) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`ambicode stop: final message not saved, ${reason}\n`);
+        await ledger.append({ kind: 'limit', route: target.routeId, which: 'note-not-saved', count: 1, message: reason }).catch(() => undefined);
+      });
       // A route that exited before this Stop had its summary written without the note.
       if (active === null) await writeSummary(runtime, dir, ledger);
     }

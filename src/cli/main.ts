@@ -4,7 +4,6 @@ import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from '#util/args';
 import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
-import { MAX_HOOK_INPUT_BYTES } from '#types/hook';
 import { COMMANDS, CLI_HELP_TEXT } from './commands/registry.ts';
 import type { CliCommand, ParsedArgs, Rendered } from './types/cli.ts';
 
@@ -21,7 +20,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (command === 'hook') {
     const { runHook } = await import('#hook/events/run-hook');
     const runtime = await createRuntime();
-    const stdin = (await runtime.stdin.read(MAX_HOOK_INPUT_BYTES)) ?? '';
+    const stdin = (await runtime.stdin.read()) ?? '';
     const output = await runHook(runtime, stdin);
     process.stdout.write(`${JSON.stringify(output)}\n`);
     return 0;

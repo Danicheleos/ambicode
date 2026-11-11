@@ -28,8 +28,6 @@ const RUN_ON_DRAFT = 'run on the draft';
 
 /** The option that goes on to the report; `fix` is the other, and acting: only the user sends the implementer round again. */
 const REPORT_GAP = 'report the gap';
-/** One key's output in the fix brief: the tail a runner prints its verdict in, cut so a few red keys fit the work file. */
-const TAIL_BYTES = 1500;
 
 const stepEntries = (chain: readonly LedgerEntry[]): LedgerEntry[] => chain.filter((entry) => entry.kind === 'step' && entry['step'] === 'scope-checks' && (entry['status'] === 'completed' || entry['status'] === 'failed'));
 
@@ -37,7 +35,7 @@ const stepEntries = (chain: readonly LedgerEntry[]): LedgerEntry[] => chain.filt
 const redKeys = (chain: readonly LedgerEntry[]): Map<string, string> => {
   const last = new Map<string, LedgerEntry>();
   for (const entry of chain) if (entry.kind === 'check' && entry['phase'] === 'green') last.set(String(entry['key']), entry);
-  return new Map([...last].filter(([, entry]) => entry['exit'] !== 0).map(([key, entry]) => [key, String(entry['tail'] ?? '').slice(-TAIL_BYTES)]));
+  return new Map([...last].filter(([, entry]) => entry['exit'] !== 0).map(([key, entry]) => [key, String(entry['tail'] ?? '')]));
 };
 
 /** The keys the last failed end run sent to the implementer: the fix may leave them green by its own file run, but the scope run is what must pass. */

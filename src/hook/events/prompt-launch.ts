@@ -45,27 +45,22 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   const rest = match[2]!.trim();
   if (typeof found === 'string') return `AMBICODE could not start the ${skill} route: ${found}.`;
   const launch = splitLaunch(rest);
-  let parsed: ReturnType<typeof parseArgs> | null = null;
   try {
-    parsed = parseArgs('route start', launch.args, ROUTE_START_OPTIONS);
-  } catch {
-    parsed = null;
-  }
-  const task = parsed?.value('task') ?? null;
-  const project = parsed?.value('project') ?? null;
-  const plan = parsed?.value('plan') ?? null;
-  try {
-    const target = parsed === null ? undefined : startTarget(skill, parsed);
+    const parsed = parseArgs('route start', launch.args, ROUTE_START_OPTIONS);
+    const task = parsed.value('task');
+    const project = parsed.value('project');
+    const plan = parsed.value('plan');
+    const target = startTarget(skill, parsed);
     const message = await deps.engine.start({
       skill,
       ...(target === undefined ? {} : { target }),
-      text: parsed === null ? rest : launch.text,
-      requirements: parsed?.all('requirement') ?? [],
+      text: launch.text,
+      requirements: parsed.all('requirement'),
       ...(task === null ? {} : { task }),
       ...(project === null ? {} : { project }),
       ...(plan === null ? {} : { plan }),
-      headless: parsed?.flag('headless') ?? false,
-      answers: parsed === null ? [] : answersOf(parsed),
+      headless: parsed.flag('headless'),
+      answers: answersOf(parsed),
       cwd: found.repositoryRoot,
       session: input.session_id,
       channel: 'hook',

@@ -1,6 +1,5 @@
 import { newestReviews } from '#modules/review/answer/captured';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
-import { MAX_CONTENT } from '#modules/requirements/capture/capture';
 import { mrRequirements } from '#modules/requirements/capture/has-requirement';
 import type { LedgerEntry } from '#types/modules/evidence';
 
@@ -33,6 +32,8 @@ function limitGap(entry: LedgerEntry): string {
   const where = during(entry.step);
   const phase = String(entry.which).replace(/-unproven$/, '');
   if (entry.which === 'read-bytes') return `Read ${clip(entry.bytes)} bytes during the route, past the ${clip(entry.cap)} byte budget`;
+  if (entry.which === 'note-not-saved') return `The final message was not saved as the result note: ${clip(entry.message, 160)}`;
+  if (entry.which === 'hook-error') return `The ${clip(entry.event)} hook failed: ${clip(entry.message, 160)}`;
   if (entry.which === 'check') return `Checks kept failing${where}: stopped after ${entry.count} attempts`;
   if (entry.which === 'repeat') return `A step was repeated ${entry.count} times and stopped there`;
   if (entry.which === 'max-revises') return `A step was sent back ${entry.count} times and stopped there`;
@@ -84,11 +85,13 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
       gaps.push(keys.length === 0 ? 'checks skipped — verification incomplete' : `checks skipped: ${keys.map(String).join(', ')} — verification incomplete`);
     }
   }
-  // Accept re-checks the file as the user left it and accepts it either way, so the count it carries is the only trace of a bad anchor an edit added.
+  // Accept re-checks the file as the user left it and accepts it either way, so a bad anchor an edit added is also recorded in the last plan-check
+  // worker row; the plan note's count is what the report turns into a gap.
   for (const entry of of('note').filter((note) => note.note === 'plan' && Number(note.anchorsBad) > 0)) gaps.push(`plan accepted with ${entry.anchorsBad} bad anchors`);
   const planCheck = of('worker').findLast((worker) => worker.worker === 'plan-check');
-  const unchecked = (planCheck?.summary as { requirementsChecked?: boolean; requirementsReason?: string } | undefined);
-  if (unchecked?.requirementsChecked === false) gaps.push(`requirements not checked: ${String(unchecked.requirementsReason ?? 'no reason recorded')}`);
+  const planSummary = (planCheck?.summary as { requirementsChecked?: boolean; requirementsReason?: string; requirementsBad?: number } | undefined);
+  if (planSummary?.requirementsChecked === false) gaps.push(`requirements not checked: ${String(planSummary.requirementsReason ?? 'no reason recorded')}`);
+  if (Number(planSummary?.requirementsBad) > 0) gaps.push(`last plan check: ${planSummary?.requirementsBad} requirements not word for word`);
   for (const entry of of('format')) if (entry.outcome !== 'formatted' && entry.outcome !== 'unconfigured') gaps.push(`not formatted: ${clip(entry.key)} (${clip(entry.outcome)})`);
 
   // stop-block is the Stop hook's own bookkeeping, not something left unverified.
@@ -111,12 +114,10 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   }
   for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.commitsError === 'string')) gaps.push(`merge request commits not fetched: ${String(entry.commitsError)}`);
   for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.discussionsError === 'string')) gaps.push(`existing merge request discussions not fetched: ${String(entry.discussionsError)}`);
-  for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && Array.isArray(step.requirementsOmitted))) gaps.push(`requirements named by the merge request and not fetched (over the limit): ${list(entry.requirementsOmitted).join(', ')}`);
   for (const entry of of('step').filter((step) => step.recorded === true)) gaps.push(`${clip(entry.step)}: ${String(entry.message ?? '')}`);
   for (const entry of of('policy').filter((policy) => policy.stage === 'drafts' && Number(policy.errors) > 0)) gaps.push(`rules drafts: ${entry.errors} check errors`);
   const mrNamed = new Set(mrRequirements(entries));
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${clip(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${clip(missing)}`);
-  for (const entry of of('requirement').filter((capture) => capture.capture === 'cut')) gaps.push(`Requirement ${clip(entry.key)} was cut at ${MAX_CONTENT / 1024} KB: the rest of it was not captured`);
   for (const entry of of('route')) if ((entry.args as { noReview?: boolean } | undefined)?.noReview === true) gaps.push('review skipped (--no-review)');
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);
   // A route that stopped short is a gap in itself; done, iterations-complete and interrupted (superseded by a new start) are not.

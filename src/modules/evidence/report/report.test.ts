@@ -17,6 +17,11 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
     assert.deepEqual(gapsOf([plan(0)]), []);
   });
 
+  it('a plan-check worker that found requirements not word for word is a gap', () => {
+    const worker = entry('worker', { worker: 'plan-check', outcome: 'ran', ms: 1, artifact: null, summary: { failed: true, anchorsBad: 0, requirementsChecked: true, requirementsBad: 3 } });
+    assert.deepEqual(gapsOf([worker]), ['last plan check: 3 requirements not word for word']);
+  });
+
   it('a task run on a draft plan says the plan was not accepted; stopping on it lists nothing', () => {
     const answer = (option: string, kind = 'default-taken') => entry(kind, { route: 'r', gate: 'plan-unaccepted', instance: null, answer: option, via: 'headless' });
     assert.deepEqual(gapsOf([answer('run on the draft')]), ['plan-unaccepted: default taken, "run on the draft" (headless)', 'plan run without being accepted: its anchors were not checked']);
@@ -54,18 +59,16 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
     assert.deepEqual(gaps, [`scan: ${message}`]);
   });
 
-  it('a requirements reason, merge request fetch errors and an omitted-requirements list longer than 160 characters reach the gaps whole', () => {
+  it('a requirements reason and merge request fetch errors longer than 160 characters reach the gaps whole', () => {
     const long = `${'a long line of tool output; '.repeat(8)}end`;
-    const keys = Array.from({ length: 30 }, (_, index) => `KEY-${index + 100}`).join(', ');
-    assert.ok(long.length > 160 && keys.length > 160);
+    assert.ok(long.length > 160);
     const gaps = gapsOf([
       entry('worker', { route: 'r', worker: 'plan-check', summary: { failed: false, anchorsBad: 0, requirementsChecked: false, requirementsReason: long } }),
-      entry('step', { route: 'r', step: 'mr-fetch', actor: 'code', status: 'completed', cause: 'route-next', commitsError: long, discussionsError: long, requirementsOmitted: keys.split(', ') }),
+      entry('step', { route: 'r', step: 'mr-fetch', actor: 'code', status: 'completed', cause: 'route-next', commitsError: long, discussionsError: long }),
     ]);
     assert.ok(gaps.includes(`requirements not checked: ${long}`));
     assert.ok(gaps.includes(`merge request commits not fetched: ${long}`));
     assert.ok(gaps.includes(`existing merge request discussions not fetched: ${long}`));
-    assert.ok(gaps.includes(`requirements named by the merge request and not fetched (over the limit): ${keys}`));
   });
 
   it('a delivery, a completion or an exit code alone is no gap and no test result', () => {

@@ -121,7 +121,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const taskDirectory = run === null ? null : run.root;
 
   const sourceFree = requirements.length === 0;
-  const patternExcluded = reviewable.excluded.filter((entry) => entry.reason.includes('path pattern this run was given'));
+  const patternExcluded = reviewable.excluded.filter((entry) => entry.code === 'operator-pattern');
   const narrowed = (what: string, globs: readonly string[], rest: string): string[] => (globs.length === 0 ? [] : [`This review was narrowed on request: ${what} matching ${quoteAll(globs)} ${rest}`]);
   const result: ReviewResult = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
@@ -136,7 +136,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     checks: await recordedChecks(runtime, taskDirectory),
     changedFiles: resolution.files.map((file) => {
       const reason = isExcludedFromReview(file.oldPath, file.newPath, patterns);
-      return { oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, addedLines: file.addedLines, removedLines: file.removedLines, exclusionReason: reason === null ? null : describeExclusion(reason) };
+      return { oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, addedLines: file.addedLines, removedLines: file.removedLines, exclusionReason: reason === null ? null : describeExclusion(reason), exclusionCode: reason };
     }),
     findings: [],
     requirementCoverage: [],
@@ -147,7 +147,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       ].map(attention),
       ...[
         ...(resolution.target.diffOnly !== undefined ? ['Diff-only review: the checkout is not the merge request head, so the reviewer had the merge request diff and no file content, and code the diff does not show was not examined.'] : []),
-        ...(excludeTests && reviewable.excluded.some((entry) => entry.reason.includes('test code'))
+        ...(excludeTests && reviewable.excluded.some((entry) => entry.code === 'test-file')
           ? ["This is a merge-request review, so the change's test code was not reviewed and no check executed it. Whether the tests cover the change, and whether any assertion was weakened, is unestablished. Re-run with --with-tests to review them."]
           : []),
         // A configured exclusion is routine: one scope line, the files themselves follow below.

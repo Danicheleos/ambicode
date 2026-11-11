@@ -2,8 +2,9 @@
 // With the `resolve` param it runs after the model's Write of the draft and completes a partial path that names exactly one
 // tracked file: a bare `service.ts:4` failed the check, and the model patched the body instead of rewriting it.
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { anchorPattern } from '../../investigate/scripts/anchors.mjs';
 
 const started = Date.now();
 const input = JSON.parse(readFileSync(0, 'utf8'));
@@ -26,8 +27,7 @@ try {
 // The first ten bad anchors, and the first ten requirements not word for word, are listed, enough for one fix round; the counts are exact.
 const LISTED = 10;
 
-const PATH = '[\\w@./\\\\-]+\\.[A-Za-z0-9]+';
-const ANCHOR = new RegExp(`(?<![\\w./-])(${PATH}):(\\d+(?:\\s*[-–]\\s*\\d+)?)`, 'g');
+const ANCHOR = anchorPattern();
 const files = new Map();
 let trackedFiles = null;
 const tracked = () => {
@@ -41,13 +41,21 @@ const lineCount = (abs) => {
   return files.get(abs);
 };
 
+// `planFences` are the plan's fenced code ranges from the engine (src/modules/evidence/task/iterations.ts): a fenced line is example text, never an anchor.
+const fencedAt = (at) => (input.planFences ?? []).some(([from, to]) => at >= from && at < to);
+let offset = 0;
+const lines = body.split('\n').map((line) => {
+  const at = offset;
+  offset += line.length + 1;
+  return { line, fenced: fencedAt(at) };
+});
+
 if (input.params?.[0] === 'resolve') {
   const resolved = [];
   // Several files share a name: the one in a directory the plan already anchors is the one meant.
-  const cited = new Set([...body.matchAll(ANCHOR)].map(([, file]) => file).filter((file) => !path.isAbsolute(file) && lineCount(path.resolve(root, file)) !== null).map((file) => path.posix.dirname(file.replace(/\\/g, '/'))));
-  const text = body.split('\n').map((line, at, all) => {
-    const fenced = all.slice(0, at).filter((before) => /^\s*```/.test(before)).length % 2 === 1;
-    if (fenced || /^\s*```/.test(line)) return line;
+  const cited = new Set(lines.filter(({ fenced }) => !fenced).flatMap(({ line }) => [...line.matchAll(ANCHOR)].map(([, file]) => file)).filter((file) => !path.isAbsolute(file) && lineCount(path.resolve(root, file)) !== null).map((file) => path.posix.dirname(file.replace(/\\/g, '/'))));
+  const text = lines.map(({ line, fenced }) => {
+    if (fenced) return line;
     return line.replace(ANCHOR, (whole, file, spec) => {
       const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
       const fits = (count) => count !== null && inRange(from, to, count);
@@ -84,10 +92,8 @@ const missingReason = (file) => {
 };
 const badAnchors = [];
 let anchorsBad = 0;
-let fence = false;
-for (const line of body.split('\n')) {
-  if (/^\s*```/.test(line)) { fence = !fence; continue; }
-  if (fence) continue;
+for (const { line, fenced } of lines) {
+  if (fenced) continue;
   for (const [, file, spec] of line.matchAll(ANCHOR)) {
     const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
     const abs = path.resolve(root, file);
@@ -101,25 +107,18 @@ for (const line of body.split('\n')) {
 
 // In the plan's `## Requirements`, every quoted piece (or an unquoted bullet as a whole) must be in the captured ticket; a paraphrase is a miss listed beside the closest ticket line.
 const plain = (text) => text.replace(/[*`]|__/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-const ticketText = () => {
-  const dir = path.join(input.taskDir, 'requirements');
-  let names;
-  try { names = readdirSync(dir).filter((name) => name.endsWith('.json')).sort(); } catch { return ''; }
-  const contents = [];
-  for (const name of names) {
-    try { const { content } = JSON.parse(readFileSync(path.join(dir, name), 'utf8')); if (typeof content === 'string') contents.push(content); } catch { /* an unreadable capture is no ticket */ }
-  }
-  return contents.join('\n');
-};
-const section = [];
-let inSection = false;
-let hasSection = false;
-fence = false;
-for (const line of body.split('\n')) {
-  if (/^\s*```/.test(line)) fence = !fence;
-  if (!fence && /^##\s/.test(line)) { inSection = /^##\s+Requirements\s*$/i.test(line); hasSection ||= inSection; }
-  else if (inSection && !fence) section.push(line);
-}
+const ticketText = () => (input.captured ?? []).map((capture) => JSON.parse(readFileSync(capture.path, 'utf8')).content).join('\n');
+// `planSections` are the plan's level-2 sections from the engine (src/modules/evidence/task/iterations.ts), each with its offset and starting with its heading line; fenced lines are example text.
+const requirements = (input.planSections ?? []).filter(({ text }) => /^##\s+Requirements\s*$/i.test(text.split('\n')[0]));
+const hasSection = requirements.length > 0;
+const section = requirements.flatMap(({ start, text }) => {
+  let at = start;
+  return text.split('\n').flatMap((line) => {
+    const here = at;
+    at += line.length + 1;
+    return here === start || fencedAt(here) ? [] : [line];
+  });
+});
 // A bullet with quotes is its quoted pieces (a leading `LABEL:` inside a piece left out): the plan's own words around them are not checked.
 // An unquoted bullet is its text without the trailing `(Iteration N)` or `(already met: path:line)`: the real paraphrases (eval 22-20-25) were unquoted.
 const entries = section.flatMap((line) => {

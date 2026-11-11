@@ -4,9 +4,6 @@ export const SEARCH_LAYER_DEFAULTS = {
   context: ['grep', 'harvest'],
 } as const;
 
-
-export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
-
 /**
  * Only stops an unbounded `--evidence -` read; `review.maxContextBytes` decides fit.
  * An envelope over it is refused, not truncated: half an envelope is not evidence.

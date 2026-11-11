@@ -97,7 +97,7 @@ describe('run: script(<name>) (C7)', () => {
     }
   });
 
-  it('a very long stderr is bounded, keeping its start', async () => {
+  it('a very long stderr keeps its first line in the failure message, within FAILURE_MESSAGE_CHARS', async () => {
     const pluginRoot = await scripts({ noisy: "process.stderr.write('first-line\\n' + 'x'.repeat(50000)); process.exit(2);" });
     const fx = await routeFixture({ routes: { inv: ROUTE('noisy') }, pluginRoot });
     try {
@@ -159,7 +159,7 @@ steps:
 
   it('a script the engine had to kill names its stage: the last line it wrote to stderr', async () => {
     const run = async (stderr: string) => {
-      const input = { params: ['brief'], view: { skill: 'review', task: 't', mode: 'interactive' }, dir: { repositoryRoot: '/r', root: '/r/t', steps: '/r/t/steps' }, args: {}, runtime: { pluginRoot: '/p', cwd: '/r', runner: { run: async () => ({ kind: 'timed-out', stdout: '', stderr, exitCode: null, failure: null }) } } };
+      const input = { params: ['brief'], view: { skill: 'review', task: 't', mode: 'interactive' }, dir: { repositoryRoot: '/r', root: '/r/t', steps: '/r/t/steps', plan: '/r/t/plan.md' }, args: {}, ledger: { read: async () => ({ state: 'ok', entries: [] }) }, runtime: { pluginRoot: '/p', cwd: '/r', fs: { readText: async () => { throw new Error('no plan'); } }, runner: { run: async () => ({ kind: 'timed-out', stdout: '', stderr, exitCode: null, failure: null }) } } };
       return scriptHandler(input as never);
     };
     const named = await run('brief: listing the checkout files with git ls-files\nbrief: scanning 8000 files for the 300 names the diff shares with them\n');
@@ -167,6 +167,12 @@ steps:
     const silent = await run('');
     assert.match(String((silent as { message: string }).message), /timed-out after 100 s \(it wrote no stage line\)/);
   });
+  it('an unreadable ledger fails the step with the ledger\'s own reason, not an empty capture list', async () => {
+    const input = { params: ['brief'], view: { skill: 'review', task: 't', mode: 'interactive' }, dir: { repositoryRoot: '/r', root: '/r/t', steps: '/r/t/steps' }, args: {}, ledger: { read: async () => ({ state: 'unreadable', reason: 'the ledger cannot be read: EACCES', line: null }) }, runtime: { pluginRoot: '/p', cwd: '/r', runner: { run: async () => assert.fail('the script must not run') } } };
+    const failed = await scriptHandler(input as never);
+    assert.deepEqual([failed.state, (failed as { message: string }).message], ['failed', 'script(brief): the ledger cannot be read: EACCES']);
+  });
+
   // The user's route stuck at a timed-out brief step: the error was the only output and named no way out; `route start` on the same task is the restart.
   it('a failing step with no onError leaves the route open and its error prints the retry and the stop command; starting the same task again replaces the stuck route', async () => {
     const pluginRoot = await scripts({ boom: "process.stderr.write('slow'); process.exit(3);" });

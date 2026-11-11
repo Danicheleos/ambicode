@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { CHECK_TASK } from '#testing/fixtures/check-fixture';
@@ -99,6 +99,21 @@ describe('the task work file carries the requirements inline', () => {
       await t.start({ text: TICKET });
       await t.fx.engine.stop(CHECK_TASK, 'blocked', 'test');
       await t.start({ text: TICKET });
+      assert.equal((await t.work()).split('no NaN').length - 1, 1);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a new typed request is saved again once the saved request file is gone', async () => {
+    const t = await taskFixture();
+    try {
+      await t.start({ text: TICKET });
+      await t.fx.engine.stop(CHECK_TASK, 'blocked', 'test');
+      for (const file of await requirementFiles(t)) await rm(path.join(t.dir, 'requirements', file));
+      await rm(path.join(t.dir, 'steps'), { recursive: true, force: true });
+      await t.start({ text: TICKET });
+      assert.equal((await requirementFiles(t)).length, 1);
       assert.equal((await t.work()).split('no NaN').length - 1, 1);
     } finally {
       await t.fx.dispose();

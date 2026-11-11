@@ -2,7 +2,7 @@ import { RequirementEvidence, type EnvelopeInput, type EnvelopeSource } from '#t
 import { latestBound } from '#modules/evidence/ledger-chain';
 import { contentHash } from '#util/hash';
 import { isIssueKey, namesKey, sourceId } from '#util/issue-key';
-import { readCapture, saveRequirement, titleOf } from '../capture/capture.ts';
+import { latestCaptures, readCapture, type CapturedRequirement, saveRequirement, titleOf } from '../capture/capture.ts';
 import { mrRequirements } from '../capture/has-requirement.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs } from '#types/harness';
@@ -25,15 +25,7 @@ export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>, entrie
   return [...new Set(sources.map((source) => source.trim()))];
 }
 
-/** The latest captured result of each key on this route's chain whose file still holds what was recorded. */
-async function captured(input: EnvelopeInput, entries: readonly LedgerEntry[]): Promise<Map<string, EnvelopeSource>> {
-  const found = new Map<string, EnvelopeSource>();
-  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement')) {
-    const capture = await readCapture(input.runtime.fs, input.dir, String(entry['key']), String(entry['rawHash']));
-    if (capture !== null) found.set(capture.key, { key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, rawHash: capture.rawHash, tool: capture.tool, cutFrom: capture.cutFrom });
-  }
-  return found;
-}
+const sourceOf = (capture: CapturedRequirement): EnvelopeSource => ({ key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, rawHash: capture.rawHash });
 
 /** A route's envelope as review evidence: the captured sources, asked ones by URL (or key when the capture has none). Null when built from the request text only. */
 export async function routeEvidence(input: Pick<EnvelopeInput, 'runtime' | 'dir'>, entry: LedgerEntry): Promise<{ urls: string[]; evidence: RequirementEvidence } | null> {
@@ -76,13 +68,13 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
   // A pasted ticket names no key or URL, so nothing else would hold it; the typed text (line breaks kept) becomes the task's requirement once, review excepted: its evidence is the change.
   const typed = (input.args.rawText ?? input.args.text).trim();
   // An empty start continues the task and its text is the task's slug, which is no ticket.
-  if (asked.length === 0 && typed !== '' && typed !== input.view.task && input.view.skill !== 'review' && !all.some((entry) => entry.kind === 'requirement')) {
+  if (asked.length === 0 && typed !== '' && typed !== input.view.task && input.view.skill !== 'review' && (await latestCaptures(input.runtime.fs, input.dir, all)).size === 0) {
     const saved = await saveRequirement(input, { key: REQUEST_KEY, url: '', tool: REQUEST_KEY, whole: typed, relation: 'asked' });
     if (saved !== null) all.push(saved);
   }
   const fromMr = new Set(mrRequirements(entries));
   // One envelope per task: a route reuses what an earlier route of the task captured instead of starting empty.
-  const complete = await captured(input, all);
+  const complete = new Map([...(await latestCaptures(input.runtime.fs, input.dir, all))].map(([key, capture]) => [key, sourceOf(capture)]));
   // `.../browse/ORD-1` and `ORD-1` are one source: a route asking by URL after another captured by key does not fetch again.
   const have = new Set([...complete.keys()].map(sourceId));
   const missingAsked = asked.filter((key) => !have.has(sourceId(key)));
@@ -121,7 +113,7 @@ export async function envelopeSources(input: Pick<EnvelopeInput, 'runtime' | 'di
   const sources: EnvelopeSource[] = [];
   for (const slim of Array.isArray(entry['sources']) ? (entry['sources'] as { key: string; rawHash?: string | null }[]) : []) {
     const capture = await readCapture(input.runtime.fs, input.dir, slim.key, slim.rawHash ?? null);
-    if (capture !== null) sources.push({ key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt, tool: capture.tool, cutFrom: capture.cutFrom });
+    if (capture !== null) sources.push({ key: capture.key, title: titleOf(capture.content, capture.key), content: capture.content, url: capture.url, retrievedAt: capture.retrievedAt });
   }
   return sources;
 }

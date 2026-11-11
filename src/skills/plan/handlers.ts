@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { onGatePrint } from '#harness/gates/gates';
-import { ITERATION_HEADING } from '#modules/evidence/task/iterations';
+import { iterationHeadings } from '#modules/evidence/task/iterations';
 
 interface CheckSummary { failed: boolean; anchorsBad: number; anchors?: string[]; requirementsBad?: number; requirementsChecked?: boolean; requirementsReason?: string; requirements?: string[] }
 
 /** The `## Iteration N:` headings, exact; the plan body never reaches the chat from here. */
-const titlesOf = (plan: string): string[] => [...plan.matchAll(ITERATION_HEADING)].map((heading) => `${heading[1]}. ${heading[0].replace(/^##\s+Iteration\s+\d+\s*[:.\-–]?\s*/i, '').trim()}`);
+const titlesOf = (plan: string): string[] => iterationHeadings(plan).map((heading) => `${heading.number}. ${heading.title}`);
 
 /**
  * A failed check is recorded, never sent back: it prints here, before the question, and stays offered to Accept as
@@ -22,6 +22,6 @@ onGatePrint('plan-accept', async ({ runtime, dir, chain }) => {
   const failed = summary?.failed !== true ? null : [`Plan check FAILED: ${counts.length === 0 ? 'no plan body' : counts.join(', ')}.`, ...(summary.anchors ?? []), ...(summary.requirements ?? [])].join('\n');
   const titles = titlesOf(await runtime.fs.readText(dir.plan).catch(() => ''));
   const details = [path.resolve(dir.plan), ...titles, ...(summary?.requirementsChecked === false ? [`requirements not checked: ${summary.requirementsReason ?? 'no reason recorded'}`] : []), ...(failed === null ? [] : [failed, 'Accepting lists them as not verified.'])].join('\n');
-  if (headless) return { details: `${details}\nHeadless: this draft is accepted or rejected as it is, never revised.`, offered: ['Accept', 'Reject'] };
+  if (headless) return { details, offered: ['Accept', 'Reject'] };
   return { details };
 });

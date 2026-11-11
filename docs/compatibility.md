@@ -297,7 +297,7 @@ without a package.
 `maxOutputBytes` is one combined retained-byte ceiling across stdout and stderr.
 Chunks are retained in arrival order, cut on a byte boundary, and decoded once
 at the end: a multibyte character split across two chunks survives, and one
-split by the ceiling is dropped rather than turned into U+FFFD.
+split by the ceiling is dropped rather than turned into U+FFFD. A request without `maxOutputBytes` keeps the whole output; git and glab set their own ceilings.
 
 ## Source files stay text
 

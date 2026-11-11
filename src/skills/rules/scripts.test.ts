@@ -77,6 +77,20 @@ describe('skills/rules/scripts', () => {
     }
   });
 
+  it('chosen.mjs stops the route when the sources answer is none', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const { engine, assembled, first } = await started(root);
+      const ledger = async () => (await assembled.runtime.fs.readText(path.join(root, '.ambicode/tasks', first.task, 'ledger.jsonl'))).split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+      const print = (await ledger()).findLast((entry) => entry['kind'] === 'gate' && entry['gate'] === 'sources')!;
+      const next = await engine.advance({ task: first.task, cause: 'gate-hook', answers: [{ gate: 'sources', option: 'none — stop', instance: print['id'] as string }] });
+      assert.notEqual(next.position, 'draft');
+      assert.ok((await ledger()).every((entry) => entry['kind'] !== 'step' || entry['step'] !== 'draft'), 'no draft step ran');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
   it('chosen.mjs lets the route reach draft once a source is chosen', async () => {
     const root = await materialized('ts-feature-boundary');
     try {

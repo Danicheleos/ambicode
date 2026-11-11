@@ -6,14 +6,11 @@ import { planFixture, PLAN_TASK } from '#testing/fixtures/plan-fixture';
 import { materialized } from '#testing/fixtures/materialized';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
+import { fencedRanges, planSectionsOf } from '#modules/evidence/task/iterations';
 
 async function check(root: string, body: string | null, params: string[] = [], ticket: string[] = []) {
   const steps = path.join(root, '.ambicode/tasks/t/steps');
   await mkdir(steps, { recursive: true });
-  const saved = path.join(root, '.ambicode/tasks/t/requirements');
-  await rm(saved, { recursive: true, force: true });
-  if (ticket.length > 0) await mkdir(saved, { recursive: true });
-  for (const [at, content] of ticket.entries()) await writeFile(path.join(saved, `r${at}.json`), JSON.stringify({ key: `r${at}`, content }));
   if (body !== null) await writeFile(path.join(steps, '..', 'plan.md'), body);
   const outcome = await new NodeProcessRunner().run({
     argv: [process.execPath, path.join(REPO_ROOT, 'skills/plan/scripts/plan-check.mjs')],
@@ -21,7 +18,7 @@ async function check(root: string, body: string | null, params: string[] = [], t
     timeoutMs: 30_000,
     maxOutputBytes: 65_536,
     env: { kind: 'inherited' },
-    stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false }),
+    stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false, planSections: planSectionsOf(body ?? ''), planFences: fencedRanges(body ?? ''), captured: await Promise.all(ticket.map(async (content, at) => { const file = path.join(root, `r${at}.json`); await writeFile(file, JSON.stringify({ key: `r${at}`, content })); return { key: `r${at}`, path: file }; })) }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
   return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[]; requirements?: string[]; requirementsBad?: number; requirementsChecked?: boolean; requirementsReason?: string; } }[]; failed?: { code: string; message: string; recoverable?: boolean; revise?: unknown } };
@@ -39,6 +36,16 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
       assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
       assert.equal(bad.failed?.revise, undefined, 'a failed check is recorded, never sent back');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a version or an address followed by a line number is not an anchor', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nPin v1.2:3, see 10.0.0.1:80 and 2.4.1:12, but `src/invoices/service.ts:3` is real and `src/nope.ts:1` is not.\n');
+      assert.deepEqual(out.entries[0]!.summary.anchors, ['src/nope.ts:1 missing-file']);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -67,6 +74,18 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       assert.equal(bad.entries[0]!.summary.anchorsBad, 1);
       assert.match(bad.failed!.message, /1 bad anchors: src\/invoices\/service\.ts:999 line-out-of-range/);
       assert.equal(bad.entries[0]!.summary.anchors?.length, 1);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('an anchor inside a ~~~ fence is neither checked nor resolved, as in a ``` fence', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const plan = '# Plan\n\n~~~\nsrc/ignored.ts:1\ninvoices.ts:1\n~~~\n';
+      assert.equal((await check(root, plan)).entries[0]!.summary.anchorsBad, 0);
+      assert.deepEqual((await check(root, plan, ['resolve'])).entries, []);
+      assert.equal(await readFile(path.join(root, '.ambicode/tasks/t/plan.md'), 'utf8'), plan);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -261,6 +280,30 @@ describe('plan-check requirements word for word', () => {
     const summary = await run(plan('Reports show overdue invoices only', 'Seen: "The report lists" and "shows all invoices that are overdue" and "Exports keep"'));
     assert.equal(summary.requirementsBad, 2);
     assert.match(summary.requirements![1]!, /^requirement not word for word: plan "shows all invoices that are overdue" vs ticket "/);
+  });
+
+  it('a heading inside a ~~~ fence does not end ## Requirements, as the shared section rule says', async () => {
+    const summary = await run('# Plan\n\n## Requirements\n~~~md\n## Notes\n~~~\n- "Reports show overdue invoices only" (Iteration 1)\n');
+    assert.equal(summary.requirementsBad, 1);
+  });
+
+  it('resolve picks among same-name files by the directories the plan anchors outside fences, not in example text', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const plan = '# Plan\n\n~~~\n`src/invoices/model.ts:1`\n~~~\n\nsame throw style as `service.ts:4`\n';
+      assert.deepEqual((await check(root, plan, ['resolve'])).entries, []);
+      assert.equal(await readFile(path.join(root, '.ambicode/tasks/t/plan.md'), 'utf8'), plan);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a bullet inside a fence within ## Requirements is example text, not a requirement', async () => {
+    for (const fence of ['~~~', '```']) {
+      const summary = await run(`# Plan\n\n## Requirements\n- "The report lists every overdue invoice with its customer name." (Iteration 1)\n${fence}md\n- "Never asked for" (Iteration 1)\n${fence}\n`);
+      assert.equal(summary.requirementsChecked, true, fence);
+      assert.equal(summary.requirementsBad, 0, fence);
+    }
   });
 
   it('an empty bullet is no entry: it neither passes through includes("") nor hides a real miss beside it', async () => {

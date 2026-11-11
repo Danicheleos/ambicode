@@ -1,12 +1,15 @@
 import path from 'node:path';
 import { gapsOf } from '#modules/evidence/report/report';
+import { latestCaptures } from '#modules/requirements/capture/capture';
 import { requirementGapsOf } from '#modules/requirements/envelope/render';
 import { fitMapText } from '#modules/search/map';
 import { shellQuote } from '#modules/checks/run/run';
 import { AmbicodeError } from '#util/errors';
+import { planStatusOf } from '#modules/evidence/notes';
+import { iterationHeadings, sectionEnd } from '#modules/evidence/task/iterations';
 import { contentHash } from '#util/hash';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
-import { currentIn, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
+import { answeredAfter, currentIn, exitOf, foldRoute, isBoundAnswer, humanRevisesLeft, matches, windowOf } from './fold.ts';
 import { gatePrintText, gateThen, raiseGate } from '../gates/gates.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
@@ -15,6 +18,7 @@ import type { Composed, DeliveryChannel, Part, Run } from '../types/engine.ts';
 import type { Call } from '../definition/routes.ts';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
+import { toPosix } from '#util/glob';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
 export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'rules apply', 'note save']);
@@ -95,7 +99,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   // Without the recorded answers the model may call an accepted plan a draft; state what the ledger holds.
   function recordedLine(entries: readonly LedgerEntry[]): string {
     const answers = new Map<string, string>();
-    for (const entry of entries) if (entry.kind === 'acceptance' && entry['unbound'] !== true) answers.set(String(entry['gate']), String(entry['answer']));
+    for (const entry of entries) if ((entry.kind === 'acceptance' || entry.kind === 'default-taken') && isBoundAnswer(entry)) answers.set(String(entry['gate']), String(entry['answer']));
     const notes = new Map<string, string>();
     for (const entry of entries) if (entry.kind === 'note') notes.set(String(entry['note']), String(entry['path']));
     const parts = [...[...answers].map(([gate, answer]) => `${gate}: ${answer}`), ...[...notes].map(([kind, file]) => `${kind} saved at ${file}`)];
@@ -105,15 +109,14 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   /** The Plan block: the plan's path and one line per `## Iteration N: <title>` with the first sentence of its Goal. */
   async function planSummary(run: Run): Promise<string> {
     const text = await run.runtime.fs.readText(run.dir.plan).catch(() => null);
-    const status = text === null ? null : /^---\n(?:(?!---\n).*\n)*?status:[ \t]*(\w+)/.exec(text)?.[1] ?? null;
-    const lines = [`Plan${status === null ? '' : ` (${status})`}: ${path.relative(run.dir.repositoryRoot, run.dir.plan).split(path.sep).join('/')}`];
+    const status = text === null ? null : planStatusOf(text);
+    const lines = [`Plan${status === null ? '' : ` (${status})`}: ${toPosix(path.relative(run.dir.repositoryRoot, run.dir.plan))}`];
     if (text !== null) {
-      for (const section of text.split(/^(?=## )/m).filter((part) => part.startsWith('## Iteration '))) {
-        const title = /^## Iteration (\d+):?[ \t]*(.*)$/m.exec(section);
-        if (title === null) continue;
+      for (const heading of iterationHeadings(text)) {
+        const section = text.slice(heading.index, sectionEnd(text, heading.index));
         const goal = /^\s*(?:[-*]\s*)?\*Goal\*:?\s*(.+)$/m.exec(section)?.[1] ?? '';
         const sentence = (/^.*?[.!?](?=\s|$)/.exec(goal)?.[0] ?? goal).trim();
-        lines.push(`${title[1]}. ${title[2]!.trim()}${sentence === '' ? '' : `: ${sentence}`}`);
+        lines.push(`${heading.number}. ${heading.title}${sentence === '' ? '' : `: ${sentence}`}`);
       }
     }
     return `${lines.join('\n')}\n\n`;
@@ -148,8 +151,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const entries = chainOf(run).entries;
     const print = entries.findLast((entry) => entry.kind === 'gate' && (entry['openAt'] ?? entry['raisedBy']) === step.id && entry['class'] !== 'declared');
     if (print === undefined) return null;
-    const answered = entries.slice(entries.indexOf(print) + 1).some((entry) => ['acceptance', 'default-taken', 'declined'].includes(entry.kind) && entry['gate'] === print['gate'] && entry['unbound'] !== true && entry['reason'] !== 'acting-needs-human' && entry['reason'] !== 'option-not-offered');
-    return answered ? null : gateFor(run, String(print['gate']), print);
+    return answeredAfter(entries, print) ? null : gateFor(run, String(print['gate']), print);
   }
 
   async function gatePart(run: Run, step: StepDef, outcome: Extract<Awaited<ReturnType<typeof serviceGate>>, { state: 'print' }>): Promise<Part> {
@@ -255,7 +257,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const typed = (headArgs.rawText ?? headArgs.text).trim();
     // The ticket captured as the `request` source (by any route of the task, as the envelope reads it) is delivered in the envelope: repeating it here doubled it.
     const everything = await run.ledger.read();
-    const captured = everything.state === 'ok' && everything.entries.some((entry) => entry.kind === 'requirement' && entry['key'] === 'request' && entry['rawHash'] === contentHash(typed));
+    const captured = everything.state === 'ok' && (await latestCaptures(run.runtime.fs, run.dir, everything.entries)).get('request')?.rawHash === contentHash(typed);
     const request = captured ? 'The ticket as typed is the `request` source under `## envelope` below.' : typed;
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{plan}', run.dir.plan).replaceAll('{policy}', payloadFile(run.dir, chainKey([...chainOf(run).ids]), 'policy:before-work')).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
     const instruction = fill(step.instruction!);
@@ -400,7 +402,7 @@ function payloadKey(call: Call): string {
 }
 
 export const CLI_LIMIT = 8000;
-// The ledger keeps a failure whole enough to diagnose: a script crash is ~700 characters of stack (script.ts caps its stderr at 1,800 plus the script path); 300 cut it to its last frames.
+// The ledger keeps a failure whole enough to diagnose: a script crash is ~700 characters of stack; 300 cut it to its last frames.
 const FAILURE_MESSAGE_CHARS = 2000;
 /**
  * Claude Code saves hook output over 10,000 characters to a file and injects a 2,000-character preview (changelog: "Changed hook output over 10,000

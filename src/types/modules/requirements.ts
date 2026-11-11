@@ -30,9 +30,6 @@ export interface EnvelopeSource {
   url: string;
   retrievedAt: string;
   rawHash?: string;
-  tool?: string;
-  /** The result's length before the capture cut it; null or absent when whole. */
-  cutFrom?: number | null;
 }
 
 export interface EnvelopeInput {
