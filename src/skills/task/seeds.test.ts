@@ -7,6 +7,7 @@ import { CHECK_CONFIG } from '#testing/fixtures/check-fixture';
 import { planFixture } from '#testing/fixtures/plan-fixture';
 import { appendLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { gapsOf } from '#modules/evidence/report/report';
 
 const PLAN = '.ambicode/tasks/ord-7/plan.md';
 const NOTE = '.ambicode/tasks/ord-9/investigation_2026-10-01T10-00.md';
@@ -45,7 +46,7 @@ const DRAFT = '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total` 
 const planNote = (t: Awaited<ReturnType<typeof taskFixture>>) => appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { kind: 'note', note: 'plan', path: PLAN, contentHash: 'sha256:0' });
 
 describe('a plan the task finds that was not accepted is asked about once', () => {
-  it('a draft plan.md with no accept on record raises plan-unaccepted; running on it accepts the file and the task goes on with its brief', async () => {
+  it('a draft plan.md with no accept on record raises plan-unaccepted; a human running on it leaves the file a draft, records no plan note, and the report lists the gap (F10b)', async () => {
     const t = await taskFixture();
     try {
       await t.fx.repo.write(PLAN, DRAFT);
@@ -53,12 +54,32 @@ describe('a plan the task finds that was not accepted is asked about once', () =
       assert.match(first.text, /plan-unaccepted/);
       assert.equal((await t.kinds('map')).length, 0);
       await t.hook('plan-unaccepted', 'run on the draft');
-      assert.match(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), /^---\nstatus: accepted\n---/);
-      assert.equal((await t.kinds('note')).filter((note) => note['note'] === 'plan').length, 1);
+      assert.equal(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), DRAFT);
+      assert.equal((await t.kinds('note')).filter((note) => note['note'] === 'plan').length, 0);
       assert.match(await t.work(), /## brief\n[\s\S]*Guard `total`/);
       assert.equal((await t.kinds('gate')).filter((print) => print['gate'] === 'plan-unaccepted').length, 1);
+      assert.ok(gapsOf(await t.ledger()).includes('plan run without being accepted'));
     } finally {
       await t.fx.dispose();
+    }
+  });
+
+  it('a flag answer to plan-unaccepted, at start or at route next, is declined acting-needs-human: the plan stays a draft and the route does not run on it (F10b)', async () => {
+    for (const at of ['next', 'start']) {
+      const t = await taskFixture();
+      try {
+        await t.fx.repo.write(PLAN, DRAFT);
+        const answers = [{ gate: 'plan-unaccepted', option: 'run on the draft' }];
+        const message = at === 'start' ? await t.start({ text: 'ord-7', answers, channel: 'cli' }) : (await t.start({ text: 'ord-7' }), await t.next({ answers }));
+        const declined = (await t.kinds('declined')).filter((entry) => entry['gate'] === 'plan-unaccepted');
+        assert.deepEqual(declined.map((entry) => [entry['answer'], entry['via'], entry['reason']]), [['run on the draft', 'flag', 'acting-needs-human']], at);
+        assert.equal(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), DRAFT, at);
+        assert.match(message.text, /plan-unaccepted/, `${at}: the question is still open`);
+        assert.equal((await t.kinds('map')).length, 0, at);
+        assert.equal((await t.kinds('note')).filter((note) => note['note'] === 'plan').length, 0, at);
+      } finally {
+        await t.fx.dispose();
+      }
     }
   });
 
@@ -81,27 +102,29 @@ describe('a plan the task finds that was not accepted is asked about once', () =
     }
   });
 
-  it('a headless start takes the recommended answer, runs on the draft, and lists it as not verified', async () => {
+  it('a headless start takes the recommended answer, runs on the draft, leaves it a draft, and lists it as not verified', async () => {
     const t = await taskFixture();
     try {
       await t.fx.repo.write(PLAN, DRAFT);
       await t.start({ text: 'ord-7', headless: true });
-      assert.match(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), /status: accepted/);
+      assert.equal(await readFile(path.join(t.fx.repo.root, PLAN), 'utf8'), DRAFT);
       const taken = (await t.kinds('default-taken')).filter((entry) => entry['gate'] === 'plan-unaccepted');
       assert.deepEqual(taken.map((entry) => entry['answer']), ['run on the draft']);
       assert.match(await t.work(), /## brief\n[\s\S]*Guard `total`/);
+      assert.ok(gapsOf(await t.ledger()).includes('plan run without being accepted'));
     } finally {
       await t.fx.dispose();
     }
   });
 
-  it('running on the draft records the plan note', async () => {
+  it('the next start on the same draft asks again, because running on it accepted nothing', async () => {
     const t = await taskFixture();
     try {
       await t.fx.repo.write(PLAN, DRAFT);
       await t.start({ text: 'ord-7' });
       await t.hook('plan-unaccepted', 'run on the draft');
-      assert.equal((await t.kinds('note')).filter((entry) => entry['note'] === 'plan').length, 1);
+      const again = await t.start({ text: 'ord-7' });
+      assert.match(again.text, /plan-unaccepted/);
     } finally {
       await t.fx.dispose();
     }
@@ -117,24 +140,6 @@ describe('a plan the task finds that was not accepted is asked about once', () =
       } finally {
         await t.fx.dispose();
       }
-    }
-  });
-
-  it('a plan that cannot be accepted when the answer is run on the draft fails the step instead of throwing', async () => {
-    const t = await taskFixture();
-    try {
-      await t.fx.repo.write(PLAN, DRAFT);
-      await t.start({ text: 'ord-7' });
-      // The plan is read to see it is a draft, then again to accept it: it vanishes between the two.
-      const fs = t.fx.runtime.fs;
-      const read = fs.readText.bind(fs);
-      let plans = 0;
-      fs.readText = (file: string) => (file.endsWith('plan.md') && ++plans === 2 ? Promise.reject(new Error('gone')) : read(file));
-      await assert.rejects(t.hook('plan-unaccepted', 'run on the draft'), { code: 'plan-draft-missing' });
-      const failure = (await t.kinds('step')).findLast((entry) => entry['step'] === 'start' && entry['status'] === 'failed');
-      assert.equal(failure?.['code'], 'plan-draft-missing', 'the failure is on the ledger as the step failing, like its siblings');
-    } finally {
-      await t.fx.dispose();
     }
   });
 

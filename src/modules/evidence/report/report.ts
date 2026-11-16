@@ -78,10 +78,15 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   }
 
   for (const entry of of('acceptance', 'declined', 'default-taken')) {
-    if (entry.kind === 'declined') gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}`);
-    if (entry.kind === 'default-taken') gaps.push(`${shown(entry.gate)}: default taken, "${shown(entry.answer)}" (${shown(entry.via)})`);
+    // A declined check question names its key and files, read from the print the way the checks-offer line below reads its keys.
+    const asked = entry.gate === 'check-only-unauthorized' ? (entries.find((print) => print.id === entry.instance)?.['values'] as { key?: unknown; files?: unknown } | undefined) : undefined;
+    const key = list(asked?.key).length > 0 ? list(asked?.key) : entry.gate === 'check-only-unauthorized' && entry.key !== undefined ? [entry.key] : [];
+    // A flag decline with no print knows its key but not its files.
+    const named = key.length === 0 ? '' : ` for ${key.map(String).join(', ')}${asked === undefined ? '' : ` on ${list(asked.files).length === 0 ? 'the whole project' : list(asked.files).map(String).join(', ')}`}`;
+    if (entry.kind === 'declined') gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}${named}`);
+    if (entry.kind === 'default-taken') gaps.push(`${shown(entry.gate)}: default taken, "${shown(entry.answer)}" (${shown(entry.via)})${named}`);
     if (entry.gate === 'review-again' && entry.answer === 'skip') gaps.push('fix not re-reviewed');
-    if (entry.kind === 'default-taken' && entry.gate === 'plan-unaccepted' && entry.answer === 'run on the draft') gaps.push('plan run without being accepted');
+    if (entry.gate === 'plan-unaccepted' && entry.answer === 'run on the draft' && entry.kind !== 'declined') gaps.push('plan run without being accepted');
     if (entry.gate === 'checks-offer' && String(entry.answer).startsWith('skip') && isBoundAnswer(entry)) {
       const keys = list(entries.find((print) => print.id === entry.instance)?.['values'] && (entries.find((print) => print.id === entry.instance)!['values'] as { key?: unknown }).key);
       gaps.push(keys.length === 0 ? 'checks skipped — verification incomplete' : `checks skipped: ${keys.map(String).join(', ')} — verification incomplete`);
@@ -118,6 +123,7 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);
   // A route that stopped short is a gap in itself; done, iterations-complete and interrupted (superseded by a new start) are not.
   for (const entry of of('exit').filter((exit) => !['done', 'iterations-complete', 'interrupted'].includes(String(exit.reason)))) gaps.push(`The route ended ${shown(entry.reason)}${typeof entry.detail === 'string' && entry.detail !== '' ? `: ${shown(entry.detail)}` : ''}`);
+  for (const entry of of('exit')) for (const gate of list(entry.unanswered)) gaps.push(`${shown(gate)}: unanswered when the route ended (${shown(entry.reason)})`);
   return [...new Set(gaps)];
 }
 

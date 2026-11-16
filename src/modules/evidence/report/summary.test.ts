@@ -129,6 +129,12 @@ describe('summary.md reads like a result, not an audit trail', () => {
     assert.match(text, /^- task · .* · iterations-complete$/m);
   });
 
+  it('an interrupted exit names the gates it left unanswered', async () => {
+    const out = [...taskRoute('A', 1), exit('A', 'interrupted', { detail: 'a new route started', unanswered: ['plan-unaccepted', 'checks-offer'] })];
+    const text = await renderSummary('ord-17', out, read);
+    assert.match(text, /^- Iteration 1 of 3: interrupted \(a new route started\), unanswered: plan-unaccepted, checks-offer$/m);
+  });
+
   it('a task with no checks configured adds no Not verified line', async () => {
     const text = await renderSummary('ord-17', [...taskRoute('A', 1), entry('baseline', { route: 'A', head: 'abc', dirty: [], runnable: 0 }), review('A', 'r', 0), exit('A', 'done', { complete: true })], read);
     assert.doesNotMatch(text, /nothing was verified by running checks/);

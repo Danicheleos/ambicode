@@ -12,12 +12,23 @@ const review = (reviewId: string, findings: number, fields: object = {}): Ledger
 const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
 
 describe('gapsOf: checks never claim more than the ledger says', () => {
-  it('a task run on a draft plan says the plan was not accepted; stopping on it lists nothing', () => {
+  it('a task run on a draft plan, by a human or by default, says the plan was not accepted; stopping on it lists nothing', () => {
     const answer = (option: string, kind = 'default-taken') => entry(kind, { route: 'r', gate: 'plan-unaccepted', instance: null, answer: option, via: 'headless' });
     assert.deepEqual(gapsOf([answer('run on the draft')]), ['plan-unaccepted: default taken, "run on the draft" (headless)', 'plan run without being accepted']);
-    assert.deepEqual(gapsOf([answer('run on the draft')].map((row) => ({ ...row, via: 'unanswered' }))), ['plan-unaccepted: default taken, "run on the draft" (unanswered)', 'plan run without being accepted'], 'an unanswered print took the draft unasked: the gap shows for any via');
-    assert.deepEqual(gapsOf([answer('run on the draft', 'acceptance')]), [], 'a user who chose to run on the draft accepted it: no gap');
+    assert.deepEqual(gapsOf([answer('run on the draft', 'acceptance')]), ['plan run without being accepted'], 'a human who chose to run on the draft accepted nothing: the gap shows too');
     assert.deepEqual(gapsOf([answer('stop', 'acceptance')]), []);
+  });
+
+  it('a flag that named "run on the draft" was declined, the route still at the gate: nothing ran on the draft', () => {
+    const declined = entry('declined', { route: 'r', gate: 'plan-unaccepted', instance: null, answer: 'run on the draft', via: 'flag', reason: 'acting-needs-human' });
+    assert.deepEqual(gapsOf([declined]), ['plan-unaccepted: declined "run on the draft" (acting-needs-human)']);
+  });
+
+  it('an exit lists each gate it left unanswered, whatever the reason; an exit that left none adds nothing', () => {
+    const exit = (reason: string, fields: object = {}) => entry('exit', { route: 'r', reason, ...fields });
+    assert.deepEqual(gapsOf([exit('interrupted', { unanswered: ['checks-offer'] })]), ['checks-offer: unanswered when the route ended (interrupted)']);
+    assert.deepEqual(gapsOf([exit('blocked', { unanswered: ['plan-unaccepted'] })]), ['The route ended blocked', 'plan-unaccepted: unanswered when the route ended (blocked)']);
+    assert.deepEqual(gapsOf([exit('interrupted')]), []);
   });
 
 
@@ -118,6 +129,15 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
     assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), []);
     assert.deepEqual(gapsOf([offer('default-taken', 'skip — verification incomplete')]), ['review-offer: default taken, "skip — verification incomplete" (headless)']);
     assert.deepEqual(gapsOf([offer('acceptance', 'run', { instance: 'i', via: 'hook' })]), []);
+  });
+
+  it('a declined or default-taken check-only-unauthorized names the key and files of its print, or the whole project', () => {
+    const print = (files: string[]) => entry('gate', { id: 'p', route: 'r', gate: 'check-only-unauthorized', values: { key: ['app/e2e'], files } });
+    const taken = entry('default-taken', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: 'decline', via: 'headless' });
+    assert.deepEqual(gapsOf([print(['src/a.ts']), taken]), ['check-only-unauthorized: default taken, "decline" (headless) for app/e2e on src/a.ts']);
+    assert.deepEqual(gapsOf([print([]), taken]), ['check-only-unauthorized: default taken, "decline" (headless) for app/e2e on the whole project']);
+    const declined = entry('declined', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: 'decline', via: 'flag' });
+    assert.deepEqual(gapsOf([print([]), declined]), ['check-only-unauthorized: declined "decline" for app/e2e on the whole project']);
   });
 
   it('an unbound skip answer is not counted as a bound one', () => {

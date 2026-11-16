@@ -24,7 +24,7 @@ true on a localised machine.
 
 The task route's `change` and `fix` steps run in the plugin subagent
 `agents/implementer.md` (tools `Read, Grep, Glob, Edit, Write, Bash`). It reads
-the work file the step wrote and records its green check with the `check`
+the work file the step wrote (in parts when it is over 32 KiB: it reads every part, in order) and records its green check with the `check`
 command. Unlike the reviewer it can edit the checkout and run commands, so the
 guard and the user's permissions apply to it as to the main session. While it
 runs, `check` records without advancing the route (held while the route chain's

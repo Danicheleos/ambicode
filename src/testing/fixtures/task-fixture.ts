@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Finding } from '#types/modules/review';
 import { skillHandlers } from '#skills/handlers';
 import { appendLedger } from '#platform/ledger/ledger';
-import { checkFixture, CHECK_TASK } from './check-fixture.ts';
+import { checkFixture, CHECK_CONFIG, CHECK_TASK } from './check-fixture.ts';
 import { reviewResult } from './review-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -19,7 +19,9 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
   const step: Record<string, string> = {};
   for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const task = await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8');
-  const base = await checkFixture({ routes: { task }, handlers: skillHandlers(), step, scriptEngine: true, ...(options.config === undefined ? {} : { config: options.config }), ...(options.pack === undefined ? {} : { pack: options.pack }) });
+  // The default has no `propose` key: the end step now stops at its question, which most tests are not about; a test of that passes its own config.
+  const config = options.config ?? CHECK_CONFIG.split('\n').filter((line) => !/^\s+e2e:/.test(line)).join('\n');
+  const base = await checkFixture({ routes: { task }, handlers: skillHandlers(), step, scriptEngine: true, config, ...(options.pack === undefined ? {} : { pack: options.pack }) });
   const { fx } = base;
   // The engine's own format step now goes through the scripted runner too; it used the real one, where `fmt` exits 0.
   base.runner.out = { exitCode: 0, stdout: '' };
@@ -37,10 +39,12 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
     const print = (await fx.kinds(CHECK_TASK, 'gate')).findLast((entry) => entry['gate'] === gate);
     return next({ cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
   };
-  // Most tests are about the review and the report, not the checks question that follows the review offer: it is skipped for them unless `askChecks` is on.
+  // Most tests are about the review and the report, not the full-checks question (asked after the review offer, or at the green check when no iteration is named): it is skipped for them unless `askChecks` is on.
+  const skipChecks = async (message: StepMessage): Promise<StepMessage> =>
+    message.position === 'checks-offer' && options.askChecks !== true ? answer('checks-offer', 'skip — verification incomplete') : message;
   const hook = async (gate: string, option: string): Promise<StepMessage> => {
     const message = await answer(gate, option);
-    return gate === 'review-offer' && message.position === 'checks-offer' && options.askChecks !== true ? answer('checks-offer', 'skip — verification incomplete') : message;
+    return gate === 'review-offer' ? skipChecks(message) : message;
   };
   const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
@@ -49,7 +53,7 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
   /** What `check --only` leaves for the tail, then the tail itself. */
   const check = async (phase: 'green', _summary: { ran: number; failed: number } | null, exit = 0): Promise<StepMessage> => {
     const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, output: '.ambicode/tasks/ord-7/checks/app-unit_0.log', bytes: 0, ms: 3 });
-    return next({ cause: 'check', produced: [entry.id] });
+    return skipChecks(await next({ cause: 'check', produced: [entry.id] }));
   };
   /** What `check` leaves at a delegated step: the check entry and no tail, so nothing advances. */
   const held = async (phase: 'green', exit = 0): Promise<void> => {

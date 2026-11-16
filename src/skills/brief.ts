@@ -13,8 +13,11 @@ import { toPosix } from '#util/glob';
  * Every brief opens with the plan's header (before the first iteration: goal, requirements, decisions) and closes with every other level-2 section after the first iteration.
  */
 export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry[], through?: number): Promise<{ planPath: string | null; iteration: number; iterations: number; through: number; brief: string | null }> {
-  const planPath = input.args.plan ?? (entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')?.['path'] as string | undefined) ?? null;
-  const plan = planPath === null ? null : await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null);
+  // The plan is the --plan file, else the latest `plan` note's path, else the task's own plan.md when it is there and not empty (a draft run on unaccepted has no note).
+  const noted = input.args.plan ?? (entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')?.['path'] as string | undefined) ?? null;
+  const own = noted !== null ? null : await input.runtime.fs.readText(input.dir.plan).catch(() => null);
+  const planPath = noted ?? (own === null || own.trim() === '' ? null : toPosix(path.relative(input.dir.repositoryRoot, input.dir.plan)));
+  const plan = noted === null ? (planPath === null ? null : own) : await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, noted)).catch(() => null);
   const done = doneIterations(entries);
   const named = input.args.iteration;
   const headings = plan === null ? [] : iterationHeadings(plan);

@@ -15,7 +15,7 @@ export async function renderSummary(task: string, entries: readonly LedgerEntry[
   const iterationOf = (chain: Chain): number | null => Number(chain.entries.find((entry) => entry.kind === 'step' && entry['step'] === 'start' && entry['iteration'] !== undefined)?.['iteration']) || null;
   const endOf = (chain: Chain): string => {
     const exit = exitOf(chain);
-    return exit === null ? 'open' : `${exit['reason']}${typeof exit['detail'] === 'string' ? ` (${exit['detail']})` : ''}`;
+    return exit === null ? 'open' : `${exit['reason']}${typeof exit['detail'] === 'string' ? ` (${exit['detail']})` : ''}${Array.isArray(exit['unanswered']) ? `, unanswered: ${exit['unanswered'].join(', ')}` : ''}`;
   };
   const worked = (chain: Chain): boolean => chain.entries.some((entry) => WORK.includes(entry.kind));
   // A restart the model stopped at once must not replace the run before it; a lone one still shows, so its gaps do too.

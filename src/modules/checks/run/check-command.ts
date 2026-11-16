@@ -120,7 +120,7 @@ export async function authorizeKey(
   input: { policy: ResolvedPolicy; commandId: string; key: string; form: 'file' | 'all'; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raise?: boolean; consented?: boolean },
 ): Promise<'allowed' | 'declined' | 'waiting'> {
   const authorization = authorizeCommand({ policy: input.policy, commandId: input.commandId, approvalKey: input.key, approvals: new Set(), form: input.form });
-  if (authorization.kind === 'allowed' || (authorization.kind === 'needs-approval' && input.consented === true)) return 'allowed';
+  if (authorization.kind === 'allowed' || (authorization.kind === 'needs-approval' && input.consented === true && authorization.action !== 'propose')) return 'allowed';
   if (authorization.kind === 'refused') {
     if (routed !== null) {
       await withLedger(deps, routed.dir, (ledger) => ledger.append({ kind: 'limit', route: routed.view.routeId, which: 'check-forbidden', count: 1, step: stepOf(routed.view), key: input.key }));
@@ -206,8 +206,8 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
 
   const dir = routed?.dir ?? (await resolveTaskDir(deps.runtime, input.task));
   const result = await runOne({
-    runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project, policy, commandId: input.name, key,
-    command: commandFor(template, files.map((file) => projectRelative(project, file))), form, timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
+    runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project,
+    command: commandFor(template, files.map((file) => projectRelative(project, file))), timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
   });
   const step = routed === null ? null : stepOf(routed.view);
   const route = routed === null ? {} : { route: routed.view.routeId };

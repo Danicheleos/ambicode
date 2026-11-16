@@ -2,11 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { finding } from '#testing/fixtures/review-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
+import { CHECK_CONFIG } from '#testing/fixtures/check-fixture';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
 async function withTask(body: (t: Fixture) => Promise<void>): Promise<void> {
-  const t = await taskFixture();
+  const t = await taskFixture({ config: CHECK_CONFIG });
   try {
     await body(t);
   } finally {
@@ -57,8 +58,8 @@ describe('an all-form check that needs approval (A5)', () => {
   });
 });
 
-describe('a gate instance never ends unanswered (A5)', () => {
-  it('a question raised in fix and left printed while the route ends is recorded as the default taken', async () => {
+describe('a route that ends with a gate printed lists it unanswered (A5)', () => {
+  it('a question raised in fix and left printed while the route ends is listed on the exit and takes no default', async () => {
     await withTask(async (t) => {
       await t.start();
       await t.edit();
@@ -72,7 +73,8 @@ describe('a gate instance never ends unanswered (A5)', () => {
       await t.hook('review-again', 'skip');
       await t.fx.engine.stop('ord-7', 'blocked')
       const answered = [...(await t.kinds('default-taken')), ...(await t.kinds('acceptance')), ...(await t.kinds('declined'))].filter((entry) => entry['instance'] === print!.id);
-      assert.deepEqual(answered.map((entry) => [entry.kind, entry['answer']]), [['default-taken', 'decline']]);
+      assert.deepEqual(answered, []);
+      assert.deepEqual((await t.kinds('exit')).at(-1)?.['unanswered'], [GATE]);
     });
   });
 });

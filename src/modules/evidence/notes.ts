@@ -83,8 +83,8 @@ function withStatus(text: string, status: string): string {
   return `---\n${inner}\n---\n${text.slice(front[0].length)}`;
 }
 
-/** Sets the task's plan.md to `status: accepted` as it is and records the `plan` note; the consent (the user's Accept, or the task route's run-on-the-draft answer) is the caller's. */
-export async function markAccepted(runtime: Runtime, dir: TaskDir, ledger: LockedLedger, input: { task: string; route: string }): Promise<void> {
+/** Sets the task's plan.md to `status: accepted` as it is and records the `plan` note; the consent (the user's Accept on the plan route) is the caller's. */
+async function markAccepted(runtime: Runtime, dir: TaskDir, ledger: LockedLedger, input: { task: string; route: string }): Promise<void> {
   const text = await runtime.fs.readText(dir.plan).catch(() => null);
   if (text === null || text.trim() === '') throw planMissing(input.task);
   const accepted = withStatus(text, 'accepted');

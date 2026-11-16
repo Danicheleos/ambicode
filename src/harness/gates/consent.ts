@@ -17,7 +17,13 @@ export function evaluateConsent(input: {
   acting: readonly string[];
   binding?: ConsentBinding | undefined;
 }): ConsentResult {
-  const { window, chain, gate, acting, binding } = input;
+  const { chain, gate, acting, binding } = input;
+  // A key's consent is the latest answer bound to a print that lists the key (or a decline typed for it): another key's answer on the same gate is not about it.
+  const listsKey = (entry: LedgerEntry): boolean => {
+    const keys = (chain.find((print) => print.kind === 'gate' && print.id === entry['instance'])?.['values'] as { key?: unknown } | undefined)?.key;
+    return entry['key'] === binding?.key || (Array.isArray(keys) && keys.includes(binding?.key));
+  };
+  const window = binding?.key === undefined ? input.window : input.window.filter((entry) => entry['gate'] !== gate || !ANSWER_KINDS.includes(entry.kind) || listsKey(entry));
   const answers = window.filter((entry) => ANSWER_KINDS.includes(entry.kind) && entry['gate'] === gate);
   const bound = latestBound(window, gate);
   if (bound === null) {
@@ -36,11 +42,6 @@ export function evaluateConsent(input: {
     const printed = bound['via'] === 'hook' && typeof bound['instance'] === 'string' && chain.some((entry) => entry.kind === 'gate' && entry.id === bound['instance'] && entry['gate'] === gate);
     const prompted = bound['via'] === 'prompt' && bound['trusted'] === true;
     if (!printed && !prompted) return { state: 'refused', reason: 'acting-needs-human', source: bound };
-  }
-  if (binding?.key !== undefined) {
-    const print = chain.find((entry) => entry.kind === 'gate' && entry.id === bound['instance']);
-    const keys = (print?.['values'] as { key?: unknown } | undefined)?.key;
-    if (!Array.isArray(keys) || !keys.includes(binding.key)) return { state: 'refused', reason: 'not-accepted', source: bound };
   }
   return { state: 'honoured', source: bound as unknown as AcceptanceEntry, object: (bound['object'] as ArtifactRef | undefined) ?? null };
 }

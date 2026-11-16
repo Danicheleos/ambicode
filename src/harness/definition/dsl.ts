@@ -80,7 +80,6 @@ export function normalizeGate(file: string, id: string, cls: GateDef['class'], r
   const options = raw.options;
   for (const name of acting) if (!options.includes(name)) throw invalid(file, `${where}.acting`, `"${name}" is not one of the options`);
   if (cls !== 'decision' && !options.includes(raw.default)) throw invalid(file, `${where}.default`, `"${raw.default}" is not one of the options`);
-  if (acting.includes(raw.default)) throw invalid(file, `${where}.default`, `"${raw.default}" is acting; a default is never acting`);
   const onAnswer: Record<string, Revise> = {};
   for (const [key, text] of Object.entries(raw.onAnswer ?? {})) {
     if (key !== '*' && !options.includes(key)) throw invalid(file, `${where}.onAnswer`, `"${key}" is neither an option nor "*"`);

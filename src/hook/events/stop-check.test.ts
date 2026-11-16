@@ -39,7 +39,7 @@ async function stopper(): Promise<Stopper> {
 }
 const toWrite = async (s: Stopper): Promise<void> => void (await s.fx.engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: s.fx.scratchpad }));
 
-const GAP = 'check-only-unauthorized: declined "approve" (acting-needs-human)';
+const GAP = 'check-only-unauthorized: declined "approve" (acting-needs-human) for app/e2e';
 const declined = { kind: 'declined', gate: 'check-only-unauthorized', instance: null, answer: 'approve', via: 'flag', reason: 'acting-needs-human', key: 'app/e2e' };
 const HEADING = '## Confirmed facts\n';
 const LEDGER = (s: Stopper): string => path.join(s.fx.repo.root, '.ambicode', 'tasks', TASK, 'ledger.jsonl');
@@ -69,7 +69,7 @@ describe('03-K1 conditions', () => {
       await s.say(`${HEADING}nothing was run`);
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /1 gap\(s\) unstated[\s\S]*- check-only-unauthorized: declined "approve" \(acting-needs-human\)$/);
+      assert.match(blocked.reason!, /1 gap\(s\) unstated[\s\S]*- check-only-unauthorized: declined "approve" \(acting-needs-human\) for app\/e2e$/);
       assert.deepEqual(await s.limits(), ['stop-block']);
       assert.deepEqual(await saved(s), [], 'a blocked message is not the result');
       assert.deepEqual(await s.stop(), {}, 'the second failure allows');

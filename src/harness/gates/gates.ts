@@ -48,9 +48,6 @@ export function instantiateGate(
   if (gate.class !== 'decision' && !instantiated.options.includes(instantiated.default)) {
     throw new AmbicodeError('route-invalid', `gate ${gate.id}: the instantiated options do not contain the default "${instantiated.default}".`);
   }
-  if (instantiated.acting.includes(instantiated.default)) {
-    throw new AmbicodeError('route-invalid', `gate ${gate.id}: an instantiated default is acting.`);
-  }
   return instantiated;
 }
 
@@ -137,19 +134,12 @@ export async function raiseGate(
   });
 }
 
-/** A raised question nobody answered before its route ended gets its default recorded, so no instance stays open for good. */
-export async function settleOpenPrints(ledger: LockedLedger, routes: RouteRegistry, route: string): Promise<void> {
+/** The gates a route printed, step gates included, that no bound answer follows. */
+export async function openPrints(ledger: LockedLedger, route: string): Promise<string[]> {
   const read = await ledger.read();
-  if (read.state !== 'ok') return;
-  const own = read.entries.filter((entry) => entry['route'] === route || entry.id === route);
-  const skill = String(own.find((entry) => entry.kind === 'route')?.['skill'] ?? '');
-  for (const print of own.filter((entry) => entry.kind === 'gate' && entry['class'] !== 'declared')) {
-    if (own.some((entry) => isBoundAnswer(entry) && entry['instance'] === print.id)) continue;
-    const definition = routes.gate(String(print['gate']));
-    if (definition === null) continue;
-    const { default: answer } = instantiateGate(definition, { skill, values: (print['values'] ?? {}) as Record<string, string[]> }, definition.id);
-    await ledger.append({ kind: 'default-taken', route, gate: print['gate'], instance: print.id, answer, via: 'unanswered' });
-  }
+  if (read.state !== 'ok') return [];
+  const own = read.entries.filter((entry) => entry['route'] === route);
+  return [...new Set(own.filter((print) => print.kind === 'gate' && !own.some((entry) => isBoundAnswer(entry) && entry['instance'] === print.id)).map((print) => String(print['gate'])))];
 }
 
 /** The option an answer names, in its declared spelling. AskUserQuestion labels arrive re-cased or with a trailing "(Recommended)". */

@@ -9,8 +9,8 @@ import { snapshotTree } from '#modules/review/snapshot/target';
 import { openRepository } from '#platform/git/open';
 import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
-import { chainEntries, failed } from '../common.ts';
-import { markAccepted, planStatusOf } from '#modules/evidence/notes';
+import { chainEntries } from '../common.ts';
+import { planStatusOf } from '#modules/evidence/notes';
 import { briefOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
 import { runnableChecks, outputPointer } from '#modules/checks/run/check-command';
@@ -24,7 +24,6 @@ import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 
 const AGAIN_GATE = 'checks-again';
 const PLAN_UNACCEPTED_GATE = 'plan-unaccepted';
-const RUN_ON_DRAFT = 'run on the draft';
 
 /** The option that goes on to the report; `fix` is the other, and acting: only the user sends the implementer round again. */
 const REPORT_GAP = 'report the gap';
@@ -89,21 +88,12 @@ async function isDraftPlan(input: HandlerInput, planPath: string | null): Promis
 }
 export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'task.start': async (input) => {
-    let read = await input.ledger.read();
-    let planFacts = await briefOf(input, read.state === 'ok' ? read.entries : []);
+    const read = await input.ledger.read();
+    const planFacts = await briefOf(input, read.state === 'ok' ? read.entries : []);
     // A file named with --plan is the user's own choice and is read as is; any other plan that is not `status: accepted` is asked about once.
     if (input.args.plan === null && await isDraftPlan(input, planFacts.planPath)) {
-      const answer = latestBound(await chainEntries(input), PLAN_UNACCEPTED_GATE)?.['answer'];
-      if (answer === undefined) return { state: 'raise', gate: PLAN_UNACCEPTED_GATE, values: {} };
-      // `stop` ended the route when it was answered; anything else but the recommended answer must not run the draft.
-      if (answer !== RUN_ON_DRAFT) return { state: 'ok', payload: null, exit: 'blocked', exitDetail: 'The plan was not accepted.' };
-      try {
-        await markAccepted(input.runtime, input.dir, input.ledger, { task: input.view.task, route: input.view.routeId });
-      } catch (error) {
-        return failed(error);
-      }
-      read = await input.ledger.read();
-      planFacts = await briefOf(input, read.state === 'ok' ? read.entries : []);
+      // `stop` ends the route when it is answered (answers.ts), so an answer found here is `run on the draft`.
+      if (latestBound(await chainEntries(input), PLAN_UNACCEPTED_GATE)?.['answer'] === undefined) return { state: 'raise', gate: PLAN_UNACCEPTED_GATE, values: {} };
     }
     const { planPath, iteration, iterations, through, brief } = planFacts;
     if (iteration > iterations) return { state: 'ok', payload: `Every iteration of ${planPath ?? 'the plan'} is done (${iterations}).`, record: { planPath, iterations }, exit: 'iterations-complete' };
@@ -153,7 +143,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   },
 
   /**
-   * The checks of the whole change, once, where the route has no one to ask (every iteration done, or headless) or the user said run. Red: the first
+   * The checks of the whole change, once: the keys with a file form unasked, a full key once the user said run, a propose key once the user approved it. Red: the first
    * round goes back to the implementer on its own with the output and re-runs only the red keys; a later round is the user's gate, and its
    * default reports the gap, so a headless run never waits and a red key is never reported as clean.
    */
@@ -168,10 +158,12 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     const previous = stepEntries(chain).at(-1);
     const rerun = previous?.['failed'] === true ? sentBack(chain) : null;
     const deps = { runtime: input.runtime, session: input.view.session, context: input.context, ledger: input.ledger };
-    // An interactive named iteration runs a key that covers the whole project only when the user said run; every other run counts its start as the consent.
-    const asksFull = typeof input.args.iteration === 'number' && !input.args.headless;
-    const full = !asksFull || chain.some((entry) => isBoundAnswer(entry) && entry['gate'] === 'checks-offer' && entry['answer'] === 'run');
-    await runScopeChecks(deps, { task: input.view.task, only: rerun, full });
+    // A key that covers the whole project runs only when the user said run to checks-offer: the route's start is never that consent, and a headless run takes the skip default.
+    const full = chain.some((entry) => isBoundAnswer(entry) && entry['gate'] === 'checks-offer' && entry['answer'] === 'run');
+    const waiting: { key: string; files: string[] }[] = [];
+    await runScopeChecks(deps, { task: input.view.task, only: rerun, full, waiting });
+    // A propose key without the user's answer parks the step on check-only-unauthorized (headless: its decline default), one key per print: the gate asks "Run {key} on {files}?" and the answer re-runs the step for the next.
+    if (waiting[0] !== undefined) return { state: 'raise', gate: CHECK_GATE, values: { key: [waiting[0].key], files: waiting[0].files } };
     const red = redKeys(await chainEntries(input));
     if (red.size === 0) return { state: 'ok', payload: null };
     const rounds = chain.filter((entry) => entry.kind === 'step' && entry['step'] === 'scope-checks' && entry['status'] === 'failed' && entry['code'] === 'checks-red').length;
@@ -202,7 +194,7 @@ onGatePrint('checks-offer', async ({ runtime }) => {
   const workspace = await openWorkspace(runtime);
   const keys: string[] = [];
   for (const project of workspace.config.projects) for (const entry of await runnableChecks(workspace, project)) if (!entry.file) keys.push(`${project.id}/${entry.key}`);
-  return { question: `Run the full checks ${keys.join(', ')} (the whole project, not by file)?`, details: `Checks by file already ran on what changed. This would also run: ${keys.join(', ')}.`, values: { key: keys } };
+  return { question: `Run the full checks ${keys.join(', ')} (the whole project, not by file)?`, details: `Checks by file run on what changed without a question. This would also run: ${keys.join(', ')}.`, values: { key: keys } };
 });
 
 onGatePrint('review-offer', async ({ runtime, task, chain }) => {

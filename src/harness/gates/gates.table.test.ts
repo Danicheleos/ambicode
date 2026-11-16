@@ -116,12 +116,11 @@ describe('gate table: every registry gate', () => {
     }
   });
 
-  it('03-G7/03-G8: an unanswered interactive gate is re-shown as it was, never defaulted; headless takes the default at once; the default never acts', async () => {
+  it('03-G7/03-G8: an unanswered interactive gate is re-shown as it was, never defaulted; headless takes the default at once, acting or not', async () => {
     const t = await table();
     try {
       for (const gate of REGISTRY) {
         const resolved = t.instantiated(gate);
-        assert.equal(resolved.acting.includes(resolved.default), false, `${gate} default is not acting`);
         const { task } = await t.begin(gate);
         const prints = (await t.fx.kinds(task, 'gate')).length;
         for (let turn = 0; turn < 4; turn += 1) await t.advance(task);

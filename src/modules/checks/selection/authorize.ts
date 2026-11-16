@@ -1,11 +1,12 @@
 import type { ResolvedPolicy } from '#types/modules/policy';
+import type { CommandAction } from '#types/primitives';
 import { decisionFor, explainRefusal } from '#modules/policy/packs/resolve';
 
 /** Every external command passes through here, so no call site can acquire execution without a decision. */
 type CommandAuthorization =
   | { kind: 'allowed' }
   | { kind: 'refused'; reason: string }
-  | { kind: 'needs-approval'; reason: string };
+  | { kind: 'needs-approval'; reason: string; action: CommandAction };
 
 interface AuthorizeOptions {
   policy: ResolvedPolicy;
@@ -28,6 +29,7 @@ export function authorizeCommand(options: AuthorizeOptions): CommandAuthorizatio
       ? { kind: 'allowed' }
       : {
           kind: 'needs-approval',
+          action,
           reason: action === 'propose' ? `policy declares "${options.commandId}" as propose, so each run is authorized separately` : `the all form of "${options.commandId}" runs the whole suite, so each run is authorized separately`,
         };
   }

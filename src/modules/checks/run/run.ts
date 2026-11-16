@@ -1,8 +1,6 @@
 import path from 'node:path';
 import { normalizeRelative } from '#util/paths';
-import { authorizeCommand } from '../selection/authorize.ts';
 import type { ProjectConfig } from '#types/modules/config';
-import type { ResolvedPolicy } from '#types/modules/policy';
 import type { CheckStatus } from '#types/primitives';
 import type { Clock, ProcessRunner } from '#types/platform/ports';
 
@@ -11,13 +9,8 @@ interface RunOneOptions {
   clock: Clock;
   repositoryRoot: string;
   project: ProjectConfig;
-  policy: ResolvedPolicy;
-  commandId: string;
-  /** `<projectId>/<checkId>`: the key the caller's consent was recorded under. */
-  key: string;
   /** The shell string from config, with `{file}` already substituted. */
   command: string;
-  form: 'file' | 'all';
   timeoutSeconds: number;
 }
 
@@ -37,10 +30,8 @@ export const shellArgv = (command: string): string[] => (process.platform === 'w
 /** Single quotes on POSIX, double on `cmd`: a file name with a space or `$` stays one argument. */
 export const shellQuote = (value: string): string => (process.platform === 'win32' ? `"${value.replaceAll('"', '""')}"` : `'${value.replaceAll("'", "'\\''")}'`);
 
-/** Authorizes again at the spawn, so no caller reaches a process without a decision; the caller's consent arrives as `key`. */
+/** The one spawn of a check; its only caller, `runCheckOnly`, has had `authorizeKey` decide first. */
 export async function runOne(options: RunOneOptions): Promise<CheckRun> {
-  const authorization = authorizeCommand({ policy: options.policy, commandId: options.commandId, approvalKey: options.key, approvals: new Set([options.key]), form: options.form });
-  if (authorization.kind !== 'allowed') return { status: 'skipped', exitCode: null, output: '', ms: 0, detail: authorization.kind === 'refused' ? authorization.reason : 'this run needs authorization' };
   const started = options.clock.elapsed();
   const outcome = await options.runner.run({
     argv: shellArgv(options.command),

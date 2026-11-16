@@ -95,11 +95,10 @@ test('03-R6: revision targets are earlier steps, the firing step, $raisedBy or t
   await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': human }), { handlers: HANDLERS });
 });
 
-test('03-R7: every registry gate has a question and a default that is never acting', async () => {
+test('03-R7: every registry gate has a question and a default', async () => {
   const { registry } = await validateRouteFiles(REPO_ROOT, { handlers: HANDLER_NAMES });
   for (const gate of registry) {
     assert.ok(gate.question !== '' && gate.default !== '', gate.id);
-    assert.equal(gate.acting.includes(gate.default), false, gate.id);
     assert.deepEqual(gate.class, gate.id === 'decision:*' ? 'decision' : 'raised');
   }
   const decision = registry.find((gate) => gate.id === 'decision:*')!;

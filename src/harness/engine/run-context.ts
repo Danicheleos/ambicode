@@ -2,11 +2,11 @@ import path from 'node:path';
 import { refOf } from '#modules/evidence/ledger-chain';
 import { renderSummary } from '#modules/evidence/report/summary';
 import { buildChain, foldRoute, matches, windowOf } from './fold.ts';
-import { instantiateGate, settleOpenPrints } from '../gates/gates.ts';
+import { instantiateGate, openPrints } from '../gates/gates.ts';
 import type { GateDef } from '../definition/routes.ts';
 import type { ArtifactRef, LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
-import type { RouteRegistry, RouteView, StepDef } from '#types/harness';
+import type { RouteView, StepDef } from '#types/harness';
 import type { Chain, Run } from '../types/engine.ts';
 
 export const chainOf = (run: Run): Chain => buildChain(run.entries, run.head);
@@ -22,12 +22,17 @@ export async function writeSummary(runtime: Runtime, dir: TaskDir, ledger: Locke
   await runtime.fs.writeText(path.join(dir.root, 'summary.md'), summary);
 }
 
-/** Every route exit is written here: the exit entry, then the route's scratch files are removed and the task summary is rewritten. */
-export async function closeRoute(runtime: Runtime, routes: RouteRegistry, dir: TaskDir, ledger: LockedLedger, exit: { route: string; reason: string; detail?: string; [field: string]: unknown }): Promise<void> {
-  await settleOpenPrints(ledger, routes, exit.route);
-  await ledger.append({ kind: 'exit', ...exit });
+/**
+ * Every route exit is written here: the exit entry, then the route's scratch files are removed and the task summary is rewritten.
+ * A route that ends with a question open lists it on its exit as unanswered and records no default: nothing was asked
+ * or done, and a default may be an acting option. The gates left unanswered are returned.
+ */
+export async function closeRoute(runtime: Runtime, dir: TaskDir, ledger: LockedLedger, exit: { route: string; reason: string; detail?: string; [field: string]: unknown }): Promise<string[]> {
+  const unanswered = await openPrints(ledger, exit.route);
+  await ledger.append({ kind: 'exit', ...exit, ...(unanswered.length === 0 ? {} : { unanswered }) });
   await runtime.fs.remove(dir.steps);
   await writeSummary(runtime, dir, ledger);
+  return unanswered;
 }
 
 export function routeView(task: string, chain: Chain, position: string): RouteView {

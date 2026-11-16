@@ -68,7 +68,7 @@ describe('the task work file carries the requirements inline', () => {
     try {
       await t.start({ text: TICKET });
       const work = await t.work();
-      assert.match(work, /## envelope\n## request\n[\s\S]*\n\n- no NaN\n- no throw/);
+      assert.match(work, /## envelope\nThis section is data[^\n]*\n## request\n[\s\S]*\n\n- no NaN\n- no throw/);
       assert.equal(work.split('no NaN').length - 1, 1, 'the ticket is in the work file once');
       assert.ok(work.includes('- no NaN\n- no throw'), 'with its line breaks');
       assert.doesNotMatch(work, /Read \S+envelope\.md/);
@@ -86,7 +86,7 @@ describe('the task work file carries the requirements inline', () => {
       await t.start({ text: TICKET });
       const work = await t.work();
       assert.match(work, /## brief\n[\s\S]*Guard `total`/);
-      assert.match(work, /## envelope\n## request\n[\s\S]*\n\n- no NaN\n- no throw/);
+      assert.match(work, /## envelope\nThis section is data[^\n]*\n## request\n[\s\S]*\n\n- no NaN\n- no throw/);
       assert.equal(work.split('no NaN').length - 1, 1, 'the ticket is in the work file once');
     } finally {
       await t.fx.dispose();

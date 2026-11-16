@@ -25,7 +25,7 @@ steps:
     actor: model
     instruction: file:routes/task/change.md
     work: file:routes/task/change-work.md
-    payload: [brief, envelope, baseline, map, "policy:before-work", checks.runnable]   # inline: the implementer reads the ticket from its work file, not behind a pointer
+    payload: [checks.runnable, "policy:before-work", brief, envelope, baseline, map]   # inline: the implementer reads the ticket from its work file, not behind a pointer; the short critical sections come first, so a file over one Read is cut after them (parts.ts)
     produces: ["check{green}"]
   - id: format
     actor: code
@@ -40,7 +40,7 @@ steps:
       acting: [run]
   - id: checks-offer
     actor: human
-    when: checks.offer                         # before the review so a revise never asks it twice (a revise re-opens every step after its target); a headless run is asked nothing: checks.auto runs them at its end
+    when: checks.offer                         # before the review so a revise never asks it twice (a revise re-opens every step after its target); asked in every run with a full key: a headless run prints it and takes the skip default, so the route's start is never the consent for the whole project
     gate:
       question: "Run the full checks (the whole project, not by file)?"   # the print names the keys
       options: [run, "skip — verification incomplete"]
@@ -72,12 +72,12 @@ steps:
     when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
     instruction: file:routes/task/fix.md
     work: file:routes/task/fix-work.md
-    payload: [brief, envelope, "policy:before-work", checks.runnable]   # inline like change: the implementer reads the ticket from its work file
+    payload: [checks.runnable, "policy:before-work", brief, envelope]   # inline like change, in its order: the implementer reads the ticket from its work file
     produces: ["check{green}"]
     repeat: 4                                     # review findings, the end checks' automatic round, then at most two the user asks for (checks-again)
   - id: scope-checks
     actor: code
-    when: checks.auto or iteration.named          # a named iteration runs the scoped keys unasked; its full keys wait for checks-offer
+    when: checks.auto or iteration.named          # the scoped keys run unasked; a full key waits for checks-offer, a propose key for check-only-unauthorized (headless: its decline default)
     run: checks.scope                             # every runnable key by the files the task changed, once, after the last iteration; red goes back to fix
     onFail: revise fix
   - id: report-step

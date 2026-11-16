@@ -9,7 +9,7 @@ import type { Run } from '../types/engine.ts';
 type RevisePath = 'gate' | 'code' | 'model';
 
 export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
-  await closeRoute(run.runtime, run.routes, run.dir, run.ledger, { route: run.head.id, reason, ...(detail === undefined ? {} : { detail }), ...extra });
+  await closeRoute(run.runtime, run.dir, run.ledger, { route: run.head.id, reason, ...(detail === undefined ? {} : { detail }), ...extra });
   run.exited = reason;
 }
 

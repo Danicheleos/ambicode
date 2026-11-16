@@ -42,7 +42,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       assert.equal((await t.review([])).position, 'write');
       assert.equal((await routes(t)).length, 1, 'no second route');
       assert.equal((await t.kinds('review')).filter((entry) => entry['stage'] === 'recorded').length, 1);
-      assert.deepEqual(await gates(t), [], 'no review-offer, no next-offer');
+      assert.deepEqual(await gates(t), ['checks-offer'], 'no review-offer, no next-offer; the full key is asked once');
       assert.deepEqual([...doneIterations(await entriesOf(t))], []);
       await stop(t);
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['done']);

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runRouteNext, runRouteStart, ROUTE_NEXT_OPTIONS } from '#cli/commands/route/route';
 import { liveRouteOf } from './active-route.ts';
@@ -8,6 +8,8 @@ import { appendLedger } from '#platform/ledger/ledger';
 import { hookRunner } from '#testing/fixtures/owner-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { CHECK_TASK, checkFixture } from '#testing/fixtures/check-fixture';
+import { SESSION_A } from '#testing/fixtures/ids';
+import { LEDGER_FILE } from '#types/modules/evidence';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import { parseArgs } from '#util/args';
 import type { Runtime } from '#types/composition';
@@ -101,6 +103,76 @@ describe('a task has one live route', { concurrency: 4 }, () => {
       await launch(t, '/ambicode:task --task two fix total', CLAUDE_1);
       assert.deepEqual(await exits(t, 'one'), [[(await t.fx.kinds('one', 'route'))[0]!.id, 'interrupted']]);
       assert.deepEqual(await exits(t, 'two'), []);
+    });
+  });
+
+  it('a start names the route it closes, and an interrupted route keeps its open gate unanswered instead of taking the default', async () => {
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/tasks/one/plan.md', '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total`.\n');
+      await launch(t, '/ambicode:task --task one fix total iteration 1', CLAUDE_1);
+      const [first] = await t.fx.kinds('one', 'route');
+      assert.deepEqual((await t.fx.kinds('one', 'gate')).map((print) => print['gate']), ['plan-unaccepted']);
+
+      const reply = JSON.stringify(await launch(t, '/ambicode:task --task two fix total', CLAUDE_1));
+      assert.match(reply, /task one/, 'the reply names the closed task');
+      assert.match(reply, /plan-unaccepted/, 'the reply names the open gate');
+      assert.match(reply, /\/ambicode:task --task one/, 'the reply gives the command to continue');
+
+      const [exit] = await t.fx.kinds('one', 'exit');
+      assert.deepEqual([exit!['route'], exit!['reason'], exit!['unanswered']], [first!.id, 'interrupted', ['plan-unaccepted']]);
+      assert.deepEqual(await t.fx.kinds('one', 'default-taken'), []);
+
+      const summary = await readFile(path.join(t.fx.repo.root, '.ambicode', 'tasks', 'one', 'summary.md'), 'utf8');
+      assert.doesNotMatch(summary, /by default \(headless\)|plan run without being accepted|default taken/);
+    });
+  });
+
+  it('route stop on a route parked at a gate lists it unanswered and takes no default: nothing ran on the draft', async () => {
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/tasks/one/plan.md', '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total`.\n');
+      await launch(t, '/ambicode:task --task one fix total iteration 1', CLAUDE_1);
+      await t.fx.engine.stop('one', 'blocked', 'user left');
+      const [exit] = await t.fx.kinds('one', 'exit');
+      assert.deepEqual([exit!['reason'], exit!['unanswered']], ['blocked', ['plan-unaccepted']]);
+      assert.deepEqual(await t.fx.kinds('one', 'default-taken'), []);
+      const summary = await readFile(path.join(t.fx.repo.root, '.ambicode', 'tasks', 'one', 'summary.md'), 'utf8');
+      assert.doesNotMatch(summary, /plan run without being accepted|default taken/);
+      assert.match(summary, /plan-unaccepted: unanswered when the route ended \(blocked\)/);
+    });
+  });
+
+  it('a start on the task that stands parked at a gate names the route it closes, with its step and gate', async () => {
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/tasks/one/plan.md', '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total`.\n');
+      await launch(t, '/ambicode:task --task one fix total iteration 1', CLAUDE_1);
+      const reply = JSON.stringify(await launch(t, '/ambicode:task --task one fix total iteration 1', CLAUDE_1));
+      assert.match(reply, /Closed by this start: task route of task one at step \w[\w-]*, gate plan-unaccepted unanswered/);
+    });
+  });
+
+  it('a route parked at a step gate (checks-offer) keeps it unanswered on its exit and the reply names it', async () => {
+    const t = await taskFixture({ askChecks: true });
+    try {
+      await t.fx.repo.write(PLAN, '---\nstatus: accepted\n---\n# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
+      await t.start({ plan: PLAN, text: 'fix `total` for an empty list' });
+      await t.edit();
+      assert.equal((await t.check('green', null)).position, 'checks-offer');
+      const reply = JSON.stringify(await launch(t, '/ambicode:task --task two fix total', SESSION_A));
+      assert.match(reply, /gate checks-offer unanswered/, 'the reply names the open step gate');
+      const [exit] = await t.fx.kinds(CHECK_TASK, 'exit');
+      assert.deepEqual([exit!['reason'], exit!['unanswered']], ['interrupted', ['checks-offer']]);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a start that fails leaves the routes it would have replaced live', async () => {
+    await withTask(async (t) => {
+      await launch(t, '/ambicode:task --task one fix total', CLAUDE_1);
+      await mkdir(path.join(t.fx.repo.root, '.ambicode', 'tasks', 'two'), { recursive: true });
+      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'tasks', 'two', LEDGER_FILE), 'not json\n');
+      await launch(t, '/ambicode:task --task two fix total', CLAUDE_1);
+      assert.deepEqual(await exits(t, 'one'), [], 'the failed start closed nothing');
     });
   });
 });

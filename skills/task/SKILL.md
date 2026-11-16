@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 
 # Implement a change
 
-Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; with it the review is offered, the checks by file run unasked, and a check that runs the whole project is offered. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; one review follows over the whole change, then the checks run once, over everything the task changed. `--no-review` skips the review either way. The output of the command it ends with brings the next step.
+Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; with it the review is offered, the checks by file run unasked, and a check that runs the whole project is offered. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; one review follows over the whole change, then the checks run once, over everything the task changed. `--no-review` skips the review either way. The output of the command it ends with brings the next step. Either way a check that runs the whole project, or one the policy marks `propose`, runs only on your answer; headless skips it and lists it under Not verified.
 
 ## Your part
 

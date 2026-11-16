@@ -172,3 +172,19 @@ describe('exitOf', () => {
     assert.equal(exitOf(buildChain([head, exit('done'), exit('blocked')], head))?.['reason'], 'blocked');
   });
 });
+
+describe('checks.offer', () => {
+  const offerYaml = `${HEAD}  - id: offer\n    actor: human\n    when: checks.offer\n    gate: { question: Q, options: [run, skip], default: skip }\n  - id: end\n    actor: code\n    run: [h.a]\n`;
+  const baseline = (full: number): LedgerEntry => entry('baseline', { route: 'r1', full });
+  const offered = async (args: object, full: number): Promise<boolean> => {
+    const head = route('r1', { args });
+    return foldRoute(await def(offerYaml), buildChain([head, baseline(full)], head)).position?.id === 'offer';
+  };
+
+  it('every run with a full key is asked once, named iteration or not, headless included; no full key asks nothing', async () => {
+    assert.equal(await offered({ iteration: 2 }, 1), true);
+    assert.equal(await offered({}, 1), true, 'a route without a named iteration covers the whole project too');
+    assert.equal(await offered({ headless: true }, 1), true, 'headless prints it and takes the skip default');
+    assert.equal(await offered({}, 0), false);
+  });
+});

@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
-import type { ResolvedPolicy } from '#types/modules/policy';
 import type { ProjectConfig } from '#types/modules/config';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
@@ -11,13 +10,8 @@ import { commandFor } from './check-command.ts';
 const project = { id: 'web', root: 'apps/web', paths: [], ecosystem: { languages: [], frameworks: [], packageManager: null }, include: [], exclude: [], ignored: [], packs: [], policyFiles: [], commands: {}, checks: {} } as ProjectConfig;
 const clock = { now: () => new Date(0), elapsed: () => 0 };
 
-const policy = (action: 'run' | 'propose' | 'forbid', reason?: string): ResolvedPolicy => ({
-  activity: 'task', projectId: 'web', packs: [], rules: [], diagnostics: [],
-  commandDecisions: [{ command: 'unit', action, sources: [{ packId: 't', packReference: 't', action, ...(reason === undefined ? {} : { reason }) }] }],
-});
-
-const run = (runner: FakeProcessRunner, command = 'jest', resolved: ResolvedPolicy = policy('run')) =>
-  runOne({ runner, clock, repositoryRoot: '/repo', project, policy: resolved, commandId: 'unit', key: 'web/unit', command, form: 'file', timeoutSeconds: 60 });
+const run = (runner: FakeProcessRunner, command = 'jest') =>
+  runOne({ runner, clock, repositoryRoot: '/repo', project, command, timeoutSeconds: 60 });
 
 describe('runOne', () => {
   it('hands the whole command string to the shell, in the project root, under the timeout', async () => {
@@ -43,25 +37,9 @@ describe('runOne', () => {
 
   it('keeps the verdict line at the end of a 300 KB output', async () => {
     const command = `node -e "process.stdout.write('x'.repeat(300000) + '\\nVERDICT-TAIL 3 failed')"`;
-    const result = await runOne({ runner: new NodeProcessRunner(), clock, repositoryRoot: tmpdir(), project: { ...project, root: '.' }, policy: policy('run'), commandId: 'unit', key: 'web/unit', command, form: 'file', timeoutSeconds: 60 });
+    const result = await runOne({ runner: new NodeProcessRunner(), clock, repositoryRoot: tmpdir(), project: { ...project, root: '.' }, command, timeoutSeconds: 60 });
     assert.deepEqual([result.status, result.exitCode], ['passed', 0]);
     assert.match(result.output, /VERDICT-TAIL 3 failed/);
-  });
-});
-
-describe('runOne authorization', () => {
-  it('never reaches the process runner for a forbidden command, and names the reason', async () => {
-    const runner = new FakeProcessRunner();
-    const result = await run(runner, 'jest', policy('forbid', 'Tests are owned by CI here.'));
-    assert.equal(result.status, 'skipped');
-    assert.match(result.detail ?? '', /owned by CI here/);
-    assert.deepEqual(runner.argvs(), []);
-  });
-
-  it('runs a proposed command, because the caller consented under the key', async () => {
-    const runner = new FakeProcessRunner();
-    assert.equal((await run(runner, 'jest', policy('propose'))).status, 'passed');
-    assert.equal(runner.calls.length, 1);
   });
 });
 

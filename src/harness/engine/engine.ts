@@ -20,7 +20,7 @@ import { buildChain, exitOf, foldRoute, liveHeads, producesOf, windowOf } from '
 import { taskForEmptyStart } from './empty-start.ts';
 import { stopHook } from './stop.ts';
 import { subagentStopHook } from './subagent-stop.ts';
-import { EXPLICIT, createExecutor, isClosing } from './execute.ts';
+import { EXPLICIT, addNotes, createExecutor, isClosing } from './execute.ts';
 import { append, chainOf, closeRoute } from './run-context.ts';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
@@ -93,8 +93,16 @@ export function createEngine(deps: EngineDeps): Engine {
   }
 
   /** One live route per task: whatever stands is ended before another begins, whichever session started it. */
-  async function interrupt(dir: TaskDir, ledger: LockedLedger, entries: readonly LedgerEntry[]): Promise<void> {
-    for (const head of liveHeads(entries)) await closeRoute(runtime, routes, dir, ledger, { route: head.id, reason: 'interrupted', detail: 'a new route started' });
+  async function interrupt(dir: TaskDir, ledger: LockedLedger, entries: readonly LedgerEntry[], otherTask: boolean): Promise<string[]> {
+    const closed: string[] = [];
+    for (const head of liveHeads(entries)) {
+      const skill = String(head['skill']);
+      const def = routes.route(skill);
+      const step = def === null ? null : foldRoute(def, buildChain(entries, head)).position?.id ?? null;
+      const unanswered = await closeRoute(runtime, dir, ledger, { route: head.id, reason: 'interrupted', detail: 'a new route started' });
+      closed.push(`Closed by this start: ${skill} route of task ${dir.slug}${step === null ? '' : ` at step ${step}`}${unanswered.length === 0 ? '' : `, gate ${unanswered.join(', ')} unanswered`}${otherTask ? `. Continue it with /ambicode:${skill} --task ${dir.slug}` : ''}`);
+    }
+    return closed;
   }
 
   // ---------------------------------------------------------------- start
@@ -157,9 +165,11 @@ export function createEngine(deps: EngineDeps): Engine {
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
 
+    // Only a route the user typed replaces the session's others. A CLI start is what each parallel subagent of one session does,
+    // and ending its siblings (or waiting on a lock they hold through a slow step) made 4 of 5 parallel reviews fail ledger-busy.
     const result = await withLedgerLock(rt.fs, dir.root, now, async (ledger): Promise<{ message: StepMessage; run: Run; part: Part }> => {
       const entries = entriesOf(slug, await ledger.read());
-      await interrupt(dir, ledger, entries);
+      const closed = await interrupt(dir, ledger, entries, false);
 
       const head = await ledger.append({
         kind: 'route',
@@ -176,6 +186,7 @@ export function createEngine(deps: EngineDeps): Engine {
       entries.push(head);
       const active = newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head, session: input.session, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
       active.written.push(head.id);
+      active.notes.push(...closed);
       if (headless) active.notes.push(trusted ? 'Mode: headless (set by the user).' : 'Mode: headless (set by the model); the report lists it under Not verified.');
       for (const answer of answers) {
         const gate = def.steps.find((step) => step.gate?.id === answer.gate)?.gate ?? routes.gate(answer.gate)!;
@@ -189,21 +200,22 @@ export function createEngine(deps: EngineDeps): Engine {
       return { message: messageOf(active, part), run: active, part };
     }, { creates: true });
     await settle(result.run, result.part);
-    // Only a route the user typed replaces the session's others. A CLI start is what each parallel subagent of one session does,
-    // and ending its siblings (or waiting on a lock they hold through a slow step) made 4 of 5 parallel reviews fail ledger-busy.
-    {
-      for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug && delivery === 'hook')) {
+    // Each other ledger is locked and released on its own, after this task's lock is gone: nesting the two would deadlock two starts that cross,
+    // and a start that failed above must leave the session's other routes as they were.
+    const closedOthers: string[] = [];
+    if (delivery === 'hook') {
+      for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug)) {
         const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
         await withLedgerLock(rt.fs, otherDir.root, now, async (ledger) => {
           const read = await ledger.read();
-          if (read.state === 'ok') await interrupt(otherDir, ledger, read.entries);
+          if (read.state === 'ok') closedOthers.push(...await interrupt(otherDir, ledger, read.entries, true));
         }).catch((error: unknown) => {
           // A route whose ledger is locked is being driven right now: it is not abandoned.
           if (!(error instanceof AmbicodeError && error.code === 'ledger-busy')) throw error;
         });
       }
     }
-    return result.message;
+    return closedOthers.length === 0 ? result.message : addNotes(rt.fs, result.message, dir, closedOthers);
   }
 
   // ---------------------------------------------------------------- advance
@@ -253,7 +265,7 @@ export function createEngine(deps: EngineDeps): Engine {
     const head = await withLedgerLock(runtime.fs, dir.root, now, async (ledger) => {
       const route = liveHeads(entriesOf(task, await ledger.read())).at(-1);
       if (route === undefined) throw routeNotOpen(task);
-      await closeRoute(runtime, routes, dir, ledger, { route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
+      await closeRoute(runtime, dir, ledger, { route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
       return route;
     });
     await markHeadless(runtime.fs, { session: String(head['session']), scratchpad: scratchpadDir, on: false });

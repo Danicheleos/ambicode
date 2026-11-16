@@ -70,9 +70,9 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
     // The same two, minus `--no-review`: only the review steps ask this; the end checks keep the plain predicates.
     case 'review.offered': return typeof context.args.iteration === 'number' && context.args.headless !== true && context.args.noReview !== true;
     case 'review.unasked': return typeof context.args.iteration !== 'number' && context.args.headless !== true && context.args.noReview !== true;
-    // Only a full key (no file form) is asked about; the scoped ones run unasked, so a project without one has nothing to offer.
-    case 'checks.offer': return typeof context.args.iteration === 'number' && context.args.headless !== true && Number(all.findLast((entry) => entry.kind === 'baseline')?.['full']) > 0;
-    // The end checks run without a question where one route covers every iteration, or a headless run named one (nothing else will).
+    // Only a full key (no file form) is asked about, in every run (a headless one takes the skip default at the print); the scoped ones run unasked, so a project without one has nothing to offer.
+    case 'checks.offer': return Number(all.findLast((entry) => entry.kind === 'baseline')?.['full']) > 0;
+    // The end checks of the scoped keys run without a question where one route covers every iteration, or a headless run named one (nothing else will); a full key waits for checks-offer either way.
     case 'checks.auto': return typeof context.args.iteration !== 'number' || context.args.headless === true;
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
     case 'any': return when.of.some((part) => evaluate(part, all, context, gateWindow, opener, step));
