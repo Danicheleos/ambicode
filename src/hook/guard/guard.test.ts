@@ -283,6 +283,68 @@ describe('note save and promote pass in any segment, with any prefix and quoting
   });
 });
 
+// An interpreter's writes are invisible to the parser; the ledger answer line is the human's consent, so it must not be appendable unseen.
+describe('an interpreter that names the run directory is not allowed silently', () => {
+  const route = (headless: boolean) => ({ headless: () => headless });
+  const headlessRun = (command: string) =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', scratchpad_dir: '/s', tool_input: { command } }, '/p', route(true)) as Output;
+  const appenders = [
+    `python3 -c "open('.ambicode/tasks/t/ledger.jsonl','a').write('{}')"`,
+    `python -c "open('.ambicode/reviews/r/ledger.jsonl','a').write('{}')"`,
+    `node -e "require('fs').appendFileSync('.ambicode/tasks/t/ledger.jsonl', '{}')"`,
+    `perl -e 'open F, ">>.ambicode/tasks/t/ledger.jsonl"; print F "{}"'`,
+    `ruby -e "File.write('.ambicode/tasks/t/ledger.jsonl', '{}', mode: 'a')"`,
+    `bash -c 'echo {} >> .ambicode/tasks/t/ledger.jsonl'`,
+    `cd /repo && env PYTHONPATH=x /usr/bin/python3.12 -c "open('.ambicode/tasks/t/ledger.jsonl','a')"`,
+    `python3 - <<'EOF'\nopen('.ambicode/tasks/t/ledger.jsonl','a').write('{}')\nEOF`,
+    // A wrapper runs the interpreter, so it is not the command name.
+    `timeout 5 python3 -c "open('.ambicode/tasks/t/ledger.jsonl','a').write('{}')"`,
+    `nohup python3 -c "open('.ambicode/tasks/t/ledger.jsonl','a').write('{}')"`,
+    `echo {} | xargs sh -c 'echo "$0" >> .ambicode/tasks/t/ledger.jsonl'`,
+    `awk 'BEGIN{print "{}" > ".ambicode/tasks/t/ledger.jsonl"}'`,
+    `pypy3 -c "open('.ambicode/tasks/t/ledger.jsonl','a').write('{}')"`,
+    // ripgrep's --pre runs a program on every file.
+    'rg --pre python3 x .ambicode/tasks/t',
+  ];
+  for (const command of appenders) {
+    it(`asks interactively and denies headless: ${JSON.stringify(command).slice(0, 60)}`, () => {
+      const out = bash(command);
+      assert.equal(decisionOf(out), 'ask');
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /cannot tell what this runs/);
+      assert.equal(decisionOf(headlessRun(command)), 'deny');
+    });
+  }
+  for (const command of [
+    'node /p/scripts/ambicode.mjs route start task',
+    'node "/p/scripts/ambicode.mjs" check --task t --name unit --from .ambicode/tasks/t/plan.md',
+    'node --no-warnings "/p/scripts/ambicode.mjs" check --task t --name unit --from .ambicode/tasks/t/plan.md',
+    'python3 -c "print(1)"',
+    'node -e "console.log(2)" && cat .ambicode/config.yaml',
+    'python3 scripts/build.py',
+    'cat .ambicode/tasks/t/ledger.jsonl',
+    // A reader that cannot run a program may search for an interpreter's name.
+    'grep -n "node" .ambicode/tasks/x/plan.md',
+    'rg perl .ambicode/reviews/r/1/notes.md',
+    'grep -rn "python" .ambicode/tasks/x/',
+    'egrep "bash|awk" .ambicode/tasks/x/plan.md | head -5',
+    'rg -n python .ambicode/tasks/x',
+  ]) {
+    it(`leaves alone: ${command.slice(0, 60)}`, () => assert.deepEqual(bash(command), {}));
+  }
+  // An interpreter read of a task file is no reason to end a headless route: the retry names the Read tool.
+  it('headless, an interpreter read of a task file is denied with a retry and no route-stop instruction', () => {
+    for (const command of ['bash -c "cat .ambicode/tasks/x/plan.md"', `python3 -c "print(open('.ambicode/tasks/x/plan.md').read())"`]) {
+      const out = headlessRun(command);
+      assert.equal(decisionOf(out), 'deny', command);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /Read tool/);
+      assert.doesNotMatch(out.hookSpecificOutput!.permissionDecisionReason, /route stop/);
+    }
+  });
+  it('headless, an interpreter beside another ask still stops the route', () => {
+    assert.match(headlessRun('bash -c "cat .ambicode/tasks/x/plan.md"; git push').hookSpecificOutput!.permissionDecisionReason, /route stop/);
+  });
+});
+
 describe('the task-directory message names a command that runs as written', () => {
   it('substitutes the plugin root the hook was given', () => {
     const out = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: '.ambicode/tasks/x/p.md' } }, '/opt/plugin') as Output;
@@ -455,5 +517,35 @@ describe('the reviewer subagent may write only its answer file', () => {
   it('no longer reads the reviewer Bash calls: it has no Bash tool, so they are the main session rule', () => {
     assert.deepEqual(bash('ls', { agent_type: 'ambicode:reviewer' }), {});
     assert.equal(decisionOf(bash('git commit -m x', { agent_type: 'ambicode:implementer' })), 'ask');
+  });
+});
+
+describe('the plan-critic subagent may write only its answer file', () => {
+  const ANSWER = '/repo/.ambicode/tasks/ORD-17/steps/critic-answer.json';
+  const file = (tool_name: string, file_path: string, agent_type = 'ambicode:plan-critic') =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name, tool_input: { file_path }, agent_type }) as Output;
+
+  it('lets it Write critic-answer.json in its task steps folder, plugin-named or not', () => {
+    assert.deepEqual(file('Write', ANSWER), {});
+    assert.deepEqual(file('Write', ANSWER, 'plan-critic'), {});
+  });
+
+  it('refuses the plan, a source file, a look-alike path and every other tool with the reason', () => {
+    for (const [tool, target] of [
+      ['Write', '/repo/.ambicode/tasks/ORD-17/plan.md'], ['Write', '/repo/src/a.ts'], ['Write', '/repo/.ambicode/tasks/ORD-17/ledger.jsonl'],
+      ['Write', '/repo/.ambicode/tasks/ORD-17/steps/critic-answer.json.bak'], ['Write', '/repo/critic-answer.json'], ['Write', '/repo/.ambicode/tasks/ORD-17/steps/x/critic-answer.json'],
+      ['Write', '/repo/.ambicode/reviews/r-1/1/answer.json'], ['Edit', ANSWER], ['MultiEdit', ANSWER],
+    ] as const) {
+      const out = file(tool, target);
+      assert.equal(decisionOf(out), 'deny', `${tool} ${target}`);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /plan critic writes only .*critic-answer\.json/, `${tool} ${target}`);
+    }
+  });
+
+  it('leaves the reviewer rule as it was: it still may not write the critic answer, and the main session is still told to use note save', () => {
+    assert.equal(decisionOf(file('Write', ANSWER, 'ambicode:reviewer')), 'deny');
+    assert.match(file('Write', ANSWER, 'ambicode:reviewer').hookSpecificOutput!.permissionDecisionReason, /reviewer writes only/);
+    const main = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: ANSWER } }) as Output;
+    assert.match(main.hookSpecificOutput!.permissionDecisionReason, /note save/);
   });
 });

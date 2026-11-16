@@ -5,7 +5,7 @@ import type { GuardInput, GuardState } from '../types/guard.ts';
 import { isAbsolute, normalize } from './paths.ts';
 import { noteSaveReason, RUN_DIR } from './rules/notes.ts';
 import { repositoryAsk, USER_DECIDES } from './rules/repository.ts';
-import { REVIEWER_AGENT, reviewerRefusal } from './rules/reviewer.ts';
+import { answererRefusal } from './rules/reviewer.ts';
 
 type Decision = Record<string, unknown>;
 
@@ -18,6 +18,10 @@ const FILE_TOOLS = /^(?:Write|Edit|MultiEdit|NotebookEdit)$/;
 // Expansions are not parsed, so a command nested in one is matched by its text.
 const NESTED = /\$\(|`|<\(/;
 const DANGEROUS = /\bgit\s+(?:\S+\s+)*?(?:commit|push|stash|reset|checkout|clean|rebase|merge|branch)\b|\bglab\s+mr\b|\.ambicode\/(?:tasks|reviews)/;
+// Commands that run code the parser cannot read: `-c`/`-e` strings, scripts, heredocs (python3.12 etc. by the digits).
+const INTERPRETER = /^(?:python[\d.]*|pypy[\d.]*|nodejs|node|deno|bun|perl|ruby|php|awk|gawk|mawk|sh|bash|zsh|dash)$/;
+const READER = /^(?:grep|egrep|fgrep|cat|head|tail|wc|ls)$/;
+const READ_RETRY = 'To read a file under .ambicode/, use the Read tool; the run directory is written only by the plugin CLI. Run it again without the interpreter.';
 const NESTED_REASON = 'AMBICODE: cannot read a command inside $(...) or backticks; approve only if requested.';
 
 const NAME_PATH = 'Name the path literally (or use the Write tool) and run it again.';
@@ -32,7 +36,8 @@ const DIRECTORY_CHANGE = /^(?:cd|pushd|popd)$/;
  * Per segment: git/glab state changes ask; a literal write target under the task directory denies; a target only the
  * shell can resolve asks, never denies (G14). A literal `cd` is followed, and ends with its `( … )` subshell; a
  * relative target asks when it would be under the task directory from a directory before a `cd` (which may fail), or
- * after a `cd` only the shell resolves. Heredoc bodies are never tokenised, so a `note save` body is not inspected (M12).
+ * after a `cd` only the shell resolves. An interpreter in a command that names the task directory asks: its writes are
+ * not parsed (the CLI is not one). Heredoc bodies are never tokenised, so a `note save` body is not inspected (M12).
  */
 function bashDecision(command: string, cwd: string | undefined, pluginRoot: string, headless: boolean): Decision {
   // An ask maps to its retry hint when it is about the command's form, not a permission: a headless route can retry it.
@@ -44,6 +49,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
   const outer: { dir: string | undefined; priors: number; lost: boolean }[] = [];
   let why: string | undefined;
   const mentionsRunDir = command.includes('.ambicode');
+  const namesRunDir = /\.ambicode\/(?:tasks|reviews)/.test(command);
   for (const segment of segments) {
     while (outer.length < segment.depth) outer.push({ dir, priors: prior.length, lost });
     while (outer.length > segment.depth) {
@@ -61,6 +67,12 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
     if (segment.opaque[0] === true && /[$`]/.test(name)) asks.set(`${UNSURE} \`${segment.argv[0]!}\` names a command only when the shell expands it.`, WRITE_OUT);
     const repository = repositoryAsk(segment, name);
     if (repository !== null) asks.set(repository, null);
+    // An interpreter's writes are not parsed, and a wrapper (`timeout 5 python3`, `xargs sh -c`) hides it from `name`. The parser
+    // strips `node …/ambicode.mjs` to its script, so the plugin's own CLI is skipped.
+    // A reader that cannot run a program only names an interpreter as a search word (`rg --pre` runs one).
+    const reads = READER.test(name) || (name === 'rg' && !segment.argv.some((word) => /^--pre(?:=|$)/.test(word)));
+    const interpreter = name === 'ambicode.mjs' || reads || !namesRunDir ? undefined : segment.argv.map(basename).find((word) => INTERPRETER.test(word));
+    if (interpreter !== undefined) asks.set(`${UNSURE} \`${interpreter}\` can run code that writes any file, and the command names the run directory, which only the plugin's CLI writes.`, READ_RETRY);
     for (const target of segment.writeTargets) {
       const path = normalize(target.path, dir);
       // An unresolved target can only land in .ambicode/ if the command text names it.
@@ -92,10 +104,8 @@ function fileDecision(input: GuardInput, pluginRoot: string): Decision {
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (typeof file !== 'string' || file === '') return {};
   const target = normalize(file, nonEmpty(input.cwd) ?? undefined);
-  if (typeof input.agent_type === 'string' && REVIEWER_AGENT.test(input.agent_type)) {
-    const refusal = reviewerRefusal(input.tool_name, target);
-    return refusal === null ? {} : decide('deny', refusal);
-  }
+  const refusal = typeof input.agent_type === 'string' ? answererRefusal(input.agent_type, input.tool_name, target) : undefined;
+  if (refusal !== undefined) return refusal === null ? {} : decide('deny', refusal);
   return RUN_DIR.test(target) ? decide('deny', noteSaveReason(pluginRoot)) : {};
 }
 

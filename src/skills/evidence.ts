@@ -7,12 +7,10 @@ import type { Handler } from '#types/harness';
 
 /** `evidence.*` adapters over step 02's writers; they take the ledger the engine already holds. */
 export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
-  /** Run after `script(plan-check, accept)`: the check it just recorded is the unverified count the accepted plan carries. */
   'evidence.plan.accept': async (input) => {
     const { ledger, runtime, view, context } = input;
-    const check = (await chainEntries(input)).findLast((entry) => entry.kind === 'worker' && entry['worker'] === 'plan-check');
     try {
-      await acceptPlan({ runtime, session: view.session, context, ledger }, view.task, (check?.['summary'] as { anchorsBad?: number } | undefined)?.anchorsBad ?? 0);
+      await acceptPlan({ runtime, session: view.session, context, ledger }, view.task);
       return { state: 'ok', payload: null };
     } catch (error) {
       return failed(error);

@@ -17,8 +17,8 @@ const repositoryRoot = REPO_ROOT;
 const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
   'investigate/SKILL.md': 3_400,
-  // plan 1,800 -> 3,200 (3,115 B) and task 1,700 -> 3,000 (2,638 B): the user's scope change of 2026-10-26 moved work strategy into the SKILL.md, which rides in the user message outside the hook budget.
-  'plan/SKILL.md': 3_200,
+  // plan 1,800 -> 3,200 and task 1,700 -> 3,000 (2,638 B): the user's scope change of 2026-10-26 moved work strategy into the SKILL.md, which rides in the user message outside the hook budget. plan 3,200 -> 3,400 (3,302 B): the user, 2026-11-14, to keep the draft wording instead of trimming it.
+  'plan/SKILL.md': 3_400,
   'review/SKILL.md': 1_000,
   'task/SKILL.md': 3_000,
   // A setup-time skill, never on a per-call path: this ceiling is about discipline, not per-call cost.

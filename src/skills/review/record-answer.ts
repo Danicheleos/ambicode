@@ -20,7 +20,7 @@ export const ANSWER_FILE = 'answer.json';
 interface RecordedReview { reviewId: string; resultPath: string; reportPath: string; result: ReviewResult }
 
 // A reviewer may send a draft block before its final one.
-const candidates = (raw: string): string[] => {
+export const candidates = (raw: string): string[] => {
   const blocks = [...raw.matchAll(FENCE)].map((match) => match[1]!.trim()).reverse();
   return blocks.length === 0 ? [raw.trim()] : blocks;
 };

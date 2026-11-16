@@ -266,7 +266,11 @@ function toSegment(chunk: Chunk): Segment {
       while (at < words.length && (words[at]!.text.startsWith('-') || ASSIGNMENT.test(words[at]!.text))) at += /^-[Cu]$/.test(words[at]!.text) ? 2 : 1;
     } else break;
   }
-  if (basename(words[at]?.text ?? '') === 'node' && basename(words[at + 1]?.text ?? '') === 'ambicode.mjs') at++;
+  if (basename(words[at]?.text ?? '') === 'node') {
+    let script = at + 1;
+    while (words[script]?.text.startsWith('-')) script++;
+    if (basename(words[script]?.text ?? '') === 'ambicode.mjs') at = script;
+  }
   const argv = words.slice(at);
   const writeTargets = [...chunk.targets, ...argumentTargets(argv)].map(({ text, opaque }) => ({ path: text, opaque }));
   return {

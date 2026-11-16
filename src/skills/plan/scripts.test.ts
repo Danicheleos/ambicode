@@ -6,9 +6,9 @@ import { planFixture, PLAN_TASK } from '#testing/fixtures/plan-fixture';
 import { materialized } from '#testing/fixtures/materialized';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
-import { fencedRanges, planSectionsOf } from '#modules/evidence/task/iterations';
+import { fencedRanges } from '#modules/evidence/task/iterations';
 
-async function check(root: string, body: string | null, params: string[] = [], ticket: string[] = []) {
+async function check(root: string, body: string | null) {
   const steps = path.join(root, '.ambicode/tasks/t/steps');
   await mkdir(steps, { recursive: true });
   if (body !== null) await writeFile(path.join(steps, '..', 'plan.md'), body);
@@ -18,92 +18,62 @@ async function check(root: string, body: string | null, params: string[] = [], t
     timeoutMs: 30_000,
     maxOutputBytes: 65_536,
     env: { kind: 'inherited' },
-    stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false, planSections: planSectionsOf(body ?? ''), planFences: fencedRanges(body ?? ''), captured: await Promise.all(ticket.map(async (content, at) => { const file = path.join(root, `r${at}.json`); await writeFile(file, JSON.stringify({ key: `r${at}`, content })); return { key: `r${at}`, path: file }; })) }),
+    stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params: [], revise: null, raisedBy: null, headless: false, planFences: fencedRanges(body ?? '') }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[]; requirements?: string[]; requirementsBad?: number; requirementsChecked?: boolean; requirementsReason?: string; } }[]; failed?: { code: string; message: string; recoverable?: boolean; revise?: unknown } };
+  const out = JSON.parse(outcome.stdout) as { entries: { worker?: string; summary?: unknown }[]; payload?: string; failed?: { code: string; message: string; recoverable?: boolean; revise?: unknown } };
+  // `entries` keeps the anchor rows; the claims row and list are read through `claims` and `payload`.
+  return { ...out, entries: out.entries.filter((entry) => entry.worker !== 'plan-claims'), claims: out.entries.find((entry) => entry.worker === 'plan-claims')?.summary as { claims: number; unbacked: number; uncitedMap: number | null } | undefined };
 }
 
 describe('skills/plan/scripts/plan-check.mjs', () => {
-  it('accepts anchors that exist, rejects a missing file and a line past the end, and ignores fenced code', async () => {
+  it('a body that was never written fails as plan-body-missing with the path to write, not a crash (a rejected Write once left exit 1 and a lost stack)', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
-      const good = await check(root, '# Plan\n\n`src/invoices/service.ts:3-6` and `src/invoices/service.ts:3`\n');
-      assert.equal(good.failed, undefined);
-      assert.equal(good.entries[0]!.summary.anchorsBad, 0);
-      const bad = await check(root, '# Plan\n\n`src/invoices/service.ts:900` `src/nope.ts:1` `../outside.ts:1`\n\n```\nsrc/ignored.ts:1\n```\n');
-      assert.equal(bad.failed?.code, 'plan-check-failed');
-      assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
-      assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
-      assert.equal(bad.failed?.revise, undefined, 'a failed check is recorded, never sent back');
+      const out = await check(root, null);
+      assert.equal(out.failed?.code, 'plan-body-missing');
+      const where = path.join(root, '.ambicode/tasks/t/plan.md');
+      assert.ok(out.failed!.message.includes(where), out.failed!.message);
+      assert.equal(out.failed!.revise, undefined);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('a version or an address followed by a line number is not an anchor', async () => {
+  it('a bad anchor is not a failure: paths are resolved, not checked', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
-      const out = await check(root, '# Plan\n\nPin v1.2:3, see 10.0.0.1:80 and 2.4.1:12, but `src/invoices/service.ts:3` is real and `src/nope.ts:1` is not.\n');
-      assert.deepEqual(out.entries[0]!.summary.anchors, ['src/nope.ts:1 missing-file']);
+      const out = await check(root, '# Plan\n\n`src/invoices/service.ts:900` `src/nope.ts:1` `../outside.ts:1`\n');
+      assert.equal(out.failed, undefined);
+      assert.deepEqual(out.entries, []);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('a body that was never written fails both modes as plan-body-missing with the path to write, not a crash (a rejected Write once left exit 1 and a lost stack)', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      for (const params of [[], ['resolve']]) {
-        const out = await check(root, null, params);
-        assert.equal(out.failed?.code, 'plan-body-missing');
-        const where = path.join(root, '.ambicode/tasks/t/plan.md');
-        assert.ok(out.failed!.message.includes(where), out.failed!.message);
-        assert.equal(out.failed!.revise, undefined);
-      }
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a bad anchor fails the check with the listed anchors in the summary, and a coverage table is not checked', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const bad = await check(root, '# Plan\n\n`src/invoices/service.ts:3-6` `src/invoices/service.ts:999`\n\n| requirement | section | code |\n|---|---|---|\n| totals | Iteration 1 | |\n');
-      assert.equal(bad.failed?.code, 'plan-check-failed');
-      assert.equal(bad.entries[0]!.summary.anchorsBad, 1);
-      assert.match(bad.failed!.message, /1 bad anchors: src\/invoices\/service\.ts:999 line-out-of-range/);
-      assert.equal(bad.entries[0]!.summary.anchors?.length, 1);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('an anchor inside a ~~~ fence is neither checked nor resolved, as in a ``` fence', async () => {
+  it('an anchor inside a ~~~ fence is not resolved, as in a ``` fence', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       const plan = '# Plan\n\n~~~\nsrc/ignored.ts:1\ninvoices.ts:1\n~~~\n';
-      assert.equal((await check(root, plan)).entries[0]!.summary.anchorsBad, 0);
-      assert.deepEqual((await check(root, plan, ['resolve'])).entries, []);
+      assert.deepEqual((await check(root, plan)).entries, []);
       assert.equal(await readFile(path.join(root, '.ambicode/tasks/t/plan.md'), 'utf8'), plan);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('resolve completes a partial path naming one tracked file and leaves an ambiguous or missing one to the check', async () => {
+  it('completes a partial path naming one tracked file and leaves an ambiguous or missing one as written', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       const steps = path.join(root, '.ambicode/tasks/t/steps');
-      const resolved = await check(root, '# Plan\n\n`invoices.ts:1` and `invoices/service.ts:3-6`\n', ['resolve']);
+      const resolved = await check(root, '# Plan\n\n`invoices.ts:1` and `invoices/service.ts:3-6`\n');
       assert.match(JSON.stringify(resolved.entries), /invoices\.ts:1 → src\/routes\/invoices\.ts:1; invoices\/service\.ts:3-6 → src\/invoices\/service\.ts:3-6/);
       assert.equal(await readFile(path.join(steps, '..', 'plan.md'), 'utf8'), '# Plan\n\n`src/routes/invoices.ts:1` and `src/invoices/service.ts:3-6`\n');
-      const after = await check(root, await readFile(path.join(steps, '..', 'plan.md'), 'utf8'));
-      assert.equal(after.failed, undefined);
+      assert.deepEqual((await check(root, await readFile(path.join(steps, '..', 'plan.md'), 'utf8'))).entries, []);
       // The run that failed: a bare name two files share, in a plan that anchors one of their directories.
-      await check(root, '# Plan\n\n`src/invoices/model.ts:1`; same throw style as `service.ts:4`\n', ['resolve']);
+      await check(root, '# Plan\n\n`src/invoices/model.ts:1`; same throw style as `service.ts:4`\n');
       assert.equal(await readFile(path.join(steps, '..', 'plan.md'), 'utf8'), '# Plan\n\n`src/invoices/model.ts:1`; same throw style as `src/invoices/service.ts:4`\n');
-      const kept = await check(root, '# Plan\n\n`service.ts:3` `invoices.ts:900` `nope.ts:1`\n', ['resolve']);
+      const kept = await check(root, '# Plan\n\n`service.ts:3` `invoices.ts:900` `nope.ts:1`\n');
       assert.deepEqual(kept.entries, []);
       assert.equal(await readFile(path.join(steps, '..', 'plan.md'), 'utf8'), '# Plan\n\n`service.ts:3` `invoices.ts:900` `nope.ts:1`\n');
     } finally {
@@ -111,49 +81,16 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     }
   });
 
-  it('a bare name that is not a path at the root lists its tracked homes in the bad-anchor reply, and a name nobody tracks lists none', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const bad = await check(root, '# Plan\n\n`service.ts:4` `nope.ts:1`\n');
-      assert.match(bad.entries[0]!.summary.anchors![0]!, /^service\.ts:4 ambiguous \(candidates: .*src\/invoices\/service\.ts/);
-      assert.equal(bad.entries[0]!.summary.anchors![1], 'nope.ts:1 missing-file');
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  // k12 1094: `round.py:152` named two tracked files and was reported as missing-file.
-  it('a bare name several tracked files share is ambiguous and lists every candidate, a name with one tracked home stays missing-file', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const homes = ['src/domain/round/round.py', 'src/adapters/round.py', 'src/api/round.py', 'src/cli/round.py', 'src/lib/only.py'];
-      for (const home of homes) {
-        await mkdir(path.dirname(path.join(root, home)), { recursive: true });
-        await writeFile(path.join(root, home), 'x = 1\n');
-      }
-      const git = await new NodeProcessRunner().run({ argv: ['git', 'add', ...homes], cwd: root, timeoutMs: 30_000, maxOutputBytes: 65_536, env: { kind: 'inherited' }, stdin: '' });
-      assert.equal(git.exitCode, 0, git.stderr);
-      const bad = await check(root, '# Plan\n\n`round.py:152` `only.py:900`\n');
-      const [ambiguous, single] = bad.entries[0]!.summary.anchors!;
-      assert.match(ambiguous!, /^round\.py:152 ambiguous \(candidates: /);
-      for (const home of homes.slice(0, 4)) assert.ok(ambiguous!.includes(home), `${home} missing from: ${ambiguous}`);
-      assert.equal(single, 'only.py:900 missing-file (tracked: src/lib/only.py)');
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
   // jvm-chill: the model wrote `domain/src/test/.../GerminationRulesTest.kt:10-12`; exactly one tracked file fits, and resolve returned nothing.
-  it('resolve expands an elided path to the one tracked file between its prefix and suffix, and keeps an ambiguous, missing or out-of-range one for the check', async () => {
+  it('expands an elided path to the one tracked file between its prefix and suffix, and keeps an ambiguous, missing or out-of-range one as written', async () => {
     const root = await materialized('jvm-gradle-seedvault');
     try {
       const steps = path.join(root, '.ambicode/tasks/t/steps');
-      const resolved = await check(root, '# Plan\n\n`domain/src/test/.../GerminationRulesTest.kt:10-12`\n', ['resolve']);
+      const resolved = await check(root, '# Plan\n\n`domain/src/test/.../GerminationRulesTest.kt:10-12`\n');
       assert.match(JSON.stringify(resolved.entries), /domain\/src\/test\/\.\.\.\/GerminationRulesTest\.kt:10-12 → domain\/src\/test\/[\w/]+GerminationRulesTest\.kt:10-12/);
-      const after = await check(root, await readFile(path.join(steps, '..', 'plan.md'), 'utf8'));
-      assert.equal(after.failed, undefined);
+      assert.deepEqual((await check(root, await readFile(path.join(steps, '..', 'plan.md'), 'utf8'))).entries, []);
       const kept = '# Plan\n\n`domain/.../GerminationRulesTest.kt:9000` `domain/.../Nope.kt:1` `.../build.gradle.kts:1`\n';
-      assert.deepEqual((await check(root, kept, ['resolve'])).entries, []);
+      assert.deepEqual((await check(root, kept)).entries, []);
       assert.equal(await readFile(path.join(steps, '..', 'plan.md'), 'utf8'), kept);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
@@ -161,185 +98,181 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
   });
 
   // 9 of 10 audited plan-check failures were the form of the path, not a missing file.
-  it('resolve rewrites an absolute path inside the repository and one led by the repository directory name, and keeps a bad one for the check', async () => {
+  it('rewrites an absolute path inside the repository and one led by the repository directory name, and keeps a bad one as written', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       const steps = path.join(root, '.ambicode/tasks/t/steps');
       const name = path.basename(root);
-      const resolved = await check(root, `# Plan\n\n\`${root}/src/invoices/service.ts:3-6\` and \`${name}/src/invoices/service.ts:3\`\n`, ['resolve']);
+      const resolved = await check(root, `# Plan\n\n\`${root}/src/invoices/service.ts:3-6\` and \`${name}/src/invoices/service.ts:3\`\n`);
       assert.equal(await readFile(path.join(steps, '..', 'plan.md'), 'utf8'), '# Plan\n\n`src/invoices/service.ts:3-6` and `src/invoices/service.ts:3`\n');
       assert.match(JSON.stringify(resolved.entries), /resolved: /);
-      assert.equal((await check(root, await readFile(path.join(steps, '..', 'plan.md'), 'utf8'))).failed, undefined);
       const bad = `# Plan\n\n\`${root}/src/invoices/service.ts:900\` \`${name}/src/nope.ts:1\` \`/etc/hosts.txt:1\`\n`;
-      await check(root, bad, ['resolve']);
+      await check(root, bad);
       assert.equal(await readFile(path.join(steps, '..', 'plan.md'), 'utf8'), bad);
-      const checked = await check(root, bad);
-      assert.equal(checked.entries[0]!.summary.anchorsBad, 3);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('runs as the plan-check step: the failure is recorded and the route goes on to the gate', async () => {
-    const plan = await planFixture({ shipped: true });
-    try {
-      await plan.start();
-      await plan.body('# Plan\n\n`src/orders/limit.ts:99`\n');
-      const back = await plan.next();
-      assert.equal(back.position, 'plan-accept');
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
-describe('plan-check requirements word for word', () => {
-  const TICKET = 'The report lists every overdue invoice with its customer name.\nExports   keep the **column order** of the screen.';
-  const plan = (...entries: string[]) => `# Plan\n\n## Requirements\n\n${entries.map((entry) => `- ${entry} (Iteration 1)`).join('\n')}\n\n## Iteration 1: x\n`;
-  const run = async (body: string, ticket: string[] = [TICKET]) => {
-    const root = await materialized('ts-feature-boundary');
-    try { return (await check(root, body, [], ticket)).entries[0]!.summary; } finally { await rm(path.dirname(root), { recursive: true, force: true }); }
-  };
-
-  it('a paraphrased entry is a miss showing the plan entry and the closest ticket sentence, recorded without a redraft', async () => {
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const out = await check(root, plan('"The report shows all invoices that are overdue, with customer names"'), [], [TICKET]);
-      const summary = out.entries[0]!.summary;
-      assert.equal(summary.requirementsBad, 1);
-      assert.equal(summary.requirements?.length, 1);
-      assert.equal(summary.requirements![0], 'requirement not word for word: plan "The report shows all invoices that are overdue, with customer names" vs ticket "The report lists every overdue invoice with its customer name."');
-      assert.equal(summary.anchorsBad, 0);
-      assert.equal(out.failed?.revise, undefined);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a long piece and a long ticket line are shown whole, and every missed requirement and bad anchor is listed (eval ledgers: 4 runs with >3 anchors, 12 with >3 requirements, 8 clipped at 240)', async () => {
-    const long = `${'long ticket sentence '.repeat(20)}end.`;
-    const names = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
-    const body = `# Plan\n\n${names.map((n) => `\`src/${n}.ts:1\``).join(' ')}\n\n## Requirements\n\n${names.map((n) => `- "${n} ${long} changed"`).join('\n')}\n\n## Iteration 1: x\n`;
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const out = await check(root, body, [], [long]);
-      const message = out.failed!.message;
-      assert.match(message, /^5 bad anchors, 5 requirements not word for word: /);
-      for (const n of names) {
-        assert.ok(message.includes(`src/${n}.ts:1 missing-file`), `${n} anchor listed`);
-        assert.ok(message.includes(`"${n} ${long} changed"`), `${n} requirement whole`);
-      }
-      assert.ok(out.entries[0]!.summary.requirements![0]!.includes(`vs ticket "${long}"`), 'closest ticket line whole');
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('12 bad anchors and 12 paraphrased requirements are all in the message and the summary', async () => {
-    const names = Array.from({ length: 12 }, (_, at) => `n${at}`);
-    const body = `# Plan\n\n${names.map((n) => `\`src/${n}.ts:1\``).join(' ')}\n\n## Requirements\n\n${names.map((n) => `- "${n} paraphrase"`).join('\n')}\n\n## Iteration 1: x\n`;
-    const root = await materialized('ts-feature-boundary');
-    try {
-      const out = await check(root, body, [], ['the ticket says something else entirely']);
-      assert.match(out.failed!.message, /^12 bad anchors, 12 requirements not word for word: /);
-      for (const n of names) assert.ok(out.failed!.message.includes(`src/${n}.ts:1 missing-file`) && out.failed!.message.includes(`"${n} paraphrase"`), `${n} is listed`);
-      assert.equal(out.entries[0]!.summary.anchors!.length, 12);
-      assert.equal(out.entries[0]!.summary.requirements!.length, 12);
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a verbatim entry passes, as does one that differs only in case, whitespace, emphasis or backticks', async () => {
-    const summary = await run(plan('"The report lists every overdue invoice with its customer name."', '"exports keep the `column order` of the   screen."', '"Exports keep the column order"'));
-    assert.equal(summary.requirementsBad, 0);
-    assert.equal(summary.requirementsChecked, true);
-    assert.equal(summary.failed, false);
-  });
-
-  it('an unquoted bullet is checked as written without its trailing iteration note', async () => {
-    const summary = await run('# Plan\n\n## Requirements\n- Exports keep the column order of the screen. (Iterations 1, 2)\n- Reports show overdue invoices only (Iteration 1)\n\n## Iteration 1: x\n');
-    assert.equal(summary.requirementsBad, 1);
-    assert.match(summary.requirements![0]!, /^requirement not word for word: plan "Reports show overdue invoices only" vs ticket "/);
-  });
-
-  it('an already-met note after the iteration note is stripped like it, quoted or not', async () => {
-    const summary = await run('# Plan\n\n## Requirements\n- "The report lists every overdue invoice with its customer name." (Iteration 1) (already met: src/report.ts:12)\n- Exports keep the column order of the screen. (Iteration 1) (already met: src/export.ts:3)\n\n## Iteration 1: x\n');
-    assert.equal(summary.requirementsBad, 0);
-    assert.equal(summary.requirementsChecked, true);
-  });
-
-  it('a label-prefixed quoted verbatim ticket sentence counts as word for word, with or without the label in the ticket', async () => {
-    const labelled = await run(plan('FR-NOM-1A: "The report lists every overdue invoice with its customer name."'), ['FR-NOM-1A: The report lists every overdue invoice with its customer name.']);
-    assert.equal(labelled.requirementsBad, 0);
-    assert.equal(labelled.requirementsChecked, true);
-    assert.equal((await run(plan('FR-NOM-1A: "The report lists every overdue invoice with its customer name."'))).requirementsBad, 0);
-  });
-
-  it('a bullet with quotes is checked per quoted piece: the plan prose around them (label, connectors, notes) is not checked', async () => {
-    const ticket = ['The report lists every overdue invoice with its customer name.\nExports keep the column order of the screen.\nA failed export shows a retry button.'];
-    const summary = await run(plan('Observed: "The report lists every overdue invoice" and "keep the column order" shown, alongside "A failed export shows a retry button."', '"The report lists" no longer takes district', 'FR-9: "Exports keep the column order of the screen."'), ticket);
-    assert.equal(summary.requirementsBad, 0);
-    assert.equal(summary.requirementsChecked, true);
-  });
-
-  it('a straight-quoted piece holding typographic quotes is one piece, and a straight-quoted aside after it is not read as a piece starting at the closing quote (eval 2026-11-12T08-15-04)', async () => {
-    const ticket = ['When the setting is “No,” the system shall open the screen.\nNo path.'];
-    const summary = await run('# Plan\n\n## Requirements\n\n- "When the setting is “No,” the system shall open the screen." (Iteration 2; the "No" path is the default)\n\n## Iteration 1: x\n', ticket);
-    assert.equal(summary.requirementsBad, 0);
-    assert.equal(summary.failed, false);
-  });
-
-  it('a label inside the quote is stripped from that piece, even when the ticket puts a title line between the id and the sentence', async () => {
-    const ticket = ['FR-ADV-9\n**Overdue list**\nThe report lists every overdue invoice with its customer name.'];
-    const summary = await run(plan('"FR-ADV-9: The report lists every overdue invoice with its customer name."'), ticket);
-    assert.equal(summary.requirementsBad, 0);
-  });
-
-  it('a paraphrase still misses: an unquoted reworded bullet, and a quoted piece not in the ticket (one miss per bullet, naming the missed piece)', async () => {
-    const summary = await run(plan('Reports show overdue invoices only', 'Seen: "The report lists" and "shows all invoices that are overdue" and "Exports keep"'));
-    assert.equal(summary.requirementsBad, 2);
-    assert.match(summary.requirements![1]!, /^requirement not word for word: plan "shows all invoices that are overdue" vs ticket "/);
-  });
-
-  it('a heading inside a ~~~ fence does not end ## Requirements, as the shared section rule says', async () => {
-    const summary = await run('# Plan\n\n## Requirements\n~~~md\n## Notes\n~~~\n- "Reports show overdue invoices only" (Iteration 1)\n');
-    assert.equal(summary.requirementsBad, 1);
-  });
-
-  it('resolve picks among same-name files by the directories the plan anchors outside fences, not in example text', async () => {
+  it('picks among same-name files by the directories the plan anchors outside fences, not in example text', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       const plan = '# Plan\n\n~~~\n`src/invoices/model.ts:1`\n~~~\n\nsame throw style as `service.ts:4`\n';
-      assert.deepEqual((await check(root, plan, ['resolve'])).entries, []);
+      assert.deepEqual((await check(root, plan)).entries, []);
       assert.equal(await readFile(path.join(root, '.ambicode/tasks/t/plan.md'), 'utf8'), plan);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('a bullet inside a fence within ## Requirements is example text, not a requirement', async () => {
-    for (const fence of ['~~~', '```']) {
-      const summary = await run(`# Plan\n\n## Requirements\n- "The report lists every overdue invoice with its customer name." (Iteration 1)\n${fence}md\n- "Never asked for" (Iteration 1)\n${fence}\n`);
-      assert.equal(summary.requirementsChecked, true, fence);
-      assert.equal(summary.requirementsBad, 0, fence);
+  it('lists the only/no-other claims of the plan prose with their backing, not fenced lines or ## Requirements quotes', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const plan = [
+        '# Plan', '', '## Requirements', '- "there is only one list" (Iteration 1)', '', '## Iteration 1: x', '',
+        'The only wizard auto-open today is openRequiredWizards.',
+        'No other caller of applyDiscount (Grep applyDiscount in src/, all 3 hits read). A second sentence; it has a plain one.',
+        '```', 'no caller here', '```', 'Plain here.', '- *Checks*: none',
+        'No test beside src/orders/invoice.ext (Glob src/orders/*invoice*).',
+      ].join('\n');
+      const out = await check(root, plan);
+      assert.deepEqual(out.claims, { claims: 3, unbacked: 1, uncitedMap: null });
+      assert.equal(out.payload, [
+        '## Claims to check (3)',
+        '1. plan.md:8 "The only wizard auto-open today is openRequiredWizards." — backing: none',
+        '   hits: none',
+        '2. plan.md:9 "No other caller of applyDiscount (Grep applyDiscount in src/, all 3 hits read)." — backing: (Grep applyDiscount in src/, all 3 hits read)',
+        '   hits: none',
+        '3. plan.md:15 "No test beside src/orders/invoice.ext (Glob src/orders/*invoice*)." — backing: (Glob src/orders/*invoice*)',
+        '   hits: none',
+      ].join('\n'));
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
 
-  it('an empty bullet is no entry: it neither passes through includes("") nor hides a real miss beside it', async () => {
-    const summary = await run('# Plan\n\n## Requirements\n- (Iteration 1)\n- "Reports show overdue invoices only" (Iteration 1)\n');
-    assert.equal(summary.requirementsBad, 1);
+  it('a label line is read after its `*Label*:` prefix: a Goal claim is listed, `*Checks*: none` is not', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\n- *Goal*: The only change is the page size.\n- *Checks*: none\n');
+      assert.equal(out.payload, '## Claims to check (1)\n1. plan.md:3 "The only change is the page size." — backing: none\n   hits: no identifier in the claim');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
   });
 
-  it('no captured ticket, or no entry under ## Requirements, is reported as not checked, never as passed', async () => {
-    const cases = [[await run(plan('"anything"'), []), 'no captured ticket'], [await run('# Plan\n\nno section\n'), 'no ## Requirements section'], [await run('# Plan\n\n## Requirements\n\nno bullets\n'), 'no entries under ## Requirements'], [await run('# Plan\n\n## Requirements\n- (Iteration 1)\n- ""\n'), 'no entries under ## Requirements']] as const;
-    for (const [summary, reason] of cases) {
-      assert.equal(summary.requirementsReason, reason);
-      assert.equal(summary.requirementsChecked, false);
-      assert.equal(summary.requirementsBad, undefined);
-      assert.equal(summary.failed, false);
+  it('a marker inside a backtick span or in an `only when/if/after/once/for/while` condition is no claim; `The only auto-open is X` is', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nlaunch only when the flag is false.\nOpen it only if the user asks, only after load, only once, only for admins, only while idle.\nthe helper `a only b` stays.\nThe only auto-open is X.\n');
+      assert.equal(out.payload, '## Claims to check (1)\n1. plan.md:6 "The only auto-open is X." — backing: none\n   hits: no identifier in the claim');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a claim lists the tracked lines that hold its identifiers as `path:line:` hits; a claim with none says so', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nThe only reader of amountCents is the total.\nNo handler exists for nothingAtAll_here.\nThe only thing here is plain.\n');
+      assert.match(out.payload ?? '', /"The only reader of amountCents is the total\." — backing: none\n {3}hits \(4 total, 4 shown\):\n(?: {5}.*\n)* {5}src\/invoices\/service\.ts:4: .*amountCents/);
+      assert.match(out.payload ?? '', /nothingAtAll_here\.".*\n {3}hits: none\n/);
+      assert.match(out.payload ?? '', /plain\."[^\n]*\n {3}hits: no identifier in the claim$/);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a dotted file name is an identifier, and an untracked file holds hits like a tracked one; the run folder never does', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      await writeFile(path.join(root, 'src/fresh.ts'), "import 'en.original.json';\n");
+      const out = await check(root, '# Plan\n\nOnly en.json and en.original.json are edited.\n');
+      assert.match(out.payload ?? '', /edited\."[^\n]*\n {3}hits \(1 total, 1 shown\):\n {5}src\/fresh\.ts:1: import 'en\.original\.json';$/);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a map candidate is cited by its full path or its bare file name, not by another file that ends the same', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const steps = path.join(root, '.ambicode/tasks/t/steps');
+      await mkdir(steps, { recursive: true });
+      const rows = ['src/legacy/service.ts', 'src/a.ts', 'src/routes/users.ts', 'src/invoices/model.ts'].map((file) => [file, 1, ['x']]);
+      await writeFile(path.join(steps, '1-map.md'), `l1\nl2\nl3\n${JSON.stringify({ candidates: rows })}\n`);
+      const out = await check(root, '# Plan\n\nChange `src/invoices/service.ts:3` and data.ts and `users.ts`.\nAlso src/invoices/model.ts.\n');
+      assert.equal(out.claims?.uncitedMap, 2);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a map row that does not parse gives a null uncitedMap and no map section in the payload', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const steps = path.join(root, '.ambicode/tasks/t/steps');
+      await mkdir(steps, { recursive: true });
+      await writeFile(path.join(steps, '1-map.md'), 'l1\nl2\nl3\n{"candidates":[["src/a.ts",1,["x"\n');
+      const out = await check(root, '# Plan\n');
+      assert.equal(out.claims?.uncitedMap, null);
+      assert.equal(out.payload, '## Claims to check (0)');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('counts the map candidates whose file the plan never names in the summary, null when there is no map file', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const steps = path.join(root, '.ambicode/tasks/t/steps');
+      const map = (...rows: unknown[][]) => `legend 1\nlegend 2\nlegend 3\n${JSON.stringify({ candidates: rows })}\n`;
+      await mkdir(steps, { recursive: true });
+      await writeFile(path.join(steps, '1-map.md'), map(['src/stale.ts', 1, ['x']]));
+      await writeFile(path.join(steps, '2-map.md'), map(['src/invoices/service.ts', 9, ['a'], ['3-6']], ['src/legacy/invoice-export.ts', 5, ['b'], ['10', '20-22']], ['src/reports/monthly.ts', 4, ['c']]));
+      const out = await check(root, '# Plan\n\nChange `src/invoices/service.ts:3`.\nAlso monthly.ts.\n');
+      assert.equal(out.claims?.uncitedMap, 1);
+      await rm(path.join(steps, '2-map.md'));
+      await rm(path.join(steps, '1-map.md'));
+      assert.equal((await check(root, '# Plan\n')).claims?.uncitedMap, null);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('`No spec exists`, `I found no test` and `no difference` sentences are claims', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nNo spec exists beside the service.\nI found no test for it.\nIt mirrors the old one with no difference.\nNothing calls it.\n');
+      assert.deepEqual(out.claims, { claims: 4, unbacked: 4, uncitedMap: null });
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a plan with no such sentence lists no claims', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\n`src/invoices/service.ts:3` is called by the route.\n');
+      assert.equal(out.payload, '## Claims to check (0)');
+      assert.deepEqual(out.claims, { claims: 0, unbacked: 0, uncitedMap: null });
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('runs as the plan-check step: the partial path is completed in plan.md and the route goes on to the gate', async () => {
+    const plan = await planFixture({ shipped: true });
+    try {
+      await plan.start();
+      await plan.body('# Plan\n\n`limit.ts:1`\n');
+      const next = await plan.next();
+      assert.equal(next.position, 'plan-accept');
+      assert.equal(await readFile(path.join(plan.fx.repo.root, '.ambicode/tasks', PLAN_TASK, 'plan.md'), 'utf8'), '# Plan\n\n`src/orders/limit.ts:1`\n');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).filter((entry) => entry['worker'] === 'plan-anchors').length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
+    } finally {
+      await plan.dispose();
     }
   });
 });

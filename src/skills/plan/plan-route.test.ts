@@ -13,7 +13,6 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
-const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
 
 const shipped = (): Promise<PlanFixture> => planFixture({ shipped: true });
@@ -21,6 +20,7 @@ const taskDir = (plan: PlanFixture): string => path.join(plan.fx.repo.root, '.am
 const notes = async (plan: PlanFixture, kind: string) => (await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === kind);
 const steps = async (plan: PlanFixture, step: string, status: string) => (await plan.fx.kinds(PLAN_TASK, 'step')).filter((entry) => entry['step'] === step && entry['status'] === status);
 const lastPrint = async (plan: PlanFixture) => (await plan.prints()).at(-1)!;
+const checkRuns = async (plan: PlanFixture) => (await plan.fx.kinds(PLAN_TASK, 'step')).filter((entry) => entry['step'] === 'plan-check' && entry['status'] === 'completed');
 
 /** The model's call: write the body, then `route next` runs the plan-check step. */
 async function planCheck(plan: PlanFixture, body: string) {
@@ -59,7 +59,7 @@ describe('06-R1/06-R2 the shipped plan route', { concurrency: 4 }, () => {
     const text = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8');
     assert.deepEqual(YAML.parseDocument(text).errors, []);
     const route = YAML.parse(text) as { steps: { id: string; gate?: { acting?: string[] } }[] };
-    assert.deepEqual(route.steps.map((step) => step.id), ['fetch', 'ground', 'draft', 'plan-check', 'plan-accept', 'promote']);
+    assert.deepEqual(route.steps.map((step) => step.id), ['fetch', 'ground', 'draft', 'plan-check', 'critic', 'critic-record', 'plan-accept', 'promote']);
     assert.deepEqual(route.steps.find((step) => step.id === 'plan-accept')?.gate?.acting, ['Accept', 'Revise']);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const plan = await shipped();
@@ -125,20 +125,6 @@ describe('06-R1/06-R2 the shipped plan route', { concurrency: 4 }, () => {
   });
 });
 
-describe('plan-check worker summary', { concurrency: 4 }, () => {
-  it('a plan-check worker entry read back from the ledger keeps its anchors', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan);
-      await planCheck(plan, BAD);
-      const summary = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!['summary'] as { anchors?: string[] };
-      assert.match(String(summary.anchors?.[0]), /^src\/orders\/limit\.ts:40 line-out-of-range/);
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
 describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
   it('06-P5/D1: one plan check checks once; a route next at plan-check runs the run list once', async () => {
     const plan = await shipped();
@@ -146,7 +132,7 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
       await toDesign(plan);
       const out = await planCheck(plan, GOOD);
       assert.equal(out.position, 'plan-accept');
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
+      assert.equal((await checkRuns(plan)).length, 1);
       assert.equal((await steps(plan, 'draft', 'completed')).length, 1);
       assert.equal((await lastPrint(plan))['gate'], 'plan-accept');
     } finally {
@@ -157,64 +143,13 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
       await toDesign(viaNext);
       await viaNext.body(GOOD);
       assert.equal((await viaNext.next()).position, 'plan-accept');
-      assert.equal((await viaNext.fx.kinds(PLAN_TASK, 'worker')).length, 1);
+      assert.equal((await checkRuns(viaNext)).length, 1);
     } finally {
       await viaNext.dispose();
     }
   });
 
-  it('an anchor that would be bad but sits inside a ~~~ fence is not checked by the route\'s plan-check step', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan);
-      const out = await planCheck(plan, '# Plan\n\n~~~\n`src/orders/limit.ts:999`\n~~~\n');
-      assert.doesNotMatch(out.text, /Plan check FAILED/);
-      const summary = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!['summary'] as { anchorsBad: number };
-      assert.equal(summary.anchorsBad, 0);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('06-P6: the line after the last one is an append point and passes; two past the end fails', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan);
-      const append = await planCheck(plan, '# Plan\n\n- *Changes*: `src/orders/limit.ts:3-4` `orderLimit`\n');
-      assert.doesNotMatch(append.text, /Plan check FAILED/);
-      const worker = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!;
-      assert.equal((worker['summary'] as { failed: boolean }).failed, false);
-    } finally {
-      await plan.dispose();
-    }
-    const past = await shipped();
-    try {
-      await toDesign(past);
-      const failed = await planCheck(past, '# Plan\n\n- *Changes*: `src/orders/limit.ts:5` `orderLimit`\n');
-      assert.match(failed.text, /src\/orders\/limit\.ts:5 line-out-of-range \(file has 3 lines\)/);
-    } finally {
-      await past.dispose();
-    }
-  });
-
-  it('a plan whose requirements paraphrase the ticket prints both versions at plan-accept, alone or beside bad anchors, never as "no plan body"', async () => {
-    const REQ = '# Plan\n\n## Requirements\n- "The list shows every row" (Iteration 1)\n\n';
-    for (const [body, head] of [[REQ, /Plan check FAILED: 1 requirements not word for word\./], [`${REQ}\`src/orders/limit.ts:40\`\n`, /Plan check FAILED: 1 bad anchors, 1 requirements not word for word\./]] as const) {
-      const plan = await shipped();
-      try {
-        await toDesign(plan, { text: 'The list shows all rows at once.' });
-        const out = await planCheck(plan, body);
-        assert.equal(out.position, 'plan-accept');
-        assert.match(out.text, head);
-        assert.doesNotMatch(out.text, /no plan body/);
-        assert.match(out.text, /requirement not word for word: plan "The list shows every row" vs ticket "The list shows all rows at once\."/);
-      } finally {
-        await plan.dispose();
-      }
-    }
-  });
-
-  it('a second typed request in one task is not a new requirement: it is not saved, and plan-check compares the plan against the first', async () => {
+  it('a second typed request in one task is not a new requirement: it is not saved', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan, { text: 'The list shows all rows at once.' });
@@ -223,76 +158,6 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
       assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'requirement')).map((row) => row['key']), ['request']);
       const saved = JSON.parse(await readFile(path.join(taskDir(plan), 'requirements', (await readdir(path.join(taskDir(plan), 'requirements')))[0]!), 'utf8')) as { content: string };
       assert.equal(saved.content, 'The list shows all rows at once.');
-      const out = await planCheck(plan, '# Plan\n\n## Requirements\n- "The list shows all rows at once." (Iteration 1)\n');
-      assert.doesNotMatch(out.text, /not word for word/);
-      const summary = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!['summary'] as { requirementsChecked: boolean; requirementsBad: number };
-      assert.deepEqual([summary.requirementsChecked, summary.requirementsBad], [true, 0]);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('plan-check does not take a requirement file whose content no longer matches what was recorded as the ticket', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan, { text: 'The list shows all rows at once.' });
-      const file = path.join(taskDir(plan), 'requirements', (await readdir(path.join(taskDir(plan), 'requirements')))[0]!);
-      await writeFile(file, (await readFile(file, 'utf8')).replace('all rows at once', 'every row'));
-      const out = await planCheck(plan, '# Plan\n\n## Requirements\n- "The list shows every row." (Iteration 1)\n');
-      assert.match(out.text, /requirements not checked: no captured ticket/);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a plan accepted with a requirement miss carries the miss into the report gaps', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan, { text: 'The list shows all rows at once.', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      await planCheck(plan, '# Plan\n\n## Requirements\n- "The list shows every row" (Iteration 1)\n');
-      assert.match(gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n'), /plan-check: 1 requirements not word for word: "The list shows every row"$/m);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a check that misses anchors and requirements leads its failure message with both counts, ahead of the listed anchors', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan, { text: 'The list shows all rows at once.', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      await planCheck(plan, `# Plan\n\n## Requirements\n- "The list shows every row" (Iteration 1)\n\n\`src/orders/limit.ts:40\` \`src/nowhere/a-very-long-directory-name/another-long-directory-name/file-with-a-long-name.ts:1\`\n`);
-      const gap = gapsOf(await plan.fx.ledger(PLAN_TASK)).find((line) => line.startsWith('plan-check:'))!;
-      assert.match(gap, /^plan-check: 2 bad anchors, 1 requirements not word for word: src\/orders\/limit\.ts:40 /);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a check that could not compare requirements says so at plan-accept and in the report gaps, not only in the ledger', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      const out = await planCheck(plan, '# Plan\n\nno requirements section\n');
-      assert.match(out.text, /requirements not checked: no ## Requirements section/);
-      assert.ok(gapsOf(await plan.fx.ledger(PLAN_TASK)).includes('requirements not checked: no ## Requirements section'));
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('S4 06-P6: a failed check is recorded and the route goes on to plan-accept with the bad anchors printed: one attempt, no revise', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan);
-      const failed = await planCheck(plan, BAD);
-      assert.equal(failed.position, 'plan-accept');
-      assert.match(failed.text, /Plan check FAILED: 1 bad anchors\.\nsrc\/orders\/limit\.ts:40 line-out-of-range/);
-      assert.match(failed.text, /Accept \(/);
-      assert.match(failed.text, /Revise \(/);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0, 'the check never sends the plan back');
-      assert.equal((await steps(plan, 'draft', 'completed')).length, 1);
-      const gap = gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n');
-      assert.match(gap, /plan-check: 1 bad anchors: src\/orders\/limit\.ts:40 line-out-of-range/);
     } finally {
       await plan.dispose();
     }
@@ -319,17 +184,19 @@ describe('06-P5/06-P6/06-P7 write and check', { concurrency: 4 }, () => {
       const failed = (await steps(plan, 'plan-check', 'failed'))[0]!;
       assert.equal(failed['code'], 'plan-body-missing');
       assert.ok(String(failed['message']).includes(where), String(failed['message']));
+      assert.match(sent.text, /Plan check FAILED: .* does not exist/);
+      assert.match(gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n'), /plan-check: .* does not exist/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
     } finally {
       await plan.dispose();
     }
   });
 
-  it('a human Revise after a failed check reruns draft, and the fixed draft reaches the gate with no failure line', async () => {
+  it('a human Revise after a missing body reruns draft, and the fixed draft reaches the gate with no failure line', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan);
-      assert.equal((await planCheck(plan, BAD)).position, 'plan-accept');
+      assert.equal((await plan.next()).position, 'plan-accept');
       await plan.hook('plan-accept', 'Revise', (await lastPrint(plan)).id);
       const fixed = await planCheck(plan, GOOD);
       assert.equal(fixed.position, 'plan-accept');
@@ -386,7 +253,6 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', { concurrency: 4 }, () => {
       assert.notEqual(done, null);
       const promoted = await notes(plan, 'plan');
       assert.equal(promoted.length, 1);
-      assert.equal(promoted[0]!['anchorsBad'], 0);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).length, 1);
       await assert.rejects(plan.accept(), { code: 'plan-not-accepted' });
       assert.equal((await notes(plan, 'plan')).length, 1);
@@ -451,7 +317,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', { concurrency: 4 }, () => {
       assert.equal((await notes(plan, 'plan')).length, 0);
       const file = path.join(taskDir(plan), 'plan.md');
       await writeFile(file, '---\nstatus: draft\n---\n# Plan\n\n1. Edited by the user.\n');
-      const [writes, workers] = [(await steps(plan, 'draft', 'delivered')).length, (await plan.fx.kinds(PLAN_TASK, 'worker')).length];
+      const [writes, workers] = [(await steps(plan, 'draft', 'delivered')).length, (await checkRuns(plan)).length];
       const done = await plan.hook('plan-accept', 'Accept', print.id);
       assert.equal(done.position, 'complete');
       const text = await readFile(file, 'utf8');
@@ -461,7 +327,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', { concurrency: 4 }, () => {
       assert.match(done.text, /Recorded: plan-accept: Accept; plan saved at \S+plan\.md/);
       assert.equal((await notes(plan, 'plan')).length, 1);
       assert.equal((await steps(plan, 'draft', 'delivered')).length, writes);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, workers + 1, 'Accept re-runs the anchor check on the file as it is');
+      assert.equal((await checkRuns(plan)).length, workers, 'Accept runs no check on the file');
       assert.deepEqual((await readdir(taskDir(plan))).filter((name) => name.startsWith('plan')), ['plan.md']);
     } finally {
       await plan.dispose();
@@ -527,27 +393,14 @@ describe('06-R8/06-R9/06-H4 acting authority', { concurrency: 4 }, () => {
     }
   });
 
-  it('S14 06-R9/06-H4: a check that fails reaches the gate and a trusted Accept preanswer promotes that draft, with the failure under Not verified', async () => {
-    const plan = await shipped();
-    try {
-      await toDesign(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 1);
-      await planCheck(plan, BAD);
-      assert.equal((await notes(plan, 'plan')).length, 1);
-      assert.match(gapsOf(await plan.fx.ledger(PLAN_TASK)).join('\n'), /plan-check: 1 bad anchors/);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a user-set headless run whose check fails hands the draft that still fails to the gate with the failure and no Revise', async () => {
+  it('a user-set headless run whose plan body was never written hands the gate the missing-body failure and no Revise', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan, { headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      await planCheck(plan, BAD);
+      await plan.next();
       const print = (await plan.fx.kinds(PLAN_TASK, 'gate')).findLast((entry) => entry['gate'] === 'plan-accept')!;
       assert.deepEqual(print['options'], ['Accept', 'Reject']);
-      assert.match(String(print['details']), /Plan check FAILED: 1 bad anchors\./);
+      assert.match(String(print['details']), /Plan check FAILED: .* does not exist/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).filter((entry) => entry['via'] === 'gate').length, 0);
     } finally {
       await plan.dispose();
@@ -664,7 +517,7 @@ describe('06-P9/D1 interruption', { concurrency: 4 }, () => {
       await plan.body(GOOD);
       assert.equal((await plan.next()).position, 'plan-accept');
       assert.equal((await plan.next()).position, 'plan-accept');
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
+      assert.equal((await checkRuns(plan)).length, 1);
     } finally {
       await plan.dispose();
     }

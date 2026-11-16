@@ -41,12 +41,6 @@ export function sectionEnd(plan: string, start: number, level2: readonly number[
   return level2.find((at) => at > start) ?? plan.length;
 }
 
-/** Each level-2 section of a plan as text with its offset, its heading line first: what the plan-check script reads instead of scanning the plan itself. */
-export const planSectionsOf = (plan: string): { start: number; text: string }[] => {
-  const level2 = level2Starts(plan);
-  return level2.map((at) => ({ start: at, text: plan.slice(at, sectionEnd(plan, at, level2)) }));
-};
-
 /** An iteration is done when a route covering it (start.iteration through start.through) exited `done`, however the review went; an interrupted or blocked route leaves it open. */
 export function doneIterations(entries: readonly LedgerEntry[]): Set<number> {
   const done = new Set<number>();

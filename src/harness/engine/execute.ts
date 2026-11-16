@@ -253,10 +253,12 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const headArgs = (run.head['args'] ?? {}) as RouteArgs;
     const typed = (headArgs.rawText ?? headArgs.text).trim();
     // The ticket captured as the `request` source (by any route of the task, as the envelope reads it) is delivered in the envelope: repeating it here doubled it.
+    // Only when this step delivers a non-empty envelope: a plain prose request on a non-task route has none, and the pointer would leave the text nowhere.
     const everything = await run.ledger.read();
     const captured = everything.state === 'ok' && (await latestCaptures(run.runtime.fs, run.dir, everything.entries)).get('request')?.rawHash === contentHash(typed);
-    const request = captured ? 'The ticket as typed is the `request` source under `## envelope` below.' : typed;
-    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{plan}', run.dir.plan).replaceAll('{policy}', payloadFile(run.dir, chainKey([...chainOf(run).ids]), 'policy:before-work')).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot));
+    const envelope = step.payload.some((entry) => entry === 'envelope' || entry === 'file:envelope') ? await loadPayload(run.runtime.fs, run.dir, chainKey([...chainOf(run).ids]), 'envelope') : null;
+    const request = captured && envelope !== null && envelope.trim() !== '' ? 'The ticket as typed is the `request` source under `## envelope` below.' : typed;
+    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{steps}', run.dir.steps).replaceAll('{plan}', run.dir.plan).replaceAll('{policy}', payloadFile(run.dir, chainKey([...chainOf(run).ids]), 'policy:before-work')).replaceAll('{work}', workPath(run, step)).replaceAll('{request}', request).replaceAll('{repo}', shellQuote(run.dir.repositoryRoot)).replaceAll('{root}', run.dir.repositoryRoot);
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
     // `Now:` carries the first line whole; a heading stays, it is the shape the step asks for.

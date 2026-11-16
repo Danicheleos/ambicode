@@ -14,11 +14,20 @@ steps:
     actor: model
     instruction: file:routes/plan/draft.md
     payload: ["file:envelope", map, "file:policy:before-work", context.list]
+    repeat: 2                                    # the first draft and one send-back by the plan critic; a human Revise is not limited by it
   - id: plan-check
     actor: code
-    run: ["script(plan-check, resolve)", "script(plan-check)"]
-    produces: [worker]
-    onFail: record                               # one attempt: a failed check is a Not verified line shown at plan-accept; only the human Revise goes back to draft
+    run: ["script(plan-check)"]                  # completes partial paths in the draft and lists its statements that something is the only one, does not exist, is unused or has no other caller, with search hits, for the critic (payload script:plan-check); it fails on a plan body that was not written (recoverable) or on any other read error (script-failed)
+    onFail: record                               # one attempt: a missing body is a Not verified line (printed with the accept question only in an interactive session); only the human Revise and the critic's send-back return to draft
+  - id: critic
+    actor: model
+    instruction: file:routes/plan/critic.md
+    work: file:routes/plan/critic-work.md
+    payload: ["file:envelope", "script:plan-check"]   # the claims list rides inline in the work file; the critic checks each row
+  - id: critic-record
+    actor: code
+    run: plan.critic                             # reads the critic's answer file; defects are Not verified lines at plan-accept
+    onFail: revise draft                         # interactive only: the handler fails once, to send the first draft back with the defects
   - id: plan-accept
     actor: human
     gate:
@@ -30,6 +39,6 @@ steps:
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)             # the latest answer in this step's window
-    run: ["script(plan-check, accept)", evidence.plan.accept]  # re-checks the file as it is now; bad anchors stay a count on the accepted note, never a loop back to the gate
+    run: [evidence.plan.accept]                  # accepts the file as it is now, user edits included
     onFail: revise plan-accept                    # plan-not-accepted: re-print the gate
     produces: ["note{plan}"]

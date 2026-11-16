@@ -1,6 +1,6 @@
 ---
 name: plan
-description: "Turn a request into an implementation roadmap a human accepts before /ambicode:task implements it; it never implements. Only when named (/ambicode:plan typed, or \"run ambicode:plan\" asked by the user, also for a subagent): a plain request for a plan is not this skill."
+description: "Turn a request into an implementation plan a human accepts before /ambicode:task implements it; it never implements. Only when named (/ambicode:plan typed, or \"run ambicode:plan\" asked by the user, also for a subagent): a plain request for a plan is not this skill."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(//**/.ambicode/tasks/*/plan.md), Write(//**/.ambicode/tasks/*/plan.md)
@@ -8,26 +8,19 @@ allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(//**/.ambicode/
 
 # Plan a change
 
-The arguments (they begin `$0`) are `<request-or-jira/confluence-url> [--requirement <url>]...`;
-`--requirement <url>` repeats. The plan route
-runs the steps and prints each one; follow what it prints.
-
-## Draft and accepted
-
-The plan stays a draft until the human answers the route's gate with Accept: accepted means the route recorded Accept (named in its closing line).
+The arguments (they begin `$0`) are `<request-or-jira/confluence-url> [--requirement <url>]...`; `--requirement <url>` repeats. The route runs the steps and prints each one; follow what it prints. The plan stays a draft until the human answers the accept gate with Accept: accepted means the route recorded Accept (named in its closing line). Task implements exactly what the accepted plan says, so every statement in it must hold in the code. After the draft, plan-check lists each "only" and "no other" statement with its search hits and `ambicode:plan-critic` judges them; its defects are Not verified lines, and an interactive session prints them with the accept question.
 
 ## How to plan
-
-- Size the plan to the request. A change in one place is one iteration; split only where an order matters or a piece can be reviewed and shipped alone.
-- Plan from the code, not from the request's wording. Read the places the change edits, their callers, the tests beside them, and the code that already does a similar job.
-- Stop reading when every change names a file and line you have read, each rule on where code goes is read, and every statement the plan makes about code it does not change is backed: by the `path:line` you read (what sets a value the change relies on, what each exit path does), or, for an absence, by the search and its scope, as in `no test beside src/orders/invoice.ext (Glob src/orders/*invoice*)`. A statement you cannot back is an assumption, never the premise of a Change.
-- A vague request: where it leaves a point ambiguous, choose the reading the code supports, state it as an assumption; a requirement it states is carried as written, not reinterpreted. A ticket: its points are the scope.
-- Say what changes and where in the repository's own words, and give the reason when it is not obvious.
+- Size the plan to the request: a change in one place is one iteration. Split only where order matters or a piece can be reviewed and shipped alone.
+- Plan from the code, not from the request's wording: read the places the change edits, their callers, the tests beside them, and code that already does a similar job.
+- You are done reading when every Change names a file and line you read, each rule on where code goes is read, and every statement about code the plan does not change is backed by the `path:line` you read (what sets a value the change relies on, what each exit path does). A claim that something does not exist, or that nothing else calls, reads or writes a thing, is backed by the search that would have found it, with its scope, and every hit of that search read: `no test beside src/orders/invoice.ext (Glob src/orders/*invoice*)`, `no other caller of applyDiscount (Grep applyDiscount in src/, all 3 hits read)`. A search that only shares a name does not back a claim about one symbol. An unbacked statement is an assumption and cannot be the premise of a Change.
+- A ticket's points are the scope, carried as written. Where a request is ambiguous, pick the reading the code supports and state it as an assumption.
+- Use the repository's own names, and give the reason for a change when it is not obvious.
 
 ## Boundary
 
 - **Do not edit product source, tests, configuration, or generated files:**
-  planning produces a roadmap, not a diff.
+  planning produces a plan, not a diff.
 - **Do not run project scripts, tests, selectors, or other configured
   checks:** a policy pack's `run` authorizes task and review, not planning.
 - **Do not invoke the independent reviewer:** there is no diff to review yet.

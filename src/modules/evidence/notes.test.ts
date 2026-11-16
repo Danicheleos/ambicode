@@ -168,8 +168,8 @@ class Scenario {
   deps(overrides: Partial<NoteDeps> = {}): NoteDeps {
     return { runtime: this.runtime, session: A, context: fakePort(this.repo), ...overrides };
   }
-  accept(overrides: Partial<NoteDeps> = {}, anchorsBad = 0) {
-    return acceptPlan(this.deps(overrides), TASK, anchorsBad);
+  accept(overrides: Partial<NoteDeps> = {}) {
+    return acceptPlan(this.deps(overrides), TASK);
   }
   files = async (): Promise<string[]> => (await readdir(taskDir(this.repo))).filter((name) => name.endsWith('.md')).sort();
   count = async (kind: string, note?: string): Promise<number> => (await entriesOf(this.repo)).filter((entry) => entry.kind === kind && (note === undefined || entry.note === note)).length;
@@ -194,12 +194,12 @@ describe('plan accept: the plan file, as it is when the user answers, becomes th
       const scenario = await Scenario.start(repo);
       await scenario.draft('---\nstatus: draft\ntitle: T\n---\n\n# Plan A\n');
       await scenario.answer(await scenario.gate(), 'Accept');
-      await scenario.accept({}, 2);
+      await scenario.accept();
       const text = await plan(scenario);
       assert.equal(text, '---\nstatus: accepted\ntitle: T\n---\n\n# Plan A\n');
       assert.equal(planStatusOf(text), 'accepted');
       const [note] = await planNotes(repo);
-      assert.deepEqual([note?.path, note?.contentHash, note?.anchorsBad, note?.route], [`.ambicode/tasks/${TASK}/plan.md`, contentHash(text), 2, '1']);
+      assert.deepEqual([note?.path, note?.contentHash, note?.route], [`.ambicode/tasks/${TASK}/plan.md`, contentHash(text), '1']);
       assert.deepEqual(await scenario.files(), ['plan.md']);
     });
   });

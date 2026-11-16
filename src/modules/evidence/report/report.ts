@@ -45,6 +45,15 @@ function limitGap(entry: LedgerEntry): string {
   return `Stopped${where}: ${shown(entry.which).replace(/-/g, ' ')} (${entry.count})`;
 }
 
+/** The Not verified lines of a plan-critic worker entry: one per defect and per claim it did not check, or the one saying it gave no valid answer. */
+export function criticGaps(worker: LedgerEntry | undefined): string[] {
+  const summary = worker?.summary as { defects?: { kind: string; where: string; evidence: string }[]; claims?: { n: number; verdict: string; evidence: string; where?: string }[]; unknownNs?: string[]; reason?: string } | undefined;
+  if (worker === undefined || summary === undefined) return [];
+  if (summary.defects === undefined) return [`plan critic: no valid answer: ${shown(summary.reason)}`];
+  const unchecked = (summary.claims ?? []).filter((claim) => claim.verdict === 'not-checked');
+  return [...summary.defects.map((defect) => `plan critic: ${defect.kind} ${defect.where}: ${defect.evidence}`), ...unchecked.map((claim) => `plan critic: claim not checked ${claim.where ?? `#${claim.n}`}: ${claim.evidence}`), ...[...new Set(summary.unknownNs ?? [])].map((n) => `plan critic: critic row #${shown(n)} names no listed claim`)];
+}
+
 /**
  * What the ledger says was not verified, one plain line each, from the ledger alone. `current` drops entries a later
  * revise superseded. A delivery or an exit code is no test result, so only recorded gaps are listed.
@@ -72,19 +81,13 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
     if (entry.kind === 'declined') gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}`);
     if (entry.kind === 'default-taken') gaps.push(`${shown(entry.gate)}: default taken, "${shown(entry.answer)}" (${shown(entry.via)})`);
     if (entry.gate === 'review-again' && entry.answer === 'skip') gaps.push('fix not re-reviewed');
-    if (entry.kind === 'default-taken' && entry.gate === 'plan-unaccepted' && entry.answer === 'run on the draft') gaps.push('plan run without being accepted: its anchors were not checked');
+    if (entry.kind === 'default-taken' && entry.gate === 'plan-unaccepted' && entry.answer === 'run on the draft') gaps.push('plan run without being accepted');
     if (entry.gate === 'checks-offer' && String(entry.answer).startsWith('skip') && isBoundAnswer(entry)) {
       const keys = list(entries.find((print) => print.id === entry.instance)?.['values'] && (entries.find((print) => print.id === entry.instance)!['values'] as { key?: unknown }).key);
       gaps.push(keys.length === 0 ? 'checks skipped — verification incomplete' : `checks skipped: ${keys.map(String).join(', ')} — verification incomplete`);
     }
   }
-  // Accept re-checks the file as the user left it and accepts it either way, so a bad anchor an edit added is also recorded in the last plan-check
-  // worker row; the plan note's count is what the report turns into a gap.
-  for (const entry of of('note').filter((note) => note.note === 'plan' && Number(note.anchorsBad) > 0)) gaps.push(`plan accepted with ${entry.anchorsBad} bad anchors`);
-  const planCheck = of('worker').findLast((worker) => worker.worker === 'plan-check');
-  const planSummary = (planCheck?.summary as { requirementsChecked?: boolean; requirementsReason?: string; requirementsBad?: number } | undefined);
-  if (planSummary?.requirementsChecked === false) gaps.push(`requirements not checked: ${String(planSummary.requirementsReason ?? 'no reason recorded')}`);
-  if (Number(planSummary?.requirementsBad) > 0) gaps.push(`last plan check: ${planSummary?.requirementsBad} requirements not word for word`);
+  gaps.push(...criticGaps(of('worker').findLast((worker) => worker.worker === 'plan-critic')));
   for (const entry of of('format')) if (entry.outcome !== 'formatted' && entry.outcome !== 'unconfigured') gaps.push(`not formatted: ${shown(entry.key)} (${shown(entry.outcome)})`);
 
   // stop-block is the Stop hook's own bookkeeping, not something left unverified.

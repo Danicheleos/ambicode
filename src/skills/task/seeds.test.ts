@@ -95,14 +95,13 @@ describe('a plan the task finds that was not accepted is asked about once', () =
     }
   });
 
-  it('running on the draft records the plan note with no anchor count: no check ran, so none is claimed', async () => {
+  it('running on the draft records the plan note', async () => {
     const t = await taskFixture();
     try {
       await t.fx.repo.write(PLAN, DRAFT);
       await t.start({ text: 'ord-7' });
       await t.hook('plan-unaccepted', 'run on the draft');
-      const note = (await t.kinds('note')).find((entry) => entry['note'] === 'plan')!;
-      assert.equal('anchorsBad' in note, false);
+      assert.equal((await t.kinds('note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {
       await t.fx.dispose();
     }

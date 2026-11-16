@@ -34,6 +34,26 @@ fires on its return (the client may run it in the background): the main session
 runs `route next`, and three of those without a green check release the step as
 a gap.
 
+## Plan critic
+
+The plan route's `critic` step runs the plugin subagent `agents/plan-critic.md`
+(tools `Read, Grep, Glob, Write`, model `sonnet`, effort `medium`) on a fresh context after `plan-check`
+and before the `plan-accept` gate. `plan-check` lists the plan's statements that something is the only one, does not exist,
+is unused or has no other caller, with the search that backs each (or `none`); the list is the `## script:plan-check` section of the
+critic's work file, which also names the checkout root (`root:`). `plan-check` itself runs one `git grep` from the root per claim
+(tracked and untracked files; identifiers: CamelCase, snake_case, path-like or dotted file-name tokens; at most 20 hit lines, with the total); the `plan-claims` worker summary counts the map candidates `plan.md` never mentions (`uncitedMap`, null when the map is missing or unreadable). The critic judges those hits, searches
+itself when a claim has no identifier or more hits than shown, and
+answers one `claims` row per listed claim: `holds`, `wrong` or `not-checked`. Like the reviewer it has no Bash and its one
+`Write` is its answer file, `critic-answer.json` in the task's `steps/` folder: the guard
+refuses any other file call from this agent. `route next` reads the answer
+(`plan.critic`) and records a `plan-critic` worker entry. Every defect, and a missing
+or invalid answer, is a Not verified line, as is each `not-checked` claim, a listed claim with no row (the first row of a number wins) and
+a malformed row (it costs only itself); a row naming no listed claim is ignored and noted as one line; an interactive session also prints them with the
+accept question. A `wrong` claim becomes a `claim-wrong` defect at the claim's `plan.md:L`. An interactive
+route sends the first draft back to `draft` once when a defect is `claim-wrong`,
+`requirement-uncovered` or `requirement-altered` (`plan-critic-defects`); a headless
+route only records.
+
 ## Reviewer isolation
 
 The reviewer is a plugin subagent, `agents/reviewer.md`, with the tool list

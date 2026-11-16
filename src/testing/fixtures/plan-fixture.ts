@@ -30,7 +30,6 @@ steps:
   - id: plan-check
     actor: code
     run: [t.check]
-    produces: [worker]
     onFail: revise plan-write
   - id: plan-accept
     actor: human
@@ -48,7 +47,8 @@ steps:
     produces: ["note{plan}"]
 `;
 
-interface PlanState { checkOk: boolean; checks: number; steps: number }
+/** `critic` queues what the plan-critic subagent leaves in its answer file at each critic step (null: no file); an empty queue means no defects. */
+interface PlanState { checkOk: boolean; checks: number; steps: number; critic: (string | null)[] }
 
 function planHandlers(state: PlanState): Record<string, Handler> {
   return {
@@ -58,10 +58,9 @@ function planHandlers(state: PlanState): Record<string, Handler> {
       await ledger.append({ kind: 'policy', stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 1 });
       return { state: 'ok', payload: null };
     },
-    't.check': async ({ ledger }) => {
+    't.check': async () => {
       state.checks += 1;
-      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: 1, artifact: 'workers/x.json', summary: { failed: !state.checkOk, anchorsBad: state.checkOk ? 0 : 1 } });
-      return state.checkOk ? { state: 'ok', payload: null } : { state: 'failed', code: 'plan-check-failed', message: 'bad anchors', recoverable: true };
+      return state.checkOk ? { state: 'ok', payload: null } : { state: 'failed', code: 'plan-body-missing', message: 'no plan body', recoverable: true };
     },
   };
 }
@@ -70,7 +69,10 @@ export interface PlanFixture {
   fx: RouteFixture;
   state: PlanState;
   start(input?: Partial<StartInput>): Promise<StepMessage>;
+  /** `route next`; a stop at the critic step is answered the way the plan-critic subagent would (see `PlanState.critic`) and the route advanced again. */
   next(input?: Partial<AdvanceInput>): Promise<StepMessage>;
+  /** `route next` with no stand-in for the critic: a stop at the critic step is returned. */
+  nextRaw(input?: Partial<AdvanceInput>): Promise<StepMessage>;
   hook(gate: string, option: string, instance: string | undefined, input?: Partial<AdvanceInput>): Promise<StepMessage>;
   body(text: string, task?: string): Promise<void>;
   /** The accept step, as run by `session`. */
@@ -84,12 +86,12 @@ export interface PlanFixture {
 /** The shipped `routes/plan/plan.yaml` with its step texts and the real handlers; `state` is then left untouched. */
 async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
   const step: Record<string, string> = {};
-  for (const name of ['investigate/fetch', 'plan/draft']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['investigate/fetch', 'plan/draft', 'plan/critic', 'plan/critic-work']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   return { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8'), step, handlers: skillHandlers() };
 }
 
 export async function planFixture(options: { extra?: Record<string, string>; handlers?: Record<string, Handler>; config?: string; shipped?: boolean } = {}): Promise<PlanFixture> {
-  const state: PlanState = { checkOk: true, checks: 0, steps: 0 };
+  const state: PlanState = { checkOk: true, checks: 0, steps: 0, critic: [] };
   const shipped = options.shipped === true ? await shippedRoute() : null;
   const fx = await routeFixture({
     routes: { plan: shipped?.plan ?? PLAN, ...(options.extra ?? {}) },
@@ -103,7 +105,15 @@ export async function planFixture(options: { extra?: Record<string, string>; han
   }
   const start = (input: Partial<StartInput> = {}) =>
     fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: PLAN_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
-  const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const nextRaw = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const next = async (input: Partial<AdvanceInput> = {}): Promise<StepMessage> => {
+    const message = await nextRaw(input);
+    if (message.position !== 'critic' || shipped === null) return message;
+    const file = path.join(fx.repo.root, '.ambicode', 'tasks', PLAN_TASK, 'steps', 'critic-answer.json');
+    const answer = state.critic.length > 0 ? state.critic.shift()! : '{"defects":[]}';
+    if (answer !== null) await writeFile(file, answer);
+    return nextRaw();
+  };
   const body = async (text: string, task = PLAN_TASK): Promise<void> => {
     const file = path.join(fx.repo.root, '.ambicode', 'tasks', task, 'plan.md');
     await mkdir(path.dirname(file), { recursive: true });
@@ -114,10 +124,11 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     state,
     start,
     next,
+    nextRaw,
     hook: (gate, option, instance, input = {}) =>
       next({ cause: 'gate-hook', answers: [{ gate, option, ...(instance === undefined ? {} : { instance }) }], ...input }),
     body,
-    accept: (session = SESSION_A) => acceptPlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK, 0),
+    accept: (session = SESSION_A) => acceptPlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
     async toGate(input = {}) {
       await start(input);
       await body('# Plan\n\n1. Do it.\n');

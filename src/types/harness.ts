@@ -68,6 +68,7 @@ export const HANDLER_NAMES = [
   'policy.stage',
   'policy.enabled',
   'context.list',
+  'plan.critic',
   'evidence.plan.accept',
   'evidence.report',
   'task.start',

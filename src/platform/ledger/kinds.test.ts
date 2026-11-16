@@ -51,7 +51,7 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   format: { valid: { key: 'web/format', files: [], exit: 0, outcome: 'formatted' }, invalid: { key: 'web/format', files: [], exit: null, outcome: 'skipped' } },
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
   worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
-  note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', anchorsBad: 0 }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
+  note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x' }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
   init: { valid: { what: 'config validate', outcome: 'ok' }, invalid: { what: 'config validate' } },
 };
 const common = { id: '9', at: '2026-10-05T10:00:00.000Z' };
@@ -99,6 +99,20 @@ describe('the 22 ledger kinds', () => {
   it('a requirement row written with the old `capture` field still parses and keeps it', () => {
     const parsed = parseEntry({ ...common, kind: 'requirement', key: 'ORD-17', via: 'mcp', rawHash: 'sha256:x', bytes: 10, relation: 'asked', capture: 'full' });
     assert.equal(parsed.ok && parsed.entry['capture'], 'full');
+  });
+
+  it('a plan-claims worker row keeps `uncitedMap`, a number or null, and still parses without it', () => {
+    const row = (summary: object) => parseEntry({ ...common, kind: 'worker', worker: 'plan-claims', outcome: 'ran', ms: 5, artifact: null, summary });
+    for (const uncitedMap of [18, null]) {
+      const parsed = row({ claims: 3, unbacked: 1, uncitedMap });
+      assert.deepEqual(parsed.ok && parsed.entry['summary'], { claims: 3, unbacked: 1, uncitedMap });
+    }
+    assert.equal(row({ claims: 3, unbacked: 1 }).ok, true);
+  });
+
+  it('a plan-critic worker row from before the claims rows (only `defects`) still parses, with the claim fields defaulted', () => {
+    const parsed = parseEntry({ ...common, kind: 'worker', worker: 'plan-critic', outcome: 'ran', ms: 5, artifact: null, summary: { defects: [] } });
+    assert.deepEqual(parsed.ok && parsed.entry['summary'], { defects: [], claims: [], unknownRows: 0, unknownNs: [] });
   });
 
   it('02-K5: a field outside the schema is preserved on read and grants nothing', () => {

@@ -426,7 +426,7 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
 /** Plain words are searched only while fewer terms than this are live. Counting identifier-shaped tokens instead (same 3) left a ticket of dead ids without its words; 10-case bench F1 .411 -> .411, suite files 0/7 -> 2/7. */
 const PLAIN_LIVE_ENOUGH = 3;
 const IDENTIFIER = /[_./-]|\p{Ll}\p{Lu}/u;
-/** Like pairs with like (`"…"`, `“…”`, a backtick pair, `'…'`, `‘…’`): a straight opener with a curly closer is no quote, as in skills/plan/scripts/plan-check.mjs. */
+/** Like pairs with like (`"…"`, `“…”`, a backtick pair, `'…'`, `‘…’`): a straight opener with a curly closer is no quote. */
 const QUOTED = /"([^"\n]{3,60})"|“([^”\n]{3,60})”|`([^`\n]{3,60})`|(?<![\p{L}\p{N}])'([^'\n]{3,60})'(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])‘([^’\n]{3,60})’(?![\p{L}\p{N}])/gu;
 const COMPOUND = /[-/]/;
 const TICKET_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+$/;

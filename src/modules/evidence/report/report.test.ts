@@ -12,27 +12,12 @@ const review = (reviewId: string, findings: number, fields: object = {}): Ledger
 const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
 
 describe('gapsOf: checks never claim more than the ledger says', () => {
-  it('a plan accepted with bad anchors is not verified; one accepted with none is not listed', () => {
-    const plan = (anchorsBad: number) => entry('note', { note: 'plan', path: 'p.md', contentHash: 'h', anchorsBad });
-    assert.deepEqual(gapsOf([plan(2)]), ['plan accepted with 2 bad anchors']);
-    assert.deepEqual(gapsOf([plan(0)]), []);
-  });
-
-  it('a plan-check worker that found requirements not word for word is a gap', () => {
-    const worker = entry('worker', { worker: 'plan-check', outcome: 'ran', ms: 1, artifact: null, summary: { failed: true, anchorsBad: 0, requirementsChecked: true, requirementsBad: 3 } });
-    assert.deepEqual(gapsOf([worker]), ['last plan check: 3 requirements not word for word']);
-  });
-
   it('a task run on a draft plan says the plan was not accepted; stopping on it lists nothing', () => {
     const answer = (option: string, kind = 'default-taken') => entry(kind, { route: 'r', gate: 'plan-unaccepted', instance: null, answer: option, via: 'headless' });
-    assert.deepEqual(gapsOf([answer('run on the draft')]), ['plan-unaccepted: default taken, "run on the draft" (headless)', 'plan run without being accepted: its anchors were not checked']);
-    assert.deepEqual(gapsOf([answer('run on the draft')].map((row) => ({ ...row, via: 'unanswered' }))), ['plan-unaccepted: default taken, "run on the draft" (unanswered)', 'plan run without being accepted: its anchors were not checked'], 'an unanswered print took the draft unasked: the gap shows for any via');
+    assert.deepEqual(gapsOf([answer('run on the draft')]), ['plan-unaccepted: default taken, "run on the draft" (headless)', 'plan run without being accepted']);
+    assert.deepEqual(gapsOf([answer('run on the draft')].map((row) => ({ ...row, via: 'unanswered' }))), ['plan-unaccepted: default taken, "run on the draft" (unanswered)', 'plan run without being accepted'], 'an unanswered print took the draft unasked: the gap shows for any via');
     assert.deepEqual(gapsOf([answer('run on the draft', 'acceptance')]), [], 'a user who chose to run on the draft accepted it: no gap');
     assert.deepEqual(gapsOf([answer('stop', 'acceptance')]), []);
-  });
-
-  it('a plan note with no anchor count claims nothing', () => {
-    assert.deepEqual(gapsOf([entry('note', { note: 'plan', path: 'p.md', contentHash: 'h' })]), []);
   });
 
 
@@ -46,11 +31,11 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
 
   it('a recorded step failure and drafts that failed their check are not verified; a failed step with no record is not', () => {
     const gaps = gapsOf([
-      entry('step', { route: 'r', step: 'plan-check', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'plan-check-failed', message: '1 bad anchors: a.ts:9 missing-file' }),
+      entry('step', { route: 'r', step: 'plan-check', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'plan-body-missing', message: 'plan.md does not exist' }),
       entry('step', { route: 'r', step: 'scan', actor: 'code', status: 'failed', cause: 'route-next', code: 'script-failed', message: 'crashed' }),
       entry('policy', { route: 'r', stage: 'drafts', path: 'd', contentHash: 'h', drafts: [], errors: 2 }),
     ]);
-    assert.deepEqual(gaps, ['plan-check: 1 bad anchors: a.ts:9 missing-file', 'rules drafts: 2 check errors']);
+    assert.deepEqual(gaps, ['plan-check: plan.md does not exist', 'rules drafts: 2 check errors']);
   });
 
   it('a recorded step failure message longer than 160 characters reaches the gaps whole', () => {
@@ -60,14 +45,12 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
     assert.deepEqual(gaps, [`scan: ${message}`]);
   });
 
-  it('a requirements reason and merge request fetch errors longer than 160 characters reach the gaps whole', () => {
+  it('merge request fetch errors longer than 160 characters reach the gaps whole', () => {
     const long = `${'a long line of tool output; '.repeat(8)}end`;
     assert.ok(long.length > 160);
     const gaps = gapsOf([
-      entry('worker', { route: 'r', worker: 'plan-check', summary: { failed: false, anchorsBad: 0, requirementsChecked: false, requirementsReason: long } }),
       entry('step', { route: 'r', step: 'mr-fetch', actor: 'code', status: 'completed', cause: 'route-next', commitsError: long, discussionsError: long }),
     ]);
-    assert.ok(gaps.includes(`requirements not checked: ${long}`));
     assert.ok(gaps.includes(`merge request commits not fetched: ${long}`));
     assert.ok(gaps.includes(`existing merge request discussions not fetched: ${long}`));
   });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { KINDS, type ArtifactRef } from '#types/modules/evidence';
+import { PlanCriticSummary } from '#types/modules/plan';
 export type Kind = (typeof KINDS)[number];
 
 /** The entry's 1-based position in its ledger, as a decimal string. */
@@ -78,12 +79,17 @@ const schemas = [
   }),
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
-    summary: z.object({ failed: z.boolean(), anchorsBad: count, anchors: z.array(text).optional(), requirementsChecked: z.boolean().optional(), requirementsBad: count.optional(), requirementsReason: text.optional(), requirements: z.array(text).optional() }).optional(),
+    summary: z.union([
+      z.object({ failed: z.boolean(), anchorsBad: count, anchors: z.array(text).optional() }),
+      PlanCriticSummary,
+      z.object({ claims: count, unbacked: count, uncitedMap: count.nullable().optional() }),
+      z.object({ reason: text }),
+    ]).optional(),
   }),
   entry('init', { what: text, outcome: text }),
   entry('note', {
     note: z.enum(['investigation', 'plan', 'notes', 'result', 'changed', 'report']), path: text, contentHash: text,
-    iteration: z.number().int().min(1).optional(), anchorsBad: count.optional(),
+    iteration: z.number().int().min(1).optional(),
   }),
 ] as const;
 

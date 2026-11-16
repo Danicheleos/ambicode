@@ -78,6 +78,11 @@ A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `not
 or `glab mr` state change and a
 write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
 decides, so do not rephrase the command to avoid the question.
+An interpreter (`python`, `pypy`, `node`, `deno`, `bun`, `perl`, `ruby`, `php`, `awk`, `sh`, `bash`, …) named
+anywhere in a command, behind any wrapper, that also names `.ambicode/tasks/` or `.ambicode/reviews/` asks too, because
+its writes cannot be read. `grep`, `cat`, `head`, `tail`, `wc`, `ls` and `rg` (without `--pre`) are exempt: they only
+read. In a headless route the ask is denied with a retry: read the file with the Read tool, and the run directory is
+written only through the plugin's own CLI.
 `plan.md` of a task is writable only while the task's live route is a plan
 route; no live route, another skill's route, or an unreadable ledger is denied.
 

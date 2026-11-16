@@ -35,7 +35,7 @@ function ledger(): LedgerEntry[] {
     entry('envelope', { route: 'P', sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [] }),
     print,
     entry('acceptance', { route: 'P', gate: 'decision:scope', instance: print.id, answer: 'UI only', via: 'hook' }),
-    entry('step', { route: 'P', step: 'plan-check', status: 'failed', recorded: true, message: '1 bad anchors: src/orders/gone.ts:3 missing-file' }),
+    entry('step', { route: 'P', step: 'plan-check', status: 'failed', recorded: true, message: 'plan.md does not exist' }),
     entry('note', { route: 'P', note: 'plan', path: PLAN, contentHash: 'h' }),
     exit('P', 'done', { complete: true }),
 
@@ -89,11 +89,11 @@ describe('summary.md reads like a result, not an audit trail', () => {
     for (const dropped of [/Map/, /Baseline/, /Navigation/, /Revisions/, /built from the args text/, /rev-\d/, /0 candidates/, /dirty/, /\(historical\)/, /## Evidence/]) assert.doesNotMatch(text, dropped);
   });
 
-  it('states every gap once: a limit, an unverified plan anchor, and no formatter configured, nothing from the superseded stop', async () => {
+  it('states every gap once: a limit, a missing plan body, and no formatter configured, nothing from the superseded stop', async () => {
     const text = await renderSummary('ord-17', ledger(), read);
     const verified = text.slice(text.indexOf('## Not verified'));
     assert.equal(verified.match(/Checks kept failing during the change: stopped after 5 attempts/g)?.length, 1);
-    assert.equal(verified.match(/plan-check: 1 bad anchors/g)?.length, 1);
+    assert.equal(verified.match(/plan-check: plan.md does not exist/g)?.length, 1);
     assert.doesNotMatch(verified, /app\/unit/, 'the red run of iteration 2 was passed by its next run');
     assert.doesNotMatch(verified, /unconfigured|not formatted/);
     assert.equal(text.match(/no formatter configured/gi)?.length, 1);

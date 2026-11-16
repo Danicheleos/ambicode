@@ -57,11 +57,11 @@ const body = (anchor: string): string =>
   ].join('\n');
 
 describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
-  it('06-H2/06-P10: under the real ledger lock, start → draft → decision → failing check is recorded and shown at the gate → human Revise → fixed check → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
+  it('06-H2/06-P10: under the real ledger lock, start → draft → decision → gate → human Revise → redraft → gate → Accept promotes, with 1 + N + 1 ceremony calls and one work command per write', async () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
-      for (const name of ['investigate/fetch', 'plan/draft']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      for (const name of ['investigate/fetch', 'plan/draft', 'plan/critic', 'plan/critic-work']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
       const engine = assembled.build(skillHandlers());
       const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
@@ -75,6 +75,10 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const check = async (text: string) => {
         work += 1;
         await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'plan.md'), text);
+        const checked = await engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: scratchpad });
+        if (checked.position !== 'critic') return checked;
+        // The plan-critic subagent's stand-in: no defects.
+        await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', 'critic-answer.json'), '{"defects":[]}');
         return engine.advance({ task: TASK, cause: 'route-next', scratchpadDir: scratchpad });
       };
 
@@ -92,12 +96,11 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
 
       await hook('Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']);
 
-      const failing = await check(body('src/invoices/service.ts:30'));
-      assert.equal(failing.position, 'plan-accept');
-      assert.match(failing.text, /Plan check FAILED: 1 bad anchors\.\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
-      assert.doesNotMatch(failing.text, /not cited|policy citations/);
-      const failedPrint = (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
-      await hook(`Accept this plan? [ambicode gate plan-accept ${failedPrint.id}]`, 'Revise', ['Accept', 'Revise', 'Reject']);
+      const first = await check(body('src/invoices/service.ts:3'));
+      assert.equal(first.position, 'plan-accept');
+      assert.doesNotMatch(first.text, /not cited|policy citations/);
+      const firstPrint = (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
+      await hook(`Accept this plan? [ambicode gate plan-accept ${firstPrint.id}]`, 'Revise', ['Accept', 'Revise', 'Reject']);
       const passing = await check(body('src/invoices/service.ts:3-6'));
       assert.equal(passing.position, 'plan-accept');
       assert.doesNotMatch(passing.text, /Plan check FAILED/);
@@ -109,7 +112,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const entries = await ledger();
       console.log(entries.map((entry) => `${entry.kind}${entry.kind === 'step' ? ` ${entry['step']}:${entry['status']}` : ''}${typeof entry['gate'] === 'string' ? ` ${entry['gate']}` : ''}${typeof entry['via'] === 'string' ? ` via:${entry['via']}` : ''}`).join('\n'));
       const plan = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan');
-      assert.ok(plan !== undefined && plan['anchorsBad'] === 0);
+      assert.ok(plan !== undefined);
       assert.equal((await readdir(path.join(root, '.ambicode', 'tasks', TASK))).filter((name) => name === 'plan.md').length, 1);
       const decision = entries.find((entry) => entry.kind === 'acceptance' && entry['gate'] === 'decision:discount-order');
       assert.equal(decision?.['via'], 'hook');
@@ -118,7 +121,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const writes = 2;
       assert.equal(ceremony, 1 + decisions + 1 + 1, 'one more for the human Revise');
       assert.equal(work, writes);
-      assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes + 1, 'one check per write, one more when Accept re-checks the file');
+      assert.equal(entries.filter((entry) => entry.kind === 'step' && entry['step'] === 'plan-check' && entry['status'] === 'completed').length, writes, 'one plan-check per write, none when Accept takes the file');
       await rm(scratchpad, { recursive: true, force: true });
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
