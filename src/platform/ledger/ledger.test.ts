@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { withLedgerLock } from './ledger-lock.ts';
-import { appendLedger, MAX_ENTRY_BYTES, readLedger, readLedgerStrict, WARN_LEDGER_BYTES } from './ledger.ts';
+import { appendLedger, readLedger, readLedgerStrict } from './ledger.ts';
 import { SRC_ROOT } from '#testing/paths';
 import { LEDGER_FILE } from '#types/modules/evidence';
 
@@ -64,31 +64,6 @@ describe('the task ledger is append-only evidence', () => {
       const second = await appendLedger(nodeFileSystem, directory, NOW, { kind: 'note', id: '99', at: 'never' });
       assert.ok((await readFile(path.join(directory, LEDGER_FILE), 'utf8')).startsWith(before));
       assert.deepEqual([second.entry.id, second.entry.at], ['2', NOW.toISOString()]);
-    });
-  });
-
-  it('02-A3: 16,384 bytes are accepted and 16,385 are refused with nothing written', async () => {
-    await inDirectory(async (directory) => {
-      const sized = async (bytes: number) => {
-        const probe = JSON.stringify({ id: '1', at: NOW.toISOString(), kind: 'note', pad: '' });
-        return appendLedger(nodeFileSystem, directory, NOW, { kind: 'note', pad: 'x'.repeat(bytes - Buffer.byteLength(probe)) });
-      };
-      await assert.rejects(sized(MAX_ENTRY_BYTES + 1), { code: 'ledger-entry-too-large' });
-      assert.deepEqual(await readLedger(nodeFileSystem, directory), []);
-      const accepted = await sized(MAX_ENTRY_BYTES);
-      assert.equal(Buffer.byteLength(JSON.stringify(accepted.entry)), MAX_ENTRY_BYTES);
-      assert.equal(accepted.ledgerBytes, MAX_ENTRY_BYTES + 1);
-    });
-  });
-
-  it('02-A4: the result carries a warning naming a separate task from 1 MiB on, and the append still succeeds', async () => {
-    await inDirectory(async (directory) => {
-      const small = await appendLedger(nodeFileSystem, directory, NOW, { kind: 'note' });
-      assert.equal(small.warning, null);
-      await writeFile(path.join(directory, LEDGER_FILE), '\n'.repeat(WARN_LEDGER_BYTES - 20));
-      const big = await appendLedger(nodeFileSystem, directory, NOW, { kind: 'note' });
-      assert.ok(big.ledgerBytes >= WARN_LEDGER_BYTES);
-      assert.match(big.warning ?? '', /--task ORD-17-2/);
     });
   });
 });

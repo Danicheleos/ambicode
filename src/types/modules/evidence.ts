@@ -2,8 +2,6 @@ import type { TypedEntry } from '#platform/ledger/kinds';
 import type { Runtime } from '../composition.ts';
 import type { CommandContext } from '../harness.ts';
 
-export const MAX_NOTE_BYTES = 262_144;
-
 export interface NoteDeps {
   runtime: Runtime;
   session: string | null;
@@ -59,7 +57,7 @@ export const NOTE_KINDS = {
   result: { stem: 'result', stamped: true },
   /** One implementer round's `Changed:`/`Gaps:` message, saved by the SubagentStop hook. */
   changed: { stem: 'changed', stamped: true },
-  /** The task report the implementer wrote as its final message: one file per task, the latest route's. */
+  /** The task report the implementer saved with `note save` at the closing step: one file per task, the latest route's. */
   report: { stem: 'report', stamped: false },
 } as const;
 

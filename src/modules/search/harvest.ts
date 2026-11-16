@@ -6,7 +6,6 @@ import type { FileSystem } from '#types/platform/ports';
 import { COMMON_NAMES, type Declaration } from '#types/modules/search';
 
 const MIN_NAME = 3;
-const MAX_SIGNATURE = 120;
 const EXPORT_LINE = /^\s*export\b/;
 const HAS_EXPORT = /^\s*export\b/m;
 /** Several declarations can share a line (`export const A = 1; export function b() {}`). */
@@ -35,7 +34,7 @@ export function declarationsInText(file: string, text: string): Omit<Declaration
         if (!BEFORE_KEYWORD.test(`${line.slice(0, match.index).split(STATEMENT_END).at(-1)} `.trimStart())) continue;
         if (name === undefined || name.length < MIN_NAME || COMMON_NAMES.has(name) || seen.has(`${name}:${index}`)) continue;
         seen.add(`${name}:${index}`);
-        found.push({ name, kind: kindOf(line), path: file, line: index + 1, signature: line.trim().slice(0, MAX_SIGNATURE) });
+        found.push({ name, kind: kindOf(line), path: file, line: index + 1 });
       }
     }
   });
@@ -63,7 +62,7 @@ export async function harvest(fs: FileSystem, root: string, files: readonly stri
   return found.map((declaration) => ({ ...declaration, declarations: filesPerName.get(declaration.name)!.size }));
 }
 
-/** Project-wide declarations of the names: the files containing each as a whole word, harvested. Used by `refs` and the review bundle. */
+/** Project-wide declarations of the names: the files containing each as a whole word, harvested. Used by `refs`. */
 export async function declarationsOf(git: Git, fs: FileSystem, names: readonly string[], pathspec: string | null): Promise<Declaration[]> {
   const files = await git.grepWords(names, pathspec);
   return (await harvest(fs, git.options.repositoryRoot, files)).filter((declaration) => names.includes(declaration.name));

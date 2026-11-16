@@ -174,16 +174,4 @@ describe('the note and report commands', () => {
       assert.doesNotMatch(cli(repo, ['report', '--task', 'ORD-17']).stdout, /ambicode report/);
     });
   });
-
-  it('02-A4: a ledger of 1 MiB warns on standard error, naming a separate task, and the save still succeeds', async () => {
-    await inRepo(async (repo) => {
-      const dir = path.join(repo.root, '.ambicode/tasks/ORD-17');
-      await mkdir(dir, { recursive: true });
-      await writeFile(path.join(dir, 'ledger.jsonl'), '\n'.repeat(1_048_576));
-      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'notes', '--json'], 'x');
-      assert.equal(out.status, 0);
-      assert.match(out.stderr, /--task ORD-17-2/);
-      assert.equal(JSON.parse(out.stdout).command, 'note save');
-    });
-  });
 });

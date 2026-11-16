@@ -142,7 +142,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     requirementCoverage: [],
     omissions: [
       ...[
-        ...(preexisting.size === 0 ? [] : [`not covered: pre-existing changes: ${[...preexisting].sort().slice(0, 10).join(', ')}${preexisting.size > 10 ? ` (+${preexisting.size - 10} more)` : ''}`]),
+        ...(preexisting.size === 0 ? [] : [`not covered: pre-existing changes: ${[...preexisting].sort().join(', ')}`]),
         ...narrowed('only paths', onlyPaths, 'were reviewed. Everything else the change touches is unexamined.'),
       ].map(attention),
       ...[

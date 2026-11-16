@@ -7,7 +7,7 @@ import type { Handler, HandlerResult } from '#types/harness';
 
 const NAME = /^[\w-]+$/;
 // `route next` runs inside the model's Bash tool call (default timeout 120 s); the script must time out first so the error with its last stage and Retry/Give up lines reaches the user, with ~20 s left for the rest of the step.
-// 60 s killed the review brief step on Windows (1m0.47s); the in-process related-file scan now takes about 1 s on a 4.9k-file checkout (commit 639109f8).
+// 60 s killed the review brief step on Windows (1m0.47s), when the brief still scanned the repository; it now reads the ledger, result.json, changed.diff, plan-iteration.md, the mr-*.json files, the policy payload and the saved map, and scans nothing.
 const TIMEOUT_MS = 100_000;
 const ANSI = /\u001b\[[0-9;]*m/g;
 

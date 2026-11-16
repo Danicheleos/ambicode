@@ -50,7 +50,7 @@ export function parseOnError(file: string, where: string, text: string): OnError
   return { kind: 'stop', reason: reason as Exit };
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'mr.requirements', 'requirements.missing', 'estimate.asks', 'estimate.run', 'map.empty', 'iteration.named', 'iteration.unnamed', 'review.offered', 'review.unasked', 'checks.auto', 'checks.offer', 'task.seeded', 'task.unseeded', 'revised'];
+const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'mr.requirements', 'requirements.missing', 'estimate.asks', 'estimate.run', 'map.empty', 'iteration.named', 'iteration.unnamed', 'review.offered', 'review.unasked', 'checks.auto', 'checks.offer', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();
@@ -69,14 +69,10 @@ export const RawGate = z.strictObject({
   default: z.string().min(1),
   onAnswer: z.record(z.string(), z.string()).optional(),
   free: z.boolean().optional(),
-  repeat: z.number().int().min(1).optional(),
   acting: z.array(z.string()).optional(),
   object: z.string().optional(),
   policy: z.record(z.string(), z.literal('stop')).optional(),
 });
-
-/** Human revises a gate allows before it declines the next one; 3 was the default of every shipped gate but init's. */
-const DEFAULT_GATE_REPEAT = 3;
 
 export function normalizeGate(file: string, id: string, cls: GateDef['class'], raw: z.infer<typeof RawGate>, kinds: readonly string[]): GateDef {
   const where = `gate ${id}`;
@@ -99,7 +95,6 @@ export function normalizeGate(file: string, id: string, cls: GateDef['class'], r
     acting: [...acting],
     onAnswer,
     free: raw.free === true || onAnswer['*'] !== undefined,
-    repeat: raw.repeat ?? DEFAULT_GATE_REPEAT,
     object: raw.object === undefined ? null : parseQualified(file, `${where}.object`, raw.object, kinds),
     policy: raw.policy ?? {},
   };

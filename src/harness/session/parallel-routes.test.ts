@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { STALE_ROUTE_MS, liveRouteOf } from './active-route.ts';
+import { liveRouteOf } from './active-route.ts';
 import { rm, writeFile } from 'node:fs/promises';
 import { investigation } from '#testing/fixtures/owner-fixture';
 
@@ -48,11 +48,11 @@ describe('parallel routes in one session', () => {
     try {
       await inv.start({ task: 'a', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
       await inv.start({ task: 'b', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
-      assert.equal(await liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION, inv.fx.runtime.clock.now()), null);
+      assert.equal(await liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION), null);
       await inv.start({ task: 'c', session: SESSION, channel: 'hook', scratchpadDir: inv.scratchpad(SESSION) });
       // c's start (hook) ended a and b; a later CLI start by a subagent leaves c the main session's own route.
       await inv.start({ task: 'd', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
-      assert.equal((await liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION, inv.fx.runtime.clock.now()))?.task, 'c');
+      assert.equal((await liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION))?.task, 'c');
     } finally {
       await inv.dispose();
     }
@@ -69,31 +69,18 @@ describe('parallel routes in one session', () => {
       await inv.dispose();
     }
   });
-  it('a live route idle past the stale bound does not silence the hooks, and the next start closes it', async () => {
+  it('idle time never retires a live route: hours later the hooks still stay out of two, and a CLI start closes none', async () => {
     const inv = await investigation();
     try {
-      const live = () => liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION, inv.fx.runtime.clock.now());
+      const live = () => liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION);
       await inv.start({ task: 'a', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
       await inv.start({ task: 'b', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
-      assert.equal(await live(), null, 'two fresh live routes: the hooks stay out of both');
-      inv.fx.advanceClock(STALE_ROUTE_MS - 60_000);
+      inv.fx.advanceClock(10 * 60 * 60 * 1000);
       await inv.fx.engine.advance({ task: 'b', cause: 'route-next', scratchpadDir: inv.scratchpad(SESSION) });
-      inv.fx.advanceClock(120_000);
-      assert.equal((await live())?.task, 'b', 'a is past the bound, b was active inside it');
+      assert.equal(await live(), null, 'a idle for 10 h is still one of two live routes');
       await inv.start({ task: 'c', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
-      assert.deepEqual(await exits(inv, 'a'), ['interrupted'], 'a start closes the abandoned sibling');
-      assert.deepEqual(await exits(inv, 'b'), [], 'a sibling inside the bound is parallel work and stays');
-    } finally {
-      await inv.dispose();
-    }
-  });
-
-  it('a lone live route is never hidden by its age', async () => {
-    const inv = await investigation();
-    try {
-      await inv.start({ task: 'a', session: SESSION, channel: 'cli', scratchpadDir: inv.scratchpad(SESSION) });
-      inv.fx.advanceClock(10 * STALE_ROUTE_MS);
-      assert.equal((await liveRouteOf(inv.fx.runtime.fs, inv.fx.repo.root, SESSION, inv.fx.runtime.clock.now()))?.task, 'a');
+      assert.deepEqual(await exits(inv, 'a'), []);
+      assert.deepEqual(await exits(inv, 'b'), []);
     } finally {
       await inv.dispose();
     }

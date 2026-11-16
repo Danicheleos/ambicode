@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { CHECK_CONFIG } from '#testing/fixtures/check-fixture';
 import { gapsOf } from '#modules/evidence/report/report';
@@ -125,19 +127,24 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
       const fix = await green(t);
       assert.equal(fix.position, 'fix');
       const work = await t.work('fix');
-      assert.match(work, /app\/unit/);
-      assert.match(work, /expected 0 received NaN/);
+      const red = (await t.kinds('check')).findLast((entry) => entry['exit'] === 1)!;
+      const file = String(red['output']);
+      assert.ok(work.includes(`app/unit exited non-zero: exit 1; ${String(red['bytes'])} bytes of output in ${file}`), work);
+      assert.doesNotMatch(work, /expected 0 received NaN/, 'the work file points at the output, it does not carry it');
+      const saved = await readFile(path.join(t.fx.repo.root, file), 'utf8');
+      assert.ok(saved.includes(FAIL));
+      assert.equal(red['bytes'], Buffer.byteLength(saved));
       assert.doesNotMatch(work, /app\/typecheck/, 'a green key is not part of the fix');
       const after = await green(t);
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'", "jest 'src/orders.ts'", 'tsc --noEmit'], 'the second run is the red key alone');
       assert.deepEqual(await gateNames(t), ['checks-again'], 'a second round is a question; headless takes the default without asking');
       assert.equal((await t.kinds('default-taken'))[0]?.['answer'], REPORT_GAP);
-      assert.ok(gapsOf(await t.ledger()).some((gap) => /^app\/unit: last run exited 1.*expected 0 received NaN/s.test(gap)), gapsOf(await t.ledger()).join('\n'));
+      assert.ok(gapsOf(await t.ledger()).some((gap) => /^app\/unit: last run: exit 1; \d+ bytes of output in \.ambicode\/tasks\/ord-7\/checks\/app-unit_\d+\.log$/.test(gap)), gapsOf(await t.ledger()).join('\n'));
       assert.doesNotMatch(after.text, /^$/);
     });
   });
 
-  it('a long red check tail reaches the revise args whole, with its FAIL line', async () => {
+  it('a long red check output reaches the implementer whole in its file; the revise args carry the path, not the text', async () => {
     await withTask(async (t) => {
       const trailer = `${'at frame '.repeat(300)}end-of-trace\n`;
       t.runner.outFor = (command) => (command.startsWith('jest') ? { exitCode: 1, stdout: `${FAIL}${trailer}` } : null);
@@ -145,8 +152,14 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
       await t.edit();
       await green(t);
       const args = (await t.kinds('revise')).find((entry) => entry['reason'] === 'scope-checks: checks-red')?.['args'] as Record<string, string[]> | undefined;
+      const lines = args?.['Failing checks'] ?? [];
       assert.ok(trailer.length > 1500);
-      assert.match(args?.['Failing checks']?.join('\n') ?? '', /FAIL src\/orders\.spec\.ts\n {2}expected 0 received NaN\n(at frame )+end-of-trace/);
+      assert.equal(lines.length, 1);
+      assert.ok(lines[0]!.length < 300, lines[0]);
+      const red = (await t.kinds('check')).findLast((entry) => entry['exit'] === 1)!;
+      const file = String(red['output']);
+      assert.equal(lines[0], `app/unit exited non-zero: exit 1; ${String(red['bytes'])} bytes of output in ${file}`);
+      assert.ok((await readFile(path.join(t.fx.repo.root, file), 'utf8')).includes(`${FAIL}${trailer}`), 'the whole output, first line to the end of the trace');
     });
   });
 
@@ -174,7 +187,7 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
     await withTask(async (t) => {
       await toSecondRound(t);
       await t.hook('checks-again', REPORT_GAP);
-      assert.ok(gapsOf(await t.ledger()).some((gap) => /^app\/unit: last run exited 1/.test(gap)), 'never reported as clean');
+      assert.ok(gapsOf(await t.ledger()).some((gap) => /^app\/unit: last run: exit 1; /.test(gap)), 'never reported as clean');
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'blocked');
     });
   });

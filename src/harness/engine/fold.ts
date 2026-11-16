@@ -1,4 +1,4 @@
-import type { GateDef, Qualified, When } from '../definition/routes.ts';
+import type { Qualified, When } from '../definition/routes.ts';
 import type { RouteDef, StepDef } from '#types/harness';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Chain } from '#types/modules/evidence';
@@ -74,9 +74,6 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
     case 'checks.offer': return typeof context.args.iteration === 'number' && context.args.headless !== true && Number(all.findLast((entry) => entry.kind === 'baseline')?.['full']) > 0;
     // The end checks run without a question where one route covers every iteration, or a headless run named one (nothing else will).
     case 'checks.auto': return typeof context.args.iteration !== 'number' || context.args.headless === true;
-    // The start step recorded whether a plan brief or an investigation exists, by the functions the context map reads them with.
-    case 'task.seeded': return all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['seeded'] === true;
-    case 'task.unseeded': return all.findLast((entry) => entry.kind === 'step' && entry['step'] === 'start')?.['seeded'] !== true;
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
     case 'any': return when.of.some((part) => evaluate(part, all, context, gateWindow, opener, step));
     case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;
@@ -156,9 +153,6 @@ export function executions(entries: readonly LedgerEntry[], step: StepDef): numb
   const status = step.actor === 'code' ? 'completed' : 'delivered';
   return cycleEntries(entries).filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === status).length;
 }
-
-export const humanRevisesLeft = (entries: readonly LedgerEntry[], gate: GateDef): number =>
-  Math.max(0, gate.repeat - entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate' && entry['gate'] === gate.id).length);
 
 export const printsOf = (window: readonly LedgerEntry[], gate: string): LedgerEntry[] => window.filter((entry) => entry.kind === 'gate' && entry['gate'] === gate);
 

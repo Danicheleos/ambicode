@@ -53,10 +53,10 @@ const schemas = [
     sources: z.array(z.unknown()), builtFrom: z.enum(['captures', 'args']), asked: z.array(text), missingAsked: z.array(text), hash: text,
   }),
   entry('map', {
-    mode: z.enum(['prompt', 'context']), layers: z.array(z.object({ name: text, ms: z.number(), hits: count })), layersSource: z.enum(['config', 'default', 'route']),
+    layers: z.array(z.object({ name: text, ms: z.number(), hits: count })),
     terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), bytes: count, collisions: z.array(text).optional(),
   }),
-  entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
+  entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count }),
   entry('policy', {
     stage: z.enum(['before-work', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(), activity: text.optional(), ids: optionalList,
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
@@ -67,7 +67,7 @@ const schemas = [
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })), runnable: count.optional(), full: count.optional(), tree: text.optional() }),
   entry('check', {
     key: text, files: z.array(text), exit: z.number().int(), phase: z.literal('green'),
-    tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
+    output: text, bytes: count, ms: z.number(), mutations: z.unknown().optional(),
   }),
   entry('format', {
     key: text, files: z.array(text), exit: z.number().int().nullable(), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),

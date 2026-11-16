@@ -2,14 +2,13 @@ import path from 'node:path';
 import { gapsOf } from '#modules/evidence/report/report';
 import { latestCaptures } from '#modules/requirements/capture/capture';
 import { requirementGapsOf } from '#modules/requirements/envelope/render';
-import { fitMapText } from '#modules/search/map';
 import { shellQuote } from '#modules/checks/run/run';
 import { AmbicodeError } from '#util/errors';
 import { planStatusOf } from '#modules/evidence/notes';
 import { iterationHeadings, sectionEnd } from '#modules/evidence/task/iterations';
 import { contentHash } from '#util/hash';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
-import { answeredAfter, currentIn, exitOf, foldRoute, isBoundAnswer, humanRevisesLeft, matches, windowOf } from './fold.ts';
+import { answeredAfter, currentIn, exitOf, foldRoute, isBoundAnswer, matches, windowOf } from './fold.ts';
 import { gatePrintText, gateThen, raiseGate } from '../gates/gates.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
@@ -22,8 +21,6 @@ import { toPosix } from '#util/glob';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
 export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'rules apply', 'note save']);
-
-const MAX_TURNS = 200;
 
 type Fold = ReturnType<typeof foldRoute>;
 
@@ -90,10 +87,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     return { task: run.task, routeId: run.head.id, position: part.position, text: part.text, file: part.file, bytes: part.bytes, ledgerIds: [...run.written] };
   }
 
-  async function partOf(run: Run, step: StepDef | null, header: string, body: string): Promise<{ part: Part; composed: Composed }> {
+  async function partOf(run: Run, step: StepDef | null, header: string, body: string): Promise<Part> {
     const notes = run.notes.length === 0 ? '' : `${run.notes.join('\n')}\n\n`;
-    const composed = compose({ header, body: `${notes}${body}`.trimEnd(), channel: run.channel, dir: run.dir, step: step?.id ?? 'complete' });
-    return { part: { text: composed.text, file: composed.file, bytes: composed.bytes, position: step?.id ?? 'complete', full: composed.full }, composed };
+    const position = step?.id ?? 'complete';
+    const composed = await compose(run.runtime.fs, { header, body: `${notes}${body}`.trimEnd(), channel: run.channel, dir: run.dir, step: position, comment: `ambicode step: ${run.def.skill}/${position}, task ${run.task}` });
+    return { text: composed.text, file: composed.file, bytes: composed.bytes, position };
   }
 
   // Without the recorded answers the model may call an accepted plan a draft; state what the ledger holds.
@@ -144,7 +142,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const body = status.startsWith('ended')
       ? `The route has ended.\n\n${unverified}${after}, saying why it ended.`
       : `The route is complete.${recordedLine(chain.entries)}\n\n${plan}${unverified}${after}: ${closing}.`;
-    return (await partOf(run, null, header, body)).part;
+    return partOf(run, null, header, body);
   }
 
   function openRaisedGate(run: Run, step: StepDef): GateDef | null {
@@ -157,11 +155,10 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   async function gatePart(run: Run, step: StepDef, outcome: Extract<Awaited<ReturnType<typeof serviceGate>>, { state: 'print' }>): Promise<Part> {
     const { gate, print } = outcome;
     const declared = run.def.steps.find((candidate) => candidate.gate?.id === gate.id);
-    const left = Object.keys(gate.onAnswer).length === 0 ? null : humanRevisesLeft(chainOf(run).entries, gate);
-    const text = gatePrintText({ task: run.task, gate, entry: print, object: (print['object'] as never) ?? null, revisesLeft: left, runner: cli });
+    const text = gatePrintText({ task: run.task, gate, entry: print, object: (print['object'] as never) ?? null, runner: cli });
     const position = (declared ?? step).id;
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: position, position: (declared ?? step).index + 1, total: run.def.steps.length, now: `Put this question to the user: ${gate.question}`, then: gateThen(run.task, cli), route: routeLine(foldRoute(run.def, chainOf(run)), position) });
-    return (await partOf(run, declared ?? step, header, text)).part;
+    return partOf(run, declared ?? step, header, text);
   }
 
   async function runCode(run: Run, step: StepDef, fold: Fold): Promise<Part | null> {
@@ -207,8 +204,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const record = step.onFail === 'record' && result.recoverable;
     const onFail = step.onFail === 'record' ? null : step.onFail;
     // A failure that names no findings still tells the model why it is back: a bare repeat of the step left it with nothing to act on.
-    const args = onFail === null ? {} : { ...onFail.args, ...(result.revise?.args ?? { [step.id]: [result.message.slice(0, FAILURE_MESSAGE_CHARS)] }) };
-    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, FAILURE_MESSAGE_CHARS), ...(onFail === null ? {} : { revise: args }), ...(record ? { recorded: true } : {}) });
+    const args = onFail === null ? {} : { ...onFail.args, ...(result.revise?.args ?? { [step.id]: [result.message] }) };
+    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message, ...(onFail === null ? {} : { revise: args }), ...(record ? { recorded: true } : {}) });
     if (record) {
       await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
       return null;
@@ -220,13 +217,13 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       // A revise past its repeat limit leaves only a bare limit gap; the failure itself stays a Not verified line.
       if (!(await reviseTo(run, { target: onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id }))) {
         if (!result.recoverable) await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
-        await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, FAILURE_MESSAGE_CHARS), recorded: true });
+        await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message, recorded: true });
       }
       return null;
     }
     const error = step.onError;
     if (error.kind === 'stop') {
-      await exitRoute(run, error.reason, `${result.code}: ${result.message.slice(0, 200)}`);
+      await exitRoute(run, error.reason, `${result.code}: ${result.message}`);
       return finish(run);
     }
     // The step failed and the route stays live: the error is all the user sees, so it names both exits.
@@ -250,7 +247,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       }
       prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.\n\n`;
       // A failed check would re-send the whole step, which the model already holds.
-      if (run.cause === 'check') return (await partOf(run, step, `[ambicode] ${run.def.skill} · task ${run.task} · step ${step.id} (${step.index + 1}/${run.def.steps.length})`, prefix.trimEnd())).part;
+      if (run.cause === 'check') return partOf(run, step, `[ambicode] ${run.def.skill} · task ${run.task} · step ${step.id} (${step.index + 1}/${run.def.steps.length})`, prefix.trimEnd());
     }
     // The request goes whole into a work file only where its text asks for it: the reviewer judges the code, not the author's goal.
     const headArgs = (run.head['args'] ?? {}) as RouteArgs;
@@ -277,7 +274,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const resent = step.work === null && reviseEntry?.kind === 'revise' && reviseEntry['via'] === 'code' && fold.chain.entries.slice(0, start).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
     const unchanged: string[] = [];
     for (const entry of step.payload) {
-      // `file:<key>` delivers a pointer to the saved payload, not its text: the rules of a plan can outgrow the hook.
+      // `file:<key>` delivers a pointer to the saved payload, not its text: a preview of it made the model skip the file.
       const pointer = entry.startsWith('file:');
       const key = pointer ? entry.slice('file:'.length) : entry;
       const chain = chainKey([...chainOf(run).ids]);
@@ -300,28 +297,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? (step.work === null ? 'write your final message; no route command is needed' : `the report is written from the brief below (also in ${workPath(run, step)}). Normally the implementer that printed this step writes the report now. If this step reached the main session instead (the write fallback), the main session launches the implementer on that file.`) : endingCommand(run, step), route: routeLine(fold, step.id), ...iterationOf(run) });
-    // The map is the one section that can be shorter: cut to what remains under the channel limit once the rest is known; the ledger `map` entry keeps the full stats.
-    let mapCut = 0;
-    const mapAt = step.work === null ? sections.findIndex((section) => section.startsWith('## map\n')) : -1;
-    if (mapAt !== -1) {
-      const notes = run.notes.length === 0 ? 0 : run.notes.join('\n').length + 2;
-      const over = `${header}\n\n${prefix}${sections.join('\n\n')}`.trimEnd().length + notes - limitOf(run.channel);
-      if (over > 0) {
-        const mapText = sections[mapAt]!.slice('## map\n'.length);
-        const fit = fitMapText(mapText, mapText.length - over);
-        if (fit !== null) {
-          sections[mapAt] = `## map\n${fit.text}`;
-          mapCut = fit.cut;
-        }
-      }
-    }
-    const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
-    if (!delivered) {
-      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(mapCut === 0 ? {} : { mapCut }), ...(part.file === null ? {} : { file: part.file }) });
-      await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes, ${entry.id}`);
-    } else {
-      await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes`);
-    }
+    const part = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
+    if (!delivered) await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(part.file === null ? {} : { file: part.file }) });
     return part;
   }
 
@@ -336,7 +313,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
 
   /** Steps 2–6 of 12 §8: fold, check, run what is reachable, record, deliver. */
   async function execute(run: Run): Promise<Part> {
-    for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+    for (;;) {
       if (run.exited !== null) return finish(run);
       const fold = foldRoute(run.def, chainOf(run));
       if (!run.deliverOnly) await writeSkips(run, fold);
@@ -351,7 +328,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       if (step.actor === 'code') {
         if (run.deliverOnly) {
           const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Step ${step.id} has not run yet.`, then: `${cli} route next --task ${run.task}`, route: routeLine(fold, step.id) });
-          return (await partOf(run, step, header, '')).part;
+          return partOf(run, step, header, '');
         }
         const part = await runCode(run, step, fold);
         if (part !== null) return part;
@@ -363,7 +340,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         if (outcome.state === 'print') return gatePart(run, step, outcome);
       }
     }
-    throw new AmbicodeError('internal', `Route ${run.def.skill} did not settle within ${MAX_TURNS} turns.`);
   }
 
   return { execute, messageOf };
@@ -390,7 +366,7 @@ function payloadKey(call: Call): string {
   switch (call.name) {
     case 'script': return `script:${call.params[0] ?? ''}`;
     // The reviewer brief's map must not replace the task map that `change` reads.
-    case 'search.map': return call.params[1] === 'review' ? 'map:review' : 'map';
+    case 'search.map': return call.params[0] === 'review' ? 'map:review' : 'map';
     // The activity is part of the key: the reviewer brief's stage must not overwrite the rules the task's own steps read.
     case 'policy.stage': return call.params.length > 1 ? `policy:${call.params.join(':')}` : `policy:${call.params[0] ?? ''}`;
     case 'requirements.normalize': return 'envelope';
@@ -400,19 +376,6 @@ function payloadKey(call: Call): string {
     default: return call.name;
   }
 }
-
-export const CLI_LIMIT = 8000;
-// The ledger keeps a failure whole enough to diagnose: a script crash is ~700 characters of stack; 300 cut it to its last frames.
-const FAILURE_MESSAGE_CHARS = 2000;
-/**
- * Claude Code saves hook output over 10,000 characters to a file and injects a 2,000-character preview (changelog: "Changed hook output over 10,000
- * characters to be saved to disk"). On the first prompt of a session the session contract (1022 characters + 2 separator) precedes the step in the
- * same additionalContext: real read steps of 9008-9111 bytes spilled and the map never reached the model, one of 8711 did not.
- * 10,000 - 1024 = 8976, less a margin for the contract growing.
- */
-export const HOOK_LIMIT = 8800;
-const limitOf = (channel: DeliveryChannel): number => (channel === 'hook' ? HOOK_LIMIT : CLI_LIMIT);
-const PREVIEW_CHARS = 300;
 
 /**
  * The task route's start step records which iteration this route is at. Without it in the header a later iteration prints the same line as the one before,
@@ -440,20 +403,15 @@ export function stepHeader(input: { skill: string; task: string; step: string; p
   ].join('\n');
 }
 
-function compose(input: { header: string; body: string; channel: DeliveryChannel; dir: TaskDir; step: string }): Composed {
+/** The CLI prints the whole text. A hook answers with one link line: Claude Code spills long hook output behind a preview, and a preview makes the model skip the file. */
+async function compose(fs: FileSystem, input: { header: string; body: string; channel: DeliveryChannel; dir: TaskDir; step: string; comment: string }): Promise<Composed> {
   const full = input.body === '' ? input.header : `${input.header}\n\n${input.body}`;
-  const limit = limitOf(input.channel);
-  if (full.length <= limit) return { text: full, file: null, full, bytes: Buffer.byteLength(full) };
-  const file = path.join(input.dir.steps, `step-${safe(input.step)}.md`);
   const bytes = Buffer.byteLength(full);
-  const preview = input.body.slice(0, PREVIEW_CHARS);
-  return { text: `${input.header}\n\n${preview}…\nRead it whole: ${bytes} bytes: ${file}`, file, full, bytes };
-}
-
-async function writeStepFile(fs: FileSystem, composed: Composed, comment: string): Promise<void> {
-  if (composed.file === null) return;
-  await fs.mkdirp(path.dirname(composed.file));
-  await fs.writeText(composed.file, `<!-- ${comment} -->\n${composed.full}\n`);
+  if (input.channel === 'cli') return { text: full, file: null, bytes };
+  const file = path.join(input.dir.steps, `step-${safe(input.step)}.md`);
+  await fs.mkdirp(input.dir.steps);
+  await fs.writeText(file, `<!-- ${input.comment}, ${bytes} bytes -->\n${full}\n`);
+  return { text: `Read ${file} whole now: it is this step (${bytes} bytes).`, file, bytes };
 }
 
 const safe = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');

@@ -22,16 +22,17 @@ describe('evaluateReview (07-V)', () => {
     assert.deepEqual(evaluateReview(reviewEntry({ reviewerRan: false }), result('src/a.ts')), { next: 'proceed' });
   });
 
-  it('07-V3: a finding line is cut to one short line', () => {
+  it('07-V3: a finding line is one line, with the whole problem', () => {
     const long = finding({ id: 'f1', problem: `first\n${'x'.repeat(400)}` });
     const out = evaluateReview(reviewEntry(), reviewResult({ kind: 'working', findings: [long] }));
-    assert.ok(out.next === 'revise-fix' && !out.findings[0]!.includes('\n') && out.findings[0]!.split(' | suggested: ')[0]!.length < 200);
+    assert.ok(out.next === 'revise-fix' && !out.findings[0]!.includes('\n'));
+    assert.ok(out.next === 'revise-fix' && out.findings[0]!.includes(` — first ${'x'.repeat(400)} | suggested: `));
   });
 
-  it('07-V5: a suggested comment past 300 characters is cut', () => {
+  it('07-V5: a long suggested comment reaches the fix step whole', () => {
     const long = finding({ id: 'f1', suggestedComment: 'y'.repeat(900) });
     const out = evaluateReview(reviewEntry(), reviewResult({ kind: 'working', findings: [long] }));
-    assert.ok(out.next === 'revise-fix' && out.findings[0]!.split(' | suggested: ')[1]!.length === 300);
+    assert.ok(out.next === 'revise-fix' && out.findings[0]!.split(' | suggested: ')[1] === 'y'.repeat(900));
   });
 
   it('07-V4: the fix step also gets the suggested comment, on the same single line', () => {

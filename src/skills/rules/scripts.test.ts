@@ -23,10 +23,9 @@ async function started(root: string) {
 }
 
 describe('skills/rules/scripts', () => {
-  it('the draft step tells the model to skip a statement no check could decide, within 1500 characters', async () => {
+  it('the draft step tells the model to skip a statement no check could decide', async () => {
     const text = await readFile(path.join(REPO_ROOT, 'routes/rules/draft.md'), 'utf8');
     assert.match(text, /vague wish no check could decide/);
-    assert.ok(text.length < 1500, String(text.length));
   });
 
   it('discover.mjs names candidate files, the file the request names and the url to fetch', async () => {
@@ -38,6 +37,19 @@ describe('skills/rules/scripts', () => {
       assert.match(first.text, /CONTRIBUTING\.md/);
       assert.match(first.text, /https:\/\/wiki\.example\.invalid\/rules/);
       assert.doesNotMatch(first.text, /Drafts already in/);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('discover.mjs lists all 45 guideline docs it finds', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      await mkdir(path.join(root, 'docs'), { recursive: true });
+      for (let at = 0; at < 45; at++) await writeFile(path.join(root, 'docs', `page${String(at).padStart(2, '0')}.md`), '# Page\n');
+      await new Promise((resolve) => execFile('git', ['add', '-A'], { cwd: root }, resolve));
+      const { first } = await started(root);
+      for (let at = 0; at < 45; at++) assert.match(first.text, new RegExp(`docs/page${String(at).padStart(2, '0')}\\.md`));
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -102,6 +114,7 @@ describe('skills/rules/scripts', () => {
       assert.equal(next.position, 'draft');
       assert.match(next.text, /config\.yaml/);
       assert.match(next.text, /Rules already in force[^\n]*\n- common-design\/need: /);
+      assert.match(next.text, /\n- common-design\/need: Build what the accepted requirement .* the need\.\n/, 'a rule row is the whole instruction, not its first words');
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

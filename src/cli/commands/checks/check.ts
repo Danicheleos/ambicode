@@ -1,4 +1,4 @@
-import { runCheckOnly } from '#modules/checks/run/check-command';
+import { runCheckOnly, outputPointer } from '#modules/checks/run/check-command';
 import { COMMAND_SPECS } from '#skills/task/commands';
 import { runCommandTail } from '#harness/engine/engine';
 import { AmbicodeError } from '#util/errors';
@@ -35,7 +35,7 @@ export function renderCheck(output: CheckOutput): string {
       case 'ran': {
         const { entry, proof } = result;
         const key = entry.key;
-        return `check ${key} ${entry.phase}: exit ${entry.exit} (green = exit 0) — ${proof.proven ? 'as expected' : `not as expected (${proof.cause})`}\n${entry.tail ?? ''}`.trimEnd();
+        return `check ${key} ${entry.phase}: exit ${entry.exit} (green = exit 0) — ${proof.proven ? 'as expected' : `not as expected (${proof.cause})`}\n${outputPointer(entry)}`;
       }
       case 'not-run': return `check ${output.name}: not run (${result.status}): ${result.detail}`;
       case 'waiting': return `check ${result.key}: waiting for the user's answer to ${result.gate}; nothing was run.`;

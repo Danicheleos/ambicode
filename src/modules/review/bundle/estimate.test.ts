@@ -69,6 +69,15 @@ describe('review estimate (07-E)', () => {
     }, { config: CHECK_CONFIG.replace('maxChangedFiles: 50', 'maxChangedFiles: 1') });
   });
 
+  it('a refusal renders its message and every suggestion whole', () => {
+    const message = `too large: ${'a long reason; '.repeat(40)}end`;
+    const suggestions = Array.from({ length: 8 }, (_, at) => `--exclude "${'deep/'.repeat(40)}file${at}.ts"`);
+    const text = renderEstimate({ target: 'working tree', files: 9, changedLines: 9000, refusal: { code: 'input-too-large', message, suggestions } });
+    assert.ok(text.includes(`refused before the reviewer: input-too-large: ${message}\n`));
+    for (const suggestion of suggestions) assert.ok(text.includes(`\n  ${suggestion}\n`), suggestion);
+    assert.doesNotMatch(text, /more\n/);
+  });
+
   it('07-E4: the review-offer print carries the rendered estimate as details, and its question stays plain', async () => {
     const t = await taskFixture();
     try {

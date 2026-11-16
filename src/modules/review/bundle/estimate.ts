@@ -42,14 +42,11 @@ export async function estimateReview(runtime: Runtime, options: AssembleOptions)
   };
 }
 
-const more = (count: number): string => `… ${count} more`;
-
-/** Refusal and its suggestions first; the suggestion list is cut with "… N more" to stay within 2,048 bytes (08-E5). */
+/** Refusal and its suggestions first, each whole. */
 export function renderEstimate(estimate: ReviewEstimate): string {
   const refusal = estimate.refusal === null ? [] : [
-    `refused before the reviewer: ${estimate.refusal.code}: ${estimate.refusal.message}`.slice(0, 300),
-    ...estimate.refusal.suggestions.slice(0, 6).map((line) => `  ${line}`.slice(0, 160)),
-    ...(estimate.refusal.suggestions.length > 6 ? [`  ${more(estimate.refusal.suggestions.length - 6)}`] : []),
+    `refused before the reviewer: ${estimate.refusal.code}: ${estimate.refusal.message}`,
+    ...estimate.refusal.suggestions.map((line) => `  ${line}`),
   ];
   return [...refusal, `Review estimate: ${estimate.target} · ${estimate.files} file(s) · ${estimate.changedLines} changed line(s)`].join('\n');
 }

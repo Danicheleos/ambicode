@@ -24,10 +24,6 @@ type ValidatedFindings =
   /** `rejections` are persisted, because a refusal is evidence about the review. */
   | { kind: 'invalid'; reason: string; rejections: string[] };
 
-// One sentence each is the contract; a paragraph is clipped, visibly, so the page and report stay readable at a glance.
-const SENTENCE_MAX = 300;
-const clip = (text: string): string => (text.length > SENTENCE_MAX ? `${text.slice(0, SENTENCE_MAX - 1)}…` : text);
-
 export function validateFindings(options: ValidateOptions): ValidatedFindings {
   const rejections: string[] = [];
   const findings: Finding[] = [];
@@ -89,9 +85,9 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
       location: located.location,
       supportingLocations,
       evidence,
-      problem: clip(candidate.problem),
-      impact: clip(candidate.impact),
-      confidenceReason: clip(candidate.confidenceReason),
+      problem: candidate.problem,
+      impact: candidate.impact,
+      confidenceReason: candidate.confidenceReason,
       suggestedComment: candidate.suggestedComment,
       ruleRefs,
       requirementRefs,

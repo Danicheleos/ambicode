@@ -38,7 +38,7 @@ describe('review scripts (C7)', () => {
       assert.match(brief, /### ORD-1: Totals\nSum them\./);
       assert.match(brief, /No check recorded for this task: nothing was verified by execution\. That is a gap, not a pass\./);
 
-      await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'green', exit: 1, files: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'] })}\n`);
+      await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'green', exit: 1, files: ['a.spec.ts'], output: 'o1.log', bytes: 1 }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'], output: 'o2.log', bytes: 1 })}\n`);
       run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
       const withChecks = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       assert.match(withChecks, /- app\/unit: passed; on: a\.spec\.ts/);
@@ -67,6 +67,20 @@ describe('review scripts (C7)', () => {
     await writeFile(path.join(taskDir, 'ledger.jsonl'), entries.map((entry) => JSON.stringify(entry)).join('\n'));
     return { root, reviewDir, input: { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') } };
   };
+
+  it('a brief that throws reports the whole stack, not its first three lines', async () => {
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
+    try {
+      await writeFile(path.join(reviewDir, 'result.json'), '{ not json');
+      const out = run('brief', input) as { failed: { code: string; message: string } };
+      assert.equal(out.failed.code, 'brief-failed');
+      assert.match(out.failed.message, /SyntaxError/);
+      assert.ok(out.failed.message.split(' | ').length > 3, out.failed.message);
+      assert.match(out.failed.message, /brief\.mjs/, 'the frames name the script');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it('brief with no review on record fails review-missing instead of delivering nothing', async () => {
     const { root, reviewDir, input } = await fixture(null);
@@ -115,6 +129,18 @@ describe('review scripts (C7)', () => {
       for (const line of lines) assert.ok(text.includes(line), line);
       assert.ok(text.includes('+b'), 'the diff is there');
       assert.match(parts[0]!, /This brief has \d+ parts/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('brief lists all 35 test files the merge request changed', async () => {
+    const specs = Array.from({ length: 35 }, (_, at) => ({ oldPath: `src/s${at}.spec.ts`, newPath: `src/s${at}.spec.ts`, changeKind: 'modified', addedLines: at + 1, removedLines: 0, exclusionReason: 'test', exclusionCode: 'test-file' }));
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [], changedFiles: specs });
+    try {
+      run('brief', input);
+      const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      for (let at = 0; at < 35; at++) assert.ok(brief.includes(`- src/s${at}.spec.ts +${at + 1}/-0\n`), `test file ${at} is listed`);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -212,41 +238,34 @@ describe('review scripts (C7)', () => {
     }
   });
 
-  it('brief trims related files only beyond the 60 KB total, names the cut, and does not mark the review partial for it', async () => {
+  it('brief lists a related file as a path and its reason, never its content, however long the file and the diff are', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [], omissions: [] });
     try {
-      const body = (name: string) => Array.from({ length: 100 }, (_, at) => `export const ${name}${at} = ${at}; // ${'y'.repeat(100)}`).join('\n') + '\n';
+      const body = (name: string) => Array.from({ length: 400 }, (_, at) => `export const ${name}${at} = ${at}; // ${'y'.repeat(100)}`).join('\n') + '\n';
       await mkdir(path.join(root, 'src'), { recursive: true });
       for (const file of ['sibling1.ts', 'sibling2.ts', 'sibling3.ts']) await writeFile(path.join(root, 'src', file), `export const sharedThing0 = 1;\nexport const sharedThing1 = 1;\n${body(file.replace(/\W/g, ''))}`);
       await writeFile(path.join(root, 'src', 'a.ts'), 'export const sharedThing = 1;\n');
       await withMap(input, 'src/sibling1.ts', 'src/sibling2.ts', 'src/sibling3.ts');
       const diff = (count: number) => `diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,${count + 1} @@\n export const sharedThing = 1;\n${Array.from({ length: count }, (_, at) => `+export const sharedThing${at} = ${at}; // ${'z'.repeat(60)}`).join('\n')}\n`;
-      await writeFile(path.join(reviewDir, 'changed.diff'), diff(150));
-      run('brief', input);
-      const small = await partsOf(reviewDir);
-      assert.ok(small.join('').includes('### src/sibling1.ts (related'), 'with room, the related files are in');
-      assert.doesNotMatch(small.join(''), /related files? omitted/);
-
-      await writeFile(path.join(reviewDir, 'changed.diff'), diff(450));
-      run('brief', input);
-      const large = await partsOf(reviewDir);
-      const text = large.join('');
-      assert.ok(Buffer.byteLength(text) <= 60 * 1024 + 2048, `${Buffer.byteLength(text)} bytes`);
-      assert.match(text, /^related files: none \(brief size budget reached\)$/m, 'no related file fits: one line, no names');
-      assert.doesNotMatch(text, /sibling\d\.ts/);
-      assert.equal(diffOf(large).filter((line) => line.startsWith('+export const sharedThing')).length, 450, 'the whole diff is there');
-      const kept = JSON.parse(await readFile(path.join(reviewDir, 'result.json'), 'utf8')).omissions as { kind: string; text: string }[];
-      assert.deepEqual(kept.map((entry) => entry.kind), ['scope'], 'a dropped related file is not a gap in the diff: it is scope, never attention');
-      assert.match(kept[0]!.text, /no related file fit the brief's size budget/);
+      for (const count of [150, 900]) {
+        await writeFile(path.join(reviewDir, 'changed.diff'), diff(count));
+        run('brief', input);
+        const parts = await partsOf(reviewDir);
+        const text = parts.join('\n');
+        assert.deepEqual([...text.matchAll(/^- (src\/sibling\d\.ts) \(related: [^;]+; contains "sharedName"\)$/gm)].map((match) => match[1]), ['src/sibling1.ts', 'src/sibling2.ts', 'src/sibling3.ts'], `${count} diff lines: every related file is a path line`);
+        assert.doesNotMatch(text, /sibling\dts\d/, 'no content of a related file');
+        assert.equal(diffOf(parts).filter((line) => line.startsWith('+export const sharedThing')).length, count, 'the whole diff is there');
+        assert.deepEqual(JSON.parse(await readFile(path.join(reviewDir, 'result.json'), 'utf8')).omissions, [], 'nothing was left out, so no scope note');
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it('brief lists only the checks of the reviewed route, the latest run per key, named by outcome', async () => {
+  it('brief lists only the checks of the reviewed route, the latest run per key, named by outcome; a failed one carries the pointer to its output file', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {
-      const check = (route: string, key: string, exit: number) => ({ kind: 'check', route, key, phase: 'green', exit, files: [] });
+      const check = (route: string, key: string, exit: number) => ({ kind: 'check', route, key, phase: 'green', exit, files: [], output: `.ambicode/tasks/t/checks/${key.replace('/', '-')}_${route}.log`, bytes: 1234 });
       const lines = [
         check('r-old', 'app/stale', 1),
         check('r-now', 'app/unit', 1), check('r-now', 'app/lint', 1), check('r-now', 'app/unit', 0),
@@ -256,7 +275,8 @@ describe('review scripts (C7)', () => {
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       assert.match(brief, /- app\/unit: passed/);
-      assert.match(brief, /- app\/lint: FAILED \(exit 1\)/);
+      assert.match(brief, /^- app\/lint: FAILED; exit 1; 1234 bytes of output in \.ambicode\/tasks\/t\/checks\/app-lint_r-now\.log$/m);
+      assert.doesNotMatch(brief, /last output|app\/unit[^\n]*bytes of output/, 'a passing check carries no pointer, and no output text is inlined');
       assert.doesNotMatch(brief, /app\/stale|app\/unit[^\n]*exit 1|green: exit/);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -265,12 +285,12 @@ describe('review scripts (C7)', () => {
 
   const modified = (file: string) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-a\n+b\n`;
 
-  // The route's `search.map(context, review)` step saves its text beside the policy payload; the brief reads the related files from it, in rank order, and scans nothing itself.
+  // The route's `search.map(review)` step saves its text beside the policy payload; the brief reads the related files from it, in rank order, and scans nothing itself.
   const withMap = (input: { steps: string }, ...rows: string[]) => writeFile(path.join(input.steps, '1-map-review.md'), `Map: legend\n{"candidates":${JSON.stringify(rows.map((file, at) => [file, 20 - at, ['contains "sharedName"']]))}}\n`);
 
   const added = (file: string, ...lines: string[]) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1,${lines.length} @@\n-a\n${lines.map((line) => `+${line}`).join('\n')}\n`;
 
-  it('brief inlines the map\'s files: the same-directory ones first, then the top of the rest from any directory, never a test, a stub, another language or a file of the diff', async () => {
+  it('brief lists the map\'s files by path: the same-directory ones first, then the rest from any directory in map order, never a test, another language or a file of the diff', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {
       const body = (...names: string[]) => names.map((name) => `export const ${name} = 1;`).join('\n') + '\n';
@@ -297,13 +317,13 @@ describe('review scripts (C7)', () => {
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
-      assert.match(section, /Related code the patch does not show, for comparison: duplication of an existing helper and a sibling convention the change breaks are findings\./);
-      const headers = [...section.matchAll(/^### (\S+) \((.+)\)$/gm)].map((match) => [match[1], match[2]]);
-      assert.deepEqual(headers.map(([name]) => name), ['src/a/near.ts', 'pkg/far/helper.ts', 'pkg/far/half.ts', 'pkg/far/third.ts', 'pkg/far/fourth.ts'], 'the reserved same-directory file although it ranks third, then the top 4 other files in map order; the fifth loses the cap');
+      assert.match(section, /Related code the patch does not show, listed by path only: Read the ones you need for comparison, in the checkout\. Duplication of an existing helper and a sibling convention the change breaks are findings\./);
+      const headers = [...section.matchAll(/^- (\S+) \((.+)\)$/gm)].map((match) => [match[1], match[2]]);
+      assert.deepEqual(headers.map(([name]) => name), ['src/a/near.ts', 'src/a/stub.ts', 'pkg/far/helper.ts', 'pkg/far/half.ts', 'pkg/far/third.ts', 'pkg/far/fourth.ts', 'pkg/far/fifth.ts'], 'the same-directory files first although near.ts ranks third, then every other file in map order; a short file is listed like any other');
       assert.equal(headers[0]?.[1], 'related: next to foo.ts; contains "sharedName"', 'the header says where the file sits and why the map listed it');
-      assert.equal(headers[1]?.[1], 'related: elsewhere in the repository; contains "sharedName"');
-      assert.doesNotMatch(section, /stub\.ts|notes\.md/, 'a 2-line file and a .md file the map listed for a .ts change are not chosen');
-      assert.doesNotMatch(section, /### src\/a\/(foo|lone)\.ts/, 'a file of the diff is shown by the diff, not as related');
+      assert.equal(headers[2]?.[1], 'related: elsewhere in the repository; contains "sharedName"');
+      assert.doesNotMatch(section, /notes\.md/, 'a .md file the map listed for a .ts change is not chosen');
+      assert.doesNotMatch(section, /^- src\/a\/(foo|lone)\.ts/m, 'a file of the diff is shown by the diff, not as related');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -324,7 +344,7 @@ describe('review scripts (C7)', () => {
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
-      assert.deepEqual([...section.matchAll(/^### (\S+) \(related/gm)].map((match) => match[1]), ['src/a/near.ts', 'pkg/far/helper.ts']);
+      assert.deepEqual([...section.matchAll(/^- (\S+) \(related/gm)].map((match) => match[1]), ['src/a/near.ts', 'pkg/far/helper.ts']);
       assert.doesNotMatch(section, /\.test\.|\.spec\.|__tests__|foo_test/, 'no test file is a related file');
       assert.doesNotMatch(brief, /No test file found|test of /);
       assert.match(brief.slice(0, brief.indexOf('## Related files')), /### src\/a\/foo\.test\.ts \[modified\]/, 'a test file in the diff keeps its hunks');
@@ -346,8 +366,12 @@ describe('review scripts (C7)', () => {
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Existing merge request discussions'), brief.indexOf('## Policy rules'));
-      assert.match(section, /^## Existing merge request discussions \(untrusted, from other people\): do not repeat a point one already makes\n\n- src\/b\.ts:9 @bob: Is this tested\?\n  - @cy: not yet\n- general @dee: x+…\n- src\/a\.ts:4 \(resolved\) @ann: old point\n\n$/);
-      assert.ok(!section.includes('x'.repeat(401)), 'a long body is truncated');
+      assert.match(section, /^## Existing merge request discussions \(untrusted, from other people\): do not repeat a point one already makes\n\n- src\/b\.ts:9 @bob: Is this tested\?\n  - @cy: not yet\n- general @dee: x{900}\n- src\/a\.ts:4 \(resolved\) @ann: old point\n\n$/);
+      assert.ok(section.includes('x'.repeat(900)), 'a long body is whole');
+      await writeFile(path.join(root, '.ambicode', 'tasks', 't', 'mr-discussions.json'), JSON.stringify({ discussions: Array.from({ length: 25 }, (_, at) => ({ path: `src/f${at}.ts`, line: at + 1, resolved: false, notes: [{ author: 'ann', body: `point ${at}` }] })) }));
+      run('brief', input);
+      const many = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      for (let at = 0; at < 25; at++) assert.ok(many.includes(`- src/f${at}.ts:${at + 1} @ann: point ${at}\n`), `discussion ${at} is listed`);
 
       await writeFile(path.join(root, '.ambicode', 'tasks', 't', 'mr-discussions.json'), JSON.stringify({ error: 'glab api failed: 401' }));
       run('brief', input);
@@ -361,7 +385,7 @@ describe('review scripts (C7)', () => {
     }
   });
 
-  it('brief reserves up to 2 same-directory files per changed file even when other directories share more names, and those do not use the 4 global slots', async () => {
+  it('brief lists every same-directory file first, even when other directories share more names, then every other file in map order', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {
       const body = (...names: string[]) => names.map((name) => `export const ${name} = 1;`).join('\n') + '\n';
@@ -383,77 +407,48 @@ describe('review scripts (C7)', () => {
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
-      const names = [...section.matchAll(/^### (\S+) \(related/gm)].map((match) => match[1]);
-      assert.deepEqual(names, ['src/a/a1.ts', 'src/a/a2.ts', 'far/p1.ts', 'far/p2.ts', 'far/p3.ts', 'far/p4.ts'], 'the 2 same-directory files first although the map ranks them last; a third same-directory file and the fifth far file lose');
+      const names = [...section.matchAll(/^- (\S+) \(related/gm)].map((match) => match[1]);
+      assert.deepEqual(names, ['src/a/a1.ts', 'src/a/a2.ts', 'src/a/a3.ts', 'far/p1.ts', 'far/p2.ts', 'far/p3.ts', 'far/p4.ts', 'far/p5.ts'], 'the same-directory files first although the map ranks them last; none is cut');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it('brief reports as omitted only selected related files the budget cut, by name, not every repository file that shares a name', async () => {
-    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
+  it('brief lists all 20 related files the map gives (its TOP_ROWS bound), and records no omission', async () => {
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [], omissions: [] });
     try {
-      const body = (...names: string[]) => [...names.map((name) => `export const ${name} = 1;`), ...Array.from({ length: 150 }, (_, at) => `export const pad${at} = ${at};`)].join('\n') + '\n';
-      const files: Record<string, string> = { 'src/a/foo.ts': body('old1'), 'src/a/a1.ts': body('sharedAlpha'), 'src/a/a2.ts': body('sharedAlpha'), ...Object.fromEntries(Array.from({ length: 30 }, (_, at) => [`far/p${String(at).padStart(2, '0')}.ts`, body('sharedAlpha', 'sharedBeta')])),
-      };
-      for (const [file, text] of Object.entries(files)) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
-      await withMap(input, 'src/a/a1.ts', 'src/a/a2.ts', ...Array.from({ length: 30 }, (_, at) => `far/p${String(at).padStart(2, '0')}.ts`));
-      await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', 'export const sharedAlpha = 2;', 'export const sharedBeta = 2;'));
+      const changed = Array.from({ length: 4 }, (_, at) => `m${at}/f${at}.ts`);
+      const near = changed.flatMap((_, at) => ['g', 'h', 'i', 'j', 'k'].map((name) => `m${at}/${name}${at}.ts`));
+      for (const file of [...changed, ...near]) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), 'export const a = 1;\nexport const b = 2;\nexport const c = 3;\n'); }
+      await withMap(input, ...near);
+      await writeFile(path.join(reviewDir, 'changed.diff'), changed.map((file, at) => added(file, `export const uniq${at} = 2;`)).join(''));
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
-      const shown = [...brief.matchAll(/^### (\S+) \(related/gm)].map((match) => match[1]);
-      assert.deepEqual(shown, ['src/a/a1.ts', 'src/a/a2.ts', 'far/p00.ts'], 'the 300-line total fits three files of 100 lines');
-      assert.match(brief, /… \(3 related files omitted \(size budget\): far\/p01\.ts, far\/p02\.ts, far\/p03\.ts\)/, '2 near + 4 global files were selected; 3 were cut; the other 26 files of the map were never selected');
-      const scope = JSON.parse(await readFile(path.join(reviewDir, 'result.json'), 'utf8')).omissions as { kind: string; text: string }[];
-      assert.deepEqual(scope, [{ kind: 'scope', text: '3 related files were cut from the brief (size budget) and not read: far/p01.ts, far/p02.ts, far/p03.ts.' }]);
-      run('brief', input);
-      assert.equal(JSON.parse(await readFile(path.join(reviewDir, 'result.json'), 'utf8')).omissions.length, 1, 'a rerun replaces the note');
+      assert.deepEqual([...brief.matchAll(/^- (\S+) \(related/gm)].map((match) => match[1]), near, '20 files: 5 for each changed file, all listed');
+      assert.deepEqual(JSON.parse(await readFile(path.join(reviewDir, 'result.json'), 'utf8')).omissions ?? [], []);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it('brief with no related file left under the total budget says so in one line and names none', async () => {
+  it('brief lists a related path without reading the file: a 70 KB one and a binary one are path lines, one missing from the checkout is not listed; no map, no section', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {
-      const body = (...names: string[]) => [...names.map((name) => `export const ${name} = 1;`), ...Array.from({ length: 150 }, (_, at) => `export const pad${at} = ${at};`)].join('\n') + '\n';
-      for (const [file, text] of Object.entries({ 'src/a/foo.ts': body('old1'), 'src/a/a1.ts': body('sharedAlpha'), ...Object.fromEntries(Array.from({ length: 200 }, (_, at) => [`fill/f${at}.ts`, `export const fill${at} = 1;\n`])) })) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), text); }
-      await withMap(input, 'src/a/a1.ts');
-      const big = Array.from({ length: 600 }, (_, at) => `export const sharedAlpha${at} = '${'x'.repeat(90)}';`);
-      await writeFile(path.join(reviewDir, 'changed.diff'), added('src/a/foo.ts', 'export const sharedAlpha = 2;', ...big) + added('src/b/bar.ts', ...big));
-      run('brief', input);
-      const text = (await partsOf(reviewDir)).join('\n');
-      assert.match(text, /^related files: none \(brief size budget reached\)$/m);
-      assert.doesNotMatch(text, /related files? omitted|src\/a\/a1\.ts/);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('brief caps each related file and the section, marks truncation, skips binary and oversize files, and omits the section when the map step left nothing', async () => {
-    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
-    try {
-      const changed = Array.from({ length: 8 }, (_, at) => `m${at}/f${at}.ts`);
-      const body = (at: number) => [`export const uniq${at} = 1;`, ...Array.from({ length: 150 }, (_, line) => `line ${line + 1}`)].join('\n');
-      const files = changed.flatMap((file, at) => [file, `m${at}/g${at}.ts`, `m${at}/h${at}.ts`]);
-      for (const [at, file] of files.entries()) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), body(Math.floor(at / 3))); }
+      const changed = ['m0/f0.ts', 'm1/f1.ts'];
+      const body = (at: number) => [`export const uniq${at} = 1;`, ...Array.from({ length: 400 }, (_, line) => `line ${line + 1}`)].join('\n');
+      const files = [...changed, 'm0/g0.ts', 'm0/h0.ts', 'm1/g1.ts', 'm1/h1.ts'];
+      for (const [at, file] of files.entries()) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), body(at)); }
       await writeFile(path.join(root, 'm0', 'h0.ts'), Buffer.from([0x61, 0x00, 0x62, 0x0a]));
-      await writeFile(path.join(root, 'm0', 'g0.ts'), 'x'.repeat(70 * 1024));
+      await writeFile(path.join(root, 'm0', 'g0.ts'), `${'x'.repeat(100)}\n`.repeat(700));
       await writeFile(path.join(reviewDir, 'changed.diff'), changed.map((file, at) => added(file, `export const uniq${at} = 2;`)).join(''));
       run('brief', input);
       assert.doesNotMatch(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /## Related files/, 'no map: no section, not an empty one');
-      await withMap(input, ...files.filter((file) => !/\/f\d+\.ts$/.test(file)));
+      await withMap(input, 'm0/g0.ts', 'm0/h0.ts', 'm1/g1.ts', 'm1/h1.ts', 'gone/missing.ts');
       run('brief', input);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       const section = brief.slice(brief.indexOf('## Related files'));
-      assert.doesNotMatch(section, /### m0\/(g0|h0)\.ts/, 'binary and oversize files are skipped');
-      assert.ok(section.indexOf('### m1/g1.ts') < section.indexOf('### m1/h1.ts') && section.includes('### m2/g2.ts'), 'the skipped files do not stop the next ones');
-      assert.match(section, /### m1\/g1\.ts \(related[^\n]*\n```\n  1 export const uniq1 = 1;\n/);
-      assert.equal(section.match(/^… \(first 100 lines shown; 51 more not included\)$/gm)?.length, 3, 'per-file cap 100 lines; 3 files fill the 300-line total');
-      assert.match(section, /\n100 line 99\n… \(first 100 lines shown; 51 more not included\)\n```\n/);
-      assert.doesNotMatch(section, /line 100\n/);
-      assert.equal(section.split('\n').filter((line) => /^ *\d+ (line \d+|export const uniq\d+ = 1;)$/.test(line)).length, 300);
-      assert.match(section, /… \(\d+ related files omitted \(size budget\): m\d\//, 'the cut is announced with names, not silent');
+      assert.deepEqual([...section.matchAll(/^- (\S+) \(related/gm)].map((match) => match[1]), ['m0/g0.ts', 'm0/h0.ts', 'm1/g1.ts', 'm1/h1.ts']);
+      assert.doesNotMatch(section, /line \d+|xxxx|```/, 'a long related file adds none of its lines');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -472,7 +467,7 @@ describe('review scripts (C7)', () => {
       const out = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, path.join(REPO_ROOT, 'skills', 'review', 'scripts', 'brief.mjs')], { input: JSON.stringify({ testPatterns: TEST_PATH_PATTERNS.map((pattern) => pattern.source), ...input }), encoding: 'utf8' });
       assert.equal(out.status, 0, out.stderr);
       assert.deepEqual((await readFile(log, 'utf8')).split('\n').filter(Boolean), []);
-      assert.match(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /### pkg\/f0\.ts \(related: elsewhere in the repository; contains "sharedName"\)/, 'the map\'s file is inlined');
+      assert.match(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /^- pkg\/f0\.ts \(related: elsewhere in the repository; contains "sharedName"\)$/m, 'the map\'s file is listed');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

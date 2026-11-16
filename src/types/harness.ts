@@ -18,7 +18,7 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'requirements.missing' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'review.offered' | 'review.unasked' | 'checks.auto' | 'checks.offer' | 'task.seeded' | 'task.unseeded' | 'revised' }
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'mr.requirements' | 'requirements.missing' | 'estimate.asks' | 'estimate.run' | 'map.empty' | 'iteration.named' | 'iteration.unnamed' | 'review.offered' | 'review.unasked' | 'checks.auto' | 'checks.offer' | 'revised' }
   | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string }
   | { predicate: 'any'; of: When[] };
 
@@ -32,8 +32,6 @@ export interface GateDef {
   onAnswer: Readonly<Record<string, Revise>>;
   /** Free text is an answer: recorded as given, no option needed. */
   free: boolean;
-  /** Human revises through this gate before it declines the next one (the one counter: a step's `repeat`). */
-  repeat: number;
   object: Qualified | null;
   policy: Readonly<Record<string, 'stop'>>;
 }
@@ -202,6 +200,8 @@ export interface AdvanceInput {
   answers?: readonly (Answer & { question?: string })[];
   project?: string;
   cause: Cause;
+  /** Where the text goes; a `gate-hook` cause is always a hook, any other defaults to the CLI. */
+  channel?: StartChannel;
   scratchpadDir?: string;
   /** What the command (`plan check`) already wrote for the code step it reaches; that step consumes it (D1). */
   produced?: readonly string[];
@@ -224,7 +224,7 @@ export interface Engine {
   deliver(task: string, scratchpadDir?: string): Promise<StepMessage | null>;
   /** Stop: the checks on the final message under one ledger lock and the single block they may cause. */
   stopHook(input: HookInput, found: SessionRepository): Promise<StopHookOutput | null>;
-  /** SubagentStop: the implementer's final report, read from its transcript and saved as a note of the live route. */
+  /** SubagentStop: the implementer's final report, read from its transcript (at the closing step: the report it saved itself) and saved as a note of the live route. */
   subagentStopHook(input: HookInput, found: SessionRepository): Promise<void>;
   /** Ends the task's live route with an `exit` entry. */
   stop(task: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;

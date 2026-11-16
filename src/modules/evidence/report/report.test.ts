@@ -5,7 +5,8 @@ import type { LedgerEntry } from '#types/modules/evidence';
 
 let counter = 0;
 const entry = (kind: string, fields: object = {}): LedgerEntry => ({ id: `a1b2c3d4-${(counter += 1)}`, at: '2026-10-05T10:00:00.000Z', kind, ...fields });
-const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', files: [], exit: 0, phase: 'green', ms: 10, ...fields });
+const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', files: [], exit: 0, phase: 'green', output: '.ambicode/tasks/t/checks/run.log', bytes: 7, ms: 10, ...fields });
+const pointer = (exit: number): string => `last run: exit ${exit}; 7 bytes of output in .ambicode/tasks/t/checks/run.log`;
 const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
 const review = (reviewId: string, findings: number, fields: object = {}): LedgerEntry => entry('review', { reviewId, stage: 'recorded', status: 'complete', reviewerRan: true, findings, omissions: 0, ...fields });
 const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
@@ -40,7 +41,7 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
       check({ key: 'web/e2e', phase: 'green', exit: 2 }),
       entry('declined', { route: 'r', gate: 'check:web/slow', instance: null, answer: 'no', via: 'flag', reason: 'acting-needs-human' }),
     ]);
-    assert.deepEqual(gaps, ['web/e2e: last run exited 2', 'check:web/slow: declined "no" (acting-needs-human)']);
+    assert.deepEqual(gaps, [`web/e2e: ${pointer(2)}`, 'check:web/slow: declined "no" (acting-needs-human)']);
   });
 
   it('a recorded step failure and drafts that failed their check are not verified; a failed step with no record is not', () => {
@@ -80,7 +81,27 @@ describe('gapsOf: checks never claim more than the ledger says', () => {
 
   it('only the last run of a key decides whether it is verified', () => {
     assert.deepEqual(gapsOf([check({ phase: 'green', exit: 1 }), check({})]), []);
-    assert.deepEqual(gapsOf([check({}), check({ exit: 1 })]), ['web/unit: last run exited 1']);
+    assert.deepEqual(gapsOf([check({}), check({ exit: 1 })]), [`web/unit: ${pointer(1)}`]);
+  });
+
+  it('a red run names the file holding its whole output, with its size', () => {
+    const red = check({ exit: 1, output: '.ambicode/tasks/t/checks/web-unit_1.log', bytes: 90 });
+    assert.deepEqual(gapsOf([red]), ['web/unit: last run: exit 1; 90 bytes of output in .ambicode/tasks/t/checks/web-unit_1.log']);
+  });
+
+  it('a long recorded message, event, key or reason reaches the gaps whole', () => {
+    const long = `${'a long line of tool output; '.repeat(20)}end`;
+    const gaps = gapsOf([
+      entry('limit', { route: 'r', which: 'note-not-saved', message: long }),
+      entry('limit', { route: 'r', which: 'report-not-saved', message: long }),
+      entry('limit', { route: 'r', which: 'hook-error', event: long, message: long }),
+      entry('declined', { route: 'r', gate: long, instance: null, answer: long, via: 'hook', reason: long }),
+      entry('exit', { route: 'r', reason: 'blocked', detail: long }),
+    ]);
+    assert.ok(gaps.includes(`The final message was not saved as the result note: ${long}`));
+    assert.ok(gaps.includes(`The ${long} hook failed: ${long}`));
+    assert.ok(gaps.some((gap) => gap.includes(`"${long}" (${long})`)));
+    assert.ok(gaps.includes(`The route ended blocked: ${long}`));
   });
 });
 
@@ -146,7 +167,7 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
     const old = check({ phase: 'green', exit: 1 });
     const stale = entry('declined', { route: 'r', gate: 'g', instance: null, answer: 'no', via: 'flag' });
     const entries = [old, stale, check({ key: 'web/other', exit: 3 })];
-    assert.deepEqual(gapsOf(entries, (candidate) => candidate.id !== old.id && candidate.id !== stale.id), ['web/other: last run exited 3']);
+    assert.deepEqual(gapsOf(entries, (candidate) => candidate.id !== old.id && candidate.id !== stale.id), [`web/other: ${pointer(3)}`]);
     assert.equal(gapsOf(entries).length, 3);
   });
 
@@ -196,7 +217,7 @@ describe('the facts the final message copies', () => {
     assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 0 } as LedgerEntry]), 'Checks\n- no check ran');
     assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 2 } as LedgerEntry]), 'Checks\n- no check ran');
     assert.equal(factsOf([], undefined, { checks: false }), '');
-    assert.equal(factsOf([check({ exit: 1 })]), 'Checks\n- web/unit: failed exit 1\nNot verified\n- web/unit: last run exited 1');
+    assert.equal(factsOf([check({ exit: 1 })]), `Checks\n- web/unit: failed exit 1\nNot verified\n- web/unit: ${pointer(1)}`);
   });
   it('a re-review that errored or came back partial never reads as clean', () => {
     assert.equal(reviewFact([review('a', 1), review('b', 0, { status: 'error', omissions: 2 })]), '1 finding, re-review failed');

@@ -188,12 +188,14 @@ A part of the brief stays under 32 KB, what one `Read` returns without cutting. 
 requirements, discussions, policy rules and conventions first, then the diff. A larger diff
 continues in `brief-2.md`, `brief-3.md` and so on, split at file or hunk boundaries, and the
 related files follow. The work file names every part and tells the reviewer to read all of them in
-order. The diff is never cut for size; the related files are trimmed beyond a 60 KB total and the
-cut is named in the brief.
+order. The diff is never cut for size. The related files are path lines with the reason the search
+map listed them, never their content; the reviewer reads the ones it needs. Every related file,
+test file, discussion and commit is listed whole.
 
-Code, requirements and check output reach it below a heading marked
-`UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or a
-goal. It is data, whatever it claims about itself.
+Check results reach it as one line per check: passed, or FAILED with the exit code, the byte size
+and the path of the file holding the check's whole output (`.ambicode/tasks/<task>/checks/`), which
+the reviewer reads itself. The brief does not inline check output. Discussions and commits written
+by other people sit under headings that say `untrusted, from other people`.
 
 The route does not trust the answer. The reviewer writes the JSON block to
 `answer.json` in the review folder; `route next` reads it, validates every

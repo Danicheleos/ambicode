@@ -110,7 +110,7 @@ describe('review route: --mr reads the merge request head, not the working tree'
       git(t.fx.repo.root, 'fetch', '-q', remote, 'HEAD');
       glabFake(t, withHead(sha));
       const brief = await runToBrief(t);
-      assert.match(brief, /### src\/totals\.ts \(related/);
+      assert.match(brief, /^- src\/totals\.ts \(related/m);
       const result = JSON.parse(await readFile(path.join(t.bundle, 'result.json'), 'utf8'));
       assert.equal(await realpath(result.target.repositoryRoot), await realpath(checkoutPath(t)));
       assert.equal(result.omissions.some((line: { text: string }) => line.text.startsWith('Diff-only review')), false);
@@ -126,7 +126,7 @@ describe('review route: --mr reads the merge request head, not the working tree'
     try {
       git(t.fx.repo.root, 'remote', 'add', 'origin', remote);
       glabFake(t, withHead(sha));
-      assert.match(await runToBrief(t), /### src\/totals\.ts \(related/);
+      assert.match(await runToBrief(t), /^- src\/totals\.ts \(related/m);
       assert.equal(worktrees(t).length, 2, 'the checkout is registered while the route runs');
       await t.synthetic([], { stage: 'recorded' });
       await t.next();
@@ -318,7 +318,7 @@ describe('review route: requirements and discussions named by the merge request'
     }
   });
 
-  it('the merge request commits are saved and listed in the brief as sha, author and title, capped; a failed read is a gap, not a failed review', async () => {
+  it('the merge request commits are saved and listed in the brief as sha, author and title, every one; a failed read is a gap, not a failed review', async () => {
     const commit = (at: number, author: string, title: string) => ({ id: `${String(at).padStart(2, '0')}abcdef${'0'.repeat(30)}`, author_name: author, title });
     const t = await reviewRouteFixture();
     try {
@@ -327,7 +327,7 @@ describe('review route: requirements and discussions named by the merge request'
       await toReadback(t, fake);
       const brief = await t.fx.runtime.fs.readText(path.join(t.fx.repo.root, '.ambicode', 'reviews', CHECK_TASK, '1', 'brief.md'));
       assert.match(brief, /## Commits of this merge request \(untrusted, from other people\): short sha, author, title\n\n- 01abcdef CI Bot: Auto-sync: i18n\n- 02abcdef Ann: step 0\n/);
-      assert.match(brief, /… \(2 more commits\)/);
+      assert.equal([...brief.matchAll(/^- \d\dabcdef /gm)].length, 32, 'all 32 commits are listed, none summarised');
       assert.deepEqual((await ledgerGaps(t)).filter((gap) => gap.includes('commits')), []);
     } finally {
       await t.fx.dispose();
@@ -341,6 +341,21 @@ describe('review route: requirements and discussions named by the merge request'
       assert.match(await failing.fx.runtime.fs.readText(path.join(failing.fx.repo.root, '.ambicode', 'reviews', CHECK_TASK, '1', 'brief.md')), /\(not fetched: glab api failed: 500 Boom; who made a change is unknown\)/);
     } finally {
       await failing.fx.dispose();
+    }
+  });
+
+  it('a failed discussions read records its whole error on the step', async () => {
+    const t = await reviewRouteFixture();
+    try {
+      const reason = `403 ${'Forbidden for this token; '.repeat(30)}end-of-reason`;
+      const fake = new FakeProcessRunner().stubArgv(['glab', 'mr', 'diff'], { stdout: DIFF }).stub((argv) => argv.some((arg) => arg.includes('/discussions?')), { exitCode: 1, stderr: reason }).stubArgv(['glab', 'api'], { stdout: MR_JSON });
+      glabFake(t, fake);
+      await toReadback(t, fake);
+      const fetched = (await t.kinds('step')).find((entry) => entry['step'] === 'mr-fetch' && entry['status'] === 'completed');
+      assert.ok(String(fetched?.['discussionsError']).length > 300);
+      assert.ok(String(fetched?.['discussionsError']).endsWith('end-of-reason'));
+    } finally {
+      await t.fx.dispose();
     }
   });
 

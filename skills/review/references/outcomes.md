@@ -81,8 +81,7 @@ decides, so do not rephrase the command to avoid the question.
 `plan.md` of a task is writable only while the task's live route is a plan
 route; no live route, another skill's route, or an unreadable ledger is denied.
 
-**Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
-keep the payload in a file and record its path and hash. `ledger-unreadable`:
+**Ledger and notes.** `ledger-unreadable`:
 the task's ledger is damaged or cannot be read as a whole, so nothing was
 written; repair or delete that ledger.jsonl, then run again with the same `--task`. `ledger-busy`:
 another AMBICODE process is writing the ledger; retry. If it keeps failing,

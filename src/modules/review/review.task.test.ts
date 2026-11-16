@@ -46,13 +46,11 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
     });
   });
 
-  it('07-B3: more than 10 pre-existing paths are listed first 10, then (+N more)', async () => {
+  it('07-B3: all 15 pre-existing paths are listed', async () => {
     await withTask(async (t) => {
-      await toRun(t, async () => { for (let i = 0; i < 12; i += 1) await t.fx.repo.write(`src/p${String(i).padStart(2, '0')}.ts`, 'x\n'); });
+      await toRun(t, async () => { for (let i = 0; i < 15; i += 1) await t.fx.repo.write(`src/p${String(i).padStart(2, '0')}.ts`, 'x\n'); });
       const line = (await pinned(t)).omissions.find((entry) => entry.text.startsWith('not covered: pre-existing changes:'))?.text ?? '';
-      assert.match(line, /p09\.ts/);
-      assert.doesNotMatch(line, /p10\.ts/);
-      assert.match(line, /\(\+2 more\)/);
+      for (let i = 0; i < 15; i += 1) assert.match(line, new RegExp(`p${String(i).padStart(2, '0')}\\.ts`));
     });
   });
 

@@ -8,7 +8,7 @@ steps:
     instruction: "file:routes/investigate/fetch.md"
   - id: ground
     actor: code
-    run: [requirements.normalize, search.map(prompt)]
+    run: [requirements.normalize, search.map]
     produces: [envelope, map]
     repeat: 2
   - id: scope

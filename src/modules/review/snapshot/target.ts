@@ -55,7 +55,7 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
     throw new AmbicodeError(
       'unmerged-index',
       'The index has unmerged paths, so there is no single working revision to review.',
-      { details: ['Resolve the conflict, then run the review again.', ...unmerged.slice(0, 10)] },
+      { details: ['Resolve the conflict, then run the review again.', ...unmerged] },
     );
   }
 

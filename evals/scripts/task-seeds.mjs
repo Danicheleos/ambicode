@@ -3,7 +3,7 @@
 // cases.mjs makes its scaffold.sh copy the seed/ folder into .ambicode/.
 //
 // The ledger line is what src/modules/evidence/notes.ts writes for a note (id and time from appendLocked, then kind, note,
-// path, contentHash). task.start reads the latest `plan` note (src/skills/brief.ts briefOf) and search.map(context) the latest
+// path, contentHash). task.start reads the latest `plan` note (src/skills/brief.ts briefOf) and search.map the latest
 // `investigation` note (investigationOf); task-seeds.test.mjs reads these ledgers back through the real ledger reader.
 import { contentHash } from '../../src/util/hash.ts';
 

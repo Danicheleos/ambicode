@@ -69,8 +69,8 @@ describe('route exit: steps/ and summary.md', () => {
       await stop('# Task report\n**Done**\n- src/a.ts:1 guard the empty list.\nNot verified\n- checks skipped: app/typecheck — verification incomplete\n- Stopped during the end checks: check forbidden (1)');
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
       const text = await summary(t);
-      assert.match(text, /^- Iteration 1 of 2: done\n {2}> # Task report\n {2}> \*\*Done\*\*\n {2}> - src\/a\.ts:1 guard the empty list\./m);
-      assert.equal(text.match(/checks skipped: app\/typecheck — verification incomplete/g)?.length, 2, 'once quoted from the message, once in Not verified');
+      assert.match(text, /^- Iteration 1 of 2: done\n {2}Final message: \.ambicode\/tasks\/ord-7\/result_\S+\.md \(\d+ bytes\)$/m);
+      assert.equal(text.match(/checks skipped: app\/typecheck — verification incomplete/g)?.length, 1, 'only in Not verified: the message is a link');
     });
   });
 
@@ -81,7 +81,7 @@ describe('route exit: steps/ and summary.md', () => {
       const message = '# Task report\n**Done**\n- src/a.ts:1 guard the empty list.';
       await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: message }, { repositoryRoot: t.fx.repo.root, where: '.' });
       assert.equal((await t.kinds('note')).filter((entry) => entry['note'] === 'result').length, 1);
-      assert.match(await summary(t), /> - src\/a\.ts:1 guard the empty list\./);
+      assert.match(await summary(t), /^ {2}Final message: \.ambicode\/tasks\/ord-7\/result_\S+\.md \(\d+ bytes\)$/m);
     });
   });
 

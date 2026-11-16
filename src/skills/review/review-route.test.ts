@@ -13,7 +13,6 @@ import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { SESSION_A } from '#testing/fixtures/ids';
 import { runHook } from '#hook/events/run-hook';
-import { HOOK_LIMIT } from '#harness/engine/execute';
 import { REPO_ROOT } from '#testing/paths';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Handler } from '#types/harness';
@@ -53,7 +52,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', { concurrency: 4
     assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['narrow', 'skip'], undefined, 'skip']);
     assert.equal(route.steps.find((step) => step.id === 'estimate')!.when, 'estimate.asks');
     const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[] };
-    assert.deepEqual([brief.when, brief.run], ['estimate.run', ['review.pin', 'policy.stage(before-work, review)', 'search.map(context, review)', 'script(brief)']]);
+    assert.deepEqual([brief.when, brief.run], ['estimate.run', ['review.pin', 'policy.stage(before-work, review)', 'search.map(review)', 'script(brief)']]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces?: string[]; instruction: string };
@@ -194,7 +193,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', { concurren
       await withReview(async (t) => {
         assert.equal((await t.start()).position, 'review-agent');
         assert.deepEqual((await t.kinds('check')).map((entry) => entry['exit']), [1]);
-        assert.match(await readFile(path.join(t.bundle, 'brief.md'), 'utf8'), /- app\/unit: FAILED \(exit 1\)/);
+        assert.match(await readFile(path.join(t.bundle, 'brief.md'), 'utf8'), /- app\/unit: FAILED; on: src\/orders\.ts; exit 1; \d+ bytes of output in /);
         assert.match(await readFile(path.join(t.bundle, 'report.txt'), 'utf8'), /app\/unit green: exit 1.*FAILED/);
         const result = await resultOf(t);
         assert.equal(result.status, 'partial');
@@ -340,12 +339,8 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', { concurren
 
 });
 
-describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B1, 08-R7)', { concurrency: 4 }, () => {
+describe('review route: step texts and the ignore warning (08-R6, 08-R7)', { concurrency: 4 }, () => {
   const read = async (name: string): Promise<string> => (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', `node "${REPO_ROOT}/scripts/ambicode.mjs"`).replaceAll('{task}', CHECK_TASK);
-
-  it('08-R6/08-B1: each review step text is at most 1,500 characters after inclusion', async () => {
-    for (const name of ['review/fetch', 'review/readback', 'review/agent', 'review/agent-work']) assert.ok((await read(name)).length <= 1500, name);
-  });
 
   it('08-R6: readback asks for a one-line summary, one line per finding and part 3 in a line or two, copies part 4 verbatim in one fence and names references/outcomes.md', async () => {
     const text = await read('review/readback');
@@ -372,16 +367,6 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     assert.match(work, /If it lists several parts, Read every part, in order, before writing/);
     assert.match(work, /never a position in the brief/);
     assert.match(work, /reply with one line: `Answer written\.`/);
-  });
-
-  it('08-B1: the route start output is at most 3,072 bytes and the printed estimate at most 2,048', async () => {
-    await withReview(async (t) => {
-      const start = await t.start();
-      assert.ok(Buffer.byteLength(start.text) <= 3072, `${Buffer.byteLength(start.text)}`);
-      const estimate = start.text.split('select text:\n')[1]!.split('\n\nThen ask: The review cannot run on this change as it stands. Narrow it, or skip the review?')[0]!;
-      assert.match(estimate, /Review estimate: /);
-      assert.ok(Buffer.byteLength(estimate) <= 2048, `${Buffer.byteLength(estimate)}`);
-    }, { refuse: true });
   });
 
 });

@@ -56,7 +56,7 @@ export function investigateHandlers(state: { candidates: number; payload?: strin
       if (revise?.args['term'] !== undefined) counts.terms.push([...revise.args['term']]);
       const candidates = revise?.args['term'] === undefined ? state.candidates : 2;
       await ledger.append({ kind: 'envelope', sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'h' });
-      await ledger.append({ kind: 'map', mode: 'prompt', candidates, layers: [{ name: 'shortlist', ms: 1, hits: candidates }], layersSource: 'default', terms: { pass1: [], pass2: [] }, limitations: [], index: 'none', bytes: 10 });
+      await ledger.append({ kind: 'map', candidates, layers: [{ name: 'shortlist', ms: 1, hits: candidates }], terms: { pass1: [], pass2: [] }, limitations: [], index: 'none', bytes: 10 });
       await ledger.append({ kind: 'policy', stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 10 });
       return { state: 'ok', payload: state.payload ?? 'map text' };
     },

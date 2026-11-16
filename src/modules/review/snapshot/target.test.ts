@@ -83,6 +83,21 @@ test('U09 an unmerged index blocks working review instead of producing a diff', 
   );
 });
 
+test('U09 the unmerged-index error lists every unmerged path, not the first ten', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+
+  const paths = Array.from({ length: 12 }, (_, at) => `conflict${String(at).padStart(2, '0')}.txt`);
+  for (const file of paths) await repo.write(file, 'base\n');
+  await repo.commitAll('init');
+  for (const file of paths) await repo.makeUnmerged(file);
+
+  await assert.rejects(
+    resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root }),
+    (error: Error & { code?: string; details?: string[] }) => error.code === 'unmerged-index' && paths.every((file) => error.details?.includes(file) === true),
+  );
+});
+
 test('U09 a repository with no commits gets an actionable message, not a crash', async (t) => {
   const repo = await TempRepo.create();
   t.after(() => repo.dispose());

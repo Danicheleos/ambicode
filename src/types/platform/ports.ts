@@ -82,8 +82,7 @@ export interface ProcessRunner {
 }
 
 export interface StandardInput {
-  /** `null`, never a truncated string, when the stream exceeds `maxBytes`; without `maxBytes` the whole stream. */
-  read(maxBytes?: number): Promise<string | null>;
+  read(): Promise<string | null>;
 }
 
 export interface HttpRequest {

@@ -70,8 +70,6 @@ describe('note save: kinds, bodies and headers', () => {
         '.ambicode/tasks/ORD-17/notes.md',
       ]);
       await assert.rejects(save(deps, 'investigation', '  '), { code: 'bad-argument', field: 'stdin' });
-      await assert.rejects(save(deps, 'notes', 'x'.repeat(262_145)), { code: 'bad-argument' });
-      assert.equal((await save(deps, 'notes', 'x'.repeat(262_000))).kind, 'notes');
     });
   });
 

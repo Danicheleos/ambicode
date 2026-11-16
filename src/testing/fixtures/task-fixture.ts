@@ -48,12 +48,12 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
 
   /** What `check --only` leaves for the tail, then the tail itself. */
   const check = async (phase: 'green', _summary: { ran: number; failed: number } | null, exit = 0): Promise<StepMessage> => {
-    const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
+    const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, output: '.ambicode/tasks/ord-7/checks/app-unit_0.log', bytes: 0, ms: 3 });
     return next({ cause: 'check', produced: [entry.id] });
   };
   /** What `check` leaves at a delegated step: the check entry and no tail, so nothing advances. */
   const held = async (phase: 'green', exit = 0): Promise<void> => {
-    await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
+    await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, output: '.ambicode/tasks/ord-7/checks/app-unit_0.log', bytes: 0, ms: 3 });
   };
   /** What the route's review pin leaves: the result file and the `review` entry, then the tail. */
   const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {

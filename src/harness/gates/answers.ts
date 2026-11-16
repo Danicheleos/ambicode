@@ -1,5 +1,5 @@
 import { AmbicodeError } from '#util/errors';
-import { executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
+import { executions, foldRoute, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
 import { bareOption, matchOption, shapePrint } from './gates.ts';
 import { append, chainOf, closeRoute, gateFor, latestPrint, objectOf } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
@@ -30,7 +30,7 @@ export async function reviseTo(
   run: Run,
   revise: Revise,
   via: RevisePath,
-  info: { reason: string; gate?: string; raisedBy?: string; answer?: string; repeat?: number },
+  info: { reason: string; gate?: string; raisedBy?: string; answer?: string },
 ): Promise<boolean> {
   const exempt = revise.target === RAISED_BY;
   const target = exempt ? info.raisedBy : revise.target;
@@ -42,13 +42,6 @@ export async function reviseTo(
     const done = executions(chain.entries, step);
     if (done + 1 > step.repeat) {
       await append(run, { kind: 'limit', which: 'repeat', step: step.id, count: done, ...mark });
-      return false;
-    }
-  }
-  if (exempt && info.repeat !== undefined) {
-    const done = chain.entries.filter((entry) => entry.kind === 'revise' && entry['from'] === step.id && entry['gate'] === info.gate).length;
-    if (done >= info.repeat) {
-      await append(run, { kind: 'limit', which: 'max-revises', step: step.id, count: done, ...mark });
       return false;
     }
   }
@@ -80,16 +73,11 @@ interface Recorded {
 async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedBy?: string): Promise<void> {
   const free = !gate.options.includes(recorded.answer);
   const revise = recorded.kind === 'default-taken' ? undefined : (gate.onAnswer[recorded.answer] ?? (free ? gate.onAnswer['*'] : undefined));
-  const entries = chainOf(run).entries;
   const body = { gate: gate.id, instance: recorded.instance, answer: recorded.answer, via: recorded.via, ...(recorded.object === null ? {} : { object: recorded.object }), ...recorded.extra };
-  if (recorded.kind === 'acceptance' && revise !== undefined && recorded.revisePath === 'gate' && humanRevisesLeft(entries, gate) === 0) {
-    await append(run, { kind: 'declined', ...body, reason: 'max-revises' });
-    return;
-  }
   await append(run, { kind: recorded.kind, ...body });
   if (recorded.answer === 'stop' || recorded.answer === 'pause') return exitRoute(run, stopReason(gate.id), `${gate.id}: stop`);
   if (revise !== undefined) {
-    await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, repeat: gate.repeat, ...(raisedBy === undefined ? {} : { raisedBy }) });
+    await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, ...(raisedBy === undefined ? {} : { raisedBy }) });
   }
 }
 

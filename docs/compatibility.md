@@ -161,7 +161,7 @@ subagent askers, and any other Claude Code version.
 A probe on 2026-10-06 (Claude Code 2.1.289, one `claude -p`, P17) blocked `Stop` once with both
 `reason` and `hookSpecificOutput.additionalContext`: the output validated, the reason reached the
 model as a "Stop hook feedback" user message, and `additionalContext` as a system reminder. `Stop`
-keeps its bounded reason; the list does not also go to `additionalContext`,
+keeps its reason, which carries a step text only as the hook's one link line to the step file; the list does not also go to `additionalContext`,
 which would only repeat it. Record: `plan/migration-v6-reports/step-07/probe-p17.md`.
 
 Which of them may *carry* the contract is not a free choice. Claude Code's
@@ -180,9 +180,9 @@ The same hook starts a route when the prompt is `/ambicode:<skill> …`
 (`src/hook/events/prompt-launch.ts`): the route's first step is returned as
 context, and for `investigate`, `plan` and `task` the steps that run
 `search.map` carry the search map. The map is therefore delivered by
-`UserPromptSubmit`, within `HOOK_LIMIT` (8,800 characters,
-`src/harness/engine/execute.ts`); only the map section is trimmed to fit. No
-agent builds it.
+`UserPromptSubmit`: the step text with the whole map is written to
+`steps/step-<step>.md` and the hook returns one line that names the file
+(`compose` in `src/harness/engine/execute.ts`). No agent builds it.
 The marker dedup means it is sent once per epoch, not once per prompt, but the
 hook process itself does start on every user message (~190ms on the reference
 machine). That cost buys the post-compaction redelivery; dropping the

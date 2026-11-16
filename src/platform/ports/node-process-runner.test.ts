@@ -12,6 +12,11 @@ describe('a detached start', () => {
     assert.ok(Date.now() - started < 1400, 'did not wait for the child to exit');
   });
 
+  it('with no maxOutputBytes the first line comes back whole', async () => {
+    const { maxOutputBytes: _ceiling, ...open } = request("console.log('l'.repeat(9000)); setTimeout(() => {}, 300)");
+    assert.equal((await new NodeProcessRunner().run(open)).stdout.length, 9000);
+  });
+
   it('reports a child that exits before printing, and kills one that never prints', async () => {
     const failed = await new NodeProcessRunner().run(request("console.error('boom'); process.exit(3)"));
     assert.deepEqual([failed.kind, failed.exitCode, failed.stderr.trim()], ['exited', 3, 'boom']);

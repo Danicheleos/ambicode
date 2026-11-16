@@ -6,8 +6,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import { guardDecision } from './guard-core.ts';
 import { fsGuardState } from './guard-state.ts';
-import { LEDGER_FILE, type LedgerEntry } from '#types/modules/evidence';
-import { GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, HEADLESS_FILE, LEDGER_LIMIT, type GuardInput } from '../types/guard.ts';
+import { GUARD_STATE_DIR_NAME, HEADLESS_FILE, type GuardInput } from '../types/guard.ts';
 import { HEADLESS_FILE as ROUTE_HEADLESS_FILE } from '#harness/session/active-route';
 import { HOOK_STATE_DIR_NAME } from '#types/platform/claude';
 
@@ -232,10 +231,16 @@ describe('the task-directory guard sends notes through note save', () => {
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, reason);
     });
   }
-  it('the plan-body message wins over the note-save message within one command', () => {
-    const out = decide('Bash', { command: 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/plan.md <<EOF\nx\nEOF' });
-    assert.equal(decisionOf(out), 'deny');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written with the Write tool \(no shell\)/);
+  it('allows mkdir of a task directory: it creates no content', () => {
+    assert.deepEqual(decide('Bash', { command: 'mkdir -p .ambicode/tasks/t/steps' }), {});
+  });
+  it('leaves plan.md alone, written by a file tool or the shell: it is no note', () => {
+    for (const tool of ['Write', 'Edit', 'MultiEdit']) assert.deepEqual(decide(tool, { file_path: '/repo/.ambicode/tasks/T/plan.md' }), {}, tool);
+    for (const command of ['echo x > .ambicode/tasks/T/plan.md', 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/plan.md <<EOF\nx\nEOF']) assert.deepEqual(decide('Bash', { command }), {}, command);
+    assert.equal(decisionOf(decide('Write', { file_path: '/repo/.ambicode/tasks/T/plan.md.bak' })), 'deny');
+    assert.equal(decisionOf(decide('Write', { file_path: '/repo/.ambicode/tasks/T/steps/plan.md' })), 'deny');
+    for (const tool of ['Write', 'Edit']) assert.equal(decisionOf(decide(tool, { file_path: '/repo/.ambicode/reviews/R1/plan.md' })), 'deny', tool);
+    assert.equal(decisionOf(decide('Bash', { command: 'echo x > .ambicode/reviews/R1/plan.md' })), 'deny');
   });
   for (const command of ['cd /tmp && echo x > /tmp/notes.md', 'cd /tmp && echo x > /dev/null']) {
     it(`leaves an absolute target after a cd alone: ${command}`, () => assert.deepEqual(decide('Bash', { command }), {}));
@@ -285,138 +290,26 @@ describe('the task-directory message names a command that runs as written', () =
   });
   it('02-G1: names the kinds note save accepts', () => {
     const out = bash('echo x > .ambicode/tasks/T/n.md');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|notes\|result`/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|notes\|result\|report`/);
   });
 });
 const roots: string[] = [];
 after(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
-const at = '2026-10-05T10:00:00.000Z';
-const planRoute = (id: string, session: string, extra: Record<string, unknown> = {}): LedgerEntry => ({ id, at, kind: 'route', skill: 'plan', session, ...extra });
-
-/** A repository with task `T` (and `U`) and one scratchpad per session; a session in `headless` has the marker a live headless route leaves. */
-function fixture(ledger: LedgerEntry[] | string | null, headless: string[] = []) {
+/** One scratchpad; a session in `headless` has the marker a live headless route leaves. */
+function fixture(headless: string[] = []) {
   const root = mkdtempSync(path.join(tmpdir(), 'ambicode-guard-'));
   roots.push(root);
-  const repo = path.join(root, 'repo');
-  for (const task of ['T', 'U']) mkdirSync(path.join(repo, '.ambicode', 'tasks', task, 'steps'), { recursive: true });
-  if (ledger !== null) {
-    const text = typeof ledger === 'string' ? ledger : ledger.map((entry) => `${JSON.stringify(entry)}\n`).join('');
-    writeFileSync(path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE), text);
-  }
   const scratch = path.join(root, 'scratch');
   mkdirSync(path.join(scratch, HOOK_STATE_DIR_NAME), { recursive: true });
   for (const session of headless) writeFileSync(path.join(scratch, HOOK_STATE_DIR_NAME, HEADLESS_FILE), '');
-  const write = (file = path.join(repo, '.ambicode', 'tasks', 'T', 'plan.md'), tool = 'Write') =>
-    guardDecision({ hook_event_name: 'PreToolUse', tool_name: tool, session_id: 'A', scratchpad_dir: scratch, tool_input: { file_path: file } }, '/p', fsGuardState) as Output;
-  return { repo, scratch, write };
+  return { scratch };
 }
-
-describe('plan-body writes: allowed only while the task\'s live route is a plan route', () => {
-  it('Write and Edit of plan.md pass; MultiEdit and NotebookEdit are denied with the next command', () => {
-    const { write } = fixture([planRoute('a-1', 'A')]);
-    assert.deepEqual(write(undefined, 'Write'), {});
-    assert.deepEqual(write(undefined, 'Edit'), {});
-    for (const tool of ['MultiEdit', 'NotebookEdit']) {
-      const out = write(undefined, tool);
-      assert.equal(decisionOf(out), 'deny');
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written with the Write tool.*fixed with Edit.*route next --task T`/s);
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /node "\/p\/scripts\/ambicode\.mjs" route next --task T/);
-    }
-  });
-
-  it('a route another session started is the live one: nobody is named an owner', () => {
-    const { write } = fixture([planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'exit', route: 'a-1', reason: 'interrupted' }, planRoute('b-2', 'B')]);
-    assert.deepEqual(write(), {});
-  });
-
-  for (const [label, ledger, file, why] of [
-    ['the plan body of another slug', [planRoute('a-1', 'A')], 'U', /ledger of U is missing/],
-    ['a missing ledger', null, undefined, /ledger of T is missing, unreadable or over 1 MiB/],
-    ['a torn ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n{"id":"b-1","kind":"rou`, undefined, /missing, unreadable or over 1 MiB/],
-    ['a non-object ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n42\n`, undefined, /missing, unreadable or over 1 MiB/],
-    ['an exited route', [planRoute('a-1', 'A'), { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'done' }], undefined, /no route is live on T/],
-    ['legacy notes only', [{ id: 'L1', at, kind: 'note', note: 'plan', path: 'plan_x.md' }], undefined, /no route is live/],
-    ['a live route of another skill', [{ id: 'r-1', at, kind: 'route', skill: 'investigate', session: 'A' }], undefined, /live route is investigate, not plan/],
-    ['a later route with a numeric skill', [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7, session: 'B' }], undefined, /live route is 7, not plan/],
-  ] as [string, LedgerEntry[] | string | null, string | undefined, RegExp][]) {
-    it(`denies for ${label}`, () => {
-      const { write, repo } = fixture(ledger);
-      const out = write(file === undefined ? undefined : path.join(repo, '.ambicode', 'tasks', file, 'plan.md'));
-      assert.equal(decisionOf(out), 'deny');
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, why);
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /route next/);
-    });
-  }
-
-  it('a ledger over the read limit is unreadable, never partly read', () => {
-    const { write, repo } = fixture([planRoute('a-1', 'A')]);
-    const filler = `${JSON.stringify({ id: 'x', at, kind: 'note', pad: 'p'.repeat(1000) })}\n`;
-    writeFileSync(path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE), `${JSON.stringify(planRoute('a-1', 'A'))}\n${filler.repeat(Math.ceil(LEDGER_LIMIT / filler.length))}`);
-    assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable or over 1 MiB/);
-  });
-
-  it('exited routes, other skills and unknown kinds leave the live plan route in place', () => {
-    const ledger = [
-      planRoute('a-1', 'A'),
-      { id: 'r-1', at, kind: 'route', skill: 'review', session: 'C' },
-      { id: 'r-2', at, kind: 'exit', route: 'r-1', reason: 'done' },
-      { id: 'f-1', at, kind: 'future-kind', skill: 7 },
-      { id: 'n-1', at, kind: 'note', note: 'plan', path: 'plan_x.md' },
-    ] as LedgerEntry[];
-    assert.deepEqual(fixture(ledger).write(), {});
-  });
-
-  it('a ledger of exactly the read limit is read; one byte more is not', () => {
-    const { write, repo } = fixture(null);
-    const head = `${JSON.stringify(planRoute('a-1', 'A'))}\n`;
-    const pad = (bytes: number) => `${JSON.stringify({ id: 'p', at, kind: 'note', pad: 'p'.repeat(bytes - JSON.stringify({ id: 'p', at, kind: 'note', pad: '' }).length - 1) })}\n`;
-    const ledgerFile = path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE);
-    writeFileSync(ledgerFile, head + pad(LEDGER_LIMIT - head.length));
-    assert.equal(readFileSync(ledgerFile).length, LEDGER_LIMIT);
-    assert.deepEqual(write(), {});
-    writeFileSync(ledgerFile, head + pad(LEDGER_LIMIT - head.length + 1));
-    assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable or over 1 MiB/);
-  });
-
-  it('a directory where the ledger should be is unreadable', () => {
-    const { write, repo } = fixture(null);
-    mkdirSync(path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE));
-    assert.match(write().hookSpecificOutput!.permissionDecisionReason, /missing, unreadable/);
-  });
-
-  it('a missing ledger names the directory that was looked in, so a model that wrote beside the wrong .ambicode sees which one', () => {
-    const { write, repo } = fixture(null);
-    const target = path.join(repo, '.ambicode', 'tasks', 'T', 'plan.md');
-    assert.ok(write(target).hookSpecificOutput!.permissionDecisionReason.includes(`looked in ${path.join(repo, '.ambicode', 'tasks', 'T')}`));
-  });
-
-  it('only the exact plan-body path is excepted; a relative path without a cwd is not placed', () => {
-    const { write, repo } = fixture([planRoute('a-1', 'A')]);
-    for (const file of ['plan.md.bak', 'steps/sub/plan-body.md', 'plan-body.md']) {
-      assert.equal(decisionOf(write(path.join(repo, '.ambicode', 'tasks', 'T', file))), 'deny', file);
-    }
-    assert.match(write('.ambicode/tasks/T/plan.md').hookSpecificOutput!.permissionDecisionReason, /no absolute path/);
-  });
-
-  it('a Bash write to the plan body is still denied while the plan route is live', () => {
-    const { repo, scratch } = fixture([planRoute('a-1', 'A')]);
-    const out = guardDecision(
-      { hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Bash', tool_input: { command: `echo x > ${repo}/.ambicode/tasks/T/plan.md` } },
-      '/p',
-      fsGuardState,
-    ) as Output;
-    assert.equal(decisionOf(out), 'deny');
-    const reason = out.hookSpecificOutput!.permissionDecisionReason;
-    assert.match(reason, /route next/);
-    assert.doesNotMatch(reason, /note save/);
-  });
-});
 
 describe('config.yaml and .gitignore are not guarded, in or out of an init route', () => {
   for (const file of ['/repo/.ambicode/config.yaml', '/repo/.gitignore']) {
     it(`leaves ${file} alone`, () => {
-      const { scratch } = fixture(null);
+      const { scratch } = fixture();
       assert.deepEqual(guardDecision({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: file } }, '/p', fsGuardState), {});
     });
   }
@@ -424,7 +317,7 @@ describe('config.yaml and .gitignore are not guarded, in or out of an init route
 
 describe('the headless marker', () => {
   it('is read from the scratchpad state and from the temporary-directory fallback of the session', () => {
-    const { scratch } = fixture(null, ['A']);
+    const { scratch } = fixture(['A']);
     assert.equal(fsGuardState.headless(scratch, null), true);
     assert.equal(fsGuardState.headless(path.join(scratch, 'elsewhere'), null), false);
     assert.equal(fsGuardState.headless(null, null), false);
@@ -432,9 +325,8 @@ describe('the headless marker', () => {
 });
 
 describe('the guard state reader', () => {
-  it('uses the hook state directory and ledger file names the CLI uses', () => {
+  it('uses the hook state directory and headless file names the CLI uses', () => {
     assert.equal(GUARD_STATE_DIR_NAME, HOOK_STATE_DIR_NAME);
-    assert.equal(GUARD_LEDGER_FILE, LEDGER_FILE);
     assert.equal(HEADLESS_FILE, ROUTE_HEADLESS_FILE);
   });
 });
@@ -453,26 +345,16 @@ describe('the built guard entry', () => {
     assert.match(run('not json').stderr, /^ambicode guard: no decision: /);
   });
 
-  it('reads the ledger for the plan-body exception', { skip: !existsSync(built) }, () => {
-    const input = (repo: string, scratch: string) =>
-      JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/plan.md') } });
-    const live = fixture([planRoute('a-1', 'A')]);
-    assert.deepEqual(JSON.parse(run(input(live.repo, live.scratch)).stdout), {});
-    const other = fixture([{ id: 'r-1', at, kind: 'route', skill: 'review', session: 'A' }]);
-    assert.match(JSON.parse(run(input(other.repo, other.scratch)).stdout).hookSpecificOutput.permissionDecisionReason, /live route is review, not plan/);
-  });
-
   // A FIFO with no writer blocks a plain open; the guard must answer at once instead. Spawned, so a regression times out.
-  it('answers at once when the ledger is a FIFO', { skip: !existsSync(built) || process.platform === 'win32' }, () => {
-    const { repo, scratch } = fixture([planRoute('a-1', 'A')]);
-    const file = path.join(repo, '.ambicode', 'tasks', 'T', LEDGER_FILE);
-    rmSync(file);
-    execFileSync('mkfifo', [file]);
-    const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/tasks/T/plan.md') } });
+  it('answers at once when the headless marker is a FIFO', { skip: !existsSync(built) || process.platform === 'win32' }, () => {
+    const { scratch } = fixture();
+    const marker = path.join(scratch, HOOK_STATE_DIR_NAME, HEADLESS_FILE);
+    execFileSync('mkfifo', [marker]);
+    const input = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'A', scratchpad_dir: scratch, tool_name: 'Write', tool_input: { file_path: '/repo/.ambicode/tasks/T/notes.md' } });
     const result = spawnSync('node', [built.pathname], { input, encoding: 'utf8', timeout: 5000 });
     assert.equal(result.error, undefined, String(result.error));
     assert.equal(result.status, 0);
-    assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /missing, unreadable/);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
   });
 
   it('imports node:fs, crypto and os and nothing else the CLI loads (no Runtime, no zod)', { skip: !existsSync(built) }, () => {
@@ -494,91 +376,9 @@ describe('the built guard entry', () => {
   });
 });
 
-describe('head fed by a literal ambicode call', () => {
-  const S = '/p/scripts/ambicode.mjs';
-  type Full = { hookSpecificOutput?: { permissionDecision: string; updatedInput?: Record<string, unknown> } };
-  const withFields = (command: string): Full =>
-    guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command, description: 'd', timeout: 5000, run_in_background: false } }) as Full;
-
-  it('lets a command that prints no step run as written', () => {
-    for (const command of [
-      `node ${S} refs --declarations Foo --task t 2>&1 | head -8`,
-      `node "${S}" context --help | head -20`,
-      `node ${S} --help | head`,
-      `node ${S} help | head`,
-      `node ${S} policy check .ambicode/policies/x.yaml | head -5`,
-      `node ${S} config packs | head -5`,
-      `cd repo; for n in a b; do node "${S}" refs --declarations $n --task t 2>&1 | head -8; done; cat x`,
-    ]) assert.deepEqual(bash(command), {}, command);
-  });
-  it('removes the head pipe of a step-printing call and keeps every other input field', () => {
-    for (const [command, rewritten] of [
-      [`node ${S} route next --task t | head -20`, `node ${S} route next --task t`],
-      [`node ${S} policy check --drafts --task t | head -3`, `node ${S} policy check --drafts --task t`],
-      [`cd repo; node ${S} route next --task t 2>&1 | head -5; cat a`, `cd repo; node ${S} route next --task t 2>&1; cat a`],
-      [`node ${S} check --task t --name unit |\n  head -3\necho done`, `node ${S} check --task t --name unit\necho done`],
-      [`node ${S} route next --task t | head -2; node ${S} check --task t | head -4`, `node ${S} route next --task t; node ${S} check --task t`],
-    ] as const) {
-      const out = withFields(command).hookSpecificOutput!;
-      assert.equal(out.permissionDecision, 'allow', command);
-      assert.deepEqual(out.updatedInput, { command: rewritten, description: 'd', timeout: 5000, run_in_background: false }, command);
-    }
-  });
-  it('is deterministic, so parallel guard processes agree', () => {
-    const command = `cd r; node ${S} route next --task t | head -5`;
-    assert.deepEqual(withFields(command), withFields(command));
-  });
-  it('denies with a reason that says nothing ran when the span cannot be cut safely', () => {
-    for (const command of [
-      `python3 edit.py && node ${S} check --task t --name unit | head -40`,
-      `rm -rf ~/work; node ${S} route next | head -5`,
-      `node ${S} route next | head -5 > out.txt`,
-      `echo $(date); node ${S} route next --task t | head -5`,
-      `cat <<EOF\nx\nEOF\nnode ${S} route next | head -5`,
-    ]) {
-      const out = bash(command);
-      assert.equal(decisionOf(out), 'deny', command);
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /nothing ran/i);
-    }
-  });
-  it('lets another rule decide first: a deny or an ask is never replaced by a rewrite', () => {
-    const git = bash(`git push; node ${S} route next --task t | head -5`);
-    assert.equal(decisionOf(git), 'ask');
-    assert.doesNotMatch(git.hookSpecificOutput!.permissionDecisionReason, /nothing ran/);
-    const note = bash(`echo x > .ambicode/tasks/T/notes.md; node ${S} route next --task t | head -5`);
-    assert.equal(decisionOf(note), 'deny');
-    assert.doesNotMatch(note.hookSpecificOutput!.permissionDecisionReason, /nothing ran/);
-  });
-  it('leaves unrelated pipes, tail and plain ambicode calls alone', () => {
-    for (const command of [
-      `node ${S} route next --task t 2>&1`,
-      `node ${S} route next --task t 2>&1 | tail -60`,
-      `node ${S} route next; cat x | head`,
-      `node ${S} review --json | jq .a`,
-      `node ${S} review --json | jq .a | head`,
-      `node ${S} a || head x`,
-      `cat x | head | node ${S} a`,
-      'S=other.mjs; node $S a | head',
-      `printf x | node ${S} note save --task t\ntail -5 notes.txt`,
-    ]) assert.deepEqual(bash(command), {}, command);
-  });
-  it('answers allow only with a rewrite, never for a command that has nothing to cut', () => {
-    for (const command of [
-      `node ${S} route next --task t | tail -5`,
-      `node ${S} route next`,
-      'git status',
-      'ls | head',
-    ]) {
-      const output = bash(command).hookSpecificOutput as { permissionDecision?: string; updatedInput?: unknown } | undefined;
-      assert.notEqual(output?.permissionDecision, 'allow', command);
-      assert.equal(output?.updatedInput, undefined, command);
-    }
-  });
-});
-
 describe('an active route shapes the decision', () => {
   const P = 'O=.ambicode/x; ';
-  const route = (headless: boolean) => ({ headless: () => headless, ledger: () => null });
+  const route = (headless: boolean) => ({ headless: () => headless });
   const run = (command: string, headless: boolean) =>
     guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', scratchpad_dir: '/s', tool_input: { command } }, '/p', route(headless)) as Output;
 
@@ -615,10 +415,6 @@ describe('an active route shapes the decision', () => {
   it('leaves a deny and an allow as they are in a headless route', () => {
     assert.match(run('echo x > .ambicode/tasks/T/a.md', true).hookSpecificOutput!.permissionDecisionReason, /note save/);
     assert.deepEqual(run('git status', true), {});
-  });
-  it('never rewrites a command that needs no change: no updatedInput is answered', () => {
-    assert.deepEqual(run('node /p/scripts/ambicode.mjs route next', false), {});
-    assert.deepEqual(run('grep -rn x --include=*.ts .', false), {});
   });
 });
 

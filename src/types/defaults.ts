@@ -1,14 +1,5 @@
-/** The route's layer lists for each search mode. */
-export const SEARCH_LAYER_DEFAULTS = {
-  prompt: ['shortlist', 'retrieve', 'harvest', 'shortlist'],
-  context: ['grep', 'harvest'],
-} as const;
-
-/**
- * Only stops an unbounded `--evidence -` read; `review.maxContextBytes` decides fit.
- * An envelope over it is refused, not truncated: half an envelope is not evidence.
- */
-export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
+/** The search map's layer list. */
+export const SEARCH_LAYER_DEFAULTS = ['shortlist', 'retrieve', 'harvest', 'shortlist'] as const;
 
 export const MAX_SNAPSHOT_FILE_BYTES = 262_144;
 

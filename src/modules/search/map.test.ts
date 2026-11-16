@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { parseArgs } from '#util/args';
 import { MAP_OPTIONS, mapCommand } from '#cli/commands/search/search';
-import { rankTerms, buildMap, resolveLayers, fitMapText, MAP_LEGEND, MAP_FLOOR_CHARS, MAP_LIMIT_BYTES } from './map.ts';
+import { rankTerms, buildMap, LIST_FLOOR, MAP_LEGEND, TOP_ROWS } from './map.ts';
 
 
 const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
@@ -23,23 +23,9 @@ async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   await fx.repo.commitAll('files');
   return fx;
 }
-const map = (fx: RouteFixture, layers: string[], terms: string[], extra: object = {}) => buildMap(fx.runtime, { project, mode: 'prompt', layers, terms, ...extra });
+const map = (fx: RouteFixture, layers: string[], terms: string[], extra: object = {}) => buildMap(fx.runtime, { project, layers, terms, ...extra });
 
 describe('map', () => {
-  it('fitMapText drops the lowest-ranked rows, keeps the JSON valid and the lines after it, and refuses below the floor', () => {
-    const rows = Array.from({ length: 60 }, (_, index) => [`src/a${index}/f.ts`, 9 - index / 10, ['contains "x"']]);
-    const text = `layers: shortlist (default)\n${JSON.stringify({ candidates: rows, limitations: ['kept note'] })}\nInvestigation: notes/x.md. Read it first.`;
-    const fit = fitMapText(text, 1500)!;
-    assert.ok(fit.text.length <= 1500 && fit.cut > 0, `${fit.text.length}`);
-    const lines = fit.text.split('\n');
-    const doc = JSON.parse(lines[1]!) as { candidates: unknown[]; limitations: string[] };
-    assert.deepEqual(doc.candidates, rows.slice(0, 60 - fit.cut));
-    assert.deepEqual(doc.limitations, ['kept note', `${fit.cut} more lower-ranked candidate(s) cut to fit the delivery`]);
-    assert.equal(lines[2], 'Investigation: notes/x.md. Read it first.');
-    assert.deepEqual(fitMapText(text, text.length), { text, cut: 0 });
-    assert.equal(fitMapText(text, MAP_FLOOR_CHARS - 1), null);
-  });
-
   it('ranks the file a term names by path above files that only mention it, and takes identifiers from a request before prose', async () => {
     const fx = await repo();
     try {
@@ -47,7 +33,7 @@ describe('map', () => {
       assert.equal(found.candidates[0]!.path, 'src/cart/discount.ts');
       assert.match(found.candidates[0]!.reasons[0]!, /^filename matched "discount"/);
       assert.deepEqual(rankTerms([{ title: '', content: 'Fix `applyDiscount` so the rounding is right for every customer in the cart' }]).slice(0, 1), ['applyDiscount']);
-      const derived = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Why does `applyDiscount` return a wrong rate?' });
+      const derived = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: 'Why does `applyDiscount` return a wrong rate?' });
       assert.equal(derived.terms.pass1[0], 'applyDiscount');
     } finally {
       await fx.dispose();
@@ -87,31 +73,30 @@ describe('map', () => {
     const fx = await repo();
     try {
       const once = await map(fx, ['shortlist'], ['checkout']);
-      assert.ok(!once.candidates.some((candidate) => candidate.path === 'src/billing/ledger.ts'));
+      assert.ok(!once.pool.some((candidate) => candidate.path === 'src/billing/ledger.ts'));
       const twice = await map(fx, PROMPT, ['checkout']);
       assert.deepEqual(twice.layers.map((layer) => layer.name), PROMPT);
       assert.ok(twice.terms.pass2.includes('settleInvoice'), twice.terms.pass2.join(','));
-      assert.ok(twice.candidates.some((candidate) => candidate.path === 'src/billing/ledger.ts'));
+      assert.ok(twice.pool.some((candidate) => candidate.path === 'src/billing/ledger.ts'), 'pass 2 ranks the file; the floor may keep it out of the list, so the pool is the evidence');
       assert.ok(twice.text.startsWith(`${MAP_LEGEND}\n{"candidates"`));
       assert.doesNotMatch(twice.text.slice(MAP_LEGEND.length), /"terms"|"pass1"|"symbols"|"collides"|declarations/, 'debug fields stay in the ledger and the result, not in the text');
-      assert.deepEqual(Object.keys(twice.entry).sort(), ['bytes', 'candidates', 'layers', 'layersSource', 'limitations', 'mode', 'terms']);
+      assert.deepEqual(Object.keys(twice.entry).sort(), ['bytes', 'candidates', 'layers', 'limitations', 'terms']);
     } finally {
       await fx.dispose();
     }
   });
 
-  it('flags a harvested name declared in two files, and the grep layer finds the known symbols', async () => {
+  it('flags a harvested name declared in two files, and spans the named files', async () => {
     const fx = await repo();
     try {
       assert.deepEqual((await map(fx, PROMPT, ['cart'])).collisions, ['applyDiscount']);
-      const context = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep', 'harvest'], paths: ['src/cart/cart.service.ts', 'src/cart/discount.ts'], symbols: ['applyDiscount'] });
-      assert.equal(context.layers[0]!.hits, 2);
-      assert.deepEqual(context.collisions, ['applyDiscount']);
       const prompt = await map(fx, PROMPT, ['cart']);
       assert.ok(Object.values(prompt.symbols).flat().some((symbol) => symbol.collides), 'the structured symbols stay on the result');
       assert.doesNotMatch(prompt.text, /collides|symbols/);
-      assert.doesNotMatch(context.text, /collides|symbols/);
-      assert.ok(context.candidates.find((candidate) => candidate.path === 'src/cart/discount.ts')!.spans!.length > 0);
+      const seeded = await map(fx, PROMPT, ['cart'], { paths: ['src/cart/cart.service.ts', 'src/cart/discount.ts'], symbols: ['applyDiscount'] });
+      assert.deepEqual(seeded.collisions, ['applyDiscount']);
+      assert.doesNotMatch(seeded.text, /collides|symbols/);
+      assert.ok(seeded.candidates.find((candidate) => candidate.path === 'src/cart/discount.ts')!.spans!.length > 0);
     } finally {
       await fx.dispose();
     }
@@ -128,33 +113,16 @@ describe('map', () => {
     }
   });
 
-  it('cuts candidates from the bottom to MAP_LIMIT_BYTES and counts them in the ledger limitations', async () => {
-    const wide = Object.fromEntries([
-      ...Array.from({ length: 80 }, (_, index) => [`src/pad/p${index}.ts`, `export const pad${index} = 1;\n`]),
-      ...Array.from({ length: 60 }, (_, index) => [`src/hits/a-deliberately-long-directory-name-for-the-needleword-fixture-${index}/long-named-file.ts`, `export const hit${index} = "needleword";\n`]),
-    ]);
-    const fx = await repo(wide);
-    try {
-      const found = await map(fx, ['shortlist'], ['needleword']);
-      assert.ok(found.bytes <= MAP_LIMIT_BYTES && Buffer.byteLength(found.text) === found.bytes, `${found.bytes}`);
-      assert.ok(found.omitted > 0 && found.candidates.length + found.omitted === 60);
-      assert.ok(found.limitations.includes(`${found.omitted} lower-ranked candidate(s) cut to fit ${MAP_LIMIT_BYTES} bytes`));
-      assert.equal(found.entry['candidates'], 60);
-    } finally {
-      await fx.dispose();
-    }
-  });
-
   it('lists one row per entity: two unrelated files of one folder both appear, the files of one entity collapse to one row and the collapse is counted', async () => {
     const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', 'src/cart/discount.model.ts': 'export const applyDiscount = 1;\n' });
     try {
-      const found = await map(fx, ['shortlist'], ['discount', 'export']);
+      const found = await map(fx, ['shortlist'], ['discount', 'applyDiscount']);
       const cart = found.candidates.map((candidate) => candidate.path).filter((path) => path.startsWith('src/cart/'));
       assert.ok(cart.includes('src/cart/cart.service.ts') && cart.some((path) => path.startsWith('src/cart/discount.')), cart.join('|'));
       assert.equal(cart.filter((path) => path.startsWith('src/cart/discount.')).length, 1, 'discount.ts and discount.model.ts are one entity');
       assert.ok(found.limitations.some((note) => /more file\(s\) in entities already listed/.test(note)));
       assert.ok(found.debug.spreadDropped.length > 0);
-      const seeded = await buildMap(fx.runtime, { project, mode: 'context', layers: ['shortlist'], terms: ['discount'], paths: ['src/cart/cart.service.ts'] });
+      const seeded = await map(fx, ['shortlist'], ['discount'], { paths: ['src/cart/cart.service.ts'] });
       assert.ok(seeded.candidates.some((candidate) => candidate.path === 'src/cart/cart.service.ts'), 'a path the caller named is never folded');
       const rare = await map(fx, ['shortlist'], ['checkout', 'unrelated']);
       assert.equal(rare.candidates[0]!.path, 'src/cart/checkout.ts');
@@ -163,13 +131,13 @@ describe('map', () => {
     }
   });
 
-  it('a term that matches no file gives its slot to the next one', async () => {
+  it('a term that matches no file is named in the note and leaves the ranking; the note counts the reserve terms that became live', async () => {
     const fx = await repo();
     try {
       const dead = Array.from({ length: 12 }, (_, index) => `\`deadTerm${String.fromCharCode(97 + index)}Name\``).join(' ');
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: `${dead} \`settleInvoice\`` });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: `${dead} \`settleInvoice\`` });
       assert.deepEqual(found.terms.pass1, ['settleInvoice']);
-      assert.match(found.limitations.join('\n'), /no file matches the terms "deadTermaName".*"deadTermlName"/);
+      assert.match(found.limitations.join('\n'), /no file matches the terms "deadTermaName".*"deadTermlName"; 1 reserve term became live$/m);
       assert.ok(found.candidates.some((candidate) => candidate.path === 'src/cart/checkout.ts'));
     } finally {
       await fx.dispose();
@@ -187,7 +155,7 @@ describe('map', () => {
     }
   });
 
-  it('debug names the fold, the spread losses and the floor losses, and none of them reach the printed map', async () => {
+  it('debug names the fold, the spread losses and the list losses (floor and top rows), and none of them reach the printed map', async () => {
     const wideCount = 12;
     const fx = await repo({ 'src/cart/discount.spec.ts': 'it("x", () => {});\n', ...Object.fromEntries(Array.from({ length: wideCount }, (_, index) => [`src/wide/w.a${index}.ts`, 'export const sharedword = 1;\n'])) });
     try {
@@ -199,11 +167,10 @@ describe('map', () => {
       const survivors = found.pool.filter((row) => wide(row.path) && !found.debug.spreadDropped.includes(row.path));
       assert.equal(survivors.length, 1, 'the wide files are one entity: the spread keeps one row and reports the other ones as dropped');
       assert.equal(found.debug.spreadDropped.filter(wide).length, wideCount - 1);
-      assert.ok(found.debug.floorDropped.every((path) => inPool(path) && !found.candidates.some((row) => row.path === path)), 'a floor loss is a pool row that is not listed');
-      assert.ok(found.debug.floorDropped.includes(survivors[0]!.path), 'the one wide file left scores far below the top row and is cut by the floor');
+      assert.ok(found.debug.listDropped.every((path) => inPool(path) && !found.candidates.some((row) => row.path === path)), 'a list loss is a pool row that is not listed');
+      assert.ok(found.debug.listDropped.includes(survivors[0]!.path), 'the one wide file left scores far below the top row and is cut by the floor');
       assert.ok(!found.candidates.some((row) => wide(row.path) || row.path.endsWith('.spec.ts')));
-      assert.equal(found.entry['candidates'], found.candidates.length + found.omitted);
-      assert.equal(found.text.includes('floorDropped') || found.text.includes('spreadDropped'), false);
+      assert.equal(found.text.includes('listDropped') || found.text.includes('spreadDropped'), false);
       assert.deepEqual(found.text, (await map(fx, PROMPT, ['discount', 'sharedword'])).text, 'the printed map is the same on a second run');
     } finally {
       await fx.dispose();
@@ -213,11 +180,11 @@ describe('map', () => {
   it('folds or drops companion rows whether or not the request names their kind', async () => {
     const fx = await repo({ 'tests/discount.test.ts': 'import { applyDiscount } from "../src/cart/discount";\n', 'src/settings/discount.config.ts': 'export default { rate: 1 };\n' });
     try {
-      const listed = async (request: string): Promise<string[]> => (await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], terms: ['discount'], request })).candidates.map((candidate) => candidate.path);
+      const listed = async (request: string): Promise<string[]> => (await buildMap(fx.runtime, { project, layers: ['shortlist'], terms: ['discount'], request })).candidates.map((candidate) => candidate.path);
       assert.deepEqual((await listed('Why is the discount wrong?')).filter((path) => !path.endsWith('cart.service.ts')), ['src/cart/discount.ts']);
       assert.ok(!(await listed('Which tests cover the discount?')).includes('tests/discount.test.ts'), 'a request naming tests still folds them');
       assert.ok(!(await listed('Where is the discount config read?')).includes('src/settings/discount.config.ts'), 'a request naming config still folds it');
-      const seeded = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], terms: ['discount'], request: 'Which tests cover the discount?', paths: ['tests/discount.test.ts'] });
+      const seeded = await buildMap(fx.runtime, { project, layers: ['shortlist'], terms: ['discount'], request: 'Which tests cover the discount?', paths: ['tests/discount.test.ts'] });
       assert.ok(seeded.candidates.some((candidate) => candidate.path === 'tests/discount.test.ts'), 'a seed path stays unfolded');
     } finally {
       await fx.dispose();
@@ -232,7 +199,7 @@ describe('map', () => {
       assert.ok(found.limitations.some((note) => /more file\(s\) in entities already listed/.test(note)));
       assert.ok(found.limitations.some((note) => /^search index built now, \d+ ms$/.test(note)));
       const kindOf = (note: string): string => /^"[^"]+" matched \d+ of \d+ files; ignored$/.test(note) ? 'ignored' : /^no file matches the term "qqNoSuchWord"/.test(note) ? 'no match' : /^"ZebraCrossing" is in no code file, only in src\/assets\/i18n\.json$/.test(note) ? 'outside code' : `internal: ${note}`;
-      assert.deepEqual(new Set((shown.limitations ?? []).map(kindOf)), new Set(['ignored', 'no match', 'outside code']), 'exactly the notes about request words are shown: no entity, floor, byte-cut or index note');
+      assert.deepEqual(new Set((shown.limitations ?? []).map(kindOf)), new Set(['ignored', 'no match', 'outside code']), 'exactly the notes about request words are shown: no entity or index note');
       assert.equal(shown.limitations?.length, 3, 'each actionable note once');
       assert.deepEqual(found.entry['limitations'], found.limitations);
     } finally {
@@ -251,11 +218,10 @@ describe('map', () => {
     }
   });
 
-  it('refuses an unknown layer, and the default list names its source', async () => {
+  it('refuses an unknown layer', async () => {
     const fx = await repo();
     try {
       await assert.rejects(map(fx, ['shortlist', 'index.find'], ['cart']), (error: Error & { code?: string }) => error.code === 'search-layer-unknown' && /index\.find/.test(error.message));
-      assert.deepEqual(resolveLayers('prompt'), { layers: ['shortlist', 'retrieve', 'harvest', 'shortlist'], source: 'default' });
     } finally {
       await fx.dispose();
     }
@@ -305,7 +271,7 @@ describe('map term extraction', () => {
       'loyalty.config.ts': 'export default { loyalty: true };\n',
     });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Change how `earnPoints` awards loyalty points' });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: 'Change how `earnPoints` awards loyalty points' });
       const listed = found.pool.map((candidate) => candidate.path);
       assert.deepEqual(listed.filter((file) => /loyalty/.test(file)), ['src/loyalty/loyalty.service.ts'], listed.join(','));
     } finally {
@@ -313,16 +279,44 @@ describe('map term extraction', () => {
     }
   });
 
-  it('lists only the rows near the top score: one file that stands out alone is the whole list, and the omission is reported', async () => {
+  it('lists only the rows near the top score: one file that stands out alone is the whole list, and the omissions are recorded in the debug list', async () => {
     const fx = await repo({
       'src/alpha/beta.ts': 'export const marker = 1;\n',
       ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`src/mention${index}/note.ts`, `// alpha ${index}\nexport const v${index} = ${index};\n`])),
     });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], terms: ['alpha', 'beta'] });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], terms: ['alpha', 'beta'] });
       assert.deepEqual(found.candidates.map((candidate) => candidate.path), ['src/alpha/beta.ts'], found.candidates.map((candidate) => `${candidate.path}:${candidate.score}`).join(','));
       assert.ok(found.pool.length > 1);
-      assert.match(found.limitations.join('|'), /\d+ candidate\(s\) scored under \d+% of the top row are not listed/);
+      assert.deepEqual(found.debug.listDropped.sort(), found.pool.map((candidate) => candidate.path).filter((path) => path !== 'src/alpha/beta.ts' && !found.debug.spreadDropped.includes(path)).sort());
+      assert.ok(found.debug.listDropped.length > 0);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('lists at most 20 rows, the best ones, and says how many were left out', async () => {
+    const fx = await repo(Object.fromEntries(Array.from({ length: 25 }, (_, index) => [`src/gears/sprocket-${String(index).padStart(2, '0')}.ts`, `export const gear${index} = ${index};\n`])));
+    try {
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], terms: ['sprocket'] });
+      assert.equal(found.pool.filter((candidate) => candidate.path.startsWith('src/gears/')).length, 25);
+      assert.equal(found.candidates.length, 20, found.candidates.map((candidate) => candidate.path).join(','));
+      assert.deepEqual(found.candidates.map((candidate) => candidate.path), found.pool.slice(0, TOP_ROWS).map((candidate) => candidate.path));
+      assert.ok(found.candidates.every((candidate) => candidate.score >= LIST_FLOOR * found.candidates[0]!.score), 'every listed row is above the floor');
+      assert.deepEqual(found.debug.listDropped, found.pool.slice(TOP_ROWS).map((candidate) => candidate.path), 'the rows past TOP_ROWS are the debug list losses');
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('a request whose terms match nothing names them once, in the text and in the ledger', async () => {
+    const fx = await repo();
+    try {
+      const found = await buildMap(fx.runtime, { project, layers: PROMPT, request: 'Rework `quuxHandler` and `zorkFrob` for the frobnicate flurble' });
+      assert.equal(found.candidates.length, 0);
+      assert.equal(found.text.match(/no file matches/g)?.length, 1, found.text);
+      assert.equal(found.limitations.filter((note) => /no file matches/.test(note)).length, 1, found.limitations.join('|'));
+      assert.doesNotMatch(found.text, /reserve|slot/, 'no reserve term became live: the note claims none');
     } finally {
       await fx.dispose();
     }
@@ -334,7 +328,7 @@ describe('map term extraction', () => {
       'src/shared/TotalAmount.ts': 'export const t = 1;\n',
     });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: "Fix 'Unit Price*' and the “Total Amount” field." });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: "Fix 'Unit Price*' and the “Total Amount” field." });
       const paths = found.candidates.map((candidate) => candidate.path);
       assert.ok(paths.includes('src/unit-price/form.ts'), paths.join(','));
       assert.ok(paths.includes('src/shared/TotalAmount.ts'), paths.join(','));
@@ -363,11 +357,10 @@ describe('map term extraction', () => {
     const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n', 'src/zork/index.ts': "export const key = 'x-zork';\n" });
     try {
       const keys = ['aa.bb_cc', 'aa.bb_dd', 'aa.bb_ee', 'aa.bb_ff', 'aa.bb_gg', 'aa.bb_hh', 'aa.bb_ii', 'aa.bb_jj', 'aa.bb_kk', 'aa.bb_ll'].map((key) => `\`${key}\``).join(', ');
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: `Rework \`x-zork\`, \`quuxHandler\` and the keys ${keys} for the refund dialog.` });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: `Rework \`x-zork\`, \`quuxHandler\` and the keys ${keys} for the refund dialog.` });
       assert.ok(found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
       assert.ok(found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
       assert.ok(found.candidates.some((candidate) => candidate.path === 'src/zork/index.ts'), found.candidates.map((candidate) => candidate.path).join(','));
-      assert.ok(found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
     } finally {
       await fx.dispose();
     }
@@ -376,7 +369,7 @@ describe('map term extraction', () => {
   it('a plain word that matches nothing is not reported as a missing term, and a dead identifier still is', async () => {
     const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Rework `quuxHandler` for the refund frobnicate dialog.' });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: 'Rework `quuxHandler` for the refund frobnicate dialog.' });
       assert.ok(found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
       assert.ok(found.limitations.some((note) => /no file matches.*"quuxHandler"/.test(note)), found.limitations.join('|'));
       assert.ok(!found.limitations.some((note) => /frobnicate/.test(note)), found.limitations.join('|'));
@@ -385,23 +378,32 @@ describe('map term extraction', () => {
     }
   });
 
-  it('context mode takes no plain words: its grep keeps identifiers and nothing there tells a live word from a dead one', async () => {
+  it('plain words stay out of the search once 3 terms are live', async () => {
     const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep', 'harvest'], request: 'Rework `settleInvoice` for the refund dialog.' });
-      assert.ok(found.terms.pass1.includes('settleInvoice'), found.terms.pass1.join('|'));
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: 'Rework `settleInvoice`, `applyDiscount` and `DISCOUNT_RATE` for the refund dialog.' });
       assert.ok(!found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
+      assert.ok(!found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
     } finally {
       await fx.dispose();
     }
   });
 
-  it('plain words stay out of the search once 3 terms are live', async () => {
+  it('plain words are grepped only when fewer than 3 ranked terms are live', async () => {
     const fx = await repo({ 'src/refund/dialog.ts': 'export const dialog = 1;\n' });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Rework `settleInvoice`, `applyDiscount` and `DISCOUNT_RATE` for the refund dialog.' });
-      assert.ok(!found.terms.pass1.includes('refund'), found.terms.pass1.join('|'));
-      assert.ok(!found.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), found.candidates.map((candidate) => candidate.path).join(','));
+      const grepped: string[] = [];
+      const runtime = { ...fx.runtime, runner: { run: (request: Parameters<typeof fx.runtime.runner.run>[0]) => { const at = request.argv.indexOf('-e'); if (request.argv.includes('grep') && at >= 0 && request.argv.at(-1) === '--') grepped.push(request.argv[at + 1]!); return fx.runtime.runner.run(request); } } };
+      const closed = await buildMap(runtime, { project, layers: ['shortlist'], request: 'Rework `settleInvoice`, `applyDiscount` and `DISCOUNT_RATE` for the refund dialog.' });
+      assert.deepEqual([...grepped].sort(), ['DISCOUNT_RATE', 'applyDiscount', 'settleInvoice'], 'three live ranked terms: the plain words are not grepped');
+      assert.ok(!closed.terms.pass1.includes('refund'), closed.terms.pass1.join('|'));
+      grepped.length = 0;
+      const open = await buildMap(runtime, { project, layers: ['shortlist'], request: 'Rework `settleInvoice` and `applyDiscount` for the refund dialog.' });
+      assert.ok(grepped.includes('refund') && grepped.includes('dialog'), grepped.join('|'));
+      assert.ok(open.candidates.some((candidate) => candidate.path === 'src/refund/dialog.ts'), open.candidates.map((candidate) => candidate.path).join(','));
+      grepped.length = 0;
+      await buildMap(runtime, { project, layers: ['shortlist'], terms: ['settleInvoice', 'applyDiscount', 'settleInvoice'] });
+      assert.deepEqual([...grepped].sort(), ['applyDiscount', 'settleInvoice'], 'a term repeated in the input is grepped once');
     } finally {
       await fx.dispose();
     }
@@ -410,7 +412,7 @@ describe('map term extraction', () => {
   it('a phrase and a single word find a folder spelled with another inflection', async () => {
     const fx = await repo({ 'src/upload-complete/handler.ts': 'export const h = 1;\n', 'src/indicator/badge.ts': 'export const b = 1;\n' });
     try {
-      const phrase = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist'], request: 'Show the Upload Completed toast; see `settleInvoice`, `apply_discount`, `cart/total`.' });
+      const phrase = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: 'Show the Upload Completed toast; see `settleInvoice`, `apply_discount`, `cart/total`.' });
       assert.ok(phrase.candidates.some((candidate) => candidate.path === 'src/upload-complete/handler.ts'), phrase.candidates.map((candidate) => candidate.path).join(','));
       assert.ok(!phrase.limitations.some((note) => /no file matches.*"Upload Completed"/.test(note)), phrase.limitations.join('|'));
       const word = await map(fx, ['shortlist'], ['indicators']);
@@ -449,7 +451,7 @@ describe('map retrieve layer', () => {
       'src/notes/outbound.ts': '// Shipment rules live elsewhere\nexport const outbound = 1;\n',
     });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: RETRIEVE, request: 'The "Shipment" badge shows the wrong state; see `settleInvoice` and `applyDiscount`.' });
+      const found = await buildMap(fx.runtime, { project, layers: RETRIEVE, request: 'The "Shipment" badge shows the wrong state; see `settleInvoice` and `applyDiscount`.' });
       const panel = found.pool.find((candidate) => candidate.path === 'src/screens/zq7/panel.ts');
       assert.ok(panel !== undefined, found.pool.map((candidate) => candidate.path).join(','));
       assert.match(panel.reasons.join('|'), /retrieved: label "Shipment status"/);
@@ -469,7 +471,7 @@ describe('map retrieve layer', () => {
       'src/billing/import/csv.ts': 'export const csv = 1;\n',
     });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: RETRIEVE, terms: ['billing', 'pdf'] });
+      const found = await buildMap(fx.runtime, { project, layers: RETRIEVE, terms: ['billing', 'pdf'] });
       const retrieved = found.pool.filter((candidate) => candidate.reasons.some((reason) => reason.startsWith('retrieved:'))).map((candidate) => candidate.path);
       assert.ok(retrieved.includes('src/billing/export/pdf.ts'), retrieved.join(','));
       assert.ok(!retrieved.includes('src/billing/import/csv.ts'), retrieved.join(','));
@@ -488,7 +490,7 @@ describe('map neighbours', () => {
       'src/lens/gallery/index.ts': 'export const gallery = 1;\n',
     });
     try {
-      const found = await buildMap(fx.runtime, { project, mode: 'prompt', layers: ['shortlist', 'retrieve'], terms: ['prism', 'viewer', 'gallery'] });
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist', 'retrieve'], terms: ['prism', 'viewer', 'gallery'] });
       const row = (name: string) => found.pool.find((candidate) => candidate.path === `src/lens/${name}/index.ts`)!;
       assert.match(row('viewer').reasons.join('|'), /neighbour of src\/lens\/prism/);
       assert.ok(!row('gallery').reasons.join('|').includes('neighbour of'), row('gallery').reasons.join('|'));
@@ -536,12 +538,80 @@ describe('map in-pool ranking', () => {
     }
   });
 
+  it('a file whose folder and name both match a term ranks at or above a file elsewhere whose name alone matches', async () => {
+    const fx = await repo({ 'src/amber/amber-form.ts': 'export const f = 1;\n', 'src/zeta/amber-helper.ts': 'export const h = 1;\n' });
+    try {
+      const { pool } = await map(fx, ['shortlist'], ['amber']);
+      const score = (path: string) => pool.find((candidate) => candidate.path === path)?.score;
+      assert.ok(score('src/zeta/amber-helper.ts') !== undefined, pool.map((candidate) => candidate.path).join(','));
+      assert.ok(score('src/amber/amber-form.ts')! >= score('src/zeta/amber-helper.ts')!, `${score('src/amber/amber-form.ts')} < ${score('src/zeta/amber-helper.ts')}`);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('with one request term every row stays behind it and the scores are untouched', async () => {
     const fx = await repo();
     try {
       const found = await map(fx, ['shortlist'], ['discount']);
       assert.equal(found.pool[0]!.path, 'src/cart/discount.ts');
       assert.ok(found.pool[0]!.score > 5, `${found.pool[0]!.score}`);
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('map exclusion', () => {
+  it('a folder whose retrieved file is excluded lists its sibling', async () => {
+    const fx = await repo({
+      'src/locales/en.json': JSON.stringify({ orders: { status: { badge: 'Shipment status' } } }),
+      'src/notes/outbound.ts': '// Shipment rules live elsewhere\nexport const outbound = 1;\n',
+      'src/screens/zq7/aaa.ts': 'export const first = 1;\n',
+      'src/screens/zq7/panel.ts': "export const badgeKey = 'orders.status.badge';\n",
+    });
+    try {
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist', 'retrieve'], request: 'The "Shipment" text is wrong', exclude: ['src/screens/zq7/aaa.ts'] });
+      const paths = found.pool.map((candidate) => candidate.path);
+      assert.ok(paths.includes('src/screens/zq7/panel.ts') && !paths.includes('src/screens/zq7/aaa.ts'), paths.join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('a row folded onto an excluded source file takes the next source file of the folder', async () => {
+    const fx = await repo({ 'src/billing/zorbit.test.ts': 'it("x", () => {});\n', 'src/billing/zorbit.ts': 'export const z = 1;\n' });
+    try {
+      const found = await map(fx, ['shortlist'], ['zorbit'], { exclude: ['src/billing/zorbit.ts'] });
+      assert.equal(found.debug.folded['src/billing/zorbit.test.ts'], 'src/billing/ledger.ts');
+      assert.deepEqual(found.candidates.map((candidate) => candidate.path), ['src/billing/ledger.ts']);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('a term found only in an excluded file is reported as matching no file, not as living in a non-code file', async () => {
+    const fx = await repo({ 'src/engine/core.ts': 'export const orbitaPart = 1;\n' });
+    try {
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: 'Check `orbitaPart` and `settleInvoice`', exclude: ['src/engine/core.ts'] });
+      assert.match(found.limitations.join('|'), /no file matches the term "orbitaPart"/);
+      assert.doesNotMatch(found.limitations.join('|'), /in no code file/);
+      assert.ok(found.terms.pass1.includes('settleInvoice') && !found.terms.pass1.includes('orbitaPart'), found.terms.pass1.join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('terms found only in excluded files do not count as live: the prose retry runs and the request words find a file', async () => {
+    const names = Array.from({ length: 26 }, (_, index) => `orbit${String.fromCharCode(97 + index)}Part`);
+    const fx = await repo({
+      'src/engine/core.ts': `${names.map((name) => `export const ${name} = 1;`).join('\n')}\n`,
+      'src/billing/settlement.ts': 'export const rounding = 1;\n',
+    });
+    try {
+      const request = `Settlement is wrong; changed ${names.map((name) => `\`${name}\``).join(' ')}`;
+      const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request, exclude: ['src/engine/core.ts'] });
+      assert.deepEqual(found.candidates.map((candidate) => candidate.path), ['src/billing/settlement.ts'], found.limitations.join('|'));
     } finally {
       await fx.dispose();
     }

@@ -66,7 +66,7 @@ describe('task route: the exit is listed under Not verified', { concurrency: 4 }
       await t.hook('checks-again', 'report the gap');
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'blocked');
       const text = await summary(t);
-      assert.match(text, /app\/unit: last run exited 1/);
+      assert.match(text, /app\/unit: last run: exit 1; /);
       assert.match(text, /- The route ended blocked: .*last check \(app\/unit\) is red/);
     }, CONFIG);
   });

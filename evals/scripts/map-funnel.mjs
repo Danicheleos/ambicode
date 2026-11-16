@@ -10,7 +10,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '#composition/root';
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
-import { buildMap, resolveLayers } from '#modules/search/map';
+import { buildMap, LIST_FLOOR, TOP_ROWS } from '#modules/search/map';
+import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
 import { mapTextOf, titleOf } from '#modules/requirements/capture/capture';
 import { contentHash } from '#util/hash';
 import { halvesOf, promptOf, scratchOf } from './map-bench.mjs';
@@ -55,7 +56,6 @@ export async function runFunnel({ bench, split = 'all', filter = null, top = 8, 
     const runtime = await createRuntime({ cwd: scratch });
     const workspace = await openWorkspace(runtime);
     const project = projectForRequest(workspace.config, null, []);
-    const { layers, source } = resolveLayers('prompt');
     const entries = readdirSync(cases).sort().filter((entry) => existsSync(path.join(cases, entry, 'truth.json')));
     const halves = halvesOf(cases, entries);
     const rows = [];
@@ -64,7 +64,7 @@ export async function runFunnel({ bench, split = 'all', filter = null, top = 8, 
       if ((filter !== null && !entry.includes(filter)) || (split !== 'all' && split !== half)) continue;
       const truth = JSON.parse(readFileSync(path.join(cases, entry, 'truth.json'), 'utf8'));
       const request = benchRequest(promptOf(readFileSync(path.join(cases, entry, 'prompt.md'), 'utf8')));
-      const map = await buildMap(runtime, { project, mode: 'prompt', layers, layersSource: source, terms: [], request, paths: [], symbols: [] });
+      const map = await buildMap(runtime, { project, layers: SEARCH_LAYER_DEFAULTS, terms: [], request, paths: [], symbols: [] });
       const targets = truthFolders(truth.relevant);
       const accepted = truthFolders([...truth.relevant, ...(truth.allowed ?? [])]);
       const printed = map.candidates.map((candidate) => candidate.path);
@@ -85,7 +85,7 @@ export async function runFunnel({ bench, split = 'all', filter = null, top = 8, 
       const hits = new Map();
       for (const candidate of map.pool) if (targets.some((folder) => under(dirOf(candidate.path), folder))) for (const reason of new Set(candidate.reasons.map(termOf))) hits.set(reason, (hits.get(reason) ?? 0) + 1);
       rows.push({
-        case: truth.name, half, pool: map.pool.length, printed: printed.length, cutNote: map.limitations.filter((note) => /cut to fit/.test(note)).join(''),
+        case: truth.name, half, pool: map.pool.length, printed: printed.length,
         terms: map.terms, limitations: map.limitations,
         targets: targets.map((folder) => ({ folder, ...stage(folder), ...reachedBy(map.pool.find((candidate) => under(dirOf(candidate.path), folder))?.reasons ?? []), via: (map.pool.find((candidate) => under(dirOf(candidate.path), folder))?.reasons ?? []).map(termOf).slice(0, 3) })),
         noise: tally(noise), hits: tally(hits),
@@ -113,7 +113,7 @@ export function retrievalCounts(rows) {
 
 function print(rows, top) {
   for (const row of rows) {
-    console.log(`\n## ${row.case} [${row.half}] pool ${row.pool}, printed ${row.printed}, ${row.cutNote || 'not cut'}`);
+    console.log(`\n## ${row.case} [${row.half}] pool ${row.pool}, printed ${row.printed}`);
     console.log(`terms pass1: ${row.terms.pass1.join(' | ')}`);
     console.log(`terms pass2 extra: ${row.terms.pass2.filter((term) => !row.terms.pass1.includes(term)).join(' | ') || '-'}`);
     for (const target of row.targets) console.log(`  truth ${target.folder}: ${target.stage === 'absent' ? 'absent' : target.stage === 'cut' ? `cut(pool#${target.rank})` : `${target.stage === 'top' ? `top${top}` : 'printed'}(#${target.rank})`}${target.retrieved ? (target.label ? ' [retrieved, label]' : ' [retrieved]') : ''}${target.via.length === 0 ? '' : `  via ${target.via.join(',')}`}`);
@@ -122,16 +122,14 @@ function print(rows, top) {
   }
 }
 
-/** LIST_FLOOR of src/modules/search/map.ts:38 (not exported): rows under this share of the top row's score are not listed. */
-const LIST_FLOOR = 0.12;
 const round2 = (value) => Math.round(value * 100) / 100;
 
 /**
  * Where one file fell in a buildMap result, as every stage it fails in map order: folded (a companion merged into `into`, then that row's own stages),
- * absent (not in the pool), spread, floor, cut (byte cut). `stage` is the first, or printed. `rank` and `score` are the file's pool position, or the row's it folded into;
+ * absent (not in the pool), spread, floor, cut (past the TOP_ROWS rows listed). `stage` is the first, or printed. `rank` and `score` are the file's pool position, or the row's it folded into;
  * `row` is the printed row number of the file or of that row.
  * A spread loss never reaches the later stages, so `counterfactual` names the ones computed as if the spread had kept it: floor from its score against the top
- * row, cut by pool rank against the delivered row count (an estimate: rows differ in bytes, the kept list is a byte prefix, so it is not exact).
+ * row (LIST_FLOOR), cut by pool rank against TOP_ROWS (an estimate: the spread loss would also have shifted the ranks below it).
  */
 export function fileStage(file, map) {
   const poolOf = (name) => map.pool.findIndex((candidate) => candidate.path === name);
@@ -151,13 +149,13 @@ export function fileStage(file, map) {
   if (map.debug.spreadDropped.includes(file)) {
     stages.push('spread');
     floor = LIST_FLOOR * round2(map.pool[0].score);
-    if (round2(own.score) < floor) { stages.push('floor'); counterfactual.push('floor'); } else if (own.rank > map.candidates.length) { stages.push('cut'); counterfactual.push('cut'); }
-  } else if (map.debug.floorDropped.includes(file)) stages.push('floor');
+    if (round2(own.score) < floor) { stages.push('floor'); counterfactual.push('floor'); } else if (own.rank > TOP_ROWS) { stages.push('cut'); counterfactual.push('cut'); }
+  } else if (map.debug.listDropped.includes(file)) stages.push(round2(own.score) < LIST_FLOOR * round2(map.pool[0].score) ? 'floor' : 'cut');
   else if (row === null) stages.push('cut');
   return { stage: stages[0] ?? 'printed', stages, row, ...own, into: null, counterfactual, ...(floor === undefined ? {} : { floor }) };
 }
 
-/** The printed rows whose pool rank is above the file's own: what the byte cut kept instead. */
+/** The printed rows whose pool rank is above the file's own: what the row cut kept instead. */
 export const rowsAbove = (file, map) => {
   const own = map.pool.findIndex((candidate) => candidate.path === file);
   return own === -1 ? [] : map.candidates.map((candidate, at) => ({ row: at + 1, path: candidate.path, score: candidate.score, rank: map.pool.findIndex((row) => row.path === candidate.path) + 1 })).filter((row) => row.rank <= own);
@@ -165,7 +163,7 @@ export const rowsAbove = (file, map) => {
 
 const ledgerOf = (taskDir) => readFileSync(path.join(taskDir, 'ledger.jsonl'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 
-/** The `map` entry of an archived task's ledger: what the run's own map reported (candidates before the byte cut, bytes, first-pass terms). */
+/** The `map` entry of an archived task's ledger: what the run's own map reported (candidates listed, bytes, first-pass terms). */
 export function ledgerMap(taskDir) {
   const entry = ledgerOf(taskDir).findLast((row) => row.kind === 'map');
   return entry === undefined ? null : { candidates: entry.candidates, bytes: entry.bytes, terms: entry.terms?.pass1 ?? [] };
@@ -224,8 +222,7 @@ export async function runReplay({ spec, name, env = process.env, material = MATE
     const runtime = await createRuntime({ cwd: scratch });
     const workspace = await openWorkspace(runtime);
     const project = projectForRequest(workspace.config, null, []);
-    const { layers, source } = resolveLayers('prompt');
-    const map = await buildMap(runtime, { project, mode: 'prompt', layers, layersSource: source, terms: [], request, paths: [], symbols: [] });
+    const map = await buildMap(runtime, { project, layers: SEARCH_LAYER_DEFAULTS, terms: [], request, paths: [], symbols: [] });
     const files = [...entry.relevant.map((file) => ({ file, kind: 'truth' })), ...(Object.hasOwn(EXTRA_FILES, name) ? EXTRA_FILES[name] : []).map((file) => ({ file, kind: 'extra' }))]
       .map((item) => ({ ...item, ...fileStage(item.file, map), above: [] }));
     for (const item of files) if (item.stage === 'cut') item.above = rowsAbove(item.file, map);
@@ -239,7 +236,7 @@ const shorten = (file) => file.split('/').slice(-2).join('/');
 
 /** The replay table of evals/local/map-replay.md for the results of `runReplay`; a `*` after a stage marks one computed as if the spread had kept the file. */
 export function replayMarkdown(results) {
-  const out = ['# map replay (plan 2, p1)', '', 'Generated: `node evals/scripts/map-funnel.mjs --spec evals/local/real-cases.suite.json --case <name> ...`. Request rebuilt from run 1 of each case\'s archived stage-1 plan run, sources in ledger order.', 'File cells show the last two path segments. Stage `x*`: not observed, computed as if the spread had kept the file (floor: score under 12% of the top row; cut: pool rank past the delivered rows, an estimate). A bare `spread` file would have fit by that estimate.'];
+  const out = ['# map replay (plan 2, p1)', '', 'Generated: `node evals/scripts/map-funnel.mjs --spec evals/local/real-cases.suite.json --case <name> ...`. Request rebuilt from run 1 of each case\'s archived stage-1 plan run, sources in ledger order.', 'File cells show the last two path segments. Stage `x*`: not observed, computed as if the spread had kept the file (floor: score under the LIST_FLOOR share of the top row; cut: pool rank past the TOP_ROWS rows listed, an estimate). A bare `spread` file would have fit by that estimate.'];
   for (const result of results) {
     const { ledger } = result;
     const same = ledger !== null && ledger.candidates === result.candidates && ledger.bytes === result.bytes && JSON.stringify(ledger.terms) === JSON.stringify(result.terms);

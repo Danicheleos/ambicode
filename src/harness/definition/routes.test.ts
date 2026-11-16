@@ -48,10 +48,10 @@ test('03-R1: a valid route loads and normalizes its steps, gate and defaults', a
   const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
   const route = routes[0]!;
   assert.deepEqual([route.skill, route.version], ['demo', 3]);
-  assert.deepEqual(route.steps.map((step) => [step.id, step.index, step.actor, step.repeat]), [['ground', 0, 'code', 2], ['read', 1, 'model', 1], ['ask', 2, 'human', 3]]);
+  assert.deepEqual(route.steps.map((step) => [step.id, step.index, step.actor, step.repeat]), [['ground', 0, 'code', 2], ['read', 1, 'model', 1], ['ask', 2, 'human', 1]]);
   assert.deepEqual(route.steps[0]!.run, [{ name: 'code.one', params: [] }]);
   const gate = route.steps[2]!.gate!;
-  assert.deepEqual([gate.id, gate.class, gate.repeat, gate.acting], ['ask', 'declared', 3, []]);
+  assert.deepEqual([gate.id, gate.class, gate.acting], ['ask', 'declared', []]);
   assert.deepEqual(gate.onAnswer['Maybe'], { target: 'ground', args: {} });
 });
 

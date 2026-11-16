@@ -93,7 +93,7 @@ export function sandboxOf(tracePath) {
 }
 
 /**
- * The model steps whose message carries the map in the hook text, as `<skill>/<step>`: the route definitions say it (`payload` lists `map`,
+ * The model steps whose text carries the map (the file a hook's link line names), as `<skill>/<step>`: the route definitions say it (`payload` lists `map`,
  * and no `work` file takes the payload instead), so a route that delivers the map at another step (plan's `draft`) needs no code here.
  */
 export function mapStepsOf(routesDir = path.join(REPO, 'routes')) {
@@ -109,20 +109,33 @@ export function mapStepsOf(routesDir = path.join(REPO, 'routes')) {
 }
 
 const STEP_HEADER = /\[ambicode\] (\S+) \u00b7 (?:task \S+ \u00b7 )?step ([\w-]+)/;
+// The hook answers with one line naming the step file; the step text itself reaches the model only through its Read of that file.
+const STEP_LINK = /Read (\S*step-([\w-]+)\.md) whole now: it is this step/;
+
+/** The text of every tool_result in one transcript line. */
+function resultTexts(entry) {
+  const content = entry?.message?.content;
+  if (!Array.isArray(content)) return [];
+  return content.filter((part) => part?.type === 'tool_result').map((part) => (Array.isArray(part.content) ? part.content.map((piece) => piece?.text ?? '').join('\n') : String(part.content ?? '')));
+}
 
 /**
  * What the model received at the route's map step (see `mapStepsOf`), from the session transcripts a run wrote
  * (`<sandbox>/config/projects/<project>/<session>.jsonl`): the stream trace carries no hook output, so ledger bytes alone cannot say
  * whether `## map` arrived (2026-10-24, 10 runs, 0 hits; 2026-10-25, all 30 plan runs read `absent` while the transcripts held the map).
+ * A hook delivers a step as one link line (`Read <file> whole now: ...`), so the text is the tool_result of the model's Read of that file.
  * `unknown` = no transcript, never a false; `spilled` = Claude Code saved the hook output to a file (a `tool-results/hook-` reference);
- * `absent` = transcript present, no map step text; else `delivered` with chars, map and candidates read from that text.
- * `none` = the run's skill (`skill`, the case name's first word) has no hook-delivered map step, so there is nothing to find: the task route hands
+ * `not-read` = the link to a map step was delivered and no tool_result carries that step's text; `absent` = transcript present and neither;
+ * else `delivered` with chars, map and candidates read from the Read result.
+ * `none` = the run's skill (`skill`, the case name's first word; `plan` for a `-chain-plan` case) has no hook-delivered map step, so there is nothing to find: the task route hands
  * the map to the implementer in a work file, and every task run read `absent` for it (20 of 20, 2026-10-27), which looked like a delivery failure.
  */
 export function deliveryOf(transcripts, mapSteps = mapStepsOf(), skill = null) {
   if (!transcripts || transcripts.length === 0) return { status: 'unknown', chars: null, map: null, candidates: null, spill: null };
   if (skill !== null && ![...mapSteps].some((step) => step.startsWith(`${skill}/`))) return { status: 'none', chars: null, map: null, candidates: null, spill: null };
+  const mapStepIds = new Set([...mapSteps].filter((step) => skill === null || step.startsWith(`${skill}/`)).map((step) => step.split('/')[1]));
   let step = null;
+  const linked = new Set();
   let spill = false;
   for (const text of transcripts) {
     for (const line of text.split('\n')) {
@@ -130,14 +143,20 @@ export function deliveryOf(transcripts, mapSteps = mapStepsOf(), skill = null) {
       let entry;
       try { entry = JSON.parse(line); } catch { continue; }
       const attachment = entry?.attachment;
-      if (attachment?.type !== 'hook_additional_context') continue;
-      const body = Array.isArray(attachment.content) ? attachment.content.join('\n') : String(attachment.content ?? '');
-      if (/tool-results\/hook-|additionalContext\.txt/.test(body)) spill = true;
-      const header = STEP_HEADER.exec(body);
-      if (header !== null && mapSteps.has(`${header[1]}/${header[2]}`)) step = body;
+      if (attachment?.type === 'hook_additional_context') {
+        const body = Array.isArray(attachment.content) ? attachment.content.join('\n') : String(attachment.content ?? '');
+        if (/tool-results\/hook-|additionalContext\.txt/.test(body)) spill = true;
+        const link = STEP_LINK.exec(body);
+        if (link !== null && mapStepIds.has(link[2])) linked.add(link[2]);
+      }
+      // Only a Read after the link is the delivery; the same step read earlier is not.
+      for (const result of resultTexts(entry)) {
+        const header = STEP_HEADER.exec(result);
+        if (header !== null && mapSteps.has(`${header[1]}/${header[2]}`) && linked.has(header[2])) step = result.replace(/^ *\d+\t/gm, '').replace(/^<!--.*-->\n/, '').trimEnd();
+      }
     }
   }
-  if (step === null) return { status: spill ? 'spilled' : 'absent', chars: null, map: false, candidates: false, spill };
+  if (step === null) return { status: spill ? 'spilled' : linked.size > 0 ? 'not-read' : 'absent', chars: null, map: false, candidates: false, spill };
   return { status: spill ? 'spilled' : 'delivered', chars: step.length, map: step.includes('## map'), candidates: step.includes('"candidates"'), spill };
 }
 
@@ -260,7 +279,8 @@ export function harvest(result, tracesDir, { remove = true, archiveDir = tracesD
         // Session transcripts (and Claude Code's hook spill files) live in the harness-set config dir, not in the sealed part.
         const transcriptDir = path.join(archiveDir, path.basename(run.trace).replace(/\.jsonl$/, '.transcript'));
         const texts = keepTranscripts(path.join(sandbox, 'config', 'projects'), transcriptDir);
-        run.delivery = deliveryOf(texts, mapStepsOf(), evalCase.name.split('-')[0]);
+        // A chain stage 1 case (`<name>-chain-plan`, chain-cases.mjs planName) runs the plan route, whose map step is plan/draft; the first word would say task.
+        run.delivery = deliveryOf(texts, mapStepsOf(), evalCase.name.endsWith('-chain-plan') ? 'plan' : evalCase.name.split('-')[0]);
         if (texts.length > 0) run.transcript = transcriptDir;
         if (remove) rmSync(sandbox, { recursive: true, force: true });
       });

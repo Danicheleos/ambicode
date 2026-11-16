@@ -8,6 +8,8 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
+import { toPosix } from '#util/glob';
+import { writeUniqueFile } from '#util/files';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
 import { runOne, shellQuote } from './run.ts';
 import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
@@ -17,7 +19,6 @@ import type { Workspace } from '#types/composition';
 const CHECK_LIMIT = 5;
 // Chosen by the user for a route covering several iterations; below CHECK_LIMIT when only one or two are covered.
 const CHECKS_PER_ITERATION = 2;
-const TAIL_LINES = 40;
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
 
@@ -155,6 +156,10 @@ async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Pro
   return limit;
 }
 
+/** The one line that names a check run's output file, from its ledger entry. skills/review/scripts/brief.mjs prints the same form: a skill script is plain ESM and cannot import from src. */
+export const outputPointer = (entry: Readonly<Record<string, unknown>>): string =>
+  `exit ${String(entry['exit'])}; ${String(entry['bytes'])} bytes of output in ${String(entry['output'])}`;
+
 /** `{file}` becomes the quoted files, space-joined: one run, one exit, one ledger entry for the whole selection. */
 export const commandFor = (template: string, files: readonly string[]): string => template.replaceAll('{file}', files.map(shellQuote).join(' '));
 
@@ -215,15 +220,19 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
     return { outcome: 'not-run', status: result.status === 'timed-out' ? 'timeout' : 'spawn-failed', detail: result.detail ?? 'the check did not run' };
   }
 
-  const entry = await withLedger(deps, dir, (ledger) => ledger.append({
-    kind: 'check', ...route, key, files, exit: result.exitCode, phase: input.phase,
-    tail: tailOf(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
-  })) as CheckEntry;
+  // Stdout then stderr, whole, in one file per run (`<key>_<n>.log`, n counting the key's runs on this ledger): the entry and every text that names the run carry the path, not a slice of the output.
+  const entry = await withLedger(deps, dir, async (ledger) => {
+    const read = await ledger.read();
+    const runs = read.state === 'ok' ? read.entries.filter((earlier) => earlier.kind === 'check' && earlier['key'] === key).length : 0;
+    await deps.runtime.fs.mkdirp(path.join(dir.root, 'checks'));
+    const written = await writeUniqueFile(deps.runtime.fs, path.join(dir.root, 'checks', `${key.replace(/[^A-Za-z0-9_-]/g, '-')}_${runs + 1}`), '.log', result.output);
+    return ledger.append({
+      kind: 'check', ...route, key, files, exit: result.exitCode, phase: input.phase,
+      output: toPosix(path.relative(dir.repositoryRoot, written)), bytes: Buffer.byteLength(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
+    });
+  }) as CheckEntry;
   // A nonzero exit is recorded as a gap, never as proof.
   const cause = result.exitCode === 0 ? null : 'nonzero-exit';
   if (cause !== null) await unproven(`${input.phase}-unproven`, cause);
   return { outcome: 'ran', entry, proof: cause === null ? { proven: true } : { proven: false, cause } };
 }
-
-/** The last 40 lines of stdout then stderr, the part a runner prints its verdict and failures in. */
-const tailOf = (output: string): string => output.trimEnd().split('\n').slice(-TAIL_LINES).join('\n');

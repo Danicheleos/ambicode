@@ -67,7 +67,6 @@ interface PrintInput {
   gate: GateDef;
   entry: LedgerEntry;
   object: ArtifactRef | null;
-  revisesLeft: number | null;
   platform?: PlatformFlags;
   runner?: string;
 }
@@ -90,9 +89,7 @@ export function gatePrintText(input: PrintInput): string {
     if (gate.acting.includes(option)) notes.push('acts: only your own answer here counts');
     const revise = gate.onAnswer[option];
     const target = revise?.target === '$raisedBy' ? String(entry['raisedBy'] ?? revise.target) : revise?.target;
-    if (revise !== undefined && input.revisesLeft !== null) {
-      notes.push(input.revisesLeft > 0 ? `Revise (${input.revisesLeft} left): goes back to ${target}` : `Revise (0 left — restart the route to continue)`);
-    } else if (revise !== undefined) notes.push(`goes back to ${target}`);
+    if (revise !== undefined) notes.push(`goes back to ${target}`);
     lines.push(`  - ${option}${notes.length === 0 ? '' : ` (${notes.join('; ')})`}`);
   }
   if (object !== null) lines.push(`Object: ${object.path} ${hash12(object.contentHash)}`);

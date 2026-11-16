@@ -189,7 +189,7 @@ describe('gate table: every registry gate', () => {
       assert.match(message.text, /Ask the user with AskUserQuestion, with the marker line verbatim in the question text\. The answer is recorded for you\.\nThe next step arrives with the user's answer\. Do not run a route command before then\./);
       assert.doesNotMatch(message.text, /--answer/);
       assert.match(message.text, /Then: the user's answer brings the next step\n/);
-      const input = { task, gate: t.instantiated('check-only-unauthorized'), entry: await t.lastPrint(task, 'check-only-unauthorized'), object: null, revisesLeft: null };
+      const input = { task, gate: t.instantiated('check-only-unauthorized'), entry: await t.lastPrint(task, 'check-only-unauthorized'), object: null };
       const text = (askBinding: 'supported' | 'unsupported', answerContext: 'supported' | 'unsupported') => gatePrintText({ ...input, platform: { askBinding, answerContext } });
       const flagged = input.gate.options.filter((option) => !input.gate.acting.includes(option)).join(', ');
       assert.match(text('unsupported', 'unsupported'), new RegExp(`For an answer that does not act \\(${flagged}\\) run: ambicode route next --task ${task} --answer check-only-unauthorized=<option>`));
@@ -231,26 +231,6 @@ describe('gate table: the shipped plan-accept gate', () => {
       assert.equal((await plan.prints()).length, before);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).length, 0);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('03-F7: a gate Revise past repeat is declined as max-revises', async () => {
-    const plan = await planFixture({ shipped: true });
-    try {
-      await plan.toGate();
-      for (let cycle = 0; cycle < 4; cycle += 1) {
-        const print = (await plan.prints()).at(-1)!;
-        await plan.hook('plan-accept', 'Revise', print.id);
-        if (cycle < 3) {
-          for (let turn = 0; turn < 4 && (await plan.prints()).at(-1)!.id === print.id; turn += 1) {
-            await plan.body(`# Plan ${cycle}\n`);
-            await plan.next();
-          }
-        }
-      }
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'max-revises');
     } finally {
       await plan.dispose();
     }

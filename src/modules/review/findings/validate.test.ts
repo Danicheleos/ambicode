@@ -64,15 +64,6 @@ describe('validateFindings', () => {
     assert.equal(result.dropped.length, 0);
   });
 
-  it('a paragraph where one sentence is asked for is clipped with an ellipsis, not refused', () => {
-    const long = 'w'.repeat(500);
-    const result = run([{ ...candidate(at(2)), problem: long, impact: 'short', confidenceReason: long }]);
-    assert.ok(result.kind === 'ok');
-    assert.equal(result.findings[0]?.problem.length, 300);
-    assert.ok(result.findings[0]?.problem.endsWith('…'));
-    assert.equal(result.findings[0]?.impact, 'short');
-  });
-
   it('requirement rows resolve their ref like requirementRefs and link a kept finding by its position; an unknown ref drops the row with a note', () => {
     const id = 'https://x.example/browse/VS-1';
     const output = {

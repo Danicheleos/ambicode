@@ -1,20 +1,11 @@
 import type { StandardInput } from '#types/platform/ports';
 
-async function readBoundedStream(
-  stream: NodeJS.ReadableStream,
-  maxBytes?: number,
-): Promise<string | null> {
+async function readStream(stream: NodeJS.ReadableStream): Promise<string | null> {
   const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of stream) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (maxBytes !== undefined && total > maxBytes) return null;
-    chunks.push(buffer);
-  }
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks).toString('utf8');
 }
 
 export const processStandardInput: StandardInput = {
-  read: (maxBytes?: number) => readBoundedStream(process.stdin, maxBytes),
+  read: () => readStream(process.stdin),
 };

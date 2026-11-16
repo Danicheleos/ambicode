@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { RouteFixture } from '#testing/fixtures/route-fixture';
 import { checkFixture, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { runCheckOnly } from './check-command.ts';
 import { AmbicodeError } from '#util/errors';
 import { SESSION_A } from '#testing/fixtures/ids';
@@ -64,7 +65,7 @@ describe('check --name (07-C)', () => {
     }
   });
 
-  it('07-C3/07-C4/07-P3 a run appends one check entry with the exit code, output tail, files and route', async () => {
+  it('07-C3/07-C4/07-P3 a run appends one check entry with the exit code, the output file, files and route', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
@@ -74,7 +75,7 @@ describe('check --name (07-C)', () => {
       assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"]]);
       const [entry] = await kinds(fx, 'check');
       assert.equal(entry?.['phase'], 'green');
-      assert.equal(typeof entry?.['tail'], 'string');
+      assert.equal(typeof entry?.['output'], 'string');
       assert.deepEqual(entry?.['files'], ['src/a.spec.ts']);
       assert.equal(entry?.['key'], 'app/unit');
       assert.equal(typeof entry?.['route'], 'string');
@@ -160,17 +161,24 @@ describe('check --name (07-C)', () => {
     }
   });
 
-  it('the entry keeps the last 40 output lines and a nonzero exit is a gap', async () => {
+  it('the whole output of a run goes to its own file in the task folder, the entry points at it with no tail, and a nonzero exit is a gap', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      runner.out = { exitCode: 1, stdout: Array.from({ length: 60 }, (_, index) => `line ${index}`).join('\n') };
+      const lines = Array.from({ length: 60 }, (_, index) => `line ${index}`).join('\n');
+      runner.out = { exitCode: 1, stdout: lines };
       const result = await check();
       assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'nonzero-exit');
       const [entry] = await kinds(fx, 'check');
-      const tail = String(entry?.['tail']).split('\n');
-      assert.equal(tail.length, 40);
-      assert.ok(tail.some((line) => line.startsWith('line 59')) && !tail.includes('line 0'));
+      assert.match(String(entry?.['output']), /^\.ambicode\/tasks\/ord-7\/checks\/app-unit_1\.log$/);
+      const saved = await readFile(path.join(fx.repo.root, String(entry?.['output'])), 'utf8');
+      assert.equal(entry?.['bytes'], Buffer.byteLength(saved));
+      assert.ok(saved.includes(lines), 'every line, first to last');
+      runner.out = { exitCode: 0, stdout: 'ok\n' };
+      await check();
+      const files = (await kinds(fx, 'check')).map((each) => each['output']);
+      assert.equal(new Set(files).size, 2, 'one file per run');
+      assert.ok((await readFile(path.join(fx.repo.root, String(files[0])), 'utf8')).includes(lines), 'a later run does not overwrite an earlier one');
     } finally {
       await fx.dispose();
     }

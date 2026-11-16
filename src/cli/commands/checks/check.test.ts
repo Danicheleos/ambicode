@@ -34,7 +34,7 @@ async function atChange(unit: string) {
   const check = (...extra: string[]) => runCheckCommand(runtime, parseArgs('check', ['--task', TASK, '--name', 'unit', '--file', 'tests/users.test.ts', '--phase', 'green', ...extra], CHECK_OPTIONS));
   const steps = async () => (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).filter((entry) => entry.kind === 'step').map((entry) => `${entry['step']}:${entry['status']}`);
   const checks = async () => (await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK))).filter((entry) => entry.kind === 'check');
-  return { check, steps, checks };
+  return { check, steps, checks, root };
 }
 
 const ROUTE_TEXT = /\[ambicode\]|Then:|Route:|\[ambicode gate /;
@@ -51,12 +51,18 @@ describe('a check made while the route stands at a delegated step', () => {
     assert.deepEqual(await t.steps(), before);
   });
 
-  it('a failing run is recorded and prints its tail, with no "Not done yet" hint and no route text, and the route stays at change', async () => {
+  it('a failing run is recorded and prints the path of its whole output file, with no "Not done yet" hint and no route text, and the route stays at change', async () => {
     const t = await atChange('node -e "console.log(\'boom 1 failed\');process.exit(1)"');
     const before = await t.steps();
     const out = await t.check();
     assert.equal(out.next, undefined);
-    assert.match(renderCheck(out), /exit 1 .* not as expected[\s\S]*boom 1 failed/);
+    const [entry] = await t.checks();
+    const shown = renderCheck(out).split('\n')[1];
+    assert.equal(shown, `exit 1; ${String(entry?.['bytes'])} bytes of output in ${String(entry?.['output'])}`);
+    assert.doesNotMatch(renderCheck(out), /boom 1 failed/, 'the output is in the file, not in the text');
+    const saved = await readFile(path.join(t.root, String(entry?.['output'])), 'utf8');
+    assert.match(saved, /boom 1 failed/);
+    assert.equal(entry?.['bytes'], Buffer.byteLength(saved));
     assert.doesNotMatch(renderCheck(out), /Not done yet|Produce it with/);
     assert.doesNotMatch(renderCheck(out), ROUTE_TEXT);
     assert.equal((await t.checks())[0]?.['exit'], 1);

@@ -88,9 +88,9 @@ folder), is built by init (`context index --task init`, step 7); a map over a mi
 and rebuilds an index from an older HEAD when the last build was fast.
 `ambicode context index [--root <dir>]` builds it on demand.
 
-The search map (`ambicode search map`, at most 3,584 bytes: a legend and the
-ranked candidates, with limitations) is built by the `investigate`, `plan` and
-`task` routes and arrives in a step the `UserPromptSubmit` hook injects when you
+The search map (`ambicode search map`: a legend and the
+ranked candidates, with limitations) is built by the `investigate`, `plan`,
+`task` and `review` routes (`search.map(review)` in the review route's `brief` step and the task route's review step) and arrives in a step the `UserPromptSubmit` hook injects when you
 type `/ambicode:<skill> …`. There is no navigator agent and no generated addon
 script: the map is CLI code over `folders.jsonl` and `git grep`. Its
 offline bench is described in `evals/README.md`.

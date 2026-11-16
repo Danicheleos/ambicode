@@ -122,24 +122,37 @@ describe('evals context size', () => {
 
 describe('delivery of the read step', () => {
   const hook = (body) => `${JSON.stringify({ type: 'attachment', attachment: { type: 'hook_additional_context', content: [body] } })}\n`;
+  // The hook's one link line, and the model's Read of the file it names: the step text is the tool_result.
+  const link = (id) => hook(`Read /r/.ambicode/tasks/t/steps/step-${id}.md whole now: it is this step (321 bytes).`);
+  // Claude Code's Read result: one string, every line behind its number and a tab; the file starts with the step file's comment line.
+  const read = (text) => `${JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu', content: ['<!-- ambicode step: x/y, task t, 9 bytes -->', ...text.split('\n')].map((row, at) => `${at + 1}\t${row}`).join('\n') }] } })}\n`;
   const STEP = '[ambicode] investigate \u00b7 task t \u00b7 step read (4/5)\nNow: read\n## map\n{"candidates":[]}';
 
-  it('reports map, candidates and length from the read step text; a spill reference is reported as spilled', () => {
-    const inline = deliveryOf([hook('# contract') + hook(STEP)]);
+  it('reports map, candidates and length from the Read of the linked step file; a spill reference is reported as spilled', () => {
+    const inline = deliveryOf([hook('# contract') + link('read') + read(STEP)]);
     assert.deepEqual(inline, { status: 'delivered', chars: STEP.length, map: true, candidates: true, spill: false });
     assert.equal(deliveryLine(inline), `delivery=delivered chars=${STEP.length} map=true candidates=true spill=false`);
     const spilled = deliveryOf([hook('Output saved to /x/tool-results/hook-ab-additionalContext.txt\nPreview: [ambicode] investigate \u00b7 step read')]);
     assert.equal(spilled.status, 'spilled');
     assert.equal(spilled.spill, true);
-    assert.equal(deliveryOf([hook('[ambicode] investigate \u00b7 step read\nno map here')]).map, false);
+    assert.equal(deliveryOf([link('read') + read('[ambicode] investigate \u00b7 step read\nno map here')]).map, false);
+  });
+
+  it('a link the model never read is not-read, apart from absent: the link line alone carries no step text', () => {
+    const unread = deliveryOf([hook('# contract') + link('read')]);
+    assert.deepEqual(unread, { status: 'not-read', chars: null, map: false, candidates: false, spill: false });
+    assert.equal(deliveryLine(unread), 'delivery=not-read');
+    assert.equal(deliveryOf([hook('# contract') + link('other')]).status, 'absent', 'a link to a step that carries no map is not this one');
+    assert.equal(deliveryOf([hook('# contract') + link('read') + read(STEP)]).status, 'delivered', 'a Read after the link makes it delivered');
+    assert.equal(deliveryOf([read(STEP) + link('read')]).status, 'not-read', 'a Read made before the link is not the delivery');
   });
 
   it('finds the map at the step the route definition delivers it in: plan reads it at draft, a re-delivery without the map does not hide it', () => {
     assert.ok(mapStepsOf().has('investigate/read') && mapStepsOf().has('plan/draft'));
     assert.ok(!mapStepsOf().has('task/change'), 'a step with a work file carries no map in the hook text');
     const draft = '[ambicode] plan \u00b7 task t \u00b7 step draft (3/6)\nNow: draft\n## map\n{"candidates":[1]}';
-    assert.deepEqual(deliveryOf([hook('# contract') + hook(draft)]), { status: 'delivered', chars: draft.length, map: true, candidates: true, spill: false });
-    assert.equal(deliveryOf([hook('[ambicode] plan \u00b7 task t \u00b7 step plan-check\n## map')]).status, 'absent');
+    assert.deepEqual(deliveryOf([hook('# contract') + link('draft') + read(draft)]), { status: 'delivered', chars: draft.length, map: true, candidates: true, spill: false });
+    assert.equal(deliveryOf([link('plan-check') + read('[ambicode] plan \u00b7 task t \u00b7 step plan-check\n## map')]).status, 'absent');
   });
 
   it('a route with its map at a step of its own is found from the definition alone', () => {
@@ -148,7 +161,7 @@ describe('delivery of the read step', () => {
       mkdirSync(path.join(dir, 'probe'));
       writeFileSync(path.join(dir, 'probe', 'probe.yaml'), 'skill: probe\nsteps:\n  - { id: look, actor: model, instruction: x, payload: [envelope, map] }\n  - { id: other, actor: model, instruction: y, work: z, payload: [map] }\n');
       assert.deepEqual([...mapStepsOf(dir)], ['probe/look']);
-      assert.equal(deliveryOf([hook('[ambicode] probe \u00b7 task t \u00b7 step look\n## map')], mapStepsOf(dir)).map, true);
+      assert.equal(deliveryOf([link('look') + read('[ambicode] probe \u00b7 task t \u00b7 step look\n## map')], mapStepsOf(dir)).map, true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -160,6 +173,32 @@ describe('delivery of the read step', () => {
     assert.equal(deliveryLine(deliveryOf(['{"type":"user"}\n'], steps, 'task')), 'delivery=none');
     assert.equal(deliveryOf(['{"type":"user"}\n'], steps, 'investigate').status, 'absent');
     assert.equal(deliveryOf(null, steps, 'task').status, 'unknown');
+  });
+
+  it('harvest labels a chain plan-stage case (task-real-...-chain-plan) by the plan route, a chain task-stage case by the task route', () => {
+    // Ledger of the 2026-11-12 run: {"step":"draft","status":"delivered","channel":"hook","file":".../steps/step-draft.md"}; the transcript holds that link and the model's Read.
+    const draft = '[ambicode] plan · task t · step draft (3/6)\nNow: draft\n## map\n{"candidates":[1]}';
+    const transcript = hook('Read /r/.ambicode/tasks/t/steps/step-draft.md whole now: it is this step (8329 bytes).') + read(draft);
+    const tmp = mkdtempSync(path.join(tmpdir(), 'evals-chain-'));
+    try {
+      const make = (name) => {
+        const project = path.join(tmp, name, 'config', 'projects', '-p');
+        mkdirSync(path.join(tmp, name, 'out'), { recursive: true });
+        mkdirSync(project, { recursive: true });
+        writeFileSync(path.join(tmp, name, 'out', 'trace.jsonl'), TRACE);
+        writeFileSync(path.join(project, 'sess.jsonl'), transcript);
+        return path.join(tmp, name, 'out', 'trace.jsonl');
+      };
+      const result = { cases: [
+        { name: 'task-real-x-chain-plan', arms: { plugin: [{ tracePath: make('e-P1') }] } },
+        { name: 'task-real-x-chain', arms: { plugin: [{ tracePath: make('e-P2') }] } },
+      ] };
+      harvest(result, path.join(tmp, 'traces'), { archiveDir: path.join(tmp, 'archive') });
+      assert.deepEqual([result.cases[0].arms.plugin[0].delivery.status, result.cases[0].arms.plugin[0].delivery.map], ['delivered', true]);
+      assert.equal(result.cases[1].arms.plugin[0].delivery.status, 'none', 'the task stage keeps none: no task map step read');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('no transcript is unknown, never false; a transcript with no read step is absent', () => {
@@ -184,7 +223,7 @@ describe('delivery of the read step', () => {
       return path.join(sandbox, 'out', 'trace.jsonl');
     };
     const result = { cases: [{ name: 'investigate-c', arms: { with: [
-      { tracePath: make('e-D1', hook(STEP), false) },
+      { tracePath: make('e-D1', link('read') + read(STEP), false) },
       { tracePath: make('e-D2', hook('see tool-results/hook-1-additionalContext.txt'), true) },
       { tracePath: make('e-D3', null, false) },
     ] } }] };

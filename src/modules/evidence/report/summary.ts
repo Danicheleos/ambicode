@@ -3,14 +3,11 @@ import { checkFacts, gapsOf, reviewFact } from './report.ts';
 import { iterationHeadings } from '#modules/evidence/task/iterations';
 import type { Chain, LedgerEntry } from '#types/modules/evidence';
 
-const MAX_QUOTED = 2000;
 const WORK = ['check', 'review', 'note'];
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
-const quote = (body: string, file: string): string[] => {
-  const cut = body.trimEnd().length > MAX_QUOTED;
-  return [...(cut ? `${body.trimEnd().slice(0, MAX_QUOTED)}…` : body.trimEnd()).split('\n').map((line) => `  > ${line}`), ...(cut ? [`  [cut: ${file}]`] : [])];
-};
+/** The saved message is a link, not a preview: a quoted start made the reader skip the file. */
+const link = (body: string, file: string): string[] => [`  Final message: ${file} (${Buffer.byteLength(body)} bytes)`];
 
 /** The task's state for a person, from the ledger and the files it names: what was planned, what each iteration ended as, and what is not verified. */
 export async function renderSummary(task: string, entries: readonly LedgerEntry[], read: (file: string) => Promise<string | null>): Promise<string> {
@@ -34,7 +31,7 @@ export async function renderSummary(task: string, entries: readonly LedgerEntry[
   const final = async (chain: Chain): Promise<string[]> => {
     const note = chain.entries.findLast((entry) => entry.kind === 'note' && (entry['note'] === 'result' || entry['note'] === 'investigation' || entry['note'] === 'report'));
     const body = note === undefined ? null : await read(text(note['path']));
-    return body === null ? [] : quote(body, text(note!['path']));
+    return body === null ? [] : link(body, text(note!['path']));
   };
 
   const request = text((chains[0]?.head['args'] as { text?: unknown } | undefined)?.text).trim();

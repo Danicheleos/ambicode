@@ -1,9 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture } from '#testing/fixtures/route-fixture';
-import { CLI_LIMIT, HOOK_LIMIT } from './execute.ts';
 import type { Handler } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -31,6 +30,8 @@ async function make(route: string, box = newBox(), config?: string | null) {
     fx,
     box,
     start: (extra: object = {}) => fx.engine.start({ ...base, ...extra }),
+    /** The message a hook gets: for the hook channel one link line, not the step text. */
+    startRaw: (extra: object = {}) => fx.rawEngine.start({ ...base, ...extra }),
     next: (extra: object = {}) => fx.engine.advance({ task: 't1', cause: 'route-next', ...extra }),
     limits: async () => (await fx.kinds('t1', 'limit')).map((entry) => [entry['which'], entry['step']]),
   };
@@ -104,74 +105,81 @@ const BIG = `${HEAD('r')}  - id: work
     instruction: "Read it."
 `;
 
-describe('E5 delivery overflow', () => {
-  it('a hook step and the session contract that precedes it on the first prompt stay under Claude Code\'s 10,000-character additionalContext cap', async () => {
-    const contract = (await readFile(path.join(import.meta.dirname, '..', '..', '..', 'prompts', 'session-contract.md'), 'utf8')).trimEnd();
-    assert.ok(contract.length + 2 + HOOK_LIMIT <= 10_000, `${contract.length} + ${HOOK_LIMIT}`);
-  });
+const LINK = /^Read (\S+\.md) whole now: it is this step \((\d+) bytes\)\.$/;
 
-  it('the map is cut, lowest-ranked rows first, to what remains under the channel limit after a large context.list; below the floor the step goes to a file', async () => {
-    const rows = Array.from({ length: 40 }, (_, index) => [`src/area${index}/file.ts`, 9 - index / 10, [`contains "term${index}"`, `filename matched "word${index}"`]]);
-    const mapText = `layers: shortlist (default)\n${JSON.stringify({ candidates: rows, limitations: ['66 more file(s) in folders already listed'] })}`;
-    const route = `${HEAD('r')}  - id: ground
-    actor: code
-    run: [search.map(prompt), context.list]
-    produces: [map]
-  - id: read
-    actor: model
-    payload: [map, context.list]
-    instruction: "Read it."
-`;
-    for (const [channel, limit] of [['hook', HOOK_LIMIT], ['cli', CLI_LIMIT]] as const) {
-      for (const [listSize, expectFile] of [[0, false], [2500, false], [limit - 2000, false], [limit, true]] as const) {
-        const fx = await routeFixture({ routes: { r: route }, handlers: { 'search.map': async ({ ledger, view }) => { await ledger.append({ kind: 'map', route: view.routeId, bytes: mapText.length }); return { state: 'ok', payload: mapText }; }, 'context.list': async () => ({ state: 'ok', payload: 'c'.repeat(listSize) || null }) } });
-        try {
-          const message = await fx.engine.start({ skill: 'r', text: 'x', requirements: [], task: 't1', cwd: fx.repo.root, session: A, channel });
-          const label = `${channel} list ${listSize}`;
-          if (expectFile) {
-            assert.ok(message.file !== null, label);
-            continue;
-          }
-          assert.equal(message.file, null, label);
-          assert.ok(message.text.length <= limit, `${label}: ${message.text.length}`);
-          const shown = JSON.parse(message.text.split('\n').find((line) => line.startsWith('{"candidates"'))!) as { candidates: unknown[]; limitations: string[] };
-          const cut = 40 - shown.candidates.length;
-          if (listSize === 0 && mapText.length + 400 < limit) assert.equal(cut, 0, label);
-          if (cut > 0) assert.ok(shown.limitations.includes(`${cut} more lower-ranked candidate(s) cut to fit the delivery`), label);
-          assert.deepEqual(shown.candidates, rows.slice(0, shown.candidates.length));
-          const entry = (await fx.kinds('t1', 'step')).find((candidate) => candidate['step'] === 'read' && candidate['status'] === 'delivered')!;
-          assert.equal(entry['mapCut'] ?? 0, cut, label);
-        } finally {
-          await fx.dispose();
-        }
+describe('E5 delivery channels', () => {
+  it('the CLI prints the whole step text, whatever its size, and writes no step file', async () => {
+    for (const size of [100, 8_010, 40_000]) {
+      const box = newBox();
+      box.payload = 'y'.repeat(size);
+      const t = await make(BIG, box);
+      try {
+        const message = await t.startRaw({ channel: 'cli' });
+        assert.equal(message.file, null, `${size}`);
+        assert.ok(message.text.includes('y'.repeat(size)), `${size}`);
+        assert.equal(message.bytes, Buffer.byteLength(message.text), `${size}`);
+        assert.doesNotMatch(message.text, /whole now|Read it whole/);
+        assert.deepEqual(await readdir(path.join(t.fx.repo.root, '.ambicode', 'tasks', 't1', 'steps')).then((names) => names.filter((name) => name.startsWith('step-'))), [], `${size}`);
+      } finally {
+        await t.fx.dispose();
       }
     }
   });
 
-  it('03-E5: over CLI_LIMIT characters on the CLI and HOOK_LIMIT in a hook goes to a file behind a 300-character preview, with the same bytes', async () => {
-    for (const [channel, limit] of [['cli', CLI_LIMIT], ['hook', HOOK_LIMIT]] as const) {
+  it('a hook gets exactly one link line, and the file it names holds the whole step text', async () => {
+    for (const size of [100, 8_010, 40_000]) {
       const box = newBox();
-      box.payload = 'y'.repeat(limit + 10);
+      box.payload = 'y'.repeat(size);
       const t = await make(BIG, box);
       try {
-        const message = await t.start({ channel });
-        assert.ok(message.file !== null, `${channel} wrote a file`);
-        assert.match(message.text, /Read it whole: \d+ bytes: /);
-        assert.ok(message.text.length < 1200);
-        const written = await readFile(message.file!, 'utf8');
-        assert.ok(written.includes('y'.repeat(limit)));
-        assert.equal(message.bytes, Buffer.byteLength(written.replace(/^<!--.*-->\n/, '').trimEnd()));
-        const edge = newBox();
-        edge.payload = 'z'.repeat(100);
-        const small = await make(BIG, edge);
-        try {
-          assert.equal((await small.start({ channel })).file, null);
-        } finally {
-          await small.fx.dispose();
-        }
+        const message = await t.startRaw({ channel: 'hook' });
+        const link = LINK.exec(message.text);
+        assert.ok(link !== null, `${size}: ${message.text}`);
+        assert.equal(message.file, link[1], `${size}`);
+        const written = await readFile(link[1]!, 'utf8');
+        assert.match(written, /^<!-- ambicode step: r\/read, task t1, \d+ bytes -->\n\[ambicode\] r · task t1 · step /);
+        const whole = written.replace(/^<!--.*-->\n/, '').trimEnd();
+        assert.ok(whole.includes('y'.repeat(size)), `${size}`);
+        assert.equal(message.bytes, Buffer.byteLength(whole), `${size}`);
+        assert.equal(Number(link[2]), message.bytes, `${size}`);
+        // The same step delivered again (a resume) names a file that exists too.
+        const again = (await t.fx.rawEngine.deliver('t1'))!;
+        const pointed = LINK.exec(again.text)![1]!;
+        assert.equal((await readFile(pointed, 'utf8')).replace(/^<!--.*-->\n/, '').trimEnd(), whole, `${size}`);
       } finally {
         await t.fx.dispose();
       }
+    }
+  });
+});
+
+const ANSWERED = `${HEAD('r')}  - id: answer
+    actor: model
+    instruction: "Answer."
+    produces: ["note{investigation}"]
+    repeat: 2
+  - id: verify
+    actor: code
+    run: [t.verify]
+    onFail: revise answer
+`;
+
+describe('E5 the Stop block', () => {
+  it('a saved answer whose check fails blocks with the hook form: one link line, naming a file that holds the whole step', async () => {
+    const fx = await routeFixture({ routes: { r: ANSWERED }, handlers: { 't.verify': async () => ({ state: 'failed', code: 'bad', message: `bad ${'z'.repeat(20_000)}`, recoverable: true }) } });
+    try {
+      await fx.rawEngine.start({ skill: 'r', text: 'x', requirements: [], task: 't1', cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      const stop = await fx.rawEngine.stopHook({ hook_event_name: 'Stop', session_id: A, cwd: fx.repo.root, scratchpad_dir: fx.scratchpad, last_assistant_message: 'the answer' }, { repositoryRoot: fx.repo.root, where: '.' });
+      assert.equal(stop?.decision, 'block');
+      const reason = stop?.reason ?? '';
+      const [intro, blank, link, ...rest] = reason.split('\n');
+      assert.match(intro!, /^Your answer was saved as the note, but a check failed\./, reason.slice(0, 300));
+      assert.equal(blank, '');
+      const found = LINK.exec(link!);
+      assert.ok(found !== null && rest.length === 0, reason.slice(0, 300));
+      assert.ok((await readFile(found[1]!, 'utf8')).includes('z'.repeat(20_000)));
+    } finally {
+      await fx.dispose();
     }
   });
 });

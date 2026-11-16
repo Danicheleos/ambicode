@@ -4,14 +4,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { contentHash } from '#util/hash';
+import { LIST_FLOOR, TOP_ROWS } from '#modules/search/map';
 import { archivedRequest, benchRequest, fileStage, replayMarkdown, rowsAbove } from './map-funnel.mjs';
 
 const row = (file, score) => ({ path: file, score, reasons: [] });
-/** A pool of seven files: two printed, one cut by bytes, one spread loss, one floor loss, plus a spec folded into the first row and one folded with no source. */
+/** A pool of seven files: two printed, one cut by the row limit, one spread loss, one floor loss, plus a spec folded into the first row and one folded with no source. */
 const map = {
   pool: [row('a/one.ts', 10), row('b/two.ts', 8), row('c/three.ts', 6), row('a/four.ts', 5), row('d/five.ts', 0.5), row('a/six.ts', 0.4)],
   candidates: [row('a/one.ts', 10), row('b/two.ts', 8)],
-  debug: { folded: { 'a/one.spec.ts': 'a/one.ts', 'z/lonely.spec.ts': null }, spreadDropped: ['a/four.ts', 'a/six.ts'], floorDropped: ['d/five.ts'] },
+  debug: { folded: { 'a/one.spec.ts': 'a/one.ts', 'z/lonely.spec.ts': null }, spreadDropped: ['a/four.ts', 'a/six.ts'], listDropped: ['c/three.ts', 'd/five.ts'] },
 };
 
 test('fileStage names the stage of every file of a map', () => {
@@ -22,12 +23,14 @@ test('fileStage names the stage of every file of a map', () => {
 });
 
 test('fileStage lists every stage a spread loss would also fail, marking the ones it only computed', () => {
-  // top 10 x 0.12 = 1.2: a/four.ts (5) clears the floor but rank 4 is past the 2 delivered rows; a/six.ts (0.4) fails the floor.
-  assert.deepEqual(fileStage('a/four.ts', map).stages, ['spread', 'cut']);
-  assert.deepEqual(fileStage('a/four.ts', map).counterfactual, ['cut']);
+  // top 10 x LIST_FLOOR = 3: a/four.ts (5) clears the floor and rank 4 is inside TOP_ROWS; a/six.ts (0.4) fails the floor.
+  assert.deepEqual(fileStage('a/four.ts', map).stages, ['spread']);
+  assert.deepEqual(fileStage('a/four.ts', map).counterfactual, []);
   assert.deepEqual(fileStage('a/six.ts', map).stages, ['spread', 'floor']);
   assert.deepEqual(fileStage('a/six.ts', map).counterfactual, ['floor']);
-  assert.equal(fileStage('a/six.ts', map).floor, 1.2);
+  assert.equal(fileStage('a/six.ts', map).floor, LIST_FLOOR * 10);
+  const wide = { ...map, pool: Array.from({ length: TOP_ROWS + 1 }, (_, index) => row(`w/f${index}.ts`, 10)), candidates: [], debug: { folded: {}, spreadDropped: [`w/f${TOP_ROWS}.ts`], listDropped: [] } };
+  assert.deepEqual(fileStage(`w/f${TOP_ROWS}.ts`, wide).stages, ['spread', 'cut'], 'a spread loss ranked past TOP_ROWS would also have been cut');
 });
 
 test('fileStage does not look a file name up on the prototype', () => {

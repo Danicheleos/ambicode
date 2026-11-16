@@ -62,7 +62,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
   // Parallel subagents of this session may drive their own live routes: this Stop closes and checks only a route that is the main session's.
   const latest = async () => {
     const all = await sessionRoutes(runtime.fs, root, session);
-    return all.filter((route) => route.live).length > 1 ? liveRouteOf(runtime.fs, root, session, runtime.clock.now()) : (all[0] ?? null);
+    return all.filter((route) => route.live).length > 1 ? liveRouteOf(runtime.fs, root, session) : (all[0] ?? null);
   };
   let route = await latest();
   let active = route?.live === true ? route : null;
@@ -117,7 +117,8 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
     return { output: null, entries: entries.length };
   });
   if (verdict === null) return null;
-  if (active !== null && verdict.output === null) await ports.closeFinal(target.task, target.routeId, scratchpad);
+  // A route that is no longer live has no reader left for its closing text (a Stop discards what finish composes), so its step file goes here.
+  if (active === null || (verdict.output === null && (await ports.closeFinal(target.task, target.routeId, scratchpad)))) await runtime.fs.remove(dir.steps);
   process.stderr.write(`ambicode stop: done, ${verdict.entries} ledger entries, output ${verdict.output === null ? 'none' : 'block'}${message === null ? ', no last_assistant_message' : ''}\n`);
   return verdict.output;
 }

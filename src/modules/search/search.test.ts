@@ -7,7 +7,7 @@ import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { declarationsInText, harvest } from './harvest.ts';
 import { buildMap, pathsCitedIn, symbolsCitedIn } from './map.ts';
-import { refs, REFS_LIMIT_BYTES } from './refs.ts';
+import { refs } from './refs.ts';
 
 const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
 
@@ -83,7 +83,7 @@ describe('refs', () => {
     }
   });
 
-  it('prints at most 4,096 bytes and records a search entry; a name in most files is dropped and listed', async () => {
+  it('prints every hit whole and records a search entry; a name in most files is dropped and listed', async () => {
     const lines = Array.from({ length: 200 }, (_, index) => `export const marker = ${index}; // applyMarker ${'y'.repeat(60)}`).join('\n');
     const fx = await repo({ 'src/big/markers.ts': `${lines}\n`, ...Object.fromEntries(Array.from({ length: 80 }, (_, index) => [`src/w${index}.ts`, 'export const common = UniversalService;\n'])) });
     try {
@@ -91,8 +91,7 @@ describe('refs', () => {
       await fx.runtime.fs.mkdirp(path.join(fx.repo.root, '.ambicode/tasks/T1'));
       await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T1/ledger.jsonl'), '');
       const bounded = await run(['applyMarker', '--task', 'T1']);
-      assert.ok(bounded.bytes <= REFS_LIMIT_BYTES, `${bounded.bytes}`);
-      assert.match(bounded.text, /\d+ more lines; name fewer words/);
+      assert.equal(bounded.text.split('\n').filter((line) => line.startsWith('  src/big/markers.ts:')).length, 200);
       assert.deepEqual((await fx.kinds('T1', 'search')).map((entry) => [entry['command'], entry['names'], entry['hits']]), [['refs', ['applyMarker'], 200]]);
       const broad = await run(['UniversalService', 'CartService', '--json']);
       assert.deepEqual((broad.data as { names: { name: string }[] }).names.map((row) => row.name), ['CartService']);
@@ -111,8 +110,7 @@ describe('map command', () => {
       await fx.runtime.fs.writeText(path.join(fx.repo.root, '.ambicode/tasks/T2/ledger.jsonl'), '');
       const output = await runMap(fx.runtime, parseArgs('map', ['--task', 'T2', '--term', 'cart'], MAP_OPTIONS));
       assert.match(output.text, /^Map: files ranked by/);
-      const entry = (await fx.kinds('T2', 'map'))[0]!;
-      assert.deepEqual([entry['mode'], entry['layersSource'], entry['index']], ['prompt', 'default', undefined]);
+      assert.equal((await fx.kinds('T2', 'map')).length, 1, 'the command appended one map entry');
       await assert.rejects(runMap(fx.runtime, parseArgs('map', ['--term', 'cart', '--layers', 'grep'], MAP_OPTIONS)), (error: Error & { code?: string }) => error.code === 'search-layers-not-for-model');
       await assert.rejects(runMap(fx.runtime, parseArgs('map', ['--layers', ''], MAP_OPTIONS)), (error: Error & { code?: string }) => error.code === 'search-layers-not-for-model');
     } finally {
@@ -120,20 +118,19 @@ describe('map command', () => {
     }
   });
 
-  it('context grep ranks a file holding several words, rare ones first, never lists an excluded file, and lets a named file\'s entity list two', async () => {
+  it('never lists an excluded file, and lets a named file\'s entity list two', async () => {
     const fx = await repo({
       'src/cart/cart.service.near-a.ts': 'export const applyDiscount = 1;\n', 'src/cart/cart.service.near-b.ts': 'export const applyDiscount = 2;\n', 'src/cart/cart.service.near-c.ts': 'export const applyDiscount = 3;\n',
       'src/z/other.a.ts': 'export const applyDiscount = 4;\n', 'src/z/other.b.ts': 'export const applyDiscount = 5;\n', 'src/z/other.c.ts': 'export const applyDiscount = 6;\n',
       'src/z/rare-and-common.ts': 'export const bundleRate = 1; export const applyDiscount = 2;\n',
     });
     try {
-      const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount', 'bundleRate'], paths: ['src/cart/cart.service.ts'], exclude: ['src/cart/cart.service.ts', 'src/cart/discount.ts'] });
-      const listed = map.candidates.map((candidate) => candidate.path);
-      assert.equal(listed[0], 'src/z/rare-and-common.ts', 'both words, one of them rare, outrank files holding only applyDiscount');
-      assert.ok(!listed.includes('src/cart/cart.service.ts') && !listed.includes('src/cart/discount.ts'), 'files the caller already has are not listed, seed or not');
+      const map = await buildMap(fx.runtime, { project, layers: ['shortlist'], terms: ['applyDiscount', 'bundleRate'], paths: ['src/cart/cart.service.ts'], exclude: ['src/cart/cart.service.ts', 'src/cart/discount.ts'] });
+      // The entity spread runs before the floor, which cuts the weak rows from the list: the pool less `spreadDropped` is what the spread kept.
+      const listed = map.pool.map((candidate) => candidate.path).filter((file) => !map.debug.spreadDropped.includes(file));
+      assert.ok(![...listed, ...map.candidates.map((candidate) => candidate.path)].some((file) => file === 'src/cart/cart.service.ts' || file === 'src/cart/discount.ts'), 'files the caller already has are not listed, seed or not');
       assert.equal(listed.filter((file) => file.startsWith('src/cart/cart.service.')).length, 2, 'the entity of the named file lists 2 of its 3 sharers');
       assert.equal(listed.filter((file) => file.startsWith('src/z/other.')).length, 1, 'any other entity lists 1');
-      assert.match(map.candidates[0]!.reasons[0]!, /^contains "applyDiscount", "bundleRate"$|^contains "bundleRate", "applyDiscount"$/);
     } finally {
       await fx.dispose();
     }
@@ -143,8 +140,8 @@ describe('map command', () => {
     const fx = await repo();
     try {
       await fx.repo.write('.ambicode/tasks/t/ledger.jsonl', 'applyDiscount\n');
-      const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount'] });
-      assert.ok(map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
+      const map = await buildMap(fx.runtime, { project, layers: ['shortlist'], terms: ['applyDiscount'] });
+      assert.ok(map.pool.length > 0 && map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
     } finally {
       await fx.dispose();
     }

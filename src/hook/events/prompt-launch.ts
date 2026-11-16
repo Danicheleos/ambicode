@@ -77,7 +77,7 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
 export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository): Promise<string | null> {
   if (input.agent_id !== undefined) return null;
   if (typeof found === 'string') return null;
-  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now());
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
   if (active === null) return null;
   const message = await deps.engine.deliver(active.task, input.scratchpad_dir);
   if (message === null) return null;
@@ -91,7 +91,7 @@ export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: Ro
  */
 export async function implementerReturned(runtime: Runtime, input: HookInput, deps: RouteHookDeps, found: SessionRepository): Promise<string | null> {
   if (input.agent_id !== undefined || typeof found === 'string') return null;
-  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id, runtime.clock.now());
+  const active = await liveRouteOf(runtime.fs, found.repositoryRoot, input.session_id);
   if (active === null) return null;
   const message = await deps.engine.deliver(active.task, input.scratchpad_dir);
   if (message === null) return null;

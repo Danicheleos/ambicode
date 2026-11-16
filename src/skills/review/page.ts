@@ -29,7 +29,7 @@ export const page: Handler = async (input) => {
   if (result === null || (result.findings.length === 0 && input.args.target?.mr == null)) return { state: 'ok', payload: null };
   const outcome = await runtime.runner.run({
     argv: [process.execPath, path.join(runtime.pluginRoot, 'scripts', 'ambicode.mjs'), 'review', 'page', '--task', dir.slug],
-    cwd: dir.repositoryRoot, timeoutMs: 15_000, maxOutputBytes: 4096, env: { kind: 'inherited' }, detached: true,
+    cwd: dir.repositoryRoot, timeoutMs: 15_000, env: { kind: 'inherited' }, detached: true,
   });
   const lines = outcome.stdout.trim().split('\n');
   const line = lines.at(-1) ?? '';

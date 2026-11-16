@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { CONTEXT_DIR, MAX_EVIDENCE_BYTES, MAX_SNAPSHOT_FILE_BYTES, AMBICODE_DIR } from '#types/defaults';
+import { CONTEXT_DIR, MAX_SNAPSHOT_FILE_BYTES, AMBICODE_DIR } from '#types/defaults';
 import { isTestPath, pathExclusionReason } from '#util/path-classes';
 import { declarationsInText } from '#modules/search/harvest';
-import { MIN_TERM_LENGTH, stem, wordsOf } from '#modules/search/words';
+import { MIN_TERM_LENGTH, stemsOf } from '#modules/search/words';
 import type { Git } from '#platform/git/git';
 import type { Clock, FileSystem } from '#types/platform/ports';
 import { baseNameOf, buildModuleTree, isModuleSource, referenceOwners } from './context.ts';
@@ -68,7 +68,7 @@ async function catalogLabels(files: readonly string[], read: Reader): Promise<Ma
   const labels = new Map<string, string>();
   for (const candidates of byDir.values()) {
     const texts = new Map<string, string>();
-    for (const file of candidates) { const text = await read(file, MAX_EVIDENCE_BYTES); if (text !== null) texts.set(file, text); }
+    for (const file of candidates) { const text = await read(file, Infinity); if (text !== null) texts.set(file, text); }
     const named = [...texts.keys()].filter((file) => DEFAULT_LANGUAGE.test(path.posix.basename(file))).sort((a, b) => a.length - b.length || (a < b ? -1 : 1));
     const chosen = named[0] ?? [...texts].sort(([a, x], [b, y]) => y.length - x.length || (a < b ? -1 : 1))[0]?.[0];
     if (chosen === undefined) continue;
@@ -142,7 +142,7 @@ export async function buildSearchIndex(files: readonly string[], read: Reader, o
     const keys = topCounted(keyCounts.get(folder) ?? new Map(), MAX_LABELS);
     return {
       kind: 'folder', path: folder, module: modules.find((module) => folder === module || folder.startsWith(`${module}/`)) ?? '', depth: folder.split('/').length,
-      words: [...new Set(segments.flatMap(wordsOf).map(stem).filter((word) => word.length >= MIN_TERM_LENGTH))],
+      words: [...new Set(segments.flatMap(stemsOf).filter((word) => word.length >= MIN_TERM_LENGTH))],
       files: own.get(folder)!.map((file) => path.posix.basename(file)).sort(),
       names: names.get(folder)!.slice(0, MAX_NAMES),
       labels: [...new Set(keys.map((key) => catalog.get(key)!).filter((label) => label !== ''))],

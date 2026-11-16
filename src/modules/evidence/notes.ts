@@ -1,12 +1,11 @@
 import path from 'node:path';
 import { AmbicodeError } from '#util/errors';
-import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
+import { localTimestamp, writeUniqueFile } from '#util/files';
 import { contentHash } from '#util/hash';
-import { ledgerSizeWarning } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteKind, type SaveKind } from '#types/modules/evidence';
+import { NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteKind, type SaveKind } from '#types/modules/evidence';
 import { toPosix } from '#util/glob';
 
 interface SavedNote {
@@ -15,7 +14,6 @@ interface SavedNote {
   /** As the user reaches it from the session directory. */
   path: string;
   entry: LedgerEntry;
-  warning: string | null;
 }
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
@@ -36,9 +34,7 @@ async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: s
     await runtime.fs.writeText(file, text);
     return file;
   }
-  const file = await writeUniqueFile(runtime.fs, path.join(dir.root, `${stem}_${localTimestamp(runtime.clock.now())}`), '.md', text);
-  if (file === null) throw badArgument(`${UNIQUE_FILE_LIMIT} notes of this kind already exist for this minute; wait and save again.`, 'task');
-  return file;
+  return writeUniqueFile(runtime.fs, path.join(dir.root, `${stem}_${localTimestamp(runtime.clock.now())}`), '.md', text);
 }
 
 export async function saveNote(
@@ -49,12 +45,11 @@ export async function saveNote(
   const { task, kind } = input;
   if (!SAVE_KINDS.includes(kind)) throw badArgument(`A note is saved as ${SAVE_KINDS.join(', ')}; an accepted plan comes only from the plan route.`, 'kind');
   if (input.body === null || input.body.trim() === '') {
-    throw badArgument(`"note save" reads the note from standard input, up to ${MAX_NOTE_BYTES} bytes; it got nothing usable.`, 'stdin');
+    throw badArgument(`"note save" reads the note from standard input; it got nothing usable.`, 'stdin');
   }
 
   const dir = await resolveTaskDir(runtime, task);
   const { body } = input;
-  if (Buffer.byteLength(body) > MAX_NOTE_BYTES) throw badArgument(`The note is over ${MAX_NOTE_BYTES} bytes.`, 'stdin');
   const text = `${body.trimEnd()}\n`;
 
   const work = async (ledger: LockedLedger): Promise<SavedNote> => {
@@ -67,7 +62,7 @@ export async function saveNote(
       contentHash: contentHash(text),
       ...(route === null ? {} : { route }),
     });
-    return { task, kind, path: shown(dir, relative), entry, warning: await ledgerSizeWarning(runtime.fs, dir.root) };
+    return { task, kind, path: shown(dir, relative), entry };
   };
   return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), work);
 }

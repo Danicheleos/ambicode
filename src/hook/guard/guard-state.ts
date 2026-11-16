@@ -1,9 +1,8 @@
-// node:fs only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
+// node:fs only: the guard bundle may read bounded state files and nothing else (see guard.ts).
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
-import type { LedgerEntry } from '#types/modules/evidence';
-import { GUARD_STATE_DIR_NAME, GUARD_LEDGER_FILE, HEADLESS_FILE, LEDGER_LIMIT, type GuardState } from '../types/guard.ts';
+import { GUARD_STATE_DIR_NAME, HEADLESS_FILE, type GuardState } from '../types/guard.ts';
 
 // Opening a FIFO without a writer would block the hook; non-blocking, it opens at once and fstat rejects it.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
@@ -35,28 +34,6 @@ function bounded(file: string, limit: number): string | null {
   }
 }
 
-/**
- * Strict where the CLI's reader is lenient: a torn line could be the exit that closed the plan route, so the whole
- * ledger is unreadable for the plan-body exception rather than read without it.
- */
-function entries(text: string): LedgerEntry[] | null {
-  const found: LedgerEntry[] = [];
-  for (const line of text.split('\n')) {
-    if (line.trim() === '') continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      return null;
-    }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-    const entry = parsed as LedgerEntry;
-    if (typeof entry.id !== 'string' || typeof entry.kind !== 'string') return null;
-    found.push(entry);
-  }
-  return found;
-}
-
 export const fsGuardState: GuardState = {
   headless(scratchpadDir: string | null, sessionId: string | null) {
     if (scratchpadDir !== null && bounded(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${HEADLESS_FILE}`, 0) !== null) return true;
@@ -64,9 +41,5 @@ export const fsGuardState: GuardState = {
     // hook-state.ts hookStateBaseDir: 'sha256:' + 32 hex of the session id, stripped to [a-z0-9].
     const key = `sha256${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}`;
     return bounded(`${tmpdir()}/${GUARD_STATE_DIR_NAME}/${key}/${HEADLESS_FILE}`, 0) !== null;
-  },
-  ledger(taskDirectory: string): LedgerEntry[] | null {
-    const text = bounded(`${taskDirectory}/${GUARD_LEDGER_FILE}`, LEDGER_LIMIT);
-    return text === null ? null : entries(text);
   }
 };

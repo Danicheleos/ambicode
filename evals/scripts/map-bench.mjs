@@ -1,4 +1,4 @@
-// $0 offline bench: runs the bundled `ambicode route start investigate` ("ground" step: requirements.normalize + search.map(prompt)) on each
+// $0 offline bench: runs the bundled `ambicode route start investigate` ("ground" step: requirements.normalize + search.map) on each
 // map case and scores the files of the printed map with folder-truth.mjs' scoreFolders. No model is called.
 //   node evals/scripts/map-bench.mjs --bench <repo> [--cases <dir>] [--case <id-or-name substring>] [--top 8]
 // --bench defaults to env NAV_BENCH; --cases to bench/map (map-cases.mjs: the ticket truths corrected against the bench).
@@ -21,14 +21,14 @@ export function promptOf(markdown) {
   return body.split(/\r?\n/).filter((line) => !line.startsWith('Do not change anything.')).join('\n').trim();
 }
 
-/** Candidate paths (ranked) from the stdout of `route start`, or null when no map was printed. The text carries no terms and no cut count: those are the ledger's (`ledgerMapOf`). */
+/** Candidate paths (ranked) from the stdout of `route start`, or null when no map was printed. The text carries no terms: they are the ledger's (`ledgerMapOf`). */
 export function mapOf(stdout) {
   const line = stdout.split('\n').find((row) => row.startsWith('{"candidates"'));
   if (line === undefined) return null;
   return { files: JSON.parse(line).candidates.map((row) => row[0]) };
 }
 
-/** The `map` entry of a task's ledger in the scratch clone: the first-pass terms and how many candidates the list held before the byte cap. */
+/** The `map` entry of a task's ledger in the scratch clone: the first-pass terms and how many candidates the list held. */
 export function ledgerMapOf(scratch, task) {
   const file = path.join(scratch, '.ambicode', 'tasks', task, 'ledger.jsonl');
   if (!existsSync(file)) return null;
@@ -105,18 +105,16 @@ export function runBench({ bench, cases, filter, top, split = 'all' }) {
       const prompt = promptOf(readFileSync(path.join(dir, 'prompt.md'), 'utf8'));
       const task = `mb-${entry.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
       const stdout = execFileSync('node', [cli, 'route', 'start', 'investigate', '--task', task, '--headless', prompt], { cwd: scratch, encoding: 'utf8', maxBuffer: 1 << 26 });
-      // A long step is written to a file and the output only points at it ("Read it whole: N bytes: <path>").
-      const pointer = /Read it whole: \d+ bytes: (\S+)/.exec(stdout);
-      // The step is trimmed to its channel limit at delivery, so the ranking is read from the map payload the handler saved whole.
+      // The CLI prints the whole step; the ranking is read from the map payload the handler saved whole.
       const saved = path.join(scratch, '.ambicode', 'tasks', task, 'steps');
       const whole = existsSync(saved) ? readdirSync(saved).find((name) => name.endsWith('-map.md')) : undefined;
-      const map = mapOf(whole !== undefined ? readFileSync(path.join(saved, whole), 'utf8') : pointer === null ? stdout : readFileSync(pointer[1], 'utf8'));
+      const map = mapOf(whole !== undefined ? readFileSync(path.join(saved, whole), 'utf8') : stdout);
       const files = map?.files ?? [];
       const ledgered = ledgerMapOf(scratch, task);
       const all = scoreFolders(truth, map === null ? null : files);
       const head = scoreFolders(truth, map === null ? null : files.slice(0, top));
       rows.push({
-        case: truth.name, half, files: files.length, cut: Math.max(0, (ledgered?.candidates ?? files.length) - files.length),
+        case: truth.name, half, files: files.length,
         recall: all.recall, precision: all.precision, f1: all.f1,
         topRecall: head.recall, topPrecision: head.precision, topF1: head.f1,
         funnelAll: funnel(truth, files), funnelTop: funnel(truth, files.slice(0, top)),
@@ -138,9 +136,9 @@ export function indexMetaOf(dir) {
 }
 
 export function table(rows, top) {
-  const lines = [`case                    files cut |  R     P     F1   | top${top}: R     P     F1   | folders hit: all  top${top}`];
+  const lines = [`case                    files |  R     P     F1   | top${top}: R     P     F1   | folders hit: all  top${top}`];
   for (const row of rows) {
-    lines.push(`${row.case.padEnd(23)} ${String(row.files).padStart(5)} ${String(row.cut).padStart(3)} | ${fmt(row.recall)} ${fmt(row.precision)} ${fmt(row.f1)} |      ${fmt(row.topRecall)} ${fmt(row.topPrecision)} ${fmt(row.topF1)} |   ${`${row.funnelAll.hit}/${row.funnelAll.total}`.padStart(5)} ${`${row.funnelTop.hit}/${row.funnelTop.total}`.padStart(5)}`);
+    lines.push(`${row.case.padEnd(23)} ${String(row.files).padStart(5)} | ${fmt(row.recall)} ${fmt(row.precision)} ${fmt(row.f1)} |      ${fmt(row.topRecall)} ${fmt(row.topPrecision)} ${fmt(row.topF1)} |   ${`${row.funnelAll.hit}/${row.funnelAll.total}`.padStart(5)} ${`${row.funnelTop.hit}/${row.funnelTop.total}`.padStart(5)}`);
   }
   const m = (key) => fmt(mean(rows.map((row) => row[key])));
   lines.push(`${'mean'.padEnd(23)} ${fmt(mean(rows.map((r) => r.files))).slice(0, 5).padStart(5)}     | ${m('recall')} ${m('precision')} ${m('f1')} |      ${m('topRecall')} ${m('topPrecision')} ${m('topF1')} |`);

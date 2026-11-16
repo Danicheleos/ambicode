@@ -17,7 +17,6 @@ import { runReviewChecks } from './checks.ts';
 import { page } from './page.ts';
 import { ANSWER_FILE, recordReviewerAnswer, renderRecord } from './record-answer.ts';
 import { pendingReview } from '#modules/review/answer/captured';
-import { MAX_EVIDENCE_BYTES } from '#types/defaults';
 import { briefOf } from '../brief.ts';
 import { GATE as CHECK_GATE } from '#types/modules/checks';
 import { baselineOf } from '#modules/checks/workspace/baseline';
@@ -87,12 +86,12 @@ const estimate: Handler = async (input) => {
     });
     const payload = [...notes, ...(narrowing === null ? [] : [`narrowed: ${narrowing}`]), renderEstimate(estimated)].join('\n');
     // Headless nobody can narrow or decline, and a preanswered `run` would deliver a command that refuses the same way and leave the route open.
-    if (input.args.headless && estimated.refusal !== null) return { state: 'ok', payload, exit: 'blocked', exitDetail: `${estimated.refusal.code}: ${estimated.refusal.message.slice(0, 200)}` };
+    if (input.args.headless && estimated.refusal !== null) return { state: 'ok', payload, exit: 'blocked', exitDetail: `${estimated.refusal.code}: ${estimated.refusal.message}` };
     return { state: 'ok', payload, record: { asks: estimated.refusal !== null } };
   } catch (error) {
     if (!isAmbicodeError(error)) throw error;
     const unavailable = `Review estimate unavailable: ${error.code}: ${error.message}`;
-    if (input.args.headless) return { state: 'ok', payload: [...notes, unavailable].join('\n'), exit: 'blocked', exitDetail: `${error.code}: ${error.message.slice(0, 200)}` };
+    if (input.args.headless) return { state: 'ok', payload: [...notes, unavailable].join('\n'), exit: 'blocked', exitDetail: `${error.code}: ${error.message}` };
     return { state: 'ok', payload: [...notes, unavailable].join('\n'), record: { asks: true } };
   }
 };
@@ -104,7 +103,7 @@ const record: Handler = async (input) => {
   if (pending === undefined) return { state: 'ok', payload: null };
   const policy = chain.findLast((entry) => entry.kind === 'policy' && entry['stage'] === 'before-work' && entry['activity'] === 'review');
   const answerFile = path.join(path.dirname(path.join(input.dir.repositoryRoot, String(pending['result']))), ANSWER_FILE);
-  const answer = await input.runtime.fs.readText(answerFile).then((text) => text.slice(0, MAX_EVIDENCE_BYTES), () => null);
+  const answer = await input.runtime.fs.readText(answerFile).catch(() => null);
   const recorded = await recordReviewerAnswer(input.runtime, { pending, ...(policy === undefined ? {} : { policy }), answer, append: (fields) => input.ledger.append(fields) });
   if (input.args.target?.mr != null) await removeMrCheckout(input.runtime, gitOf(input), input.dir.root);
   return { state: 'ok', payload: renderRecord(recorded) };
@@ -137,7 +136,7 @@ const mrFetch: Handler = async (input) => {
     return {
       state: 'ok',
       payload: requirements.length === 0 ? null : `The merge request names these requirements in its title or description: ${requirements.join(', ')}.`,
-      record: { ...(requirements.length === 0 ? {} : { requirements }), ...(discussionsError === null ? {} : { discussionsError: discussionsError.slice(0, 300) }), ...(commitsError === null ? {} : { commitsError: commitsError.slice(0, 300) }) },
+      record: { ...(requirements.length === 0 ? {} : { requirements }), ...(discussionsError === null ? {} : { discussionsError }), ...(commitsError === null ? {} : { commitsError }) },
     };
   } catch (error) {
     return failed(error);

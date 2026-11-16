@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChain, exitOf, executions, foldRoute, humanRevisesLeft, isGreen, latestBound, latestRouteOf, matches, unconsumedPreanswer, windowOf } from './fold.ts';
+import { buildChain, exitOf, executions, foldRoute, isGreen, latestBound, latestRouteOf, matches, unconsumedPreanswer, windowOf } from './fold.ts';
 import { loadRoute } from '../definition/routes.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
@@ -148,9 +148,6 @@ describe('fold', () => {
     const ground = d.steps[1]!;
     const entries = [route('r1'), done('ground'), done('ground'), entry('revise', { route: 'r1', from: 'ground', via: 'gate', cycle: 1, gate: 'scope' }), done('ground')];
     assert.equal(executions(entries, ground), 1);
-    const gate = d.steps[2]!.gate!;
-    assert.equal(humanRevisesLeft(entries, gate), 2);
-    assert.equal(humanRevisesLeft([...entries, ...[1, 2].map(() => entry('revise', { route: 'r1', from: 'ground', via: 'gate', gate: 'scope' }))], gate), 0);
   });
 
   it('qualified kinds match on the field that kind carries; check{green} needs a counted pass', () => {

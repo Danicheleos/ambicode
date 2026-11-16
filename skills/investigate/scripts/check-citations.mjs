@@ -10,8 +10,6 @@ const root = path.resolve(input.repositoryRoot);
 const ledger = readFileSync(path.join(input.taskDir, 'ledger.jsonl'), 'utf8').split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
 const note = ledger.findLast((entry) => entry.kind === 'note' && entry.note === 'investigation');
 const body = note === undefined ? '' : readFileSync(path.resolve(root, note.path), 'utf8');
-// The first ten bad citations are listed in the summary; the count is exact.
-const LISTED = 10;
 
 const CITATION = anchorPattern();
 // A model cites from the session directory, which can be the parent of the repository: `repo/src/x.ts`.
@@ -83,7 +81,7 @@ const rewritten = body.split('\n').map((line) => {
       return `${full}:${spec}`;
     }
     badCount += 1;
-    if (bad.length < LISTED) bad.push(`${file}:${spec} ${reason}`);
+    bad.push(`${file}:${spec} ${reason}`);
     return whole;
   });
 }).join('\n');
@@ -93,6 +91,6 @@ const failed = badCount > 0;
 const summary = { failed, anchorsBad: badCount, ...(bad.length === 0 ? {} : { anchors: bad }), ...(resolved.length === 0 ? {} : { resolved }) };
 const out = { entries: [{ kind: 'worker', worker: 'check-citations', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
 if (failed) {
-  out.failed = { code: 'citations-failed', message: `${badCount} bad citations: ${bad.slice(0, 3).join('; ')}`, recoverable: true };
+  out.failed = { code: 'citations-failed', message: `${badCount} bad citations: ${bad.join('; ')}`, recoverable: true };
 }
 process.stdout.write(JSON.stringify(out));

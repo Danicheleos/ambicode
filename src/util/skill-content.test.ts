@@ -159,7 +159,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.doesNotMatch(investigate, /route next|note save/);
     assert.doesNotMatch(investigate, /when you stop/);
     // 900 -> 3400 B (file 3292 B), sanctioned: the body carries the work-efficiency, answer-shape and evidence guidance; it is delivered in the
-    // user message (transcript fe-vs-6404-downstream-1, 2026-10-25), outside the 8800-char hook budget the read step shares with the map.
+    // user message (transcript fe-vs-6404-downstream-1, 2026-10-25), outside the hook's step text.
     assert.match(investigate, /whole request as written/, '03b-N13: a files answer covers the request, not the minimal fix');
     assert.match(investigate, /A claim about something other than repo code \(a library's behaviour, a standard, an earlier decision\) cites its source, or is marked as an assumption/);
     assert.match(investigate, /leads until you have read the lines/);

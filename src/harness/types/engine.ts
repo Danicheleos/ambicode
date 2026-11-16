@@ -8,14 +8,13 @@ export interface ConsentBinding { key?: string }
 export type DeliveryChannel = 'cli' | 'hook';
 
 /** One composed message: the step (or `complete`) it is for and what the caller prints. */
-export interface Part { text: string; file: string | null; bytes: number; position: string | 'complete'; full: string }
+export interface Part { text: string; file: string | null; bytes: number; position: string | 'complete' }
 
 export interface Composed {
   /** What the caller prints. */
   text: string;
-  /** The whole message, when it went to a file behind a preview. */
+  /** The file holding the whole message; a hook answers with a link to it, the CLI has none. */
   file: string | null;
-  full: string;
   bytes: number;
 }
 

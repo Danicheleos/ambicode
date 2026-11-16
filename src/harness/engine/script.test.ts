@@ -97,14 +97,13 @@ describe('run: script(<name>) (C7)', () => {
     }
   });
 
-  it('a very long stderr keeps its first line in the failure message, within FAILURE_MESSAGE_CHARS', async () => {
+  it('a failing script with a very long stderr keeps its first line in the failure message', async () => {
     const pluginRoot = await scripts({ noisy: "process.stderr.write('first-line\\n' + 'x'.repeat(50000)); process.exit(2);" });
     const fx = await routeFixture({ routes: { inv: ROUTE('noisy') }, pluginRoot });
     try {
       await fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
       const message = String((await fx.kinds(TASK, 'step')).find((entry) => entry['status'] === 'failed')?.['message']);
       assert.match(message, /exited 2: first-line/);
-      assert.ok(message.length <= 2000, String(message.length));
     } finally {
       await fx.dispose();
       await rm(pluginRoot, { recursive: true, force: true });
@@ -166,6 +165,20 @@ steps:
     assert.match(String((named as { message: string }).message), /timed-out after 100 s, last stage: brief: scanning 8000 files/);
     const silent = await run('');
     assert.match(String((silent as { message: string }).message), /timed-out after 100 s \(it wrote no stage line\)/);
+  });
+  it('a stopping step failure ends the route with the whole message as the detail', async () => {
+    const pluginRoot = await scripts({ wordy: "process.stderr.write('x'.repeat(500) + ' end-of-error'); process.exit(3);" });
+    const fx = await routeFixture({ routes: { inv: ROUTE('wordy') }, pluginRoot });
+    try {
+      await fx.engine.start({ skill: 'inv', text: 'q', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      const failed = (await fx.kinds(TASK, 'step')).find((entry) => entry['status'] === 'failed');
+      const detail = String((await fx.kinds(TASK, 'exit'))[0]?.['detail']);
+      assert.equal(detail, `script-failed: ${String(failed?.['message'])}`);
+      assert.ok(detail.length > 500 && detail.endsWith('end-of-error'), detail.slice(-60));
+    } finally {
+      await fx.dispose();
+      await rm(pluginRoot, { recursive: true, force: true });
+    }
   });
   it('an unreadable ledger fails the step with the ledger\'s own reason, not an empty capture list', async () => {
     const input = { params: ['brief'], view: { skill: 'review', task: 't', mode: 'interactive' }, dir: { repositoryRoot: '/r', root: '/r/t', steps: '/r/t/steps' }, args: {}, ledger: { read: async () => ({ state: 'unreadable', reason: 'the ledger cannot be read: EACCES', line: null }) }, runtime: { pluginRoot: '/p', cwd: '/r', runner: { run: async () => assert.fail('the script must not run') } } };

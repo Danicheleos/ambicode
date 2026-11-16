@@ -1,7 +1,6 @@
 import { describeIssues } from '#modules/config/load';
 import { RequirementEvidence, type EvidenceSource, type RequirementSource } from '#types/modules/requirements';
 import { renderRequirement } from '#modules/requirements/envelope/render';
-import { MAX_EVIDENCE_BYTES } from '#types/defaults';
 import { AmbicodeError, messageOf } from '#util/errors';
 import type { Runtime } from '#types/composition';
 
@@ -9,11 +8,11 @@ async function loadEvidence(runtime: Runtime, source: EvidenceSource): Promise<R
   if (source.kind === 'inline') return source.evidence;
   let raw: string | null;
   try {
-    raw = source.kind === 'file' ? await runtime.fs.readText(source.path) : await runtime.stdin.read(MAX_EVIDENCE_BYTES);
+    raw = source.kind === 'file' ? await runtime.fs.readText(source.path) : await runtime.stdin.read();
   } catch (cause) {
     throw new AmbicodeError('requirements-unreadable', 'The requirement evidence file could not be read.', { field: source.kind === 'file' ? source.path : '--evidence -', cause });
   }
-  if (raw === null || raw.trim() === '') throw new AmbicodeError('requirements-unreadable', 'The requirement evidence on standard input is empty or exceeds its size cap.', { field: '--evidence -' });
+  if (raw === null || raw.trim() === '') throw new AmbicodeError('requirements-unreadable', 'The requirement evidence on standard input is empty.', { field: '--evidence -' });
   let document: unknown;
   try {
     document = JSON.parse(raw);

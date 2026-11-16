@@ -24,8 +24,6 @@ try {
   process.stdout.write(JSON.stringify({ entries, failed: { code: 'plan-body-missing', message, recoverable: true } }));
   process.exit(0);
 }
-// The first ten bad anchors, and the first ten requirements not word for word, are listed, enough for one fix round; the counts are exact.
-const LISTED = 10;
 
 const ANCHOR = anchorPattern();
 const files = new Map();
@@ -101,7 +99,7 @@ for (const { line, fenced } of lines) {
     const reason = count === undefined ? 'outside-repository' : count === null ? missingReason(file) : inRange(from, to, count) ? null : `line-out-of-range (file has ${count} lines)`;
     if (reason === null) continue;
     anchorsBad += 1;
-    if (badAnchors.length < LISTED) badAnchors.push(`${file}:${spec} ${reason}`);
+    badAnchors.push(`${file}:${spec} ${reason}`);
   }
 }
 
@@ -124,8 +122,8 @@ const section = requirements.flatMap(({ start, text }) => {
 const entries = section.flatMap((line) => {
   const bullet = /^\s*[-*]\s+(.+?)\s*$/.exec(line)?.[1];
   if (bullet === undefined) return [];
-  const quoted = [...bullet.matchAll(/["“](.*?)["”]/g)];
-  const texts = quoted.length > 0 ? quoted.map(([, piece]) => piece.replace(/^\s*[A-Za-z][\w-]*:\s*/, '')) : [bullet.replace(/(?:\s*\((?:Iterations?|already met)\b[^()]*\))+$/i, '')];
+  const quoted = [...bullet.matchAll(/"([^"]*)"|“([^”]*)”/g)];
+  const texts = quoted.length > 0 ? quoted.map(([, straight, curly]) => (straight ?? curly).replace(/^\s*[A-Za-z][\w-]*:\s*/, '')) : [bullet.replace(/(?:\s*\((?:Iterations?|already met)\b[^()]*\))+$/i, '')];
   // An empty piece would pass `includes('')` and count as checked.
   const pieces = texts.map((text) => text.replace(/\s+/g, ' ').trim()).filter((text) => text !== '');
   return pieces.length === 0 ? [] : [pieces];
@@ -163,7 +161,7 @@ const requirementsBad = requirementsMissing.length;
 
 const failed = anchorsBad > 0 || requirementsBad > 0;
 // The count is exact (anchorsBad, requirementsBad); an unchecked section is requirementsChecked: false, not a zero.
-const summary = { failed, anchorsBad, requirementsChecked, ...(requirementsChecked ? { requirementsBad } : { requirementsReason }), ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }), ...(requirementsBad === 0 ? {} : { requirements: requirementsMissing.slice(0, LISTED) }) };
+const summary = { failed, anchorsBad, requirementsChecked, ...(requirementsChecked ? { requirementsBad } : { requirementsReason }), ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }), ...(requirementsBad === 0 ? {} : { requirements: requirementsMissing }) };
 const out = { entries: [{ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
 // The step records a failure and the route goes on to the gate: nothing here sends the model back, and at Accept the count is recorded and the plan accepted.
 if (failed && input.params?.[0] !== 'accept') {

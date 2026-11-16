@@ -2,8 +2,6 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-// 40 paths is a screenful; the rest are counted so nothing is silently dropped.
-const MAX_PATHS = 40;
 export const DRAFTS = '.ambicode/policies/drafts';
 
 // One level only: a docs tree of thousands of pages is a source the user names, not one to list.
@@ -22,7 +20,7 @@ export function sourcesText(root, texts, autoLoadedSources, list = true) {
   const urls = words.filter((word) => word.startsWith('https://'));
   const named = words.filter((word) => !word.startsWith('https://') && !path.isAbsolute(word) && !word.split('/').includes('..') && !autoLoadedPatterns.some((pattern) => pattern.test(word)) && existsSync(path.join(root, word)));
   return [
-    ...(list ? [`Rule sources found: ${found.slice(0, MAX_PATHS).join(', ') || 'none'}${found.length > MAX_PATHS ? ` (+${found.length - MAX_PATHS} more)` : ''}`] : []),
+    ...(list ? [`Rule sources found: ${found.join(', ') || 'none'}`] : []),
     ...(named.length === 0 ? [] : [`Named in the request: ${named.join(', ')}`]),
     ...(urls.length === 0 ? [] : [`Pages named in the request: ${urls.join(', ')}. Read each with the Atlassian MCP tools you can see; a rule from a page cites its https URL as \`location\`.`]),
   ];

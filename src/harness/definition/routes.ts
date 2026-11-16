@@ -108,7 +108,7 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     gate,
     onFail: raw.onFail === undefined ? null : raw.onFail.trim() === 'record' ? 'record' : parseRevise(file, `${where}.onFail`, raw.onFail),
     onError: raw.onError === undefined ? { kind: 'default' } : parseOnError(file, `${where}.onError`, raw.onError),
-    repeat: gate?.repeat ?? raw.repeat ?? 1,
+    repeat: raw.repeat ?? 1,
     final: raw.final ?? false,
   };
 }

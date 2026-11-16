@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createRuntime } from '#composition/root';
+import { parseArgs } from '#util/args';
+import { runNoteSave, NOTE_SAVE_OPTIONS } from '../../cli/commands/route/note.ts';
 import { gapsOf } from '#modules/evidence/report/report';
 import { runHook } from '#hook/events/run-hook';
 import { taskFixture } from '#testing/fixtures/task-fixture';
@@ -61,6 +64,12 @@ async function implementerNext(t: Fixture): Promise<Awaited<ReturnType<Fixture['
   await t.edit();
   await t.held('green');
   return t.next();
+}
+
+/** `note save --kind report` with the body on standard input, as the implementer runs it at the write step. */
+async function saveReport(t: Fixture, body: string): Promise<{ path: string; next?: string }> {
+  const runtime = await createRuntime({ cwd: t.fx.repo.root, env: { CLAUDE_CODE_SESSION_ID: SESSION_A }, stdin: { read: async () => body } });
+  return runNoteSave(runtime, parseArgs('note save', ['--task', CHECK_TASK, '--kind', 'report'], NOTE_SAVE_OPTIONS));
 }
 
 describe('the implementer closes its own step and writes the report', { concurrency: 4 }, () => {
@@ -127,7 +136,8 @@ describe('the implementer closes its own step and writes the report', { concurre
       await implementerNext(t);
       const stated = `${REPORT}\nNot verified\n${gapsOf(await t.ledger()).map((gap) => `- ${gap}`).join('\n')}`;
       assert.ok(stated.includes(GAP));
-      await send(stopped(await file('text', stated)));
+      await saveReport(t, stated);
+      await send(stopped(await file('text', 'Report saved.')));
       assert.equal((await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8')).trim(), stated);
     });
   });
@@ -195,6 +205,36 @@ describe('the implementer closes its own step and writes the report', { concurre
       assert.deepEqual((await t.kinds('limit')).filter((entry) => entry['which'] === 'stop-block'), []);
       assert.deepEqual(await notes(t, 'result'), [], 'the pointer does not replace the report');
       assert.ok((await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8')).startsWith(REPORT));
+    });
+  });
+
+  it('the implementer saves the report with note save and ends on one line: report.md holds the full report with the gap lines, and main gets the pointer', async () => {
+    await withTask(async (t, send, file) => {
+      await t.start({ headless: true });
+      await t.append(DECLINED);
+      assert.equal((await implementerNext(t)).position, 'write');
+      const saving = await saveReport(t, REPORT);
+      assert.equal(saving.next, undefined, 'saving while the step is in flight does not advance the route');
+      await send(stopped(await file('text', 'Report saved.')));
+      const saved = await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8');
+      assert.ok(saved.startsWith(REPORT), saved);
+      assert.ok(saved.includes(GAP), `the missing gap is appended: ${saved}`);
+      assert.doesNotMatch(saved, /Report saved\./, 'the closing line is not the report');
+      assert.equal((await notes(t, 'report')).at(-1)?.['path'], REPORT_PATH);
+      const out = (await send(returned)) as { hookSpecificOutput?: { additionalContext: string } };
+      assert.match(out.hookSpecificOutput!.additionalContext, new RegExp(`Task report: ${REPORT_PATH.replaceAll('.', '\\.')}`));
+    });
+  });
+
+  it('no report note saved: report.md holds the final message and the gap says it was not saved', async () => {
+    await withTask(async (t, send, file) => {
+      await t.start({ headless: true });
+      assert.equal((await implementerNext(t)).position, 'write');
+      await send(stopped(await file('text', 'Report saved.')));
+      assert.ok(gapsOf(await t.ledger()).some((gap) => gap.startsWith('The task report was not saved')), 'the unsaved report is listed under Not verified');
+      const saved = await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8');
+      assert.ok(saved.startsWith('Report saved.'), saved);
+      assert.match(saved, /The task report was not saved/, 'the report file carries the gap');
     });
   });
 
@@ -306,6 +346,6 @@ describe('task route texts agree with the implementer role and the hooks', { con
     const route = await text('routes', 'task', 'write.md');
     assert.match(route, /^- Implementer, this step was printed by your last call:/m);
     assert.match(route, /^- Main session: launch `ambicode:implementer`/m);
-    assert.match(await text('agents', 'implementer.md'), /unless it is `write`: its brief follows; the final message is the report/);
+    assert.match(await text('agents', 'implementer.md'), /unless it is `write`: its brief follows; save the report with the `note save` command it names, and the final message is the one line `Report saved\.`/);
   });
 });

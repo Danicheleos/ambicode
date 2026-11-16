@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { UNIQUE_FILE_LIMIT, writeUniqueFile } from './files.ts';
+import { writeUniqueFile } from './files.ts';
 
 const memoryFs = (taken: string[]) => {
   const files = new Set(taken);
@@ -13,8 +13,7 @@ describe('writeUniqueFile', () => {
     assert.equal(await writeUniqueFile(fs, 'a', '.json', '{}'), 'a-3.json');
   });
 
-  it('returns null once every suffix up to the limit is taken', async () => {
-    const taken = ['a.md', ...Array.from({ length: UNIQUE_FILE_LIMIT - 1 }, (_, index) => `a-${index + 2}.md`)];
-    assert.equal(await writeUniqueFile(memoryFs(taken), 'a', '.md', ''), null);
+  it('uses the next free name after any taken ones', async () => {
+    assert.equal(await writeUniqueFile(memoryFs(['a.md', 'a-2.md', 'a-3.md']), 'a', '.md', ''), 'a-4.md');
   });
 });

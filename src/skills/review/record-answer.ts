@@ -37,7 +37,7 @@ function parseOutput(raw: string): { ok: true; output: ReviewerOutput } | { ok: 
     }
     const parsed = ReviewerOutput.safeParse(json);
     if (parsed.success) return { ok: true, output: parsed.data };
-    reason ||= `the reviewer's answer does not match the findings shape: ${parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')}`;
+    reason ||= `the reviewer's answer does not match the findings shape: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')}`;
   }
   return { ok: false, reason };
 }

@@ -18,7 +18,7 @@ describe('plan-shaped route: reaching the gate', () => {
       assert.equal(print['object'], undefined);
       assert.match(gate.text, new RegExp(`\\[ambicode gate plan-accept ${print.id}\\]`));
       assert.doesNotMatch(gate.text, /Object:/);
-      assert.match(gate.text, /Revise \(3 left\): goes back to draft/);
+      assert.match(gate.text, /- Revise \(acts: only your own answer here counts; goes back to draft\)/);
       assert.match(gate.text, /Accept \(acts: only your own answer here counts\)/);
     } finally {
       await plan.dispose();

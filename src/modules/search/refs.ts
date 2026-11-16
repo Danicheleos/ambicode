@@ -6,9 +6,8 @@ import { declarationsOf } from './harvest.ts';
 import type { Runtime } from '#types/composition';
 import type { RefsResult } from '#types/modules/search';
 
-export const REFS_LIMIT_BYTES = 4096;
-const MAX_LINES_PER_NAME = 500;
 const SNIPPET = 100;
+/** A term found in more than this share of the files describes the project (`src`, a company name), not a boundary; the minimum keeps tiny projects out of the rule. */
 const TOO_BROAD_SHARE = 0.6;
 const TOO_BROAD_MIN_FILES = 5;
 
@@ -34,7 +33,7 @@ export async function refs(runtime: Runtime, names: readonly string[], options: 
   const rows: string[] = [];
   const summary: RefsResult['names'] = [];
   for (const name of kept) {
-    const lines = options.declarations === true ? [] : (await git.grepWordLines(name, pathspec)).slice(0, MAX_LINES_PER_NAME);
+    const lines = options.declarations === true ? [] : await git.grepWordLines(name, pathspec);
     const found = declared.filter((declaration) => declaration.name === name);
     const declarations = new Set(found.map((declaration) => declaration.path)).size;
     const collides = declarations >= 2;
@@ -44,16 +43,6 @@ export async function refs(runtime: Runtime, names: readonly string[], options: 
     if (options.declarations === true) for (const declaration of found) rows.push(`  ${declaration.kind} ${declaration.path}:${declaration.line}`);
     for (const line of lines) rows.push(`  ${line.path}:${line.line}: ${line.text.trim().slice(0, SNIPPET)}`);
   }
-  const full = [...rows, ...(limitations.length === 0 ? [] : ['limitations:', ...limitations.map((line) => `  ${line}`)])];
-  // Cut from the bottom whole lines, with the count, so a 4 KB answer never ends mid-line.
-  const kept_: string[] = [];
-  let size = 0;
-  for (const line of full) {
-    size += Buffer.byteLength(line) + 1;
-    if (size > REFS_LIMIT_BYTES - 64) break;
-    kept_.push(line);
-  }
-  const truncated = kept_.length < full.length;
-  const text = truncated ? `${kept_.join('\n')}\n${full.length - kept_.length} more lines; name fewer words or narrow with --project` : kept_.join('\n');
-  return { names: summary, hits: summary.reduce((total_, row) => total_ + row.hits, 0), limitations, text, bytes: Buffer.byteLength(text), truncated };
+  const text = [...rows, ...(limitations.length === 0 ? [] : ['limitations:', ...limitations.map((line) => `  ${line}`)])].join('\n');
+  return { names: summary, hits: summary.reduce((total_, row) => total_ + row.hits, 0), limitations, text, bytes: Buffer.byteLength(text) };
 }

@@ -120,7 +120,7 @@ export async function fetchDiscussions(runner: ProcessRunner, cwd: string, url: 
 /** One commit of a merge request: the short sha, its author's name and its title. */
 interface MrCommit { sha: string; author: string; title: string }
 
-// One page: the brief shows 30 commits and says how many more, and a merge request past 100 commits is not one to read commit by commit.
+// One page: a merge request past 100 commits is not one to read commit by commit.
 const COMMITS_PER_PAGE = 100;
 
 /** The merge request's commits, newest first as GitLab returns them. Read-only; a failure throws and the caller reports a gap. */

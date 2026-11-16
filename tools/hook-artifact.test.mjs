@@ -122,7 +122,10 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
       assert.deepEqual(send('rename the helper'), {}, 'a plain prompt delivers nothing');
       const first = send(launch);
       assert.equal(first.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
-      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract[\s\S]*\[ambicode\] investigate/);
+      const context = first.hookSpecificOutput?.additionalContext ?? '';
+      const link = /# AMBICODE operating contract[\s\S]*\n\nRead (\S+) whole now: it is this step \(\d+ bytes\)\.$/.exec(context);
+      assert.ok(link !== null, context.slice(-300));
+      assert.match(await readFile(link[1], 'utf8'), /\[ambicode\] investigate/, 'the link names the file that holds the step');
       assert.doesNotMatch(send('and the tests?').hookSpecificOutput?.additionalContext ?? '', /operating contract/, 'the contract is in context for this epoch');
 
       assert.deepEqual(JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId })), {});

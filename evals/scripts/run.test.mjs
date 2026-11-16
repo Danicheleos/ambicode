@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ENTRY_LIMIT, NAKED, USAGE, benchLines, buildNaked, checkArgs, childEnv, countEntries, mergeSeries, plan, preflight, runCase, runLoadCheck, skillGrant, withOnlyNamesOf, withProgress } from './run.mjs';
+import { ENTRY_LIMIT, NAKED, USAGE, benchLines, buildNaked, checkArgs, childEnv, countEntries, mergeSeries, plan, preflight, runCase, runLoadCheck, withOnlyNamesOf, withProgress } from './run.mjs';
 
 describe('result copy', () => {
   const truth = { source: 'files-section', relevant: ['m/a/x.ts', 'm/b/y.ts'], allowed: [] };
@@ -157,28 +157,16 @@ describe('evals runner', () => {
     assert.equal(jobs([]), '4');
   });
 
-  it('an unfiltered run lists every case tag; every selection keeps the shell grant', () => {
+  it('an unfiltered run lists every case tag; every selection has the shell grant', () => {
     const tags = (args) => plan(args).argv.flatMap((arg, at, all) => (all[at - 1] === '--tag' ? [arg] : []));
     assert.ok(tags([]).length > 0);
     assert.deepEqual(tags(['--tag', 'downstream']), ['downstream']);
     for (const args of [[], ['--tag', 'downstream'], ['--bare', '--tag', 'downstream']]) assert.ok(plan(args).argv.includes('--allow-tools'), args.join(' '));
   });
 
-  it('plan and investigate cases get the grant their SKILL.md declares; task, mixed, unfiltered and bare selections keep the blanket', () => {
+  it('every arm and selection gets the blanket Bash Edit Write grant', () => {
     const grant = (args) => { const argv = plan(args).argv; const at = argv.indexOf('--allow-tools') + 1; return argv.slice(at, argv.findIndex((arg, i) => i >= at && arg.startsWith('--'))); };
-    const planRules = ['Bash(node *ambicode.mjs*)', 'Edit(//**/.ambicode/tasks/*/plan.md)', 'Write(//**/.ambicode/tasks/*/plan.md)'];
-    assert.deepEqual(grant(['--case', 'plan-app-vague']), planRules);
-    assert.deepEqual(grant(['--case', 'task-k12-1016-chain-plan']), planRules);
-    assert.deepEqual(grant(['--tag', 'investigate']), ['Bash(node *ambicode.mjs*)']);
-    for (const args of [[], ['--case', 'task-*'], ['--tag', 'task'], ['--case', 'no-such-case'], ['--bare', '--case', 'plan-app-vague']]) assert.deepEqual(grant(args), ['Bash', 'Edit', 'Write'], args.join(' '));
-  });
-
-  it('skillGrant keeps the gated rules with their patterns and drops the ungated ones', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'grant-'));
-    mkdirSync(path.join(root, 'x'));
-    writeFileSync(path.join(root, 'x', 'SKILL.md'), '---\nname: x\nallowed-tools: Read, Bash(a b, c*), Write(//p/*.md), Grep\n---\nbody\n');
-    assert.deepEqual(skillGrant('x', root), ['Bash(a b, c*)', 'Write(//p/*.md)']);
-    rmSync(root, { recursive: true, force: true });
+    for (const args of [[], ['--case', 'plan-app-vague'], ['--case', 'task-k12-1016-chain-plan'], ['--tag', 'investigate'], ['--bare', '--case', 'plan-app-vague']]) assert.deepEqual(grant(args), ['Bash', 'Edit', 'Write'], args.join(' '));
   });
 
   it('the bare arm runs evals/bare against the empty plugin and writes its own result', () => {

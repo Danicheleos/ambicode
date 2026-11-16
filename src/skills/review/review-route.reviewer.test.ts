@@ -46,15 +46,15 @@ describe('review route: route next records the reviewer answer file', { concurre
     }
   });
 
-  it('a report over the message cap is cut with a pointer to the whole text, which keeps part 4', async () => {
+  it('a large report is printed whole on the CLI, part 4 included', async () => {
     const t = await reviewRouteFixture({ config: REVIEW_CONFIG });
     try {
       await t.start();
       await answer(t.bundle, JSON.stringify({ findings: [], coverageNotes: Array.from({ length: 200 }, (_, at) => `note ${at}: ${'x'.repeat(80)}`) }));
       const next = await t.next();
-      assert.match(next.text, /Read it whole: \d+ bytes: /);
-      assert.ok(next.file !== null);
-      assert.match(await readFile(next.file!, 'utf8'), /4\. OMISSIONS[\s\S]*note 199/);
+      assert.ok(next.bytes > 16_000, `${next.bytes}`);
+      assert.equal(next.file, null);
+      assert.match(next.text, /4\. OMISSIONS[\s\S]*note 199/);
     } finally {
       await t.fx.dispose();
     }

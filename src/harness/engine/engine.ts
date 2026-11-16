@@ -11,7 +11,7 @@ import { openRepository } from '#platform/git/open';
 import { mrUrlIn, parseMrUrl } from '#platform/gitlab/glab';
 import { standaloneReviewName } from '#modules/review/bundle/review-name';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
-import { isStale, markHeadless, markStepDelivered, sessionRoutes } from '../session/active-route.ts';
+import { markHeadless, markStepDelivered, sessionRoutes } from '../session/active-route.ts';
 import { matchOption } from '../gates/gates.ts';
 import { exitRoute, recordFlagAnswer, recordHookAnswer, unknownGate } from '../gates/answers.ts';
 import { commandContext, entriesOf, readEntries, routeNotOpen } from './context.ts';
@@ -191,9 +191,8 @@ export function createEngine(deps: EngineDeps): Engine {
     await settle(result.run, result.part);
     // Only a route the user typed replaces the session's others. A CLI start is what each parallel subagent of one session does,
     // and ending its siblings (or waiting on a lock they hold through a slow step) made 4 of 5 parallel reviews fail ledger-busy.
-    // A sibling idle past the stale bound is abandoned, not parallel: any start closes it, so dead routes do not pile up.
     {
-      for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug && (delivery === 'hook' || isStale(route, now())))) {
+      for (const other of (await sessionRoutes(rt.fs, dir.repositoryRoot, input.session)).filter((route) => route.live && route.task !== slug && delivery === 'hook')) {
         const otherDir = taskDirFor(dir.repositoryRoot, other.task, '.', dirKindFor(other.skill));
         await withLedgerLock(rt.fs, otherDir.root, now, async (ledger) => {
           const read = await ledger.read();
@@ -217,7 +216,7 @@ export function createEngine(deps: EngineDeps): Engine {
       const def = head === undefined ? null : routes.route(String(head['skill']));
       if (head === undefined || def === null) throw routeNotOpen(input.task);
       const chain = buildChain(entries, head);
-      const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: String(head['session']), cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
+      const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: String(head['session']), cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : (input.channel ?? 'cli'), ...scratchOf(head, input.scratchpadDir) });
       if (input.produced !== undefined) run.produced = input.produced;
       const fold = foldRoute(def, chain);
       const position = fold.position;
@@ -292,7 +291,7 @@ export function createEngine(deps: EngineDeps): Engine {
   /** What `note save --kind investigation` then its command tail do, for a final message the Stop hook was handed. */
   async function answerNote(task: string, session: string, routeId: string, body: string, scratchpadDir?: string): Promise<StepMessage> {
     await saveNote({ runtime, session, context }, { task, kind: 'investigation', body, route: routeId });
-    return advance({ task, cause: 'note save', ...(scratchpadDir === undefined ? {} : { scratchpadDir }) });
+    return advance({ task, cause: 'note save', channel: 'hook', ...(scratchpadDir === undefined ? {} : { scratchpadDir }) });
   }
 
   const stopPorts = { runtime, routes, closeFinal, answerNote };

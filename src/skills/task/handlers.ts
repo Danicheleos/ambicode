@@ -11,9 +11,9 @@ import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries, failed } from '../common.ts';
 import { markAccepted, planStatusOf } from '#modules/evidence/notes';
-import { briefOf, investigationOf } from '../brief.ts';
+import { briefOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
-import { runnableChecks } from '#modules/checks/run/check-command';
+import { runnableChecks, outputPointer } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { runApprovedChecks } from '#modules/checks/run/approved';
 import { runScopeChecks } from '#modules/checks/run/scope';
@@ -31,11 +31,11 @@ const REPORT_GAP = 'report the gap';
 
 const stepEntries = (chain: readonly LedgerEntry[]): LedgerEntry[] => chain.filter((entry) => entry.kind === 'step' && entry['step'] === 'scope-checks' && (entry['status'] === 'completed' || entry['status'] === 'failed'));
 
-/** The latest green-phase run of each key that exited non-zero: what the end checks left red, with its output. */
+/** The latest green-phase run of each key that exited non-zero: what the end checks left red, with the path of its whole output. */
 const redKeys = (chain: readonly LedgerEntry[]): Map<string, string> => {
   const last = new Map<string, LedgerEntry>();
   for (const entry of chain) if (entry.kind === 'check' && entry['phase'] === 'green') last.set(String(entry['key']), entry);
-  return new Map([...last].filter(([, entry]) => entry['exit'] !== 0).map(([key, entry]) => [key, String(entry['tail'] ?? '')]));
+  return new Map([...last].filter(([, entry]) => entry['exit'] !== 0).map(([key, entry]) => [key, outputPointer(entry)]));
 };
 
 /** The keys the last failed end run sent to the implementer: the fix may leave them green by its own file run, but the scope run is what must pass. */
@@ -50,7 +50,7 @@ const redFailure = (red: ReadonlyMap<string, string>): HandlerResult => ({
   code: 'checks-red',
   message: `${red.size} end check(s) red: ${[...red.keys()].join(', ')}.`,
   recoverable: true,
-  revise: { args: { 'Failing checks': [...red].map(([key, tail]) => `${key} exited non-zero:\n${tail}`) } },
+  revise: { args: { 'Failing checks': [...red].map(([key, pointer]) => `${key} exited non-zero: ${pointer}`) } },
 });
 
 /** The baseline of the task route before this one, when it was cut short: its work is still in the tree and must stay in this route's review, not become "already changed". */
@@ -107,7 +107,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     }
     const { planPath, iteration, iterations, through, brief } = planFacts;
     if (iteration > iterations) return { state: 'ok', payload: `Every iteration of ${planPath ?? 'the plan'} is done (${iterations}).`, record: { planPath, iterations }, exit: 'iterations-complete' };
-    const record = { planPath, iteration, iterations, through, seeded: brief !== null || (await investigationOf(input, read.state === 'ok' ? read.entries : [])) !== null };
+    const record = { planPath, iteration, iterations, through };
     const head = `Task ${input.view.task} · ${through > iteration ? `iterations ${iteration}-${through}` : `iteration ${iteration}`} of ${iterations}`;
     return { state: 'ok', payload: brief === null ? head : `${head}\n\n${brief}`, record };
   },

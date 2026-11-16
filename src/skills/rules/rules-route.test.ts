@@ -13,6 +13,7 @@ import { createRuntime } from '#composition/root';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { initConfig } from '#testing/fixtures/init-config';
+import { followLink } from '#testing/fixtures/route-fixture';
 import { readLedger } from '#platform/ledger/ledger';
 import { recordInit } from '#modules/evidence/init-entry';
 import { REPO_ROOT } from '#testing/paths';
@@ -60,12 +61,12 @@ async function world(options: { text?: string; headless?: boolean } = {}) {
     ledger,
     kinds,
     draft,
-    start: (input: Partial<Parameters<typeof engine.start>[0]> = {}) =>
-      engine.start({ skill: 'rules', text: options.text ?? 'CONTRIBUTING.md', requirements: [], task: TASK, cwd: root, session: SESSION, channel: 'hook', scratchpadDir, ...(options.headless === true ? { headless: true } : {}), ...input }),
+    start: async (input: Partial<Parameters<typeof engine.start>[0]> = {}) =>
+      followLink(await engine.start({ skill: 'rules', text: options.text ?? 'CONTRIBUTING.md', requirements: [], task: TASK, cwd: root, session: SESSION, channel: 'hook', scratchpadDir, ...(options.headless === true ? { headless: true } : {}), ...input })),
     /** A hook-bound answer to the latest print of a gate, as the AskUserQuestion hook records it. */
     async answer(gate: string, option: string) {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate)!;
-      return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option, instance: print.id }], scratchpadDir });
+      return followLink(await engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option, instance: print.id }], scratchpadDir }));
     },
     check: (extra: readonly string[] = ['--task', TASK]) => runPolicyCheck(runtime, parseArgs('policy check', ['--drafts', ...extra], POLICY_CHECK_OPTIONS)),
     apply: () => runRulesApply(runtime, parseArgs('rules apply', ['--task', TASK], RULES_APPLY_OPTIONS)),
@@ -89,18 +90,47 @@ async function atDraft(w: Awaited<ReturnType<typeof world>>) {
   return { first, draftStep: await w.answer('sources', 'use these sources') };
 }
 
-describe('09-T2: B13 the disposition and the ledger cap', { concurrency: 4 }, () => {
-  it('09-T2: a disposition far over the ledger-entry cap still reaches rules-table', async () => {
+describe('a large disposition', { concurrency: 4 }, () => {
+  /** The rules route at rules-table with 350 drafted rules in five packs: a table of about 35,000 bytes. */
+  async function atLargeTable(w: Awaited<ReturnType<typeof world>>) {
+    await atDraft(w);
+    for (let pid = 0; pid < 5; pid += 1) {
+      const rules = Array.from({ length: 70 }, (_, n) => rule(`rule-${n}`, `Keep boundary ${pid}-${n} in the service layer.`, QUOTE));
+      await w.draft(`services-${pid}.yaml`, pack(`team-services-${pid}`, rules));
+    }
+    const checked = await w.check();
+    assert.equal(checked.ok, true, JSON.stringify(checked.diagnostics));
+    assert.equal(await w.position(), 'rules-table');
+    return checked;
+  }
+
+  it('350 rules in five packs reach rules-table whole on the CLI', async () => {
     const w = await world();
     try {
-      await atDraft(w);
-      for (let pid = 0; pid < 5; pid += 1) {
-        const rules = Array.from({ length: 70 }, (_, n) => rule(`rule-${n}`, `Keep boundary ${pid}-${n} in the service layer.`, QUOTE));
-        await w.draft(`services-${pid}.yaml`, pack(`team-services-${pid}`, rules));
-      }
-      const checked = await w.check();
-      assert.equal(checked.ok, true, JSON.stringify(checked.diagnostics));
-      assert.equal(await w.position(), 'rules-table');
+      const printed = (await atLargeTable(w)).next ?? '';
+      assert.ok(Buffer.byteLength(printed) > 30_000, `${printed.length}`);
+      assert.match(printed, /team-services-0\/rule-0: applied\n/);
+      assert.match(printed, /team-services-4\/rule-69: applied/);
+      assert.doesNotMatch(printed, /Read it whole|Read .* whole now/);
+    } finally {
+      await w.dispose();
+    }
+  });
+
+  it('the same table delivered to a hook is one link line, and the file it names exists and holds the whole table', async () => {
+    const w = await world();
+    try {
+      const printed = (await atLargeTable(w)).next ?? '';
+      const delivered = (await w.engine.deliver(TASK, w.scratchpad))!;
+      for (const pointed of delivered.text.match(/(?:[A-Za-z]:)?[\\/]\S+\.md\b/g) ?? []) assert.equal(await w.runtime.fs.exists(pointed), true, `${pointed} does not exist`);
+      const link = /^Read (\S+\.md) whole now: it is this step \((\d+) bytes\)\.$/.exec(delivered.text);
+      assert.ok(link !== null, delivered.text);
+      const file = link[1]!;
+      const whole = await readFile(file, 'utf8');
+      assert.equal(Buffer.byteLength(whole.replace(/^<!--.*-->\n/, '').trimEnd()), Number(link[2]));
+      assert.match(whole, /team-services-0\/rule-0: applied\n/);
+      assert.match(whole, /team-services-4\/rule-69: applied/);
+      assert.ok(whole.length >= printed.length - 500, `${whole.length} vs ${printed.length}`);
     } finally {
       await w.dispose();
     }
@@ -266,6 +296,9 @@ describe('09-T2: a human who does not apply', { concurrency: 4 }, () => {
       await w.check();
       const closed = await w.answer('rules-table', 'Discard drafts');
       assert.equal(closed.position, 'complete');
+      // The route has exited and removed steps/; the closing text a hook delivers is still in the file its link names.
+      assert.ok(closed.file !== null && await w.runtime.fs.exists(closed.file), `${closed.file}`);
+      assert.match(closed.text, /The route is complete\./);
       assert.equal(await w.exists('.ambicode/policies/drafts/team-services.yaml'), true);
       assert.equal((await codeOf(w.apply())).code, 'rules-apply-unconfirmed', 'the closed route confirms nothing');
       assert.doesNotMatch(await w.config(), /team-services/);
@@ -457,10 +490,9 @@ describe('09-Q5: policy check --drafts and the ledger', { concurrency: 4 }, () =
 });
 
 describe('09-T1: route text', { concurrency: 4 }, () => {
-  it('09-T1: the step instructions stay under 1,500 characters and name no ecosystem', async () => {
+  it('09-T1: the step instructions name no ecosystem', async () => {
     for (const name of ['rules/draft', 'rules/apply-run']) {
       const text = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-      assert.ok(text.trim().length <= 1_500, `${name} is ${text.trim().length} characters`);
       assert.doesNotMatch(text, /typescript|python|angular|express|eslint|jest/i);
     }
     const route = await readFile(path.join(REPO_ROOT, 'routes', 'rules', 'rules.yaml'), 'utf8');

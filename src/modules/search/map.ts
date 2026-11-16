@@ -1,5 +1,4 @@
 import { openWorkspace } from '#modules/config/workspace';
-import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
 import type { ProjectConfig } from '#types/modules/config';
 import { Git, literalPathspec } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
@@ -8,11 +7,11 @@ import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { isSearchable, pathExclusionReason } from '#util/path-classes';
 import { harvest } from './harvest.ts';
 import { tooBroad } from './refs.ts';
-import { holdsWords, MIN_TERM_LENGTH, stem, wordsOf } from './words.ts';
+import { holdsWords, MIN_TERM_LENGTH, stemsOf, wordsOf } from './words.ts';
 import { isModuleSource, maxModulesFor } from '#modules/context/context';
 import { searchIndexFor, type FolderRow } from '#modules/context/search-index';
 import type { Runtime } from '#types/composition';
-import { COMMON_NAMES, LAYER_NAMES, type Declaration, type LayerName, type MapCandidate, type MapSymbol } from '#types/modules/search';
+import { LAYER_NAMES, type Declaration, type LayerName, type MapCandidate, type MapSymbol } from '#types/modules/search';
 
 /** What the map is, once, above its JSON. It replaces the `layers:` debug line, which nothing parsed; the model had no explanation of the row tuples or of `limitations`. */
 export const MAP_LEGEND = [
@@ -21,9 +20,10 @@ export const MAP_LEGEND = [
   'limitations: request words the map could not use (found in no code file, or too common).',
 ].join('\n');
 
-/** Without the terms/symbols/collides debug fields (about 2,400 bytes of the old 6,144) the same cap printed 29.2 rows a case instead of 16.6: recall .570 -> .626 but F1 .434 -> .369 (10 cases, one repository). Cap 3584 prints 15.7 rows, recall .554, F1 .418; 4096 18.7 rows .411; 3072 13.0 rows .418; 2560 10.3 rows .423 (recall .490). Rows grouped under their module print 41 folders instead of 20 at the old cap, F1 .368 -> .307: flat rows stay. */
-export const MAP_LIMIT_BYTES = 3584;
-/** Wider than this many files, a term describes the project (`src`, a company name), not a boundary; the floor keeps tiny projects out of the rule. */
+/** The one line a map with no rows ends with, and the limitation the ledger keeps for it. */
+const EMPTY_MAP = 'The map found no files for this request; search the repository yourself with your own tools.';
+
+/** Files at the top of the ranking whose declarations the harvest layer reads. */
 const TOP_FILES = 8;
 /** Harvested names take the last slots of a full term list, so a full first pass still lets them in. 6 -> 4: F1 .257 -> .301 on one 10-case bench of one repository, chosen on the mean of all 10 cases; 0-3 or 5 gave a lower mean. A name from a harvested file is a guess; the first-pass terms are the request's own words. */
 const PASS2_NAMES = 4;
@@ -34,37 +34,35 @@ const ELSEWHERE_TERMS = 3;
 const MAX_PER_ENTITY = 1;
 /** An entity holding a named file lists 2: the files beside the change are the ones whose convention it follows or breaks (the review brief's per-file same-folder count). */
 const MAX_PER_SEED_ENTITY = 2;
-/** Rows scoring under this share of the best row are not listed (prompt mode). One 10-case bench of a JS/TS repository and 28 cases of three small repositories of other stacks, offline on the one-per-folder list: .12 gave F1 .438 on the first (from .462; 3571 .566 -> .481, 5164 .308 -> .255) and .319 on the others (from .189), printed rows 19.5 -> 17.2 and 21.4 -> 9.7; .10 .456/.290, .15 .439/.338, .20 .433/.392, .30 .384/.461 (offline for .10 and .30). */
-const LIST_FLOOR = 0.12;
+/** Rows scoring under this share of the best row are not listed. inseer-frontend map-bench, 10 cases, no byte cut: .12 R .702 P .206 F1 .267 145.6 rows; .30 R .662 P .328 F1 .372 58.3 rows; .40 F1 .328;
+ *  the 3584-byte cut it replaces: R .505 P .385 F1 .398 15.8 rows. The sweep found F1 highest at .30 of the floors tried. */
+export const LIST_FLOOR = 0.30;
+/** Most rows a map lists after the floor. Measured 2026-11-12 on the map bench, 27 cases over FE and k12 repositories: top-N F1 is a plateau from 15 to 25;
+ *  20 halves FE's mean row count (58 -> 20) at +.019 mean F1 over the floor alone (p .078, within noise). */
+export const TOP_ROWS = 20;
 const SPANS = 3;
-const SPAN_CANDIDATES = 20;
 /** Hits closer than this many lines read as one span. */
 const SPAN_GAP = 8;
 /** Per-term scores only order one call's list; content is weakest because a word can sit in any comment. */
 const SCORE = { directory: 5, filename: 8, content: 2, named: 10 };
 /** git grep already spreads one search over the cores: four at a time was the fastest on the 29-grep bench (1.45 s against 2.26 s serial). */
 const GREP_CONCURRENCY = 4;
-/** Words a grep row names: the rows share a 3,584-byte cap, and 3 names keep a row near 200 bytes. */
-const GREP_NAMES_SHOWN = 3;
 
 interface MapLayer { name: LayerName; ms: number; hits: number }
 
 interface MapResult {
-  mode: 'prompt' | 'context';
   layers: MapLayer[];
-  layersSource: 'config' | 'default' | 'route';
   terms: { pass1: string[]; pass2: string[] };
-  /** The part of the ranking the capped text kept. */
+  /** The part of the ranking the floor kept: every row of the text. */
   candidates: MapCandidate[];
-  /** The whole ranking with every reason; the offline bench reads it to see what the cap cut. */
+  /** The whole ranking with every reason; the offline bench reads it to see what the floor cut. */
   pool: MapCandidate[];
   symbols: Record<string, MapSymbol[]>;
   collisions: string[];
   limitations: string[];
-  omitted: number;
-  /** Where each pool stage dropped or moved a file; the offline replay reads it. Not in `entry`, not printed. */
-  debug: { folded: Record<string, string | null>; spreadDropped: string[]; floorDropped: string[] };
-  /** MAP_LEGEND (three lines), then compact JSON. At most MAP_LIMIT_BYTES. */
+  /** Where each pool stage dropped or moved a file (`listDropped`: under the floor or past TOP_ROWS); the offline replay reads it. Not in `entry`, not printed. */
+  debug: { folded: Record<string, string | null>; spreadDropped: string[]; listDropped: string[] };
+  /** MAP_LEGEND (three lines), then compact JSON. */
   text: string;
   bytes: number;
   /** The `map` ledger entry's fields. */
@@ -72,19 +70,13 @@ interface MapResult {
 }
 
 
-export function resolveLayers(mode: 'prompt' | 'context'): { layers: string[]; source: 'default' } {
-  return { layers: [...SEARCH_LAYER_DEFAULTS[mode]], source: 'default' };
-}
-
 interface MapInput {
   project: ProjectConfig;
-  mode: 'prompt' | 'context';
   layers: readonly string[];
-  layersSource?: 'config' | 'default' | 'route';
   terms?: readonly string[];
   paths?: readonly string[];
   symbols?: readonly string[];
-  /** Files the caller already has (the changed files of a review): never listed, and no byte of the cap goes to them. */
+  /** Files the caller already has (the changed files of a review): never listed, searched, retrieved, folded onto or counted as a hit. */
   exclude?: readonly string[];
   /** A checkout other than the working repository (a merge request head): its files are the ones searched. */
   checkout?: string;
@@ -98,41 +90,50 @@ async function inBatches<T>(items: readonly string[], run: (item: string) => Pro
   return out;
 }
 
-/** The directory (+5) or filename (+8) holding the form; a dot segment is never a place. */
+/** The filename (+8) or, failing that, the directory (+5) holding the form: a file in a matching folder with a matching name scores as the name; a dot segment is never a place. */
 function pathHit(lower: string, form: string): 'directory' | 'filename' | null {
   const segments = lower.split('/');
   if (segments.some((segment) => segment.startsWith('.'))) return null;
-  if (segments.slice(0, -1).join('/').includes(form)) return 'directory';
-  return segments.at(-1)!.includes(form) ? 'filename' : null;
+  if (segments.at(-1)!.includes(form)) return 'filename';
+  return segments.slice(0, -1).join('/').includes(form) ? 'directory' : null;
 }
 
 /** `unit price` finds `unit-price/`, `unit_price`, `unitPrice` and `UnitPrice.ts` alike: the term's own spelling, then the words joined, hyphenated and underscored. */
 function spellingsOf(term: string, inflected = false): string[] {
-  const words = inflected ? wordsOf(term).map(stem) : wordsOf(term);
+  const words = inflected ? stemsOf(term) : wordsOf(term);
   const joined = words.length < 2 ? words : [words.join(''), words.join('-'), words.join('_')];
   const forms = inflected ? joined : words.length < 2 ? [term.toLowerCase(), ...words] : [term.toLowerCase(), ...joined];
   return [...new Set(forms)].filter((form) => form.length >= 3);
 }
 
 /** One term's files: path hits score by place, content hits are counted so the total has diminishing returns. */
-async function shortlist(git: Git, files: readonly string[], pathspec: string | null, terms: readonly string[], note: (text: string) => void, want: number, declaredIn: ReadonlyMap<string, ReadonlySet<string>> = new Map(), plain: ReadonlySet<string> = new Set()): Promise<{ found: MapCandidate[]; live: string[]; dead: string[]; elsewhere: Map<string, string[]> }> {
+async function shortlist(git: Git, files: readonly string[], pathspec: string | null, terms: readonly string[], note: (text: string) => void, want: number, declaredIn: ReadonlyMap<string, ReadonlySet<string>> = new Map(), plain: ReadonlySet<string> = new Set(), excluded: ReadonlySet<string> = new Set()): Promise<{ found: MapCandidate[]; live: string[]; dead: string[]; elsewhere: Map<string, string[]> }> {
   const live: string[] = [];
   const dead: string[] = [];
   const ranked = new Map<string, { score: number; content: number; reasons: string[]; terms: Set<string> }>();
   const fileSet = new Set(files);
   const entry = (file: string) => ranked.get(file) ?? ranked.set(file, { score: 0, content: 0, reasons: [], terms: new Set() }).get(file)!;
-  const everywhere = await inBatches(terms, (term) => git.grepFiles(term, pathspec, (line) => holdsWords(line, term)));
-  const grepped = everywhere.map((hits) => new Set(hits.filter((file) => fileSet.has(file))));
+  const everywhere = new Map<string, string[]>();
+  const search = async (wanted: readonly string[]): Promise<void> => {
+    const todo = [...new Set(wanted)].filter((term) => !everywhere.has(term));
+    const hits = await inBatches(todo, (term) => git.grepFiles(term, pathspec, (line) => holdsWords(line, term)));
+    todo.forEach((term, at) => everywhere.set(term, hits[at]!));
+  };
+  await search(terms.filter((term) => !plain.has(term)));
   // The same grep already read the files a name search skips (json, html, markdown): a term found only there is not absent.
   const elsewhere = new Map<string, string[]>();
   let plainOpen: boolean | undefined;
-  terms.forEach((term, index) => {
-    if (live.length >= want) return;
-    // Plain words wait behind the other terms and are judged once, at the first of them: terms that match nothing do not count, so a ticket whose ids match nothing still searches its words.
-    if (plain.has(term)) { plainOpen ??= live.length < PLAIN_LIVE_ENOUGH; if (!plainOpen) return; }
+  for (const term of terms) {
+    if (live.length >= want) break;
+    // Plain words wait behind the other terms and are judged once, at the first of them: terms that match nothing do not count, so a ticket whose ids match nothing still searches its words. They are grepped only when the gate opens.
+    if (plain.has(term)) {
+      if (plainOpen === undefined) { plainOpen = live.length < PLAIN_LIVE_ENOUGH; if (plainOpen) await search(terms.filter((word) => plain.has(word))); }
+      if (!plainOpen) continue;
+    }
     // A name harvested from a file is that file's own word: it says nothing about the file, only about the files that use it.
     const own = declaredIn.get(term) ?? new Set<string>();
-    const content = new Set([...grepped[index]!].filter((file) => !own.has(file)));
+    const hits = everywhere.get(term)!;
+    const content = new Set(hits.filter((file) => fileSet.has(file) && !own.has(file)));
     const places = new Map<string, 'directory' | 'filename'>();
     const place = (forms: readonly string[]): void => { for (const file of files) for (const form of forms) { const hit = pathHit(file.toLowerCase(), form); if (hit !== null && places.get(file) !== 'filename') places.set(file, hit); } };
     place(spellingsOf(term));
@@ -140,11 +141,11 @@ async function shortlist(git: Git, files: readonly string[], pathspec: string | 
     for (const file of own) places.delete(file);
     const touched = new Set([...places.keys(), ...content]);
     const broad = tooBroad(term, touched.size, files.length);
-    if (broad !== null) return void note(broad);
+    if (broad !== null) { note(broad); continue; }
     if (touched.size > 0) live.push(term);
     else {
       dead.push(term);
-      const outside = everywhere[index]!.filter((file) => !fileSet.has(file) && pathExclusionReason(file) === null && !file.split('/').some((segment) => segment.startsWith('.')));
+      const outside = hits.filter((file) => !fileSet.has(file) && !excluded.has(file) && pathExclusionReason(file) === null && !file.split('/').some((segment) => segment.startsWith('.')));
       if (outside.length > 0) elsewhere.set(term, outside);
     }
     // A term found in few files names a place; one found in many names a topic. Unweighted, a word like `value` outranked the one identifier a request carried. One 10-case bench of one repository: F1 .203 -> .253, top8 .157 -> .210.
@@ -161,14 +162,14 @@ async function shortlist(git: Git, files: readonly string[], pathspec: string | 
       row.terms.add(term.toLowerCase());
       row.reasons.push(`contains "${term}"`);
     }
-  });
+  }
   // Diminishing returns: the content total approaches 2 * SCORE.content, below one directory hit, so repeating the words never beats naming the place.
   return { live, dead, elsewhere, found: [...ranked].map(([path, row]) => ({ path, score: row.score + (row.content === 0 ? 0 : SCORE.content * (2 - 2 ** (1 - row.content))), reasons: row.reasons, terms: [...row.terms] })) };
 }
 
 /** Up to three line ranges per candidate from the lines holding a term: hits within a few lines of each other are one span. */
 async function spansOf(git: Git, candidates: MapCandidate[], terms: readonly string[]): Promise<void> {
-  const lines = await git.grepLines(terms, candidates.slice(0, SPAN_CANDIDATES).map((candidate) => candidate.path));
+  const lines = await git.grepLines(terms, candidates.map((candidate) => candidate.path));
   for (const candidate of candidates) {
     const ranges: string[] = [];
     let from = 0;
@@ -203,15 +204,15 @@ const UNDER_FLOOR = 0.999;
 /** A folder that has a hit of its own and sits one import or mention away from one of the 8 best-scored rows takes half that row's score. 10 cases of one repository: F1 .419 -> .452, top8 .381 -> .410, absent/cut/printed/top 20/51/25/30 (weights .3 gave .444/.390 and sources 3 .432-.441, .8 gave .439). */
 const NEIGHBOUR_SOURCES = 8;
 const NEIGHBOUR_BOOST = 0.5;
-const namedWords = (name: string, stems: ReadonlySet<string>): number => wordsOf(name.replace(/\.[^.]+$/, '')).map(stem).filter((word) => stems.has(word)).length;
+const namedWords = (name: string, stems: ReadonlySet<string>): number => stemsOf(name.replace(/\.[^.]+$/, '')).filter((word) => stems.has(word)).length;
 /**
  * Folder rows of the search index scored against the request's words: idf over rows, field weights, phrase bonuses and
  * the module gate; one candidate file per retrieved folder, the best at SCORE.directory and the rest in proportion.
  * A folder with a hit of its own that sits one uses/usedBy edge from a top row is lifted (NEIGHBOUR_*).
  */
 function retrieve(rows: readonly FolderRow[], terms: readonly string[], files: ReadonlySet<string>): MapCandidate[] {
-  const wordsIn = (texts: readonly string[]): Set<string> => new Set(texts.flatMap(wordsOf).map(stem));
-  const withUnits = terms.map((term) => ({ term: term.toLowerCase(), units: wordsOf(term).map(stem).filter((word) => word.length >= MIN_TERM_LENGTH && !STOPWORDS.has(word)) })).filter((entry) => entry.units.length > 0);
+  const wordsIn = (texts: readonly string[]): Set<string> => new Set(texts.flatMap(stemsOf));
+  const withUnits = terms.map((term) => ({ term: term.toLowerCase(), units: stemsOf(term).filter(isTermWord) })).filter((entry) => entry.units.length > 0);
   const phrases = withUnits.map((entry) => entry.units);
   const units = [...new Set(phrases.flat())];
   const ownPath = (row: FolderRow): string => (row.path === row.module ? row.path.slice(row.path.lastIndexOf('/') + 1) : row.module !== '' && row.path.startsWith(`${row.module}/`) ? row.path.slice(row.module.length + 1) : row.path);
@@ -220,7 +221,7 @@ function retrieve(rows: readonly FolderRow[], terms: readonly string[], files: R
     fields: { words: new Set(row.words), names: wordsIn(row.names), labels: wordsIn(row.labels), files: wordsIn(row.files.map((file) => file.replace(/\.[^.]+$/, ''))) } as Record<Field, Set<string>>,
     // Path words below the module (or the module's own last segment) are the row's; the module's words above it belong to every row under it.
     own: wordsIn([ownPath(row)]),
-    labelPhrases: row.labels.map((label) => ` ${wordsOf(label).map(stem).join(' ')} `),
+    labelPhrases: row.labels.map((label) => ` ${stemsOf(label).join(' ')} `),
   }));
   const n = Math.max(2, rows.length);
   const idf = new Map<string, number>();
@@ -242,7 +243,7 @@ function retrieve(rows: readonly FolderRow[], terms: readonly string[], files: R
         if (field === 'words' && !entry.own.has(unit)) above += FIELD_WEIGHT[field] * weight;
         else own += FIELD_WEIGHT[field] * weight;
         if (reasons.has(field)) continue;
-        const holds = (text: string): boolean => wordsOf(text).map(stem).includes(unit);
+        const holds = (text: string): boolean => stemsOf(text).includes(unit);
         const shown = field === 'words' ? unit : field === 'names' ? entry.row.names.find(holds) : field === 'labels' ? entry.row.labels.find(holds)?.slice(0, LABEL_IN_REASON) : entry.row.files.find(holds);
         reasons.set(field, `${field === 'words' ? 'path' : field.slice(0, -1)} "${shown ?? unit}"`);
       }
@@ -276,15 +277,17 @@ function retrieve(rows: readonly FolderRow[], terms: readonly string[], files: R
 export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapResult> {
   const unknown = input.layers.filter((layer) => !(LAYER_NAMES as readonly string[]).includes(layer));
   if (unknown.length > 0) throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}.`] });
-  const { project, mode } = input;
+  const { project } = input;
   const workspace = await openWorkspace(runtime);
   const { config } = workspace;
   const { git, repositoryRoot } = input.checkout === undefined ? workspace : { git: new Git({ runner: runtime.runner, repositoryRoot: input.checkout }), repositoryRoot: input.checkout };
   const root = normalizeRelative(project.root);
   const pathspec = root === '' ? null : literalPathspec(root);
+  // The files the caller already has leave here: no search, retrieve pick, fold target or live count ever sees them.
+  const excluded = new Set(input.exclude ?? []);
   const files = (await git.listFiles(pathspec)).filter((file) => {
     const relative = toProjectRelative(root, file) ?? file;
-    return isSearchable(file) && (project.include.length === 0 || matchesAnyGlob(relative, project.include)) && !matchesAnyGlob(relative, project.exclude);
+    return !excluded.has(file) && isSearchable(file) && (project.include.length === 0 || matchesAnyGlob(relative, project.include)) && !matchesAnyGlob(relative, project.exclude);
   });
   // `limitations` is everything the ledger keeps; `notes` is the part the model can act on (a request word the map could not use), the only part rendered.
   const limitations: string[] = [];
@@ -295,11 +298,9 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   let declarations: Declaration[] = [];
   const derived = input.terms === undefined || input.terms.length === 0;
   const derivedTerms = derived ? termsOf([{ title: '', content: input.request ?? '' }], { limit: RESERVE_TERMS }) : { terms: [...input.terms!], plain: new Set<string>() };
-  // Context mode has no shortlist to tell live terms from dead ones and its grep keeps identifiers only, so plain words would only add symbol rows.
-  const plain = mode === 'context' ? new Set<string>() : derivedTerms.plain;
-  const ranked1 = derivedTerms.terms.filter((term) => mode !== 'context' || !derivedTerms.plain.has(term));
-  const pass1 = ranked1.slice(0, MAX_TERMS);
-  const reserve = ranked1.slice(MAX_TERMS);
+  const { plain } = derivedTerms;
+  const pass1 = derivedTerms.terms.slice(0, MAX_TERMS);
+  const reserve = derivedTerms.terms.slice(MAX_TERMS);
   let pass2: string[] = [];
   let passes = 0;
   let retrieved: number | null = null;
@@ -314,9 +315,11 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
       }
     }
   };
-  const top = (): string[] => [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, TOP_FILES).map((candidate) => candidate.path);
+  // A named file the caller also has is not a row (it would count as a hit and block the retry), but its declarations are still harvested.
+  const held = (input.paths ?? []).filter((known) => excluded.has(known));
+  const top = (): string[] => [...held, ...[...candidates.values()].sort((a, b) => b.score - a.score).map((candidate) => candidate.path)].slice(0, TOP_FILES);
   const names = (): string[] => [...new Set(declarations.map((declaration) => declaration.name))];
-  for (const known of input.paths ?? []) merge([{ path: known, score: SCORE.named, reasons: ['named by the caller'] }]);
+  for (const known of input.paths ?? []) if (!excluded.has(known)) merge([{ path: known, score: SCORE.named, reasons: ['named by the caller'] }]);
 
   const run = async (layers_: readonly string[], terms: readonly string[]): Promise<void> => {
     for (const layer of layers_ as readonly LayerName[]) {
@@ -334,26 +337,17 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
         passes += 1;
         const used = passes === 1 ? [...terms, ...reserve] : [...new Set([...pass1.slice(0, MAX_TERMS - PASS2_NAMES), ...names().slice(0, PASS2_NAMES), ...pass1.slice(MAX_TERMS - PASS2_NAMES)])].slice(0, MAX_TERMS);
         if (passes > 1) pass2 = used;
-        const { found, live, dead, elsewhere } = await shortlist(git, files, pathspec, used, note, MAX_TERMS, passes > 1 ? new Map(declarations.filter((declaration) => !pass1.some((term) => term.toLowerCase() === declaration.name.toLowerCase())).map((declaration) => [declaration.name, new Set(declarations.filter((other) => other.name === declaration.name).map((other) => other.path))])) : undefined, passes === 1 ? plain : undefined);
+        const { found, live, dead, elsewhere } = await shortlist(git, files, pathspec, used, note, MAX_TERMS, passes > 1 ? new Map(declarations.filter((declaration) => !pass1.some((term) => term.toLowerCase() === declaration.name.toLowerCase())).map((declaration) => [declaration.name, new Set(declarations.filter((other) => other.name === declaration.name).map((other) => other.path))])) : undefined, passes === 1 ? plain : undefined, excluded);
         const absent = dead.filter((term) => !elsewhere.has(term) && !plain.has(term));
-        if (passes === 1 && absent.length > 0) note(`no file matches ${absent.length === 1 ? 'the term' : 'the terms'} ${absent.map((term) => `"${term}"`).join(', ')}; ${derived ? 'the next request terms took their slots' : 'they were left out of the ranking'}`);
+        const standby = live.filter((term) => reserve.includes(term)).length;
+        if (passes === 1 && absent.length > 0) note(`no file matches ${absent.length === 1 ? 'the term' : 'the terms'} ${absent.map((term) => `"${term}"`).join(', ')}${derived ? (standby === 0 ? '' : `; ${standby} reserve term${standby === 1 ? '' : 's'} became live`) : '; they were left out of the ranking'}`);
         if (passes === 1) for (const [term, outside] of [...elsewhere].filter(([term]) => !plain.has(term)).slice(0, ELSEWHERE_TERMS)) note(`"${term}" is in no code file, only in ${outside.slice(0, ELSEWHERE_PATHS).join(', ')}${outside.length > ELSEWHERE_PATHS ? ` and ${outside.length - ELSEWHERE_PATHS} more` : ''}`);
         if (passes === 1 && derived) pass1.splice(0, pass1.length, ...live);
         merge(found);
         hits = found.length;
       } else if (layer === 'harvest') {
-        declarations = await harvest(runtime.fs, repositoryRoot, mode === 'context' ? [...new Set([...(input.paths ?? []), ...top()])].slice(0, TOP_FILES) : top());
+        declarations = await harvest(runtime.fs, repositoryRoot, top());
         hits = declarations.length;
-      } else {
-        const words = [...new Set([...(input.symbols ?? []), ...pass1.filter(isIdentifierLike)])].filter((word) => !COMMON_NAMES.has(word));
-        const perWord = await inBatches(words, async (word) => (await git.grepWords([word], pathspec)).filter(isSearchable));
-        const tooBroadNotes = words.map((word, at) => tooBroad(word, perWord[at]!.length, files.length));
-        for (const broad of tooBroadNotes.filter((text) => text !== null)) note(broad);
-        // A file holding several of the words outranks one holding a single word, and a word found in few files weighs more than one found in most (framework calls such as `toSignal` ranked every component first, in path order).
-        const holding = new Map<string, { word: string; weight: number }[]>();
-        words.forEach((word, at) => { if (tooBroadNotes[at] === null) for (const path of new Set(perWord[at])) holding.set(path, [...(holding.get(path) ?? []), { word, weight: Math.log(files.length / perWord[at]!.length) }]); });
-        merge([...holding].map(([path, held]) => ({ path, score: SCORE.content * held.reduce((sum, { weight }) => sum + weight, 0), reasons: [`contains ${held.slice(0, GREP_NAMES_SHOWN).map(({ word }) => `"${word}"`).join(', ')}${held.length > GREP_NAMES_SHOWN ? ` and ${held.length - GREP_NAMES_SHOWN} more` : ''}`] })));
-        hits = holding.size;
       }
       layers.push({ name: layer, ms: Math.max(0, Math.round(runtime.clock.elapsed() - started)), hits });
     }
@@ -365,6 +359,8 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
     if (prose.join('\n') !== pass1.join('\n')) {
       layers.length = 0;
       passes = 0;
+      limitations.length = 0;
+      notes.length = 0;
       pass1.splice(0, pass1.length, ...prose);
       await run(input.layers, pass1);
     }
@@ -399,18 +395,16 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
     folded[candidate.path] = target ?? null;
     if (target !== undefined) merge([{ ...candidate, path: target }]);
   }
-  for (const file of input.exclude ?? []) candidates.delete(file);
   const ranked = [...candidates.values()];
   // Equal scores go to the file whose own name carries request words: 6545 had 83 rows tied at 4.40 and path order cut both truth files; map-bench F1 .3839 -> .3978.
-  const requestStems = new Set([...pass1, ...pass2].flatMap((term) => wordsOf(term).map(stem)).filter((word) => word.length >= MIN_TERM_LENGTH && !STOPWORDS.has(word)));
+  const requestStems = new Set([...pass1, ...pass2].flatMap(stemsOf).filter(isTermWord));
   const named = new Map(ranked.map((candidate) => [candidate.path, namedWords(candidate.path.split('/').pop() ?? '', requestStems)]));
   const sorted = ranked.sort((a, b) => b.score - a.score || named.get(b.path)! - named.get(a.path)! || a.path.localeCompare(b.path));
   const pool = sorted.map((candidate) => ({ ...candidate, reasons: [...candidate.reasons] }));
   const perEntity = new Map<string, number>();
-  const seeds = new Set(input.paths ?? []);
-  const seedEntities = new Set([...seeds].map(entityOf));
+  const seedEntities = new Set([...seedPaths].map(entityOf));
   const spread = sorted.filter((candidate) => {
-    if (seeds.has(candidate.path)) return true;
+    if (seedPaths.has(candidate.path)) return true;
     const entity = entityOf(candidate.path);
     perEntity.set(entity, (perEntity.get(entity) ?? 0) + 1);
     return perEntity.get(entity)! <= (seedEntities.has(entity) ? MAX_PER_SEED_ENTITY : MAX_PER_ENTITY);
@@ -419,30 +413,22 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const spreadKept = new Set(spread);
   const spreadDropped = sorted.filter((candidate) => !spreadKept.has(candidate)).map((candidate) => candidate.path);
   const scored = spread.map((candidate) => ({ ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2) }));
-  // The list is as long as the scores say: rows far below the best are noise the reader has to wade through, and one row that stands out is the whole answer.
-  const ordered = mode === 'prompt' ? scored.filter((candidate) => candidate.score >= LIST_FLOOR * (scored[0]?.score ?? 0)) : scored;
-  const floorDropped = scored.filter((candidate) => !ordered.includes(candidate)).map((candidate) => candidate.path);
-  if (ordered.length < scored.length) limitations.push(`${scored.length - ordered.length} candidate(s) scored under ${Math.round(LIST_FLOOR * 100)}% of the top row are not listed`);
+  // The list is as long as the scores say: rows far below the best are noise the reader has to wade through, and one row that stands out is the whole answer; of those that pass, the best TOP_ROWS are listed.
+  const ordered = scored.filter((candidate) => candidate.score >= LIST_FLOOR * (scored[0]?.score ?? 0)).slice(0, TOP_ROWS);
+  const listDropped = scored.filter((candidate) => !ordered.includes(candidate)).map((candidate) => candidate.path);
   await spansOf(git, ordered, [...new Set([...pass1, ...pass2, ...(input.symbols ?? [])])]);
-  const head = MAP_LEGEND;
-  const render = (kept: readonly MapCandidate[]): string => {
-    const document = {
-      candidates: kept.map((candidate) => [candidate.path, candidate.score, candidate.reasons, ...(candidate.spans === undefined ? [] : [candidate.spans])]),
-      ...(notes.length === 0 ? {} : { limitations: notes }),
-    };
-    return `${head}\n${JSON.stringify(document)}`;
+  // An empty map is said, not dropped: 3 of 10 bench maps were empty (requests in plain words) and the model never learned it had to search.
+  const empty = ordered.length === 0;
+  if (empty) limitations.push(EMPTY_MAP);
+  const document = {
+    candidates: ordered.map((candidate) => [candidate.path, candidate.score, candidate.reasons, ...(candidate.spans === undefined ? [] : [candidate.spans])]),
+    ...(notes.length === 0 ? {} : { limitations: notes }),
   };
-  let kept = ordered;
-  let text = render(kept);
-  while (Buffer.byteLength(text) > MAP_LIMIT_BYTES && kept.length > 0) {
-    kept = kept.slice(0, Math.max(0, kept.length - Math.max(1, Math.ceil(kept.length / 10))));
-    text = render(kept);
-  }
+  const text = `${MAP_LEGEND}\n${JSON.stringify(document)}${empty ? `\n${EMPTY_MAP}` : ''}`;
   const bytes = Buffer.byteLength(text);
-  const reported = ordered.length === kept.length ? limitations : [...limitations, `${ordered.length - kept.length} lower-ranked candidate(s) cut to fit ${MAP_LIMIT_BYTES} bytes`];
   return {
-    mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: kept, pool, symbols, collisions, limitations: reported, omitted: ordered.length - kept.length, debug: { folded, spreadDropped, floorDropped }, text, bytes,
-    entry: { mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: ordered.length, limitations: reported, bytes, ...(collisions.length === 0 ? {} : { collisions }), ...(retrieved === null ? {} : { retrieved }) },
+    layers, terms: { pass1, pass2 }, candidates: ordered, pool, symbols, collisions, limitations, debug: { folded, spreadDropped, listDropped }, text, bytes,
+    entry: { layers, terms: { pass1, pass2 }, candidates: ordered.length, limitations, bytes, ...(collisions.length === 0 ? {} : { collisions }), ...(retrieved === null ? {} : { retrieved }) },
   };
 }
 
@@ -528,7 +514,7 @@ function tokenize(text: string): string[] {
 }
 
 /** Identifiers first, then quoted strings, then plain words (`plain`, searched only while fewer than 3 terms are live) or, with `withProse`, plain words first. */
-export function rankTerms(sources: readonly { title: string; content: string }[], options: { withProse?: boolean; limit?: number } = {}): string[] {
+export function rankTerms(sources: readonly { title: string; content: string }[], options: { withProse?: boolean } = {}): string[] {
   return termsOf(sources, options).terms;
 }
 
@@ -549,6 +535,9 @@ function termsOf(sources: readonly { title: string; content: string }[], options
   const plain = new Set(all.filter((term) => !isIdentifierLike(term) && !/\s/.test(term) && !ranked.includes(term)));
   return { terms: [...new Set([...ranked, ...plain])].slice(0, limit), plain };
 }
+
+/** A word that can be a search term: long enough and not a stopword. */
+const isTermWord = (word: string): boolean => word.length >= MIN_TERM_LENGTH && !STOPWORDS.has(word);
 
 /** Deliberately short: the breadth guard stops useless terms; this only saves a grep on "should". */
 const STOPWORDS = new Set([
@@ -581,33 +570,4 @@ export function symbolsCitedIn(text: string): string[] {
   const tokens = [...text.matchAll(CODE_SHAPED)].map((match) => match[1] ?? match[2] ?? '').filter((token) => !FILE_LIKE.test(token));
   const names = tokens.map((token) => token.replace(/\(\)$/, '').split('.').at(-1) ?? '');
   return [...new Set(names.filter((name) => /^[A-Za-z_$][\w$]{2,}$/.test(name)))].slice(0, MAX_SEEDS);
-}
-
-/** Under this many characters a trimmed map is a few rows with no room for its own limitations: the step goes to a file instead. 1200 is about 3 rows of the 10-case bench (about 370 bytes each). */
-export const MAP_FLOOR_CHARS = 1200;
-
-/**
- * The map text cut to at most `max` characters for the step that carries it: lowest-ranked rows first, the JSON line stays valid and
- * `limitations` says how many rows were left out. Null when it cannot fit above the floor or the text is not a map. Lines after the
- * JSON (an `Investigation:` pointer) are kept.
- */
-export function fitMapText(text: string, max: number): { text: string; cut: number } | null {
-  if (text.length <= max) return { text, cut: 0 };
-  const lines = text.split('\n');
-  const at = lines.findIndex((line, index) => index > 0 && line.startsWith('{"candidates"'));
-  if (at === -1 || max < MAP_FLOOR_CHARS) return null;
-  const document = JSON.parse(lines[at]!) as { candidates: unknown[]; limitations?: string[] };
-  const total = document.candidates.length;
-  const render = (kept: number): string => {
-    const limitations = [...(document.limitations ?? []), `${total - kept} more lower-ranked candidate(s) cut to fit the delivery`];
-    lines[at] = JSON.stringify({ ...document, candidates: document.candidates.slice(0, kept), limitations });
-    return lines.join('\n');
-  };
-  let kept = total;
-  let fitted = text;
-  while (fitted.length > max && kept > 0) {
-    kept -= 1;
-    fitted = render(kept);
-  }
-  return fitted.length > max || kept === 0 ? null : { text: fitted, cut: total - kept };
 }

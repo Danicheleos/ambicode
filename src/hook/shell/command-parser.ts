@@ -14,12 +14,8 @@ export interface Segment {
   opaque: boolean[];
   writeTargets: WriteTarget[];
   raw: string;
-  /** Offsets of `raw` in the command text, so a segment can be cut out byte-exactly. */
-  span: [from: number, to: number];
   /** How many `( … )` subshells enclose the segment; a `cd` in one ends when the depth drops. */
   depth: number;
-  /** The segment reads the output of the one before it through a single `|`. */
-  piped: boolean;
   /** The lexer gave up (unterminated quote): `argv` is what was read before that. */
   unparsed?: true;
 }
@@ -37,9 +33,7 @@ interface Chunk {
   words: Word[];
   targets: Word[];
   raw: string;
-  span: [number, number];
   depth: number;
-  piped: boolean;
   unparsed: boolean;
 }
 
@@ -139,16 +133,10 @@ function lex(text: string): Chunk[] {
   let start = 0;
   let lastEnd = -1;
   let depth = 0;
-  let piped = false;
   let i = 0;
   const flush = (end: number, unparsed = false): void => {
     if (words.length > 0 || targets.length > 0 || unparsed) {
-      const slice = text.slice(start, end);
-      const from = start + slice.length - slice.trimStart().length;
-      const raw = slice.trim();
-      chunks.push({ words, targets, raw, span: [from, from + raw.length], depth, piped, unparsed });
-      // Only a command ends a pipeline: `a | b\ntail x` must not feed `tail`, while a line ending in `|` still continues.
-      piped = false;
+      chunks.push({ words, targets, raw: text.slice(start, end).trim(), depth, unparsed });
     }
     words = [];
     targets = [];
@@ -180,7 +168,6 @@ function lex(text: string): Chunk[] {
       pending = 'target';
     } else if (c === ';' || c === '&' || c === '|' || c === '(' || c === ')') {
       flush(i);
-      piped = c === '|' && next !== '|';
       if (c === '(') depth++;
       else if (c === ')' && depth > 0) depth--;
       i += '&|'.includes(c) && next === c ? 2 : 1;
@@ -248,7 +235,6 @@ function argumentTargets(argv: Word[]): Word[] {
     case 'mv':
     case 'rm':
     case 'rmdir':
-    case 'mkdir':
     case 'touch':
     case 'truncate':
       return operands(args);
@@ -288,9 +274,7 @@ function toSegment(chunk: Chunk): Segment {
     opaque: argv.map((word) => word.opaque),
     writeTargets,
     raw: chunk.raw,
-    span: chunk.span,
     depth: chunk.depth,
-    piped: chunk.piped,
     ...(chunk.unparsed ? { unparsed: true as const } : {}),
   };
 }

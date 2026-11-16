@@ -16,7 +16,7 @@ import { REPO_ROOT } from '../paths.ts';
 import type { Runtime } from '#types/composition';
 import type { ProcessRunner } from '#types/platform/ports';
 import { KINDS, type LedgerEntry } from '#types/modules/evidence';
-import { HANDLER_NAMES, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry } from '#types/harness';
+import { HANDLER_NAMES, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry, type StepMessage } from '#types/harness';
 
 const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 
@@ -43,7 +43,10 @@ export interface RouteFixture {
   repo: TempRepo;
   runtime: Runtime;
   routes: RouteRegistry;
+  /** Hook messages are followed to their file, as the model does. */
   engine: Engine;
+  /** The engine as the hook sees it: one link line for a hook message. */
+  rawEngine: Engine;
   scratchpad: string;
   ledger(task: string): Promise<LedgerEntry[]>;
   kinds(task: string, kind: string): Promise<LedgerEntry[]>;
@@ -69,7 +72,25 @@ export async function stopRoute(fx: Pick<RouteFixture, 'runtime'>, task: string,
   });
 }
 
-interface Assembled { runtime: Runtime; routes: RouteRegistry; build(handlers: Record<string, Handler>): Engine }
+/** A hook message is one link line; the model reads the file it names. The wrapper returns what that read gives, so a test sees the step text as the model does. */
+export async function followLink(message: StepMessage): Promise<StepMessage> {
+  if (message.file === null) return message;
+  return { ...message, text: (await readFile(message.file, 'utf8')).replace(/^<!--.*-->\n/, '').trimEnd() };
+}
+
+function readThrough(engine: Engine): Engine {
+  return {
+    ...engine,
+    start: async (input) => followLink(await engine.start(input)),
+    advance: async (input) => followLink(await engine.advance(input)),
+    deliver: async (task, scratchpadDir) => {
+      const message = await engine.deliver(task, scratchpadDir);
+      return message === null ? null : followLink(message);
+    },
+  };
+}
+
+interface Assembled { runtime: Runtime; routes: RouteRegistry; build(handlers: Record<string, Handler>): Engine; buildRaw(handlers: Record<string, Handler>): Engine }
 
 /** The engine over an existing repository: what a second process attached to the same task directory builds. */
 export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date; pluginRoot?: string; wrapRunner?: (real: ProcessRunner) => ProcessRunner }): Promise<Assembled> {
@@ -83,10 +104,12 @@ export async function assembleEngine(options: { root: string; routes: Record<str
   const defs: RouteDef[] = [];
   for (const [name, text] of Object.entries(options.routes)) defs.push(await loadRoute(`routes/${name}/${name}.yaml`, text, context));
   const routes = routeRegistry({ routes: defs, registry });
+  const assembledEngine = (handlers: Record<string, Handler>): Engine => createEngine({ runtime, routes, handlers: handlerRegistry({ script: scriptHandler, ...handlers }) as HandlerRegistry });
   return {
     runtime,
     routes,
-    build: (handlers) => createEngine({ runtime, routes, handlers: handlerRegistry({ script: scriptHandler, ...handlers }) as HandlerRegistry }),
+    build: (handlers) => readThrough(assembledEngine(handlers)),
+    buildRaw: assembledEngine,
   };
 }
 
@@ -105,7 +128,7 @@ export async function routeFixture(options: {
   await repo.commitAll('initial');
   let time = new Date(2026, 9, 5, 10, 0, 0).getTime();
   const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }), ...(options.wrapRunner === undefined ? {} : { wrapRunner: options.wrapRunner }), clock: () => new Date(time) });
-  const { runtime, routes, build } = assembled;
+  const { runtime, routes, build, buildRaw } = assembled;
   const scratchpad = await runtime.fs.temporaryDirectory('ambicode-scratch-');
   const dir = (task: string): string => runDirOf(repo.root, task);
   return {
@@ -113,6 +136,7 @@ export async function routeFixture(options: {
     runtime,
     routes,
     engine: build({ script: scriptHandler, ...(options.handlers ?? {}) }),
+    rawEngine: buildRaw({ script: scriptHandler, ...(options.handlers ?? {}) }),
     scratchpad,
     ledger: (task) => readLedger(nodeFileSystem, dir(task)),
     kinds: async (task, kind) => (await readLedger(nodeFileSystem, dir(task))).filter((entry) => entry.kind === kind),

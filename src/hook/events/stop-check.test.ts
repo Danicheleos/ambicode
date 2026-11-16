@@ -5,7 +5,6 @@ import path from 'node:path';
 import { routeFixture, type RouteFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { runHook } from './run-hook.ts';
 import type { HookDeps } from '#types/hook';
-import { MAX_NOTE_BYTES } from '#types/modules/evidence';
 import { gapsOf } from '#modules/evidence/report/report';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -116,12 +115,19 @@ describe('the final message states the gaps, and needs no Evidence block', () =>
 
   it('a final message that could not be saved is a gap in the report, not only a line on stderr', async () => {
     await withStop(async (s) => {
-      await s.say(`${HEADING}${'x'.repeat(MAX_NOTE_BYTES)}`);
-      assert.deepEqual(await s.stop(), {});
+      await s.say(`${HEADING}Done: nothing to add.`);
+      const { fs } = s.fx.runtime;
+      const create = fs.createExclusive;
+      fs.createExclusive = async (file, contents) => (/result_/.test(file) ? Promise.reject(new Error('disk full')) : create(file, contents));
+      try {
+        assert.deepEqual(await s.stop(), {});
+      } finally {
+        fs.createExclusive = create;
+      }
       assert.deepEqual(await saved(s), []);
       const gaps = (await s.fx.kinds(TASK, 'limit')).filter((entry) => entry['which'] === 'note-not-saved');
       assert.equal(gaps.length, 1, 'the unsaved final message is recorded in the ledger');
-      assert.ok(gapsOf(await s.fx.kinds(TASK, 'limit')).some((gap) => gap.includes('over 262144 bytes')), 'and the report lists it');
+      assert.ok(gapsOf(await s.fx.kinds(TASK, 'limit')).some((gap) => gap.includes('disk full')), 'and the report lists it');
     });
   });
 

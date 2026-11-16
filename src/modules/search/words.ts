@@ -33,11 +33,14 @@ export function stem(word: string): string {
   return x;
 }
 
+/** The stems of the words of a text, in order. */
+export const stemsOf = (text: string): string[] => wordsOf(text).map(stem);
+
 /** Whether the text holds the term's words as whole words in a row: `est` is in `a EST list` and `RebaWizard` (parts), not in `test` or `destroy`. Both sides are split and stemmed as the search index's are. */
 export function holdsWords(text: string, term: string): boolean {
-  const wanted = wordsOf(term).map(stem);
+  const wanted = stemsOf(term);
   if (wanted.length === 0) return false;
-  const have = wordsOf(text).map(stem);
+  const have = stemsOf(text);
   for (let at = 0; at + wanted.length <= have.length; at += 1) if (wanted.every((word, offset) => have[at + offset] === word)) return true;
   return false;
 }

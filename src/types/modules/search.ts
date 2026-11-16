@@ -1,15 +1,13 @@
 
-export const LAYER_NAMES = ['retrieve', 'shortlist', 'harvest', 'grep'] as const;
+export const LAYER_NAMES = ['retrieve', 'shortlist', 'harvest'] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
 
 export interface RefsResult {
   names: { name: string; hits: number; files: number; declarations: number; collides: boolean }[];
   hits: number;
   limitations: string[];
-  /** Cut to 4,096 bytes. */
   text: string;
   bytes: number;
-  truncated: boolean;
 }
 
 /** `spans`: up to three line ranges (`40-52`) where the terms occur. */
@@ -32,8 +30,6 @@ export interface Declaration {
   kind: string;
   path: string;
   line: number;
-  /** The declaring line, trimmed and cut to 120 characters. */
-  signature: string;
   /** Files, among those harvested, that declare this name. */
   declarations: number;
 }

@@ -1,11 +1,9 @@
 import path from 'node:path';
-import { AmbicodeError, messageOf } from '#util/errors';
+import { messageOf } from '#util/errors';
 import { parseEntry, type TypedEntry } from './kinds.ts';
 import { withLedgerLock } from './ledger-lock.ts';
 import { LEDGER_FILE, type NewEntry, type LedgerEntry, type StrictRead } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
-export const MAX_ENTRY_BYTES = 16 * 1024;
-export const WARN_LEDGER_BYTES = 1024 * 1024;
 
 /**
  * Written only by the CLI: the guard denies the agent a write to `.ambicode/tasks/**`, which is what makes an
@@ -32,20 +30,8 @@ export async function appendLocked(fs: FileSystem, taskDirectory: string, now: D
   next.id = id;
   next.at = at;
   const line = JSON.stringify(next);
-  if (Buffer.byteLength(line) > MAX_ENTRY_BYTES) {
-    throw new AmbicodeError('ledger-entry-too-large', `A ${entry.kind} ledger entry is ${Buffer.byteLength(line)} bytes; the limit is ${MAX_ENTRY_BYTES}. Nothing was written.`, {
-      details: ['Keep the payload in a file under the task directory and record its path and hash.'],
-    });
-  }
   await fs.appendText(file, `${line}\n`);
   return next;
-}
-
-/** `null` while the ledger is under 1 MiB; the recovery is a separate task slug. */
-export async function ledgerSizeWarning(fs: FileSystem, taskDirectory: string): Promise<string | null> {
-  const { size } = await fs.stat(path.join(taskDirectory, LEDGER_FILE));
-  if (size < WARN_LEDGER_BYTES) return null;
-  return `The task ledger is ${size} bytes. The plan-body guard refuses a ledger over 1 MiB; continue under a separate task: --task ${path.basename(taskDirectory)}-2.`;
 }
 
 /** A one-shot append starts the task when it has no ledger yet. */
@@ -54,14 +40,10 @@ export async function appendLedger(
   taskDirectory: string,
   now: Date,
   entry: NewEntry,
-): Promise<{ entry: LedgerEntry; ledgerBytes: number; warning: string | null }> {
+): Promise<{ entry: LedgerEntry }> {
   return withLedgerLock(fs, taskDirectory, () => now, async (ledger) => {
     const appended = await ledger.append(entry);
-    return {
-      entry: appended,
-      ledgerBytes: (await fs.stat(path.join(taskDirectory, LEDGER_FILE))).size,
-      warning: await ledgerSizeWarning(fs, taskDirectory),
-    };
+    return { entry: appended };
   }, { creates: true });
 }
 

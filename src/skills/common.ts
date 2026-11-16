@@ -1,7 +1,8 @@
 import { openRepository } from '#platform/git/open';
 import { Git } from '#platform/git/git';
 import { projectForRequest } from '#modules/config/workspace';
-import { buildMap, resolveLayers } from '#modules/search/map';
+import { buildMap } from '#modules/search/map';
+import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
 import { briefOf, investigationOf } from './brief.ts';
 import { iterationHeadings } from '#modules/evidence/task/iterations';
@@ -35,8 +36,6 @@ onGatePrint('project-ambiguous', async ({ task, chain }) => {
   if (head?.['channel'] !== 'cli') return null;
   return { note: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
 });
-
-const LISTED_CHARS = 80;
 
 async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
   return (await loadConfig(input.runtime.fs, input.dir.repositoryRoot)).config;
@@ -150,11 +149,10 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const config = await configOf(input);
     const project = await projectOf(input, config);
     if (isResult(project)) return project;
-    const mode = input.params[0] === 'context' ? 'context' : 'prompt';
     const stated = input.revise?.args['term'] ?? [];
     const chain = await chainEntries(input);
-    // `search.map(context, review)`: the reviewer brief's related files, seeded from the pinned change instead of an iteration brief or an investigation.
-    const reviewing = mode === 'context' && input.params[1] === 'review';
+    // `search.map(review)`: the reviewer brief's related files, seeded from the pinned change instead of an iteration brief or an investigation.
+    const reviewing = input.params[0] === 'review';
     const review = reviewing ? await reviewSeed(input, chain) : null;
     if (reviewing && review === null) return { state: 'ok', payload: null };
     const git = review === null ? (await openRepository(input.runtime)).git : new Git({ runner: input.runtime.runner, repositoryRoot: review.checkout });
@@ -165,20 +163,17 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const all = read.state === 'ok' ? read.entries : [];
     // Investigating again starts from the code, not from its own earlier report; plan and task build on it.
     const investigation = !reviewing && input.view.skill !== 'investigate' ? await investigationOf(input, all) : null;
-    const brief = mode === 'context' && !reviewing && input.view.skill === 'task' ? withoutIterationHeadings((await briefOf(input, all)).brief) : undefined;
+    const brief = !reviewing && input.view.skill === 'task' ? withoutIterationHeadings((await briefOf(input, all)).brief) : undefined;
     const seedText = review?.text ?? brief ?? investigation?.text ?? null;
     const files = seedText === null ? [] : await git.listFiles(null);
     // The map searches each source's title and description, not the raw tracker JSON; the envelope and review evidence keep the raw capture.
     const sources = [...envelopeSourcesOf.map((source) => mapTextOf(source.content, source.title)), ...(seedText === null ? [] : [`\n${seedText}`])];
     const request = (sources.length === 0 ? [`\n${input.args.text}`] : sources).join('\n');
-    const { layers, source } = resolveLayers(mode);
     try {
-      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText), ...(review === null ? {} : { exclude: review.files, checkout: review.checkout }) });
+      const map = await buildMap(input.runtime, { project, layers: SEARCH_LAYER_DEFAULTS, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText), ...(review === null ? {} : { exclude: review.files, checkout: review.checkout }) });
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
-      // An empty map with nothing to caveat is still recorded, not sent.
-      const silent = map.entry['candidates'] === 0 && map.collisions.length === 0 && map.limitations.length === 0;
       const pointer = investigation === null ? null : `Investigation: ${investigation.path}. Read it first.`;
-      return { state: 'ok', payload: [silent ? null : map.text, pointer].filter((part) => part !== null).join('\n') || null };
+      return { state: 'ok', payload: [map.text, pointer].filter((part) => part !== null).join('\n') || null };
     } catch (error) {
       return failed(error);
     }
@@ -193,8 +188,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
       for (const { pack } of packs) for (const rule of pack.rules) seen.set(`${pack.id}/${rule.id}`, rule.instruction.replace(/\s+/g, ' ').trim());
     }
     if (seen.size === 0) return { state: 'ok', payload: null };
-    // The first words identify a rule; drafts.ts compares the full text, so this list only saves the model a wasted draft.
-    const lines = [...seen].map(([id, text]) => `- ${id}: ${text.length > LISTED_CHARS ? `${text.slice(0, LISTED_CHARS)}…` : text}`);
+    const lines = [...seen].map(([id, text]) => `- ${id}: ${text}`);
     return { state: 'ok', payload: `Rules already in force; a draft that restates one is rejected:\n${lines.join('\n')}` };
   },
 

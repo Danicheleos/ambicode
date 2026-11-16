@@ -55,7 +55,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('07-R1: the shipped route declares its steps in order, the raised registry gates and 5 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map-seeded', 'map-request', 'rules', 'change', 'format', 'review-offer', 'checks-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'scope-checks', 'report-step', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map', 'rules', 'change', 'format', 'review-offer', 'checks-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'scope-checks', 'report-step', 'write']);
       assert.equal(def.steps.filter((step) => step.actor === 'model').length, 5);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') != null);
       for (const gone of ['review-checks', 'scope-expanding']) assert.equal(t.fx.routes.gate(gone) ?? null, null, `${gone} is not a gate`);
@@ -113,7 +113,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     });
   });
 
-  it('a prose request with no plan or investigation gets a map from the retrieval layers; a seeded one keeps the context map', async () => {
+  it('a prose request with no plan or investigation gets a map from the retrieval layers', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/billing/invoice-totals.ts', 'export function reduceInvoiceTotals(): number {\n  return 1;\n}\n');
       await t.fx.repo.commitAll('invoice totals');
@@ -121,8 +121,8 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const map = (await t.kinds('map')).at(-1)!;
       assert.ok(Number(map['candidates']) > 0, JSON.stringify(map));
       assert.match(await t.work(), /## map\nMap: [\s\S]*src\/billing\/invoice-totals\.ts/);
-      const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
-      assert.ok(skipped.includes('map-seeded') && !skipped.includes('map-request'), skipped.join(','));
+      const mapSteps = (await t.kinds('step')).filter((entry) => entry['step'] === 'map').map((entry) => entry['status']);
+      assert.deepEqual(mapSteps, ['completed'], 'one map step runs for a request with no seed');
     });
   });
 

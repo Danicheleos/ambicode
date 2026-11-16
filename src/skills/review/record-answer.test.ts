@@ -164,6 +164,14 @@ describe('recording the reviewer answer', () => {
     assert.match(out.result.reviewer!.rejections[0]!, /not JSON/);
   });
 
+  it('an answer of the wrong shape records every schema issue in the reason, not the first three', async () => {
+    const t = await pending();
+    const out = await t.record(JSON.stringify({ findings: [{}, {}, {}, {}, {}] }));
+    assert.equal(out.result.status, 'error');
+    const reason = out.result.reviewer!.rejections[0]!;
+    for (const at of [0, 1, 2, 3, 4]) assert.match(reason, new RegExp(`findings\\.${at}\\.risk`), `the issue of finding ${at} is named`);
+  });
+
   it('no answer, or a blank one, is a failed review with its reason and no rejected output kept', async () => {
     for (const none of [null, '  \n']) {
       const t = await pending();

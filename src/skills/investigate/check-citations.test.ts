@@ -24,6 +24,19 @@ async function check(root: string, body: string, cwd?: string, env?: Record<stri
 }
 
 describe('skills/investigate/scripts/check-citations.mjs', () => {
+  it('12 bad citations are all in the message and the summary', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const names = Array.from({ length: 12 }, (_, at) => `n${at}`);
+      const bad = await check(root, `${names.map((n) => `\`src/${n}.ts:1\``).join(' ')}\n`);
+      assert.match(bad.failed!.message, /^12 bad citations: /);
+      for (const n of names) assert.ok(bad.failed!.message.includes(`src/${n}.ts:1 missing-file`), `${n} is in the message`);
+      assert.equal(bad.entries[0]!.summary.anchors!.length, 12);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
   it('accepts citations that exist and ignores fenced code; fails listing a missing file, a line past the end and an escape', async () => {
     const root = await materialized('ts-feature-boundary');
     try {

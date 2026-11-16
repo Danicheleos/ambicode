@@ -13,15 +13,9 @@ steps:
     actor: code
     run: [requirements.normalize, checks.runnable, checks.baseline]
     produces: [baseline]
-  - id: map-seeded
+  - id: map
     actor: code
-    when: task.seeded
-    run: "search.map(context)"                    # a plan brief or an investigation seeds the map
-    produces: [map]
-  - id: map-request
-    actor: code
-    when: task.unseeded
-    run: "search.map(prompt)"                     # a raw request: context mode greps identifier-like words only, so prose found nothing
+    run: search.map                               # seeded from a plan brief or an investigation when there is one, else from the request
     produces: [map]
   - id: rules
     actor: code
@@ -55,7 +49,7 @@ steps:
   - id: brief
     actor: code
     when: gate.review-offer.is(run) or review.unasked
-    run: [review.pin, "policy.stage(before-work, review)", "search.map(context, review)", script(brief)]
+    run: [review.pin, "policy.stage(before-work, review)", "search.map(review)", script(brief)]
     repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
   - id: review-agent
     actor: model

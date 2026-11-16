@@ -8,7 +8,7 @@ steps:
     instruction: file:routes/investigate/fetch.md
   - id: ground
     actor: code
-    run: [requirements.normalize, search.map(prompt), "policy.stage(before-work)", context.list(docs)]
+    run: [requirements.normalize, search.map, "policy.stage(before-work)", context.list(docs)]
     produces: [envelope, map, policy]
   - id: draft
     actor: model

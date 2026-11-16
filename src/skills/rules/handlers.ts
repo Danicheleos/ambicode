@@ -6,9 +6,6 @@ import { blockingProblem, checkDrafts } from '#modules/policy/authoring/drafts';
 import type { RouteArgs } from '#types/harness';
 import type { DraftsCheck } from '#types/modules/policy';
 
-/** Under the 16 KiB ledger-entry cap once the gate's own envelope (question, options, values) is added. */
-const DISPOSITION_GATE_BYTES = 8_000;
-
 /** The rule a draft reads like, so the user sees which existing rule it may repeat before applying it. */
 const similar = (check: DraftsCheck, rule: string): string => {
   const found = check.diagnostics.find((diagnostic) => diagnostic.code === 'pack-rule-similar' && diagnostic.message.includes(`rule "${rule}" reads like `));
@@ -25,8 +22,7 @@ function disposition(check: DraftsCheck, root: string): string {
     return `- ${rule}: ${blocked !== undefined ? `not migrated: pack skipped (${blocked.code})` : failed !== undefined ? `not migrated: ${failed.reason}` : `applied${similar(check, rule)}`}`;
   });
   const unusable = check.files.filter((file) => file.packId === null).map((file) => `- ${file.path}: not migrated: unusable pack`);
-  const text = ['Disposition if you choose Apply all:', ...rows, ...unusable].join('\n');
-  return Buffer.byteLength(text) <= DISPOSITION_GATE_BYTES ? text : `${text.slice(0, DISPOSITION_GATE_BYTES - 40)}\n[cut: ${check.rules.length} rules in all]`;
+  return ['Disposition if you choose Apply all:', ...rows, ...unusable].join('\n');
 }
 
 onGatePrint('sources', async ({ runtime, dir, chain }) => {

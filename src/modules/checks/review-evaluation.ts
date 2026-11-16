@@ -3,13 +3,10 @@ import type { ReviewEntry } from '#types/modules/checks';
 
 type ReviewEvaluation = { next: 'revise-fix'; findings: string[] } | { next: 'proceed' };
 
-// validate.ts clips problem, impact and confidenceReason at 300 but passes suggestedComment whole; the cap here matches it.
-const COMMENT_MAX = 300;
-
 const findingLine = (finding: Finding): string => {
   const where = finding.location.newPath ?? finding.location.oldPath ?? '(no path)';
   const flat = (text: string): string => text.replace(/\s+/g, ' ');
-  return `${finding.id} ${where}:${finding.location.line} — ${flat(finding.problem).slice(0, 140)} | suggested: ${flat(finding.suggestedComment).slice(0, COMMENT_MAX)}`;
+  return `${finding.id} ${where}:${finding.location.line} — ${flat(finding.problem)} | suggested: ${flat(finding.suggestedComment)}`;
 };
 
 /** Any finding goes back to `fix`; fix.md sends the ones outside the brief to Remaining, so no gate asks about them. */

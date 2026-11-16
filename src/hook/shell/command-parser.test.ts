@@ -82,7 +82,7 @@ describe('parseCommand reports write targets', () => {
     assert.deepEqual(targets('echo "a > b"'), []);
   });
 
-  it('tee, sed -i, cp last operand, and every operand of mv, of rm, rmdir, mkdir, touch, truncate', () => {
+  it('tee, sed -i, cp last operand, and every operand of mv, of rm, rmdir, touch, truncate; mkdir none', () => {
     assert.deepEqual(targets('echo hi | tee -a a b'), [['a', false], ['b', false]]);
     assert.deepEqual(targets("sed -i 's/a/b/' f g"), [['f', false], ['g', false]]);
     assert.deepEqual(targets("sed --in-place=.bak -e 's/a/b/' f"), [['f', false]]);
@@ -91,7 +91,8 @@ describe('parseCommand reports write targets', () => {
     assert.deepEqual(targets('cp -r a b c'), [['c', false]]);
     assert.deepEqual(targets('cp -r a b c'), [['c', false]]);
     assert.deepEqual(targets('mv -- a -b'), [['a', false], ['-b', false]]);
-    for (const name of ['rm', 'rmdir', 'mkdir', 'touch', 'truncate']) assert.deepEqual(targets(`${name} -f a b`), [['a', false], ['b', false]], name);
+    for (const name of ['rm', 'rmdir', 'touch', 'truncate']) assert.deepEqual(targets(`${name} -f a b`), [['a', false], ['b', false]], name);
+    assert.deepEqual(targets('mkdir -p a b'), []);
     assert.deepEqual(targets('cat a b'), []);
   });
 
@@ -108,15 +109,5 @@ describe('parseCommand gives up on an unterminated quote', () => {
     assert.equal(segments[0]!.unparsed, undefined);
     assert.equal(segments[1]!.unparsed, true);
     assert.equal(segments[1]!.raw, 'echo "oops; git push');
-  });
-});
-
-describe('parseCommand marks the segments a pipe feeds', () => {
-  const piped = (command: string) => parseCommand(command).map((segment) => segment.piped);
-  it('a | pipes; a newline ends the pipeline unless it follows a bare |', () => {
-    assert.deepEqual(piped('a | b'), [false, true]);
-    assert.deepEqual(piped('a | b\nc'), [false, true, false]);
-    assert.deepEqual(piped('a |\nb'), [false, true]);
-    assert.deepEqual(piped('a || b'), [false, false]);
   });
 });

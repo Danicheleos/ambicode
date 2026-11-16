@@ -1,6 +1,7 @@
 import { newestReviews } from '#modules/review/answer/captured';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 import { mrRequirements } from '#modules/requirements/capture/has-requirement';
+import { outputPointer } from '#modules/checks/run/check-command';
 import type { LedgerEntry } from '#types/modules/evidence';
 
 const squash = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -11,10 +12,7 @@ export const unstated = (gaps: readonly string[], message: string): string[] => 
   return gaps.filter((gap) => !stated.includes(squash(gap)));
 };
 
-const clip = (value: unknown, length = 80): string => {
-  const text = String(value ?? '');
-  return text.length > length ? `${text.slice(0, length)}…` : text;
-};
+const shown = (value: unknown): string => String(value ?? '');
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
 // Route step ids are not words a reader knows; an id outside this table is left unnamed rather than leaked.
@@ -31,12 +29,12 @@ const reviewState = (entry: LedgerEntry): { failed: boolean; partial: boolean } 
 function limitGap(entry: LedgerEntry): string {
   const where = during(entry.step);
   const phase = String(entry.which).replace(/-unproven$/, '');
-  if (entry.which === 'read-bytes') return `Read ${clip(entry.bytes)} bytes during the route, past the ${clip(entry.cap)} byte budget`;
-  if (entry.which === 'note-not-saved') return `The final message was not saved as the result note: ${clip(entry.message, 160)}`;
-  if (entry.which === 'hook-error') return `The ${clip(entry.event)} hook failed: ${clip(entry.message, 160)}`;
+  if (entry.which === 'read-bytes') return `Read ${shown(entry.bytes)} bytes during the route, past the ${shown(entry.cap)} byte budget`;
+  if (entry.which === 'note-not-saved') return `The final message was not saved as the result note: ${shown(entry.message)}`;
+  if (entry.which === 'report-not-saved') return `The task report was not saved: the implementer ended without \`note save\`, its final message was "${shown(entry.message)}"`;
+  if (entry.which === 'hook-error') return `The ${shown(entry.event)} hook failed: ${shown(entry.message)}`;
   if (entry.which === 'check') return `Checks kept failing${where}: stopped after ${entry.count} attempts`;
   if (entry.which === 'repeat') return `A step was repeated ${entry.count} times and stopped there`;
-  if (entry.which === 'max-revises') return `A step was sent back ${entry.count} times and stopped there`;
   if (entry.which === 'missing-produces') return `The required result was not produced${where} after ${entry.count} tries`;
   if (phase !== entry.which) {
     const key = typeof entry.key === 'string' ? entry.key : null;
@@ -44,7 +42,7 @@ function limitGap(entry: LedgerEntry): string {
     if (entry.cause === 'not-run') return `${key} could not run${where}`;
     return `${key} failed${where} and no later run passed on the same files`;
   }
-  return `Stopped${where}: ${clip(entry.which).replace(/-/g, ' ')} (${entry.count})`;
+  return `Stopped${where}: ${shown(entry.which).replace(/-/g, ' ')} (${entry.count})`;
 }
 
 /**
@@ -57,12 +55,7 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
 
   const runs = new Map<string, LedgerEntry>();
   for (const entry of entries.filter((item) => item.kind === 'check')) runs.set(String(entry.key), entry);
-  // The tail is why it is red: a reader of the report cannot open the ledger.
-  const tailOf = (entry: LedgerEntry): string => {
-    const lines = String(entry.tail ?? '').split('\n').map((line) => line.trim()).filter(Boolean).slice(-3);
-    return lines.length === 0 ? '' : `: ${clip(lines.join(' | '), 240)}`;
-  };
-  for (const [key, last] of runs) if (last.exit !== 0 && current(last)) gaps.push(`${key}: last run exited ${last.exit}${tailOf(last)}`);
+  for (const [key, last] of runs) if (last.exit !== 0 && current(last)) gaps.push(`${key}: last run: ${outputPointer(last)}`);
 
   // A pending entry and its recorded one share an id; the pending one would report a reviewer that never ran after it had.
   for (const entry of newestReviews(entries).values()) {
@@ -76,8 +69,8 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   }
 
   for (const entry of of('acceptance', 'declined', 'default-taken')) {
-    if (entry.kind === 'declined') gaps.push(`${clip(entry.gate)}: declined "${clip(entry.answer)}"${entry.reason === undefined ? '' : ` (${clip(entry.reason)})`}`);
-    if (entry.kind === 'default-taken') gaps.push(`${clip(entry.gate)}: default taken, "${clip(entry.answer)}" (${clip(entry.via)})`);
+    if (entry.kind === 'declined') gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}`);
+    if (entry.kind === 'default-taken') gaps.push(`${shown(entry.gate)}: default taken, "${shown(entry.answer)}" (${shown(entry.via)})`);
     if (entry.gate === 'review-again' && entry.answer === 'skip') gaps.push('fix not re-reviewed');
     if (entry.kind === 'default-taken' && entry.gate === 'plan-unaccepted' && entry.answer === 'run on the draft') gaps.push('plan run without being accepted: its anchors were not checked');
     if (entry.gate === 'checks-offer' && String(entry.answer).startsWith('skip') && isBoundAnswer(entry)) {
@@ -92,7 +85,7 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   const planSummary = (planCheck?.summary as { requirementsChecked?: boolean; requirementsReason?: string; requirementsBad?: number } | undefined);
   if (planSummary?.requirementsChecked === false) gaps.push(`requirements not checked: ${String(planSummary.requirementsReason ?? 'no reason recorded')}`);
   if (Number(planSummary?.requirementsBad) > 0) gaps.push(`last plan check: ${planSummary?.requirementsBad} requirements not word for word`);
-  for (const entry of of('format')) if (entry.outcome !== 'formatted' && entry.outcome !== 'unconfigured') gaps.push(`not formatted: ${clip(entry.key)} (${clip(entry.outcome)})`);
+  for (const entry of of('format')) if (entry.outcome !== 'formatted' && entry.outcome !== 'unconfigured') gaps.push(`not formatted: ${shown(entry.key)} (${shown(entry.outcome)})`);
 
   // stop-block is the Stop hook's own bookkeeping, not something left unverified.
   // A failed run on [service, test] then a pass on [service, repository, test] is no gap; a pass on other files or another key is.
@@ -114,14 +107,14 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   }
   for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.commitsError === 'string')) gaps.push(`merge request commits not fetched: ${String(entry.commitsError)}`);
   for (const entry of of('step').filter((step) => step.step === 'mr-fetch' && typeof step.discussionsError === 'string')) gaps.push(`existing merge request discussions not fetched: ${String(entry.discussionsError)}`);
-  for (const entry of of('step').filter((step) => step.recorded === true)) gaps.push(`${clip(entry.step)}: ${String(entry.message ?? '')}`);
+  for (const entry of of('step').filter((step) => step.recorded === true)) gaps.push(`${shown(entry.step)}: ${String(entry.message ?? '')}`);
   for (const entry of of('policy').filter((policy) => policy.stage === 'drafts' && Number(policy.errors) > 0)) gaps.push(`rules drafts: ${entry.errors} check errors`);
   const mrNamed = new Set(mrRequirements(entries));
-  for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${clip(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${clip(missing)}`);
+  for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${shown(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${shown(missing)}`);
   for (const entry of of('route')) if ((entry.args as { noReview?: boolean } | undefined)?.noReview === true) gaps.push('review skipped (--no-review)');
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);
   // A route that stopped short is a gap in itself; done, iterations-complete and interrupted (superseded by a new start) are not.
-  for (const entry of of('exit').filter((exit) => !['done', 'iterations-complete', 'interrupted'].includes(String(exit.reason)))) gaps.push(`The route ended ${clip(entry.reason)}${typeof entry.detail === 'string' && entry.detail !== '' ? `: ${clip(entry.detail, 160)}` : ''}`);
+  for (const entry of of('exit').filter((exit) => !['done', 'iterations-complete', 'interrupted'].includes(String(exit.reason)))) gaps.push(`The route ended ${shown(entry.reason)}${typeof entry.detail === 'string' && entry.detail !== '' ? `: ${shown(entry.detail)}` : ''}`);
   return [...new Set(gaps)];
 }
 

@@ -237,6 +237,21 @@ describe('plan-check requirements word for word', () => {
     }
   });
 
+  it('12 bad anchors and 12 paraphrased requirements are all in the message and the summary', async () => {
+    const names = Array.from({ length: 12 }, (_, at) => `n${at}`);
+    const body = `# Plan\n\n${names.map((n) => `\`src/${n}.ts:1\``).join(' ')}\n\n## Requirements\n\n${names.map((n) => `- "${n} paraphrase"`).join('\n')}\n\n## Iteration 1: x\n`;
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, body, [], ['the ticket says something else entirely']);
+      assert.match(out.failed!.message, /^12 bad anchors, 12 requirements not word for word: /);
+      for (const n of names) assert.ok(out.failed!.message.includes(`src/${n}.ts:1 missing-file`) && out.failed!.message.includes(`"${n} paraphrase"`), `${n} is listed`);
+      assert.equal(out.entries[0]!.summary.anchors!.length, 12);
+      assert.equal(out.entries[0]!.summary.requirements!.length, 12);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
   it('a verbatim entry passes, as does one that differs only in case, whitespace, emphasis or backticks', async () => {
     const summary = await run(plan('"The report lists every overdue invoice with its customer name."', '"exports keep the `column order` of the   screen."', '"Exports keep the column order"'));
     assert.equal(summary.requirementsBad, 0);
@@ -268,6 +283,13 @@ describe('plan-check requirements word for word', () => {
     const summary = await run(plan('Observed: "The report lists every overdue invoice" and "keep the column order" shown, alongside "A failed export shows a retry button."', '"The report lists" no longer takes district', 'FR-9: "Exports keep the column order of the screen."'), ticket);
     assert.equal(summary.requirementsBad, 0);
     assert.equal(summary.requirementsChecked, true);
+  });
+
+  it('a straight-quoted piece holding typographic quotes is one piece, and a straight-quoted aside after it is not read as a piece starting at the closing quote (eval 2026-11-12T08-15-04)', async () => {
+    const ticket = ['When the setting is “No,” the system shall open the screen.\nNo path.'];
+    const summary = await run('# Plan\n\n## Requirements\n\n- "When the setting is “No,” the system shall open the screen." (Iteration 2; the "No" path is the default)\n\n## Iteration 1: x\n', ticket);
+    assert.equal(summary.requirementsBad, 0);
+    assert.equal(summary.failed, false);
   });
 
   it('a label inside the quote is stripped from that piece, even when the ticket puts a title line between the id and the sentence', async () => {

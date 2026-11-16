@@ -83,7 +83,7 @@ describe('review route on ts-source-regression (08-I3)', () => {
     }
   });
 
-  it('the brief step runs search.map(context, review) on the pinned change: the map lists the files sharing its names, never the changed files, and the brief inlines them as the Related section', async () => {
+  it('the brief step runs search.map(review) on the pinned change: the map lists the files sharing its names, never the changed files, and the brief lists them as the Related section', async () => {
     const t = await regression();
     try {
       await writeFile(path.join(t.root, 'src', 'other.js'), 'module.exports.lineTotal = (line) => computeLineTotal(line);\nmodule.exports.pad1 = 1;\nmodule.exports.pad2 = 2;\n');
@@ -96,9 +96,9 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.equal(saved.length, 1, 'the review map has its own payload key: the task map is not overwritten');
       const rows = (JSON.parse((await readFile(path.join(steps, saved[0]!), 'utf8')).split('\n').find((line) => line.startsWith('{"candidates"'))!) as { candidates: [string][] }).candidates.map((row) => row[0]);
       assert.deepEqual(rows, ['src/other.js']);
-      assert.equal((await t.ledger()).findLast((entry) => entry.kind === 'map')?.['mode'], 'context');
+      assert.ok((await t.ledger()).some((entry) => entry.kind === 'map'), 'the review map is recorded in the ledger');
       const brief = (await readFile(path.join(steps, 'work-review-agent.md'), 'utf8')).match(/brief: (.*brief\.md)/)![1]!;
-      assert.match(await readFile(brief, 'utf8'), /### src\/other\.js \(related: next to math\.js; contains "computeLineTotal"\)/);
+      assert.match(await readFile(brief, 'utf8'), /^- src\/other\.js \(related: next to math\.js; contains "computeLineTotal"; contains "line"\)$/m);
     } finally {
       await t.dispose();
     }

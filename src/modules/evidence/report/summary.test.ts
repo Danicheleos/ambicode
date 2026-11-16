@@ -21,7 +21,7 @@ const taskRoute = (id: string, iteration: number, args: object = { text: 'ORD-17
   entry('map', { route: id, layers: [{ name: 'grep' }], candidates: 0, collisions: [] }),
   entry('baseline', { route: id, head: 'abc', dirty: ['a.ts', 'b.ts'] }),
 ];
-const check = (id: string, fields: object = {}): LedgerEntry => entry('check', { route: id, key: 'app/unit', files: ['src/orders/service.ts'], exit: 0, phase: 'green', ms: 1, ...fields });
+const check = (id: string, fields: object = {}): LedgerEntry => entry('check', { route: id, key: 'app/unit', files: ['src/orders/service.ts'], exit: 0, phase: 'green', output: '.ambicode/tasks/ord-17/checks/app-unit_1.log', bytes: 7, ms: 1, ...fields });
 const exit = (id: string, reason: string, fields: object = {}): LedgerEntry => entry('exit', { route: id, reason, ...fields });
 const review = (id: string, reviewId: string, findings: number): LedgerEntry => entry('review', { route: id, reviewId, stage: 'recorded', status: 'complete', reviewerRan: true, findings, omissions: 0 });
 const formatNone = (id: string): LedgerEntry => entry('format', { route: id, key: 'app/format', files: [], exit: null, outcome: 'unconfigured' });
@@ -73,8 +73,9 @@ describe('summary.md reads like a result, not an audit trail', () => {
     assert.match(text, /^# Task ord-17\n\nRequest: ORD-17\nRequirement: ORD-17\nPlan: \.ambicode\/tasks\/ord-17\/plan\.md\n/);
     assert.match(text, /## Plan\n[\s\S]*Refund the order total\n[\s\S]*Partial refunds stop overcharging, in three steps\.\n[\s\S]*Iteration 1\n[\s\S]*Iteration 3\n[\s\S]*Plan only the UI part, or the API too\? → UI only/);
     assert.deepEqual([...text.matchAll(/^- Iteration (\d) of 3: (.*)$/gm)].map((row) => [row[1], row[2]]), [['1', 'done'], ['2', 'done'], ['3', 'done']]);
-    assert.match(text, /guard the empty list\./);
-    assert.match(text, /surface the refund\./);
+    assert.match(text, /^- Iteration 1 of 3: done\n {2}Final message: \.ambicode\/tasks\/ord-17\/result_1\.md \(\d+ bytes\)$/m, 'the saved message is a link with its size');
+    assert.match(text, /^- Iteration 3 of 3: done\n {2}Final message: \.ambicode\/tasks\/ord-17\/result_3\.md \(\d+ bytes\)$/m);
+    assert.doesNotMatch(text, /guard the empty list\.|surface the refund\.|^ {2}> /m, 'no preview of the message');
     assert.doesNotMatch(text, /no final message/i, 'an iteration without a closing message is not a defect line');
     assert.match(text, /app\/unit: passed/);
     assert.doesNotMatch(text, /green exit/);
@@ -105,7 +106,7 @@ describe('summary.md reads like a result, not an audit trail', () => {
     assert.match(text, /## Not verified\nnone\n?$/);
     const only = await renderSummary('ord-17', blocked.slice(0, 7), read);
     assert.match(only, /^- Iteration 2 of 3: blocked \(user stopped\)$/m);
-    assert.match(only, /app\/unit: last run exited 2/);
+    assert.match(only, /app\/unit: last run: exit 2; /);
   });
 
   it('a launch that did nothing still shows when it is the only one of its iteration, with its gaps', async () => {
@@ -141,7 +142,8 @@ describe('summary.md reads like a result, not an audit trail', () => {
       entry('init', { what: 'scaffold', outcome: 'created config' }),
     ], async (file) => (file === 'inv.md' ? '# Why it is slow\nBecause of the loop.\n' : null));
     assert.match(text, /^- investigate · .* · done$/m);
-    assert.match(text, /Because of the loop\./);
+    assert.match(text, /^- investigate · .* · done\n {2}Final message: inv\.md \(\d+ bytes\)$/m);
+    assert.doesNotMatch(text, /Because of the loop\./);
     assert.match(text, /## Init\n- scaffold: created config/);
   });
   it('each iteration row carries its plan title, so one that ended without a closing message still says what it was', async () => {

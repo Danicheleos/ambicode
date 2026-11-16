@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { commandContext } from '#harness/engine/context';
@@ -79,6 +79,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const answer = '## Files\n- src/cart.ts:2 appends the item\n';
       assert.deepEqual(await stopAt(t, answer), {});
       assert.deepEqual(await shape(t), { notes: ['investigation'], checks: ['check-citations:false'], exit: 'done' });
+      assert.deepEqual(await readdir(path.join(t.fx.repo.root, '.ambicode', 'tasks', 'cart', 'steps')).catch(() => []), [], 'a Stop discards the closing text, so no step file outlives the route');
       const note = (await t.fx.kinds('cart', 'note'))[0]!;
       assert.equal(await readFile(path.join(t.fx.repo.root, String(note['path'])), 'utf8'), answer);
     } finally {

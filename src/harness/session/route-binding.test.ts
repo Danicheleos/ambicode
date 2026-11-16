@@ -43,7 +43,7 @@ const toOffer = async (t: Fixture, task: string): Promise<void> => {
   await t.edit();
   const route = (await t.fx.kinds(task, 'route')).at(-1)!;
   const dir = path.join(t.fx.repo.root, '.ambicode', 'tasks', task);
-  const { entry } = await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), { route: route.id, session: route['session'], kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit: 0, phase: 'green', ms: 3 });
+  const { entry } = await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), { route: route.id, session: route['session'], kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit: 0, phase: 'green', output: '.ambicode/tasks/x/checks/app-unit_1.log', bytes: 0, ms: 3 });
   await t.fx.engine.advance({ task, cause: 'check', produced: [entry.id], scratchpadDir: t.fx.scratchpad });
 };
 const codeOf = (promise: Promise<unknown>): Promise<string> => promise.then(() => 'ok', (error: { code?: string }) => error.code ?? 'unknown');
@@ -237,7 +237,7 @@ describe('finding the session route without a pointer', { concurrency: 4 }, () =
       const times: number[] = [];
       for (let run = 0; run < 20; run += 1) {
         const started = performance.now();
-        assert.notEqual(await liveRouteOf(t.fx.runtime.fs, t.fx.repo.root, CLAUDE_1, t.fx.runtime.clock.now()), null);
+        assert.notEqual(await liveRouteOf(t.fx.runtime.fs, t.fx.repo.root, CLAUDE_1), null);
         times.push(performance.now() - started);
       }
       times.sort((left, right) => left - right);

@@ -41,7 +41,7 @@ describe('runOne', () => {
     assert.match(broken.detail ?? '', /could not be started/);
   });
 
-  it('keeps the verdict at the tail of an output over 256 KiB', async () => {
+  it('keeps the verdict line at the end of a 300 KB output', async () => {
     const command = `node -e "process.stdout.write('x'.repeat(300000) + '\\nVERDICT-TAIL 3 failed')"`;
     const result = await runOne({ runner: new NodeProcessRunner(), clock, repositoryRoot: tmpdir(), project: { ...project, root: '.' }, policy: policy('run'), commandId: 'unit', key: 'web/unit', command, form: 'file', timeoutSeconds: 60 });
     assert.deepEqual([result.status, result.exitCode], ['passed', 0]);

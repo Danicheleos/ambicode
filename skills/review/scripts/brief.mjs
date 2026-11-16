@@ -1,6 +1,6 @@
 // brief.md for the reviewer: the diff with the line numbers a finding may name, then policy rules, requirements and checks.
 // A finding that names any other line is dropped, so the ranges come from the hunks, not from the model.
-import { readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const input = JSON.parse(readFileSync(0, 'utf8'));
@@ -10,7 +10,7 @@ const read = (file) => { try { return readFileSync(file, 'utf8'); } catch { retu
 const entries = (read(path.join(input.taskDir, 'ledger.jsonl')) ?? '').split('\n').filter(Boolean).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
 const entry = entries.findLast((candidate) => candidate.kind === 'review' && typeof candidate.result === 'string');
 if (entry === undefined) { process.stdout.write(JSON.stringify({ failed: { code: 'review-missing', message: 'no review on record for this task; nothing to brief' } })); } else {
-  try { brief(entry); } catch (error) { process.stdout.write(JSON.stringify({ failed: { code: 'brief-failed', message: String(error?.stack ?? error).split('\n').slice(0, 3).join(' | ') } })); }
+  try { brief(entry); } catch (error) { process.stdout.write(JSON.stringify({ failed: { code: 'brief-failed', message: String(error?.stack ?? error).split('\n').join(' | ') } })); }
 }
 
 function brief(entry) {
@@ -67,19 +67,10 @@ const files = sections.map((section) => {
   return { where, rows: rows.length, render, hunkStarts };
 });
 
-// Code the patch does not show: a reviewer given only paths did not open them, so the content is inlined.
-// The files come from the route's `search.map(context, review)` step, saved beside the policy payload, so this script scans no repository.
-// Test files are never inlined: `testPatterns` are the route's own test-path patterns (src/util/path-classes.ts), the same ones that keep them out of the diff of a merge request.
-// Caps: the brief is 5-7 KB without this section; 100 lines per file and 300 in total add about 10-14 KB, so it stays under ~3x.
-// 12 files = 2 same-directory files for each of ~4 changed files + RELATED_SIBLINGS siblings. 64 KB is the largest file read at all (generated and vendored files).
-const RELATED_MAX = 12;
-const RELATED_FILE_LINES = 100;
-const RELATED_TOTAL_LINES = 300;
-const RELATED_FILE_BYTES = 64 * 1024;
-// Extra cross-directory siblings, on top of the reserved same-directory ones: the top 4 of the map fit a 300-line budget next to them.
-const RELATED_SIBLINGS = 4;
-const NEAR_PER_FILE = 2; // the old per-file same-directory count
-const MIN_CONTENT_LINES = 3; // a package/doc stub of 1-2 lines beat the file holding the duplicated function for a sibling slot
+// Code the patch does not show: each related file is a path and the reason the map listed it; the reviewer reads the ones it needs with its own Read.
+// The files come from the route's `search.map(review)` step, saved beside the policy payload, so this script scans no repository.
+// Test files are never listed: `testPatterns` are the route's own test-path patterns (src/util/path-classes.ts), the same ones that keep them out of the diff of a merge request.
+// Every file the map ranked is listed without being read: the map is bounded by its own row limit (TOP_ROWS), and a path line costs nothing.
 const testPatterns = input.testPatterns.map((source) => new RegExp(source));
 const isTest = (file) => testPatterns.some((pattern) => pattern.test(file));
 // The map's rows [path, score, reasons, spans?] in rank order; the map text is a legend, then one JSON line. No file means no map: the step had nothing to say.
@@ -89,56 +80,30 @@ const mapRows = () => {
   return line === undefined ? [] : JSON.parse(line).candidates;
 };
 const related = () => {
-  if (diffOnly) return { blocks: [], names: [], omitted: [] };
+  if (diffOnly) return [];
   let rows = [];
   try { rows = mapRows(); } catch { /* no steps directory or an unreadable map: no related files */ }
   const pathsIn = (marker) => sections.flatMap((section) => [...section.matchAll(new RegExp(`^${marker} [ab]/(.+?)\\t?$`, 'gm'))].map((match) => match[1]));
   const inDiff = new Set([...pathsIn('---'), ...pathsIn('\\+\\+\\+')]);
   const changed = pathsIn('\\+\\+\\+').filter((candidate) => !isTest(candidate));
-  // Same language as the change only: notes and docs share names with code and spent the line budget.
+  // Same language as the change only: notes and docs share names with code.
   const extensions = new Set(pathsIn('\\+\\+\\+').map((file) => path.extname(file)));
   const ranked = rows.filter(([other]) => !inDiff.has(other) && !isTest(other) && extensions.has(path.extname(other)) && !other.startsWith('.ambicode/'));
   const why = new Map(ranked.map(([other, , reasons]) => [other, reasons.join('; ')]));
-  // Same-directory slots are reserved per changed file: a convention file ranks low by shared names because the change deviates from it,
-  // so a global ranking alone would not reach the files the change should follow.
+  // Same-directory files come first, per changed file: a convention file ranks low by shared names because the change deviates from it.
   const picked = [];
   for (const file of changed) picked.push(...ranked.filter(([other]) => path.dirname(other) === path.dirname(file)).map(([other]) => ['near', other, file]));
   picked.push(...ranked.map(([other]) => ['sibling', other, '']));
-  const out = [];
   const seen = new Set();
-  let budget = RELATED_TOTAL_LINES;
-  let files = 0;
-  const omitted = [];
-  const names_ = [];
-  let siblings = 0;
-  const nearCount = new Map();
-  stage(`reading the ${ranked.length} related files of the search map`);
+  const links = [];
+  stage(`listing the ${ranked.length} related files of the search map`);
   for (const [label, other, changedFile] of picked) {
     if (seen.has(other)) continue;
     seen.add(other);
-    let text;
-    try {
-      const buffer = readFileSync(path.join(checkoutRoot, other));
-      if (buffer.length > RELATED_FILE_BYTES || buffer.subarray(0, 8000).includes(0)) continue;
-      text = buffer.toString('utf8');
-    } catch { continue; }
-    const all = text.replace(/\n$/, '').split('\n');
-    if (text === '') continue;
-    if (all.filter((line) => line.trim() !== '').length < MIN_CONTENT_LINES) continue;
-    if (label === 'near' ? (nearCount.get(changedFile) ?? 0) >= NEAR_PER_FILE : label === 'sibling' && siblings >= RELATED_SIBLINGS) { seen.delete(other); continue; } // over the per-file cap, still eligible globally
-    // The per-kind counts run before the global cap: a file the cap cuts still used its slot, so only selected files are ever reported as cut.
-    if (label === 'near') nearCount.set(changedFile, (nearCount.get(changedFile) ?? 0) + 1);
-    else if (label === 'sibling') siblings++;
-    if (files >= RELATED_MAX || budget <= 0) { omitted.push(other); continue; }
-    files++;
-    const take = Math.min(RELATED_FILE_LINES, budget);
-    budget -= Math.min(all.length, take);
-    const width = String(Math.min(all.length, take)).length;
-    const fence = '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((run) => run[0].length + 1)));
-    names_.push(other);
-    out.push([`### ${other} (related: ${label === 'near' ? `next to ${path.basename(changedFile)}` : 'elsewhere in the repository'}; ${why.get(other)})`, fence, ...all.slice(0, take).map((line, at) => `${String(at + 1).padStart(width)} ${line}`), ...(all.length > take ? [`… (first ${take} lines shown; ${all.length - take} more not included)`] : []), fence, '']);
+    if (!existsSync(path.join(checkoutRoot, other))) continue;
+    links.push(`- ${other} (related: ${label === 'near' ? `next to ${path.basename(changedFile)}` : 'elsewhere in the repository'}; ${why.get(other)})`);
   }
-  return { blocks: out, names: names_, omitted };
+  return links;
 };
 
 // The saved policy payload of this step's own policy.stage call, when the route ran one.
@@ -155,10 +120,8 @@ const checks = [...new Map(entries.filter((candidate) => candidate.kind === 'che
 const plan = read(path.join(reviewDir, 'plan-iteration.md'));
 
 // Other people's notes on the merge request, from mr-discussions.json beside the ledger. Unresolved first: those are the open points a finding would repeat.
-// Caps are bounds, not measurements: real discussions were short (76 chars at most); 20 x 400 chars stays near 8 KB next to a 50 KB brief.
-const DISCUSSIONS_MAX = 20;
-const DISCUSSION_BODY_CHARS = 400;
-const oneLine = (text) => { const flat = text.replace(/\s+/g, ' ').trim(); return flat.length > DISCUSSION_BODY_CHARS ? `${flat.slice(0, DISCUSSION_BODY_CHARS)}…` : flat; };
+// Every discussion and commit is listed whole, on one line: the reviewer must answer them, so no file pointer stands in for the text.
+const oneLine = (text) => text.replace(/\s+/g, ' ').trim();
 const discussionLines = () => {
   const raw = read(path.join(input.taskDir, 'mr-discussions.json'));
   if (raw === null) return [];
@@ -169,16 +132,15 @@ const discussionLines = () => {
   const all = Array.isArray(parsed.discussions) ? parsed.discussions : [];
   if (all.length === 0) return [];
   const ordered = [...all.filter((discussion) => discussion.resolved !== true), ...all.filter((discussion) => discussion.resolved === true)];
-  const shown = ordered.slice(0, DISCUSSIONS_MAX).flatMap((discussion) => {
+  const shown = ordered.flatMap((discussion) => {
     const [first, ...replies] = discussion.notes ?? [];
     if (first === undefined) return [];
     const place = discussion.path === null || discussion.path === undefined ? 'general' : `${discussion.path}${discussion.line == null ? '' : `:${discussion.line}`}`;
     return [`- ${place}${discussion.resolved === true ? ' (resolved)' : ''} @${first.author}: ${oneLine(String(first.body))}`, ...replies.map((note) => `  - @${note.author}: ${oneLine(String(note.body))}`)];
   });
-  return [...head, ...shown, ...(ordered.length > DISCUSSIONS_MAX ? [`… (${ordered.length - DISCUSSIONS_MAX} more discussions omitted)`] : []), ''];
+  return [...head, ...shown, ''];
 };
 // The commit list says who made a change (a bot's sync commit is not a hand edit); the reviewer reads the authors itself, so nothing here interprets a name.
-const COMMITS_MAX = 30;
 const commitLines = () => {
   const raw = read(path.join(input.taskDir, 'mr-commits.json'));
   if (raw === null) return [];
@@ -188,7 +150,7 @@ const commitLines = () => {
   if (typeof parsed.error === 'string') return [...head, `(not fetched: ${oneLine(parsed.error)}; who made a change is unknown)`, ''];
   const all = Array.isArray(parsed.commits) ? parsed.commits : [];
   if (all.length === 0) return [];
-  return [...head, ...all.slice(0, COMMITS_MAX).map((commit) => `- ${commit.sha} ${oneLine(String(commit.author))}: ${oneLine(String(commit.title))}`), ...(all.length > COMMITS_MAX ? [`… (${all.length - COMMITS_MAX} more commits)`] : []), ''];
+  return [...head, ...all.map((commit) => `- ${commit.sha} ${oneLine(String(commit.author))}: ${oneLine(String(commit.title))}`), ''];
 };
 // Claude Code's Read returns at most 25,000 tokens: a 59 KB brief was cut at byte 37,847, so the requirements, rules and discussions after it were never seen.
 // 32 KB is 15% under that point, because tokens per byte vary with the content.
@@ -196,16 +158,13 @@ const commitLines = () => {
 const PART_BUDGET_BYTES = 32 * 1024;
 // Room in each part for its own heading and the line that points at the next part.
 const PART_RESERVE_BYTES = 400;
-// The related files are context and the only thing cut: the whole brief stays near 60 KB and the related files beyond it are named as omitted.
-const TOTAL_BUDGET_BYTES = 60 * 1024;
 const bytesOf = (parts) => Buffer.byteLength(parts.join('\n')) + 1;
-const RELATED_INTRO = 'Related code the patch does not show, for comparison: duplication of an existing helper and a sibling convention the change breaks are findings.';
+const RELATED_INTRO = 'Related code the patch does not show, listed by path only: Read the ones you need for comparison, in the checkout. Duplication of an existing helper and a sibling convention the change breaks are findings.';
 // A merge request leaves its test files out of the diff; without this list the reviewer saw no spec and reported "no test covers it" for changes that added several.
-const TEST_FILES_MAX = 30;
 const testFileLines = () => {
   const tests = (result.changedFiles ?? []).filter((file) => file.exclusionCode === 'test-file');
   if (tests.length === 0) return [];
-  return ['## Test files changed in this merge request (not under review, content not shown)', '', ...tests.slice(0, TEST_FILES_MAX).map((file) => `- ${file.newPath ?? file.oldPath} +${file.addedLines}/-${file.removedLines}`), ...(tests.length > TEST_FILES_MAX ? [`… (${tests.length - TEST_FILES_MAX} more)`] : []), ''];
+  return ['## Test files changed in this merge request (not under review, content not shown)', '', ...tests.map((file) => `- ${file.newPath ?? file.oldPath} +${file.addedLines}/-${file.removedLines}`), ''];
 };
 const LINE_NUMBERS = 'Each diff line starts with its file line number (new side for + and context lines, old side for - lines): a finding names that number, not a position in this brief.';
 const front = [
@@ -219,7 +178,7 @@ const front = [
   ...discussionLines(),
   '## Policy rules', '', rules, '',
   ...(plan === null ? [] : ['## Plan', '', 'Judge the match of the diff with the requirements and the plan, and name each departure from them as a finding.', '', plan.trim(), '']),
-  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key}: ${check.exit === 0 ? 'passed' : `FAILED (exit ${check.exit})`}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : `; last output:\n\`\`\`\n${String(check.tail ?? '').split('\n').slice(-12).join('\n')}\n\`\`\``}`)), '',
+  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key}: ${check.exit === 0 ? 'passed' : 'FAILED'}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : `; exit ${check.exit}; ${check.bytes} bytes of output in ${check.output}`}`)), '',
 ];
 const related_ = related();
 // Parts are packed in order: the front matter, the diff file by file, then the related files. A file that does not fit what is left of a part but fits a part of its own starts the next one;
@@ -263,24 +222,10 @@ for (const file of files) {
     nextPart();
   }
 }
-// The related files that keep the whole brief under the total budget, in related()'s rank order.
-const relatedUsed = () => parts.reduce((sum, lines) => sum + bytesOf(lines), splitFront ? bytesOf(frontHead) : bytesOf(front));
-let relatedKept = 0;
-let relatedBytes = relatedUsed() + bytesOf(['## Related files (not in the diff)', '', RELATED_INTRO, '']);
-for (const block of related_.blocks) { if (relatedBytes + bytesOf(block) > TOTAL_BUDGET_BYTES) break; relatedBytes += bytesOf(block); relatedKept++; }
-const droppedRelated = [...related_.names.slice(relatedKept), ...related_.omitted];
-if (relatedKept === 0 && droppedRelated.length > 0) place(['related files: none (brief size budget reached)', '']);
-else if (relatedKept > 0 || droppedRelated.length > 0) {
+if (related_.length > 0) {
   place(['## Related files (not in the diff)', '', RELATED_INTRO, '']);
-  for (const block of related_.blocks.slice(0, relatedKept)) { if (!fits(block) && parts.at(-1).length > 0) nextPart(); place(block); }
-  if (droppedRelated.length > 0) place([`… (${droppedRelated.length} related file${droppedRelated.length === 1 ? '' : 's'} omitted (size budget): ${droppedRelated.join(', ')})`, '']);
-}
-// The cut is context, not a coverage gap: it is recorded as scope here so the reviewer's own notes do not carry it into "Needs attention". A rerun replaces the note.
-const CUT_NOTE = ' related file';
-const scopeNote = droppedRelated.length === 0 ? null : relatedKept === 0 ? "no related file fit the brief's size budget, so none was read." : `${droppedRelated.length} related file${droppedRelated.length === 1 ? ' was' : 's were'} cut from the brief (size budget) and not read: ${droppedRelated.join(', ')}.`;
-if (Array.isArray(result.omissions) || scopeNote !== null) {
-  const kept = (result.omissions ?? []).filter((entry) => !(entry.kind === 'scope' && (entry.text.includes(CUT_NOTE) && entry.text.includes('size budget'))));
-  writeFileSync(resultFile, `${JSON.stringify({ ...result, omissions: scopeNote === null ? kept : [...kept, { kind: 'scope', text: scopeNote }] }, null, 2)}\n`);
+  for (const link of related_) { if (!fits([link]) && parts.at(-1).length > 0) nextPart(); place([link]); }
+  place(['']);
 }
 while (parts.length > 1 && parts.at(-1).length === 0) parts.pop();
 const partName = (at) => (at === 0 ? 'brief.md' : `brief-${at + 1}.md`);
