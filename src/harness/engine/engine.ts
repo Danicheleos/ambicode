@@ -21,7 +21,7 @@ import { taskForEmptyStart } from './empty-start.ts';
 import { stopHook } from './stop.ts';
 import { subagentStopHook } from './subagent-stop.ts';
 import { EXPLICIT, createExecutor, isClosing } from './execute.ts';
-import { append, chainOf, closeRoute, latestPrint } from './run-context.ts';
+import { append, chainOf, closeRoute } from './run-context.ts';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
 import type { ReviewTargetArgs, AdvanceInput, Answer, CommandName, RouteArgs, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, StartInput, StepMessage } from '#types/harness';
@@ -228,10 +228,6 @@ export function createEngine(deps: EngineDeps): Engine {
       for (const answer of input.answers ?? []) {
         if (input.cause === 'gate-hook') await recordHookAnswer(run, answer);
         else await recordFlagAnswer(run, answer);
-      }
-      if (input.project !== undefined) {
-        const open = latestPrint(chainOf(run).entries, 'project-ambiguous');
-        if (open !== null) await recordFlagAnswer(run, { gate: 'project-ambiguous', option: input.project });
       }
       const part = await execute(run);
       return { run, message: messageOf(run, part), part };

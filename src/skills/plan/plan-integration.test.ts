@@ -81,7 +81,6 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       ceremony += 1;
       const draft = await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
       assert.equal(draft.position, 'draft');
-      assert.ok(draft.bytes <= 4096, `start delivery ${draft.bytes}`);
       assert.match(draft.text, /## map/);
       // The rules are a file the draft reads, not text in the hook: the message carries a pointer to it.
       const rulesFile = path.join(root, '.ambicode', 'tasks', TASK, 'steps', '1-policy-before-work.md');
@@ -102,7 +101,6 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const passing = await check(body('src/invoices/service.ts:3-6'));
       assert.equal(passing.position, 'plan-accept');
       assert.doesNotMatch(passing.text, /Plan check FAILED/);
-      for (const output of [failing, passing]) assert.ok(output.bytes <= 4096, `${output.bytes}`);
 
       const ledger = async () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;

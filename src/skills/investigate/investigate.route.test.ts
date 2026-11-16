@@ -18,10 +18,10 @@ import type { HookDeps } from '#types/hook';
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const STEPS = ['investigate/fetch', 'investigate/read'];
 
-async function investigation() {
+async function investigation(config?: string) {
   const step: Record<string, string> = {};
   for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: skillHandlers(), step });
+  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: skillHandlers(), step, ...(config === undefined ? {} : { config }) });
   await fx.repo.write('src/cart.ts', 'export function addToCart(items: string[], item: string): string[] {\n  return [...items, item];\n}\n');
   await fx.repo.write('src/checkout.ts', "import { addToCart } from '#route/cart';\n\nexport const checkout = (): string[] => addToCart([], 'book');\n");
   await fx.repo.commitAll('cart');
@@ -51,6 +51,19 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const exit = (await fx.kinds('cart', 'exit')).at(-1)!;
       assert.deepEqual([exit['reason'], exit['complete'], exit['unverified']], ['done', true, 1]);
       assert.match(gapsOf(ledger).join('\n'), /check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('several configured projects: the route starts without asking which one, and the map covers every project in one entry', async () => {
+    const two = `${CONFIG}\n  - { id: web, root: "web", paths: [web/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }`;
+    const { fx, start } = await investigation(two);
+    try {
+      const first = await start();
+      assert.equal(first.position, 'read');
+      assert.deepEqual((await fx.kinds('cart', 'gate')).map((entry) => entry['gate']), []);
+      assert.equal((await fx.kinds('cart', 'map')).length, 1);
     } finally {
       await fx.dispose();
     }

@@ -131,13 +131,14 @@ describe('map', () => {
     }
   });
 
-  it('a term that matches no file is named in the note and leaves the ranking; the note counts the reserve terms that became live', async () => {
+  it('a term that matches no file is named in the note and leaves the ranking; every one is listed', async () => {
     const fx = await repo();
     try {
       const dead = Array.from({ length: 12 }, (_, index) => `\`deadTerm${String.fromCharCode(97 + index)}Name\``).join(' ');
       const found = await buildMap(fx.runtime, { project, layers: ['shortlist'], request: `${dead} \`settleInvoice\`` });
-      assert.deepEqual(found.terms.pass1, ['settleInvoice']);
-      assert.match(found.limitations.join('\n'), /no file matches the terms "deadTermaName".*"deadTermlName"; 1 reserve term became live$/m);
+      assert.ok(found.terms.pass1.includes('settleInvoice') && !found.terms.pass1.some((term) => term.startsWith('deadTerm')), found.terms.pass1.join('|'));
+      const note = found.limitations.find((text) => text.startsWith('no file matches'))!;
+      for (let index = 0; index < 12; index += 1) assert.ok(note.includes(`"deadTerm${String.fromCharCode(97 + index)}Name"`), `dead term ${index} is missing from: ${note}`);
       assert.ok(found.candidates.some((candidate) => candidate.path === 'src/cart/checkout.ts'));
     } finally {
       await fx.dispose();
@@ -256,6 +257,12 @@ describe('map term extraction', () => {
     assert.ok(!terms.some((term) => /s cart and the team/.test(term)), terms.join('|'));
   });
 
+  it('a straight opener and a curly closer do not pair into a phrase; like pairs with like', () => {
+    const terms = rankTerms([{ title: '', content: 'The label "unit price” is shown, and the cell reads “late fee” next to `due date`.' }]);
+    assert.ok(!terms.includes('unit price'), terms.join('|'));
+    assert.ok(terms.includes('late fee') && terms.includes('due date'), terms.join('|'));
+  });
+
   it('adjacent capitalised words are a phrase unless the first only starts the sentence', () => {
     const terms = rankTerms([{ title: '', content: 'Open the Order Summary page. The Cart is empty. Then Order Summary opens.' }]);
     assert.ok(terms.includes('Order Summary'), terms.join('|'));
@@ -316,7 +323,6 @@ describe('map term extraction', () => {
       assert.equal(found.candidates.length, 0);
       assert.equal(found.text.match(/no file matches/g)?.length, 1, found.text);
       assert.equal(found.limitations.filter((note) => /no file matches/.test(note)).length, 1, found.limitations.join('|'));
-      assert.doesNotMatch(found.text, /reserve|slot/, 'no reserve term became live: the note claims none');
     } finally {
       await fx.dispose();
     }

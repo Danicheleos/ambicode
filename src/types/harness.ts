@@ -198,7 +198,6 @@ export interface StartInput {
 export interface AdvanceInput {
   task: string;
   answers?: readonly (Answer & { question?: string })[];
-  project?: string;
   cause: Cause;
   /** Where the text goes; a `gate-hook` cause is always a hook, any other defaults to the CLI. */
   channel?: StartChannel;

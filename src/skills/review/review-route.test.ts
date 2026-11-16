@@ -220,9 +220,10 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', { concurren
       unit: { all: null, file: "true {file}" }
 `;
       await withReview(async (t) => {
-        // policy.stage still asks which project (it did before the pin moved into code); the checks ran before it, on the touched project only.
-        await t.start();
+        // The checks run on the touched project only; the policies and the map follow the touched files to the same project, with no question.
+        assert.equal((await t.start()).position, 'review-agent');
         assert.deepEqual((await t.kinds('check')).map((entry) => entry['key']), ['app/unit']);
+        assert.equal((await t.kinds('policy')).length, 1);
       }, { config: `${UNIT('true {file}')}${second}` });
     });
 

@@ -127,7 +127,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   },
 
   'checks.runnable': async (input) => {
-    // Every project, never `projectOf`: a review spans the repository, and a project question here stopped multi-project reviews.
+    // Every project: a review spans the repository.
     const forms = (entry: { all: boolean; file: boolean; approval: { file: boolean; all: boolean } }): string =>
       // A raw `tsc | grep` through Bash left a red result outside the ledger when the all form asked for approval (a real session): the end step runs it, once.
       !entry.file ? 'no file form: left to the end step, never run it' : [entry.file ? `--file ${entry.approval.file ? 'needs approval' : 'runs freely'}` : '', entry.all ? `all ${entry.approval.all ? 'needs approval' : 'runs freely'}` : ''].filter(Boolean).join(', ');

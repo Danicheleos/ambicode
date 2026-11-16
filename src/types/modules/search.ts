@@ -10,7 +10,7 @@ export interface RefsResult {
   bytes: number;
 }
 
-/** `spans`: up to three line ranges (`40-52`) where the terms occur. */
+/** `spans`: the line ranges (`40-52`) where the terms occur. */
 export interface MapCandidate {
   path: string;
   score: number;

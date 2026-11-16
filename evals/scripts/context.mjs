@@ -157,7 +157,7 @@ export function deliveryOf(transcripts, mapSteps = mapStepsOf(), skill = null) {
     }
   }
   if (step === null) return { status: spill ? 'spilled' : linked.size > 0 ? 'not-read' : 'absent', chars: null, map: false, candidates: false, spill };
-  return { status: spill ? 'spilled' : 'delivered', chars: step.length, map: step.includes('## map'), candidates: step.includes('"candidates"'), spill };
+  return { status: spill ? 'spilled' : 'delivered', chars: step.length, map: step.includes('## map'), candidates: /"candidates":\[(?!\])/.test(step), spill };
 }
 
 /** One-line form of a delivery record for the run summary. */

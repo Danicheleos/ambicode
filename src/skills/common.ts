@@ -1,6 +1,6 @@
 import { openRepository } from '#platform/git/open';
 import { Git } from '#platform/git/git';
-import { projectForRequest } from '#modules/config/workspace';
+import { projectForPath, projectForRequest } from '#modules/config/workspace';
 import { buildMap } from '#modules/search/map';
 import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
@@ -24,18 +24,10 @@ import { AmbicodeError } from '#util/errors';
 import { baselineIn, touchedSet } from '#modules/checks/workspace/baseline';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { isTestPath } from '#util/path-classes';
-import { latestBound } from '#harness/engine/fold';
-import { onGatePrint } from '#harness/gates/gates';
 import { ReviewResult } from '#types/modules/review';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
-
-onGatePrint('project-ambiguous', async ({ task, chain }) => {
-  const head = chain.findLast((entry) => entry.kind === 'route');
-  if (head?.['channel'] !== 'cli') return null;
-  return { note: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
-});
 
 async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
   return (await loadConfig(input.runtime.fs, input.dir.repositoryRoot)).config;
@@ -54,34 +46,14 @@ export const failed = (error: unknown): HandlerResult => {
   throw error;
 };
 
-/** The project this harness session already chose in another task, so a later route in the session does not ask again. */
-async function sessionProject(input: HandlerInput, config: AmbicodeConfig): Promise<string | null> {
-  if (config.projects.length < 2) return null;
-  const tasks = path.dirname(input.dir.root);
-  const names = (await input.runtime.fs.readdir(tasks).catch(() => [])).filter((entry) => entry.isDirectory() && entry.name !== input.view.task).map((entry) => entry.name);
-  let found: { at: string; project: string } | null = null;
-  for (const name of names) {
-    const read = await readLedgerStrict(input.runtime.fs, path.join(tasks, name));
-    if (read.state !== 'ok') continue;
-    const mine = new Set(read.entries.filter((entry) => entry.kind === 'route' && entry['session'] === input.view.session).map((entry) => String(entry['id'] ?? '')));
-    for (const entry of read.entries) {
-      const answer = String(entry['answer'] ?? '');
-      if (entry.kind === 'acceptance' && entry['gate'] === 'project-ambiguous' && mine.has(String(entry['route'])) && config.projects.some((project) => project.id === answer) && (found === null || entry.at > found.at)) found = { at: entry.at, project: answer };
-    }
-  }
-  return found?.project ?? null;
-}
-
-/** The project the route works in: the one its args name, the only one, or the user's answer to `project-ambiguous`. */
-async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<ProjectConfig | HandlerResult> {
-  const answered = latestBound(await chainEntries(input), 'project-ambiguous');
-  const chosen = answered !== null && answered['answer'] !== 'stop' ? String(answered['answer']) : null;
-  const requested = input.args.project ?? chosen ?? (await sessionProject(input, config));
+/** The projects the route works in: the one its args name, the only one, the ones holding the known paths, else every project; there is no question. */
+function projectsOf(input: HandlerInput, config: AmbicodeConfig, paths: readonly string[]): ProjectConfig[] {
   try {
-    return projectForRequest(config, requested, []);
+    return [projectForRequest(config, input.args.project ?? null, paths)];
   } catch (error) {
-    if (error instanceof AmbicodeError && error.code === 'ambiguous-project') return { state: 'raise', gate: 'project-ambiguous', values: { projects: config.projects.map((project) => project.id) } };
-    throw error;
+    if (!(error instanceof AmbicodeError) || error.code !== 'ambiguous-project') throw error;
+    const held = new Set(paths.flatMap((file) => projectForPath(config, file)?.id ?? []));
+    return held.size > 0 ? config.projects.filter((project) => held.has(project.id)) : config.projects;
   }
 }
 
@@ -110,18 +82,15 @@ async function reviewSeed(input: HandlerInput, chain: readonly LedgerEntry[]): P
   return { text: [...files.filter((file) => !isTestPath(file)), ...added].join('\n'), files, checkout: pinned.result.target.repositoryRoot };
 }
 
-/** The files the stage's rules are scoped to: for review the pinned review's files, else the task's touched files once there are any, else the pinned review's; empty means no scoping, so every pack of the activity is delivered (the map's top paths used to scope it, and 8 .ts paths hid a pack scoped to .html from a task that then edited .html). */
-async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[], activity: Activity): Promise<string[]> {
+/** The files the stage's rules are scoped to and the projects are told apart by: for review the pinned review's files, else the task's touched files once there are any, else the pinned review's; empty means no scoping, so every pack of the activity is delivered (the map's top paths used to scope it, and 8 .ts paths hid a pack scoped to .html from a task that then edited .html). */
+async function stagePaths(input: HandlerInput, chain: readonly LedgerEntry[], activity: Activity): Promise<string[]> {
   const baseline = baselineIn(chain);
   const pinned = activity === 'review' ? await reviewedFiles(input, chain) : [];
   // A task's touched set still holds files the review excludes (a configured `excludePaths`, a narrowing): their rules were staged for files nobody reviewed.
   const touched = pinned.length > 0 || baseline === null ? [] : (await touchedSet(input.runtime as Runtime, baseline)).touched;
   const reviewed = touched.length > 0 ? [] : pinned.length > 0 ? pinned : await reviewedFiles(input, chain);
-  const root = normalizeRelative(project.root);
-  return (touched.length > 0 ? touched : reviewed).filter((file) => toProjectRelative(root, file) !== null);
+  return touched.length > 0 ? touched : reviewed;
 }
-
-const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
 
 export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
   'context.list': async (input) => {
@@ -147,12 +116,11 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
 
   'search.map': async (input) => {
     const config = await configOf(input);
-    const project = await projectOf(input, config);
-    if (isResult(project)) return project;
     const stated = input.revise?.args['term'] ?? [];
     const chain = await chainEntries(input);
-    // `search.map(review)`: the reviewer brief's related files, seeded from the pinned change instead of an iteration brief or an investigation.
     const reviewing = input.params[0] === 'review';
+    const projects = projectsOf(input, config, await stagePaths(input, chain, reviewing ? 'review' : 'task'));
+    // `search.map(review)`: the reviewer brief's related files, seeded from the pinned change instead of an iteration brief or an investigation.
     const review = reviewing ? await reviewSeed(input, chain) : null;
     if (reviewing && review === null) return { state: 'ok', payload: null };
     const git = review === null ? (await openRepository(input.runtime)).git : new Git({ runner: input.runtime.runner, repositoryRoot: review.checkout });
@@ -170,10 +138,17 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const sources = [...envelopeSourcesOf.map((source) => mapTextOf(source.content, source.title)), ...(seedText === null ? [] : [`\n${seedText}`])];
     const request = (sources.length === 0 ? [`\n${input.args.text}`] : sources).join('\n');
     try {
-      const map = await buildMap(input.runtime, { project, layers: SEARCH_LAYER_DEFAULTS, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText), ...(review === null ? {} : { exclude: review.files, checkout: review.checkout }) });
-      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
+      const texts: string[] = [];
+      const maps: Record<string, unknown>[] = [];
+      for (const project of projects) {
+        const map = await buildMap(input.runtime, { project, layers: SEARCH_LAYER_DEFAULTS, terms: stated, request, paths: seedText === null ? [] : pathsCitedIn(seedText, files), symbols: seedText === null ? [] : symbolsCitedIn(seedText), ...(review === null ? {} : { exclude: review.files, checkout: review.checkout }) });
+        maps.push(map.entry);
+        texts.push(projects.length > 1 && map.text.trim() !== '' ? `Project ${project.id}:\n${map.text}` : map.text);
+      }
+      // One entry per call: the candidates and bytes of every project, so `map.empty` holds only when no project matched.
+      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...maps[0], candidates: maps.reduce((sum, entry) => sum + Number(entry['candidates']), 0), bytes: maps.reduce((sum, entry) => sum + Number(entry['bytes']), 0) });
       const pointer = investigation === null ? null : `Investigation: ${investigation.path}. Read it first.`;
-      return { state: 'ok', payload: [map.text, pointer].filter((part) => part !== null).join('\n') || null };
+      return { state: 'ok', payload: [...texts, pointer].filter((part) => part !== null).join('\n') || null };
     } catch (error) {
       return failed(error);
     }
@@ -196,19 +171,25 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const stage = input.params[0];
     if (stage !== 'before-work') return { state: 'failed', code: 'internal', message: `policy.stage takes before-work, not "${stage ?? ''}".`, recoverable: false };
     const config = await configOf(input);
-    const project = await projectOf(input, config);
-    if (isResult(project)) return project;
     // The second param names the activity when the route's own differs: the task route's reviewer brief needs review rules.
     const named = Activity.safeParse(input.params[1] ?? input.view.skill);
     if (input.params[1] !== undefined && !named.success) return { state: 'failed', code: 'internal', message: `policy.stage's activity must be one of ${Activity.options.join(', ')}, not "${input.params[1]}".`, recoverable: false };
     const activity = named.success ? named.data : 'task';
+    const chain = await chainEntries(input);
+    const known = await stagePaths(input, chain, activity);
+    const projects = projectsOf(input, config, known);
     try {
       // The plan came from an earlier route, so the whole ledger tells whether one exists; without it nothing applied the plan (design) rules.
       const read = await input.ledger.read();
       const planless = input.params[1] === undefined && activity === 'task' && (await briefOf(input, read.state === 'ok' ? read.entries : [])).planPath === null;
-      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity, ...(planless ? { alsoActivity: 'plan' as const } : {}), paths: await stagePaths(input, project, await chainEntries(input), activity), stage });
-      await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
-      return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
+      const texts: string[] = [];
+      for (const project of projects) {
+        const root = normalizeRelative(project.root);
+        const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity, ...(planless ? { alsoActivity: 'plan' as const } : {}), paths: known.filter((file) => toProjectRelative(root, file) !== null), stage });
+        await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
+        if (payload.text.trim() !== '') texts.push(projects.length > 1 ? `Project ${project.id}:\n${payload.text}` : payload.text);
+      }
+      return { state: 'ok', payload: texts.length === 0 ? null : texts.join('\n') };
     } catch (error) {
       return failed(error);
     }

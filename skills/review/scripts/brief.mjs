@@ -73,11 +73,11 @@ const files = sections.map((section) => {
 // Every file the map ranked is listed without being read: the map is bounded by its own row limit (TOP_ROWS), and a path line costs nothing.
 const testPatterns = input.testPatterns.map((source) => new RegExp(source));
 const isTest = (file) => testPatterns.some((pattern) => pattern.test(file));
-// The map's rows [path, score, reasons, spans?] in rank order; the map text is a legend, then one JSON line. No file means no map: the step had nothing to say.
+// The map's rows [path, score, reasons, spans?] in rank order; the map text is a legend, then one JSON line per project, merged in project order. No file means no map: the step had nothing to say.
 const mapRows = () => {
   const saved = readdirSync(input.steps).filter((name) => name.endsWith('-map-review.md')).sort();
-  const line = (saved.length === 0 ? '' : read(path.join(input.steps, saved.at(-1))) ?? '').split('\n').find((row) => row.startsWith('{"candidates"'));
-  return line === undefined ? [] : JSON.parse(line).candidates;
+  const lines = (saved.length === 0 ? '' : read(path.join(input.steps, saved.at(-1))) ?? '').split('\n').filter((row) => row.startsWith('{"candidates"'));
+  return lines.flatMap((line) => JSON.parse(line).candidates);
 };
 const related = () => {
   if (diffOnly) return [];

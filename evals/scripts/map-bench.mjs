@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { scoreFolders, truthFolders } from './folder-truth.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-// Same constant as TOP_FILES in src/modules/search/map.ts: the files the harvest layer reads, i.e. what the map ranks highest.
+// The bench's own top-N cut (topRecall/topPrecision/topF1 beside the whole list); the harvest layer no longer cuts at 8 (map.ts reads every row).
 const DEFAULT_TOP = 8;
 
 /** Ticket text of a map prompt.md: the body after the front matter, without any "Do not change anything…" contract line. */
@@ -21,14 +21,14 @@ export function promptOf(markdown) {
   return body.split(/\r?\n/).filter((line) => !line.startsWith('Do not change anything.')).join('\n').trim();
 }
 
-/** Candidate paths (ranked) from the stdout of `route start`, or null when no map was printed. The text carries no terms: they are the ledger's (`ledgerMapOf`). */
+/** Candidate paths (ranked) from the stdout of `route start`, or null when no map was printed; one project's JSON line each, in project order. The text carries no terms: they are the ledger's (`ledgerMapOf`). */
 export function mapOf(stdout) {
-  const line = stdout.split('\n').find((row) => row.startsWith('{"candidates"'));
-  if (line === undefined) return null;
-  return { files: JSON.parse(line).candidates.map((row) => row[0]) };
+  const lines = stdout.split('\n').filter((row) => row.startsWith('{"candidates"'));
+  if (lines.length === 0) return null;
+  return { files: lines.flatMap((line) => JSON.parse(line).candidates.map((row) => row[0])) };
 }
 
-/** The `map` entry of a task's ledger in the scratch clone: the first-pass terms and how many candidates the list held. */
+/** The call's `map` entry of a task's ledger in the scratch clone: one per `search.map` call, the terms of the first project and the candidates of all projects summed. */
 export function ledgerMapOf(scratch, task) {
   const file = path.join(scratch, '.ambicode', 'tasks', task, 'ledger.jsonl');
   if (!existsSync(file)) return null;

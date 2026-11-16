@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { taskFixture } from '#testing/fixtures/task-fixture';
+import { CHECK_CONFIG } from '#testing/fixtures/check-fixture';
 import { planFixture } from '#testing/fixtures/plan-fixture';
 import { appendLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -20,6 +21,20 @@ describe('the task map is seeded from the iteration brief', () => {
       await t.start({ text: 'ord-7' });
       const map = (await t.kinds('map')).at(-1);
       assert.ok(Number(map?.['candidates']) > 0, `candidates ${String(map?.['candidates'])}`);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+});
+
+describe('several configured projects', () => {
+  it('a task starts without asking which project; the map covers and the policies run over every project', async () => {
+    const t = await taskFixture({ config: `${CHECK_CONFIG}\n  - { id: web, root: "web", paths: [web/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }` });
+    try {
+      await t.start();
+      assert.deepEqual((await t.kinds('gate')).map((entry) => entry['gate']), []);
+      assert.equal((await t.kinds('map')).length, 1);
+      assert.equal((await t.kinds('policy')).length, 2);
     } finally {
       await t.fx.dispose();
     }

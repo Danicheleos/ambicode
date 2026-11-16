@@ -27,9 +27,9 @@ default branch name. AskUserQuestion which ref, then pass `--base <ref>`.
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
 a `propose` check asks the user instead; only the user's own answer approves it.
 
-**`ambiguous-project`.** More than one configured project matches the paths and
-none was named. Refuse to guess: AskUserQuestion with the project ids as options, then pass `--project <id>` or
-narrower paths.
+**`ambiguous-project`.** `search` or `check` takes one project and the files fall in
+several. The error names the configured projects: rerun the same command with `--project <id>` for
+the project that holds the files. No question to the user.
 
 **`check-limit`.** A sixth `check` of one phase in the current step. Release: state
 the gap in the report; `route next --task <slug>`.
@@ -57,8 +57,8 @@ answer the `rules-table` question in `/ambicode:rules`; headless runs never appl
 `source.location` (an error: fix the quote or drop the rule; after three tries
 it is listed as not migrated).
 
-**`unknown-project`.** The `--project` id is not configured, or no path places
-the request inside a configured project root. AskUserQuestion with the project ids as options.
+**`unknown-project`.** The `--project` id is not configured; the error lists the
+configured ids. Rerun with one of them. With no project configured the error says to run `/ambicode:init` first.
 
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
 `--base` belongs to `--branch`. AskUserQuestion with the targets as options.

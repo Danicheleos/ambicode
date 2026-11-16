@@ -77,7 +77,7 @@ if (input.params?.[0] === 'resolve') {
     });
   }).join('\n');
   if (resolved.length > 0) writeFileSync(bodyFile, text);
-  const entries = resolved.length === 0 ? [] : [{ kind: 'worker', worker: 'plan-anchors', outcome: 'ran', ms: Date.now() - started, artifact: null, reason: `resolved: ${resolved.join('; ')}`.slice(0, 500) }];
+  const entries = resolved.length === 0 ? [] : [{ kind: 'worker', worker: 'plan-anchors', outcome: 'ran', ms: Date.now() - started, artifact: null, reason: `resolved: ${resolved.join('; ')}` }];
   process.stdout.write(JSON.stringify({ entries }));
   process.exit(0);
 }

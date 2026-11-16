@@ -13,7 +13,7 @@ const SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COM
 
 const TABLE: Record<string, readonly string[]> = {
   'route start': ['task', 'headless', 'project', 'answer'],
-  'route next': ['task', 'answer', 'project'],
+  'route next': ['task', 'answer'],
   'route stop': ['task', 'reason', 'detail'],
   map: ['task', 'project', 'term', 'symbol'],
   refs: ['project', 'declarations'],

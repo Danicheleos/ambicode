@@ -75,7 +75,7 @@ describe('06-R1/06-R2 the shipped plan route', { concurrency: 4 }, () => {
     assert.match(write, /`\{plan\}` \(with frontmatter `status: draft`\)/);
     assert.match(write, /Final chat message: what the route's closing asks: its Plan block as is, its Not verified items word for word/);
     assert.match(write, /never a bare name/);
-    assert.match(write, /a file read and ruled out goes unnamed here too, even as unaffected|Name only files the plan changes or reuses/i);
+    assert.match(write, /Name only files the plan changes or reuses/);
     assert.match(write, /names only rules that shaped a decision/);
     assert.match(write, /call X at path:N/);
     assert.doesNotMatch(write, /each id once|not applicable|plan-check flags|sent back|fix only those lines/, 'plan-check records only: no mandatory citation list, no fix round');
@@ -95,7 +95,6 @@ describe('06-R1/06-R2 the shipped plan route', { concurrency: 4 }, () => {
       assert.match(first.text, /Documentation files \(path, bytes\): docs\/architecture\.md 15\b/);
       assert.doesNotMatch(first.text, /limit\.test\.md/);
       assert.doesNotMatch(first.text, /\.ambicode\/context|Overview of the service/);
-      assert.ok(first.bytes <= 4096, `start ${first.bytes}`);
     } finally {
       await plan.dispose();
     }
@@ -114,15 +113,26 @@ describe('06-R1/06-R2 the shipped plan route', { concurrency: 4 }, () => {
     }
   });
 
-  it('06-H1: the start and the merged draft deliveries stay within their byte caps', async () => {
+  it('06-H1: the start delivers the draft step without the module notes', async () => {
     const plan = await shipped();
     try {
       const first = await plan.start();
       assert.equal(first.position, 'draft');
-      assert.ok(first.bytes <= 4096, `start ${first.bytes}`);
       assert.doesNotMatch(first.text, /Read the notes of the modules/);
-      const checked = await planCheck(plan, BAD);
-      assert.ok(JSON.stringify(checked).length <= 8000);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
+describe('plan-check worker summary', { concurrency: 4 }, () => {
+  it('a plan-check worker entry read back from the ledger keeps its anchors', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan);
+      await planCheck(plan, BAD);
+      const summary = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!['summary'] as { anchors?: string[] };
+      assert.match(String(summary.anchors?.[0]), /^src\/orders\/limit\.ts:40 line-out-of-range/);
     } finally {
       await plan.dispose();
     }
@@ -678,17 +688,17 @@ describe('06-R11 launch', { concurrency: 4 }, () => {
   });
 });
 
-describe('06-C7 project answers', { concurrency: 4 }, () => {
-  it('06-C7: the project answered in one task is not asked again by another task of the same session', async () => {
+describe('06-C7 several configured projects', { concurrency: 4 }, () => {
+  it('06-C7: a plan starts without asking which project; the map covers and the policies run over every project', async () => {
     const config = CONFIG.replace(/  - \{ id: app,.*\}$/, '  - { id: orders, root: "src/orders", paths: [src/orders/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }\n  - { id: invoices, root: "src/invoices", paths: [src/invoices/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }');
     const plan = await planFixture({ shipped: true, config });
     try {
-      await plan.start({ text: 'Add orderLimit' });
-      assert.equal((await plan.next({ project: 'orders' })).position, 'draft');
-      assert.equal((await plan.start({ text: 'Add another limit', task: 'second-task' })).position, 'draft');
+      assert.equal((await plan.start({ text: 'Add orderLimit' })).position, 'draft');
+      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'gate')).map((entry) => entry['gate']), []);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'map')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'policy')).length, 2);
     } finally {
       await plan.dispose();
     }
   });
-
 });

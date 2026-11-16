@@ -98,7 +98,8 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.deepEqual(rows, ['src/other.js']);
       assert.ok((await t.ledger()).some((entry) => entry.kind === 'map'), 'the review map is recorded in the ledger');
       const brief = (await readFile(path.join(steps, 'work-review-agent.md'), 'utf8')).match(/brief: (.*brief\.md)/)![1]!;
-      assert.match(await readFile(brief, 'utf8'), /^- src\/other\.js \(related: next to math\.js; contains "computeLineTotal"; contains "line"\)$/m);
+      const row = (await readFile(brief, 'utf8')).split('\n').find((line) => line.startsWith('- src/other.js'));
+      assert.ok(row?.startsWith('- src/other.js (related: next to math.js;') && row.includes('retrieved: path "src", file "math.js"'), row);
     } finally {
       await t.dispose();
     }

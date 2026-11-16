@@ -52,7 +52,7 @@ Read a run in `evals/cases/results/<arm>.json` and its traces under `results/tra
 
 ## Map bench (offline, no model)
 
-`scripts/map-bench.mjs` runs the bundled `ambicode route start investigate` in a scratch clone of the bench repository (its `.ambicode/config.yaml` and `context/` are copied in, so the search index `folders.jsonl` is the one the context holds), takes the files of the printed map and scores their folders against each case's `truth.json`. It prints one row per case, the means (all, tune, hold) with the top-8 columns, and where the target folders were lost (absent from the pool, cut, printed, in the top 8). Results go to `evals/cases/results/map-bench/<stamp>.json`. Nothing is paid for.
+`scripts/map-bench.mjs` runs the bundled `ambicode route start investigate` in a scratch clone of the bench repository (its `.ambicode/config.yaml` and `context/` are copied in, so the search index `folders.jsonl` is the one the context holds; a change to the index code is measured on a bench repository whose `context/search/` is removed, or the stored index is read as it is), takes the files of the printed map and scores their folders against each case's `truth.json`. It prints one row per case, the means (all, tune, hold) with the top-8 columns, and where the target folders were lost (absent from the pool, cut, printed, in the top 8). Results go to `evals/cases/results/map-bench/<stamp>.json`. Nothing is paid for.
 
 ```
 node evals/scripts/map-bench.mjs --bench <repo>                                  # the ten fe-angular cases, bench/map

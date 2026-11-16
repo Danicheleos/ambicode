@@ -13,6 +13,7 @@ export const SEARCH_INDEX_FILE = `${CONTEXT_DIR}/search/folders.jsonl`;
 const VERSION = 3;
 /** A rebuild at map time is worth its wait only below this; a slower repository keeps a stale index and says so. */
 const REBUILD_UNDER_MS = 5000;
+// Per-folder row caps. Removing each, FE bench F1 .4286 -> .4227 (names), .4216 (labels), .4155 (edges); k12 unchanged .5628 (2026-11-12). 24/24/16: no sweep records them.
 const MAX_NAMES = 24;
 const MAX_LABELS = 24;
 const MAX_EDGES = 16;

@@ -329,6 +329,21 @@ describe('review scripts (C7)', () => {
     }
   });
 
+  it('brief lists the related files of every project map: one {"candidates"} line per project, merged in order', async () => {
+    const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
+    try {
+      for (const file of ['a/one.ts', 'b/two.ts', 'a/changed.ts']) { await mkdir(path.dirname(path.join(root, file)), { recursive: true }); await writeFile(path.join(root, file), 'export const a = 1;\n'); }
+      const line = (file: string) => `{"candidates":${JSON.stringify([[file, 10, ['contains "sharedName"']]])}}`;
+      await writeFile(path.join(input.steps, '1-map-review.md'), `Project a:\nMap: legend\n${line('a/one.ts')}\nProject b:\nMap: legend\n${line('b/two.ts')}\n`);
+      await writeFile(path.join(reviewDir, 'changed.diff'), added('a/changed.ts', 'export const x = 2;'));
+      run('brief', input);
+      const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      assert.deepEqual([...brief.matchAll(/^- (\S+) \(related/gm)].map((match) => match[1]), ['a/one.ts', 'b/two.ts']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('brief holds no test-file content except the diff hunks of a test file the review kept: no related test, no "No test file found" line', async () => {
     const { root, reviewDir, input } = await fixture({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] });
     try {

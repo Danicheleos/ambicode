@@ -25,23 +25,18 @@ export function parseRegistry(file: string, text: string, kinds: readonly string
   return gates;
 }
 
-/** A standalone `{name…}` option expands to the values; `{name}` inside text is replaced by them joined, `{name|fallback}` by the fallback when there are none. */
+/** `{name}` inside text is replaced by them joined, `{name|fallback}` by the fallback when there are none. */
 function fill(text: string, values: Readonly<Record<string, readonly string[]>>): string {
   return text.replace(/\{(\w+)(?:\|([^}]*))?\}/g, (whole, name: string, fallback?: string) => (values[name] === undefined ? whole : values[name]!.length === 0 && fallback !== undefined ? fallback : values[name]!.join(', ')));
 }
 
-/** Dynamic options (03-R8) and the registry `policy` override (03-G12), applied before a gate is validated or printed. */
+/** The registry `policy` override (03-G12), applied before a gate is validated or printed. */
 export function instantiateGate(
   gate: GateDef,
   input: { skill: string; values: Readonly<Record<string, readonly string[]>> },
   id: string = gate.id,
 ): GateDef {
-  const options: string[] = [];
-  for (const option of gate.options) {
-    const spread = /^\{(\w+)…\}$/.exec(option);
-    if (spread !== null) options.push(...(input.values[spread[1]!] ?? []));
-    else options.push(fill(option, input.values));
-  }
+  const options = [...gate.options];
   const stop = gate.policy[input.skill] === 'stop';
   const instantiated: GateDef = {
     ...gate,

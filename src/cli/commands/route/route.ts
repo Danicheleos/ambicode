@@ -13,7 +13,7 @@ import { ROUTE_START_OPTIONS } from '#types/cli';
 
 export { startTarget };
 
-export const ROUTE_NEXT_OPTIONS = { values: ['task', 'project'], repeated: ['answer'], flags: ['json'] } as const;
+export const ROUTE_NEXT_OPTIONS = { values: ['task'], repeated: ['answer'], flags: ['json'] } as const;
 
 export async function routeTools(runtime: Runtime): Promise<RouteTools> {
   const { engine, routes } = await createApp(runtime);
@@ -67,12 +67,10 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
 export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {
   const task = taskOf('route next', args);
   const { engine } = await routeTools(runtime);
-  const project = args.value('project');
   const message = await engine.advance({
     task,
     cause: 'route-next',
     answers: args.all('answer').map(parseAnswerFlag),
-    ...(project === null ? {} : { project }),
   });
   return { command: 'route next', ...message };
 }

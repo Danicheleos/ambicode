@@ -16,8 +16,6 @@ const SAFE_CONFIG = [
 
 const GIT_TIMEOUT_MS = 60_000;
 const GIT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-/** Matching lines read per file when a caller judges the hits itself: a file whose first lines only hold the term inside other words is read as not holding it. */
-const WHOLE_WORD_LINES = 20;
 
 interface GitOptions {
   runner: ProcessRunner;
@@ -215,8 +213,8 @@ export class Git {
    */
   async grepFiles(term: string, pathspec: string | null, accept?: (line: string) => boolean): Promise<string[]> {
     if (accept !== undefined) {
-      // A substring hit is only a candidate (`est` sits in `test`): the caller's `accept` judges each matching line, at most WHOLE_WORD_LINES per file. Output too large to read falls back to the substring answer.
-      const lines = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', String(WHOLE_WORD_LINES), '-e', term, '--', ...(pathspec === null ? [] : [pathspec])], true).catch((error: unknown) => {
+      // A substring hit is only a candidate (`est` sits in `test`): the caller's `accept` judges each matching line. Output too large to read falls back to the substring answer.
+      const lines = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-e', term, '--', ...(pathspec === null ? [] : [pathspec])], true).catch((error: unknown) => {
         if (error instanceof AmbicodeError && error.code === 'git-output-truncated') return null;
         throw error;
       });
@@ -263,11 +261,11 @@ export class Git {
     return splitNul(outcome.stdout);
   }
 
-  /** Line numbers per file of any term, case-insensitive, fixed-string; at most `perFile` lines each. */
-  async grepLines(terms: readonly string[], files: readonly string[], perFile = 20): Promise<Map<string, number[]>> {
+  /** Line numbers per file of any term, case-insensitive, fixed-string. */
+  async grepLines(terms: readonly string[], files: readonly string[]): Promise<Map<string, number[]>> {
     const found = new Map<string, number[]>();
     if (terms.length === 0 || files.length === 0) return found;
-    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', String(perFile), ...terms.flatMap((term) => ['-e', term]), '--', ...files.map(literalPathspec)], true);
+    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', ...terms.flatMap((term) => ['-e', term]), '--', ...files.map(literalPathspec)], true);
     if (outcome.exitCode === 1) return found;
     if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
     for (const record of outcome.stdout.split('\n')) {

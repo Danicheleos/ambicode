@@ -64,7 +64,7 @@ export function projectForRequest(
       field: '--project',
       details: [
         `Configured projects: ${config.projects.map((project) => project.id).join(', ')}.`,
-        'Ask the user which project with AskUserQuestion (the ids as options), then use --project <id>; or give paths inside a single project root.',
+        'Rerun with --project <id> for the project that holds the files, or give paths inside a single project root.',
       ],
     },
   );

@@ -130,7 +130,7 @@ gate:
 | Field | Values | Meaning and when to use |
 |---|---|---|
 | `question` | string | Shown to the user. `{name}` is filled from the values the raising code passes (registry gates); `{name|text}` prints `text` when the list is empty. |
-| `options` | list, at least one | The choices. `{list…}` expands a list of values, `{key}` fills a value. Free text the user types is allowed only if `free: true` or `onAnswer` has `*`; options match case-insensitively and ignore a trailing "(Recommended)". |
+| `options` | list, at least one | The choices, as written. Free text the user types is allowed only if `free: true` or `onAnswer` has `*`; options match case-insensitively and ignore a trailing "(Recommended)". |
 | `default` | one of `options` | Taken when nobody answers (headless, timeout). Never an acting option. |
 | `acting` | list of options | Options that change something that matters. They count only from the user's own answer in the dialog (bound by the hook) or a trusted `--answer` at start, never from a model-typed answer. Use for approve, accept, overwrite. |
 | `onAnswer` | `{ <option or *>: "revise <step> [--name value]" }` | `revise`: send the route back to a step after that answer. `*` handles free text. `$answer` is the user's text, `$raisedBy` the step that raised the gate. |
@@ -142,7 +142,7 @@ An unanswered gate has one rule: `route next` shows the same print again, as it 
 
 In a headless route the guard turns a permission ask into a deny; the model then finishes with a final message that says `permission-denied: <what>`.
 
-Special answers: `stop` and `pause` end the route. The exit is `human` for the `scope` and `project-ambiguous` gates and `blocked` for every other gate. Name the option `pause` when the user can supply what is missing later in the chat; a paused route cannot be resumed, the user starts a new one, and a new start on the task ends its live route as `interrupted`.
+Special answers: `stop` and `pause` end the route. The exit is `human` for the `scope` gate and `blocked` for every other gate. Name the option `pause` when the user can supply what is missing later in the chat; a paused route cannot be resumed, the user starts a new one, and a new start on the task ends its live route as `interrupted`.
 
 Gates are asked with AskUserQuestion; the printed line `[ambicode gate <id> <instance>]` must stay verbatim in the question so the hook can bind the answer.
 

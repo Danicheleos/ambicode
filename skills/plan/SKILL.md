@@ -20,7 +20,7 @@ The plan stays a draft until the human answers the route's gate with Accept: acc
 
 - Size the plan to the request. A change in one place is one iteration; split only where an order matters or a piece can be reviewed and shipped alone.
 - Plan from the code, not from the request's wording. Read the places the change edits, their callers, the tests beside them, and the code that already does a similar job.
-- Stop reading when every change you plan names a file and line you have read and each rule on where code goes is read.
+- Stop reading when every change names a file and line you have read, each rule on where code goes is read, and every statement the plan makes about code it does not change is backed: by the `path:line` you read (what sets a value the change relies on, what each exit path does), or, for an absence, by the search and its scope, as in `no test beside src/orders/invoice.ext (Glob src/orders/*invoice*)`. A statement you cannot back is an assumption, never the premise of a Change.
 - A vague request: where it leaves a point ambiguous, choose the reading the code supports, state it as an assumption; a requirement it states is carried as written, not reinterpreted. A ticket: its points are the scope.
 - Say what changes and where in the repository's own words, and give the reason when it is not obvious.
 

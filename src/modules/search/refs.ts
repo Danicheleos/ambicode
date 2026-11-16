@@ -6,8 +6,9 @@ import { declarationsOf } from './harvest.ts';
 import type { Runtime } from '#types/composition';
 import type { RefsResult } from '#types/modules/search';
 
+/** Characters of a hit line printed: a display clip kept as a selection. Unclipped, one hit could print a 63,530-char svg line (FE: 1,261 tracked lines over 1,000; k12 longest 2,944); Claude Code spills CLI output over 30,000 chars to a file (DECISIONS #86/#87). 100 itself is unmeasured. */
 const SNIPPET = 100;
-/** A term found in more than this share of the files describes the project (`src`, a company name), not a boundary; the minimum keeps tiny projects out of the rule. */
+/** A term found in more than this share of the files describes the project (`src`, a company name), not a boundary; the minimum keeps tiny projects out of the rule. .6 and 5: unmeasured, no sweep records them. */
 const TOO_BROAD_SHARE = 0.6;
 const TOO_BROAD_MIN_FILES = 5;
 

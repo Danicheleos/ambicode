@@ -16,6 +16,8 @@ test('mapOf reads the ranked candidates', () => {
   const out = mapOf(`head\n## map\nlayers: shortlist\n${JSON.stringify(doc)}\ntail`);
   assert.deepEqual(out, { files: ['x/a.ts', 'y/b.ts'] });
   assert.equal(mapOf('no map here'), null);
+  const second = { candidates: [['z/c.ts', 1, []]] };
+  assert.deepEqual(mapOf(`Project a:\n${JSON.stringify(doc)}\nProject b:\n${JSON.stringify(second)}`), { files: ['x/a.ts', 'y/b.ts', 'z/c.ts'] }, 'one JSON line per project');
 });
 
 test('ledgerMapOf reads the terms and candidate count of the last map entry', () => {

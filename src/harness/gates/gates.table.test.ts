@@ -31,7 +31,6 @@ const VALUES: Record<string, Record<string, string[]>> = {
   'checks-again': { key: ['app/unit'] },
   'review-again': {},
   'plan-unaccepted': {},
-  'project-ambiguous': { projects: ['app', 'lib'] },
   'decision:db-choice': {},
 };
 
@@ -151,13 +150,12 @@ describe('gate table: every registry gate', () => {
     }
   });
 
-  it('03-R8/03-G14: dynamic options expand from the values and a non-offered answer is declined, not bound', async () => {
+  it('03-G14: a non-offered answer is declined, not bound', async () => {
     const t = await table();
     try {
-      const { task, message } = await t.begin('project-ambiguous');
-      assert.match(message.text, /- app\n.*- lib\n/s);
-      const print = await t.lastPrint(task, 'project-ambiguous');
-      await t.hook(task, 'project-ambiguous', 'other', print.id);
+      const { task } = await t.begin('review-again');
+      const print = await t.lastPrint(task, 'review-again');
+      await t.hook(task, 'review-again', 'other', print.id);
       assert.equal((await t.fx.kinds(task, 'declined')).at(-1)!['reason'], 'option-not-offered');
       assert.equal((await t.fx.kinds(task, 'acceptance')).length, 0);
     } finally {

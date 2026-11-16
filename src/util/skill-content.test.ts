@@ -175,7 +175,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('06-S1/06-S2: plan stays within 3,200 bytes, is invoked by name only and may write only its plan body', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    // Raised from 1800 by the user's scope change (2026-10-26): the SKILL.md rides in the user message, outside the hook budget, and now carries the work strategy (3,115 B).
+    // Raised from 1800 by the user's scope change (2026-10-26): the SKILL.md rides in the user message, outside the hook budget, and now carries the work strategy (2,868 B).
     assert.ok(Buffer.byteLength(plan) <= 3200, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
     assert.equal(fm['disable-model-invocation'], false);

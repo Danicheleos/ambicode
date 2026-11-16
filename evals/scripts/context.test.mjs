@@ -126,7 +126,7 @@ describe('delivery of the read step', () => {
   const link = (id) => hook(`Read /r/.ambicode/tasks/t/steps/step-${id}.md whole now: it is this step (321 bytes).`);
   // Claude Code's Read result: one string, every line behind its number and a tab; the file starts with the step file's comment line.
   const read = (text) => `${JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu', content: ['<!-- ambicode step: x/y, task t, 9 bytes -->', ...text.split('\n')].map((row, at) => `${at + 1}\t${row}`).join('\n') }] } })}\n`;
-  const STEP = '[ambicode] investigate \u00b7 task t \u00b7 step read (4/5)\nNow: read\n## map\n{"candidates":[]}';
+  const STEP = '[ambicode] investigate \u00b7 task t \u00b7 step read (4/5)\nNow: read\n## map\n{"candidates":[["a.ts",1,[]]]}';
 
   it('reports map, candidates and length from the Read of the linked step file; a spill reference is reported as spilled', () => {
     const inline = deliveryOf([hook('# contract') + link('read') + read(STEP)]);
@@ -136,6 +136,8 @@ describe('delivery of the read step', () => {
     assert.equal(spilled.status, 'spilled');
     assert.equal(spilled.spill, true);
     assert.equal(deliveryOf([link('read') + read('[ambicode] investigate \u00b7 step read\nno map here')]).map, false);
+    const empty = deliveryOf([link('read') + read('[ambicode] investigate \u00b7 task t \u00b7 step read (4/5)\n## map\n{"candidates":[]}\nThe map found no files for this request; search the repository yourself with your own tools.')]);
+    assert.deepEqual([empty.status, empty.map, empty.candidates], ['delivered', true, false], 'an empty map is a map section without candidates');
   });
 
   it('a link the model never read is not-read, apart from absent: the link line alone carries no step text', () => {
