@@ -1,6 +1,6 @@
 ---
 name: task
-description: "Make one bounded code change with the record to prove it — the smallest change with its tests, formatted and checked, an independent review offered, and a report built from the ledger; it never commits, pushes, or publishes. Only when named (/ambicode:task typed, or \"run ambicode:task\" asked by the user, also for a subagent): a plain request to implement or fix something is not this skill."
+description: "Make one bounded code change with the record to prove it — the smallest change with its tests, formatted and checked, an independent review unless `--no-review`, and a report built from the ledger; it never commits, pushes, or publishes. Only when named (/ambicode:task typed, or \"run ambicode:task\" asked by the user, also for a subagent): a plain request to implement or fix something is not this skill."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>] [--no-review]
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 
 # Implement a change
 
-Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration; with it the review is offered, the checks by file run unasked, and a check that runs the whole project is offered. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; one review follows over the whole change, then the checks run once, over everything the task changed. `--no-review` skips the review either way. The output of the command it ends with brings the next step. Either way a check that runs the whole project, or one the policy marks `propose`, runs only on your answer; headless skips it and lists it under Not verified.
+Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration, with its checks by file run unasked. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; the checks then run once, over everything the task changed. One review follows over the change either way, unless `--no-review`; headless runs none. The output of the command it ends with brings the next step. Either way a check that runs the whole project, or one the policy marks `propose`, runs only on your answer; headless skips it and lists it under Not verified.
 
 ## Your part
 

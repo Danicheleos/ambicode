@@ -81,7 +81,7 @@ const isInvestigate = (real) => real.skill === 'investigate';
 const askOf = (real) => `${real.prompt} ${CITE}${real.files === false ? '' : ` ${FILES}`}`;
 
 // Every case, both arms: the eval measures the code a run writes, not the project's builds, tests or reviews. The plugin arm also gets every configured
-// check set to null (config-checks-off.mjs) and `--headless` with no iteration named: every plan iteration runs and the review-offer gate defaults to skip.
+// check set to null (config-checks-off.mjs) and `--headless` with no iteration named: every plan iteration runs and a headless run starts no review.
 export const NO_RUNS = 'Do not run builds, tests, linters or reviews; write the code and the tests it needs and stop.';
 
 const WRITE_CALL = '(?:\\"name\\":\\"(?:Edit|Write)\\"|\\"name\\":\\"Bash\\"[^\\n]*(?:<<|\\.write\\(|sed -i|cat >|tee ))';

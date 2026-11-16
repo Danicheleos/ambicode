@@ -29,15 +29,7 @@ steps:
     produces: ["check{green}"]
   - id: format
     actor: code
-    run: [checks.format, checks.approved]         # runs once the green check ends change, before the offer, so a skipped review is still formatted; approved checks run after it
-  - id: review-offer
-    actor: human
-    when: review.offered                         # only an interactive run that names an iteration is offered the review (never with --no-review); with none named the one review of the whole change runs unasked, and headless runs none
-    gate:
-      question: "Run the independent review of this change?"
-      options: [run, "skip — verification incomplete"]
-      default: "skip — verification incomplete"
-      acting: [run]
+    run: [checks.format, checks.approved]         # runs once the green check ends change, before the review, so a --no-review or headless run is still formatted; approved checks run after it
   - id: checks-offer
     actor: human
     when: checks.offer                         # before the review so a revise never asks it twice (a revise re-opens every step after its target); asked in every run with a full key: a headless run prints it and takes the skip default, so the route's start is never the consent for the whole project
@@ -48,23 +40,23 @@ steps:
       acting: [run]
   - id: brief
     actor: code
-    when: gate.review-offer.is(run) or review.unasked
+    when: review.unasked
     run: [review.pin, "policy.stage(before-work, review)", "search.map(review)", script(brief)]
     repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
   - id: review-agent
     actor: model
-    when: gate.review-offer.is(run) or review.unasked
+    when: review.unasked
     instruction: file:routes/review/agent.md
     work: file:routes/review/agent-work.md
     payload: ["script:brief"]
   - id: review-record
     actor: code
-    when: gate.review-offer.is(run) or review.unasked
+    when: review.unasked
     run: review.record                            # reads the reviewer's answer file; none is a failed review
     produces: ["review{recorded}"]
   - id: review-run
     actor: code
-    when: gate.review-offer.is(run) or review.unasked
+    when: review.unasked
     run: review.evaluate
     onFail: revise fix                            # review-findings: the first entry to fix
   - id: fix

@@ -37,10 +37,10 @@ const cliStart = (t: Fixture, session: string, argv: string[]) => runRouteStart(
 const cliNext = (t: Fixture, session: string, task: string) => runRouteNext(shell(t, session), parseArgs('route next', ['--task', task], ROUTE_NEXT_OPTIONS));
 const SKIP = 'skip — verification incomplete';
 const answer = (t: Fixture, session: string, gate: string, option: string, instance: string) => {
-  const question = `Run the independent review of this change? [ambicode gate ${gate} ${instance}]`;
+  const question = `Run the full checks (the whole project, not by file)? [ambicode gate ${gate} ${instance}]`;
   return hooked(t).event({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'run' }, { label: SKIP }] }] }, tool_response: { answers: { [question]: option } } }, session);
 };
-/** A green check on the task's live route: its change is done, so the route stops at the review-offer gate. */
+/** A green check on the task's live route: its change is done, so the route stops at the checks-offer gate. */
 const toOffer = async (t: Fixture, task: string): Promise<void> => {
   await t.edit();
   const route = (await t.fx.kinds(task, 'route')).at(-1)!;
@@ -61,11 +61,11 @@ describe('a route belongs to the Claude session that started it, from a hook or 
       const [first, second] = await t.kinds('route');
       assert.equal(second!['session'], CLAUDE_2);
       assert.equal(second!['channel'], 'cli');
-      const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'review-offer')!;
+      const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'checks-offer')!;
       assert.equal(print['route'], second!.id);
 
-      await answer(t, CLAUDE_2, 'review-offer', SKIP, print.id);
-      const accepted = (await t.kinds('acceptance')).filter((entry) => entry['gate'] === 'review-offer');
+      await answer(t, CLAUDE_2, 'checks-offer', SKIP, print.id);
+      const accepted = (await t.kinds('acceptance')).filter((entry) => entry['gate'] === 'checks-offer');
       assert.deepEqual(accepted.map((entry) => [entry['route'], entry['via'], entry['instance'], entry['answer']]), [[second!.id, 'hook', print.id, SKIP]]);
       assert.notEqual(first!.id, second!.id);
     });
@@ -210,13 +210,13 @@ describe('the task argument names a task', { concurrency: 4 }, () => {
     });
   });
 
-  it('a bare number after the task word is the iteration: one route, the review offered, no restart', async () => {
+  it('a bare number after the task word is the iteration: one route, no restart', async () => {
     await withTask(async (t) => {
       await planned(t);
       assert.deepEqual(await started(t, `${CHECK_TASK} 1`), { dirs: [CHECK_TASK], plan: PLAN, iteration: [1, 2] });
       await toOffer(t, CHECK_TASK);
       assert.equal((await t.kinds('route')).length, 1);
-      assert.deepEqual((await t.kinds('gate')).map((entry) => entry['gate']), ['review-offer']);
+      assert.deepEqual((await t.kinds('gate')).map((entry) => entry['gate']), ['checks-offer']);
     });
   });
 
@@ -285,13 +285,13 @@ describe('parallel sessions on different tasks', { concurrency: 4 }, () => {
       await launch(t, '/ambicode:task --task two fix total iteration 1', CLAUDE_2);
       await toOffer(t, 'one');
       await toOffer(t, 'two');
-      const printOf = async (task: string) => (await t.fx.kinds(task, 'gate')).findLast((entry) => entry['gate'] === 'review-offer')!;
+      const printOf = async (task: string) => (await t.fx.kinds(task, 'gate')).findLast((entry) => entry['gate'] === 'checks-offer')!;
       const accepted = async (task: string) => (await t.fx.kinds(task, 'acceptance')).length;
 
-      await answer(t, CLAUDE_1, 'review-offer', SKIP, (await printOf('one')).id);
+      await answer(t, CLAUDE_1, 'checks-offer', SKIP, (await printOf('one')).id);
       assert.deepEqual([await accepted('one'), await accepted('two')], [1, 0]);
 
-      await answer(t, CLAUDE_2, 'review-offer', SKIP, (await printOf('two')).id);
+      await answer(t, CLAUDE_2, 'checks-offer', SKIP, (await printOf('two')).id);
       assert.deepEqual([await accepted('one'), await accepted('two')], [1, 1]);
     });
   });

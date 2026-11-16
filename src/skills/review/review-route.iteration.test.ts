@@ -32,7 +32,6 @@ async function toReview(t: Fixture, edit: () => Promise<void>): Promise<void> {
   await t.start();
   await edit();
   await t.check('green', { ran: 1, failed: 0 });
-  await t.hook('review-offer', 'run');
 }
 
 describe('the task review covers this iteration, not the whole tree (A1)', () => {

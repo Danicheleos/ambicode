@@ -9,7 +9,7 @@ const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit',
 const pointer = (exit: number): string => `last run: exit ${exit}; 7 bytes of output in .ambicode/tasks/t/checks/run.log`;
 const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
 const review = (reviewId: string, findings: number, fields: object = {}): LedgerEntry => entry('review', { reviewId, stage: 'recorded', status: 'complete', reviewerRan: true, findings, omissions: 0, ...fields });
-const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
+const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'checks-offer', instance: null, answer, via: 'headless', ...fields });
 
 describe('gapsOf: checks never claim more than the ledger says', () => {
   it('a task run on a draft plan, by a human or by default, says the plan was not accepted; stopping on it lists nothing', () => {
@@ -103,7 +103,7 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
   it('lists declines, defaults with their via, limits, missing sources, a reviewer that did not run and a model-set headless', () => {
     const gaps = gapsOf([
       route({ mode: 'headless', channel: 'cli', trusted: false }),
-      entry('declined', { route: 'r', gate: 'review-offer', instance: null, answer: 'run', via: 'flag', reason: 'acting-needs-human' }),
+      entry('declined', { route: 'r', gate: 'checks-offer', instance: null, answer: 'run', via: 'flag', reason: 'acting-needs-human' }),
       entry('default-taken', { route: 'r', gate: 'scope', instance: null, answer: 'out of scope', via: 'never-asked' }),
       entry('default-taken', { route: 'r', gate: 'plan-accept', instance: null, answer: 'Reject', via: 'headless' }),
       entry('limit', { route: 'r', which: 'repeat', count: 2, step: 'ground' }),
@@ -111,7 +111,7 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
       entry('review', { reviewId: 'local_2', status: 'partial', reviewerRan: false, findings: 0, omissions: 3 }),
     ]).join('\n');
     for (const expected of [
-      /review-offer: declined "run" \(acting-needs-human\)/,
+      /checks-offer: declined "run" \(acting-needs-human\)/,
       /scope: default taken, "out of scope" \(never-asked\)/,
       /plan-accept: default taken, "Reject" \(headless\)/,
       /A step was repeated 2 times and stopped there/,
@@ -125,12 +125,6 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
     assert.deepEqual(gapsOf([route({ mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]), []);
   });
 
-  it('a skipped review-offer is no gap line; a default-taken one is still listed as taken; run is not', () => {
-    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), []);
-    assert.deepEqual(gapsOf([offer('default-taken', 'skip — verification incomplete')]), ['review-offer: default taken, "skip — verification incomplete" (headless)']);
-    assert.deepEqual(gapsOf([offer('acceptance', 'run', { instance: 'i', via: 'hook' })]), []);
-  });
-
   it('a declined or default-taken check-only-unauthorized names the key and files of its print, or the whole project', () => {
     const print = (files: string[]) => entry('gate', { id: 'p', route: 'r', gate: 'check-only-unauthorized', values: { key: ['app/e2e'], files } });
     const taken = entry('default-taken', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: 'decline', via: 'headless' });
@@ -138,6 +132,20 @@ describe('gapsOf: what was skipped, declined or limited is visible', () => {
     assert.deepEqual(gapsOf([print([]), taken]), ['check-only-unauthorized: default taken, "decline" (headless) for app/e2e on the whole project']);
     const declined = entry('declined', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: 'decline', via: 'flag' });
     assert.deepEqual(gapsOf([print([]), declined]), ['check-only-unauthorized: declined "decline" for app/e2e on the whole project']);
+  });
+
+  it('an interactive decline of check-only-unauthorized is listed like a declined entry; run is not', () => {
+    const print = entry('gate', { id: 'p', route: 'r', gate: 'check-only-unauthorized', values: { key: ['app/e2e'], files: ['src/a.ts'] } });
+    const answer = (value: string) => entry('acceptance', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: value, via: 'hook' });
+    assert.deepEqual(gapsOf([print, answer('decline')]), ['check-only-unauthorized: declined "decline" for app/e2e on src/a.ts']);
+    assert.deepEqual(gapsOf([print, answer('run')]), []);
+  });
+
+  it('a skipped checks-offer lists the keys of its print as skipped; a run answer adds no line', () => {
+    const print = entry('gate', { id: 'p', route: 'r', gate: 'checks-offer', values: { key: ['app/unit', 'app/typecheck'] } });
+    assert.deepEqual(gapsOf([print, offer('acceptance', 'skip — verification incomplete', { instance: 'p', via: 'hook' })]), ['checks skipped: app/unit, app/typecheck — verification incomplete']);
+    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'p', via: 'hook' })]), ['checks skipped — verification incomplete']);
+    assert.deepEqual(gapsOf([print, offer('acceptance', 'run', { instance: 'p', via: 'hook' })]), []);
   });
 
   it('an unbound skip answer is not counted as a bound one', () => {
@@ -209,9 +217,7 @@ describe('the facts the final message copies', () => {
     assert.equal(reviewFact([review('a', 3), review('b', 2)]), '3 findings, re-review 2 open');
     assert.equal(reviewFact([review('a', 3)]), '3 findings, re-review not run');
     assert.equal(reviewFact([review('a', 1), entry('default-taken', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'headless' })]), '1 finding, re-review skipped by default (headless)');
-    assert.equal(reviewFact([offer('default-taken', 'skip — verification incomplete')]), null);
     assert.equal(reviewFact([review('a', 1), entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), '1 finding, re-review skipped by you');
-    assert.equal(reviewFact([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]), null);
     assert.equal(reviewFact([]), null);
   });
 

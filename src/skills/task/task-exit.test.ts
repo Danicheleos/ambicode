@@ -9,7 +9,6 @@ type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
 const PLAN = '.ambicode/tasks/ord-7/plan.md';
 const TWO = '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n';
-const SKIP = 'skip — verification incomplete';
 
 async function withTask(body: (t: Fixture) => Promise<void>): Promise<void> {
   const t = await taskFixture();
@@ -45,7 +44,7 @@ describe('route exit: steps/ and summary.md', () => {
   it('done: steps/ is gone and summary.md lists routes, iteration status and checks', async () => {
     await withTask(async (t) => {
       await toOffer(t);
-      await t.hook('review-offer', SKIP);
+      await t.review([]);
       await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad }, { repositoryRoot: t.fx.repo.root, where: '.' });
       assert.deepEqual(await stepFiles(t), []);
       const text = await summary(t);
@@ -60,7 +59,7 @@ describe('route exit: steps/ and summary.md', () => {
   it('the final message must state the skipped end checks; once it does it is saved as the result and shown in summary.md', async () => {
     await withTask(async (t) => {
       await toOffer(t);
-      await t.hook('review-offer', SKIP);
+      await t.review([]);
       const stop = (message: string) => t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: message }, { repositoryRoot: t.fx.repo.root, where: '.' });
       const blocked = await stop('# Task report\n**Done**\n- src/a.ts:1 guard the empty list.\nChecks\n- app/unit: passed');
       assert.equal(blocked?.decision, 'block');

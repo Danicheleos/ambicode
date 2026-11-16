@@ -92,8 +92,7 @@ describe('task route: route next records the reviewer answer file', { concurrenc
   async function toReviewer(t: Awaited<ReturnType<typeof taskFixture>>) {
     await t.start();
     await t.edit();
-    await t.check('green', { ran: 1, failed: 0 });
-    return t.hook('review-offer', 'run');
+    return t.check('green', { ran: 1, failed: 0 });
   }
   const bundle = (t: Awaited<ReturnType<typeof taskFixture>>) => path.join(t.dir, 'reviews', '1');
 
@@ -125,11 +124,11 @@ describe('task route: route next records the reviewer answer file', { concurrenc
     const t = await taskFixture();
     try {
       await toReviewer(t);
-      const write = await t.next();
-      assert.equal(write.position, 'write');
+      const ended = await t.next();
+      assert.equal(ended.position, 'complete', 'a failed review ends the route blocked: no write step');
+      assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'blocked');
       assert.equal((await t.kinds('review')).at(-1)?.['status'], 'error');
       assert.match(gapsOf(await t.ledger()).join('\n'), /The independent review failed/);
-      assert.match(await t.work('write'), /Not verified[\s\S]*The independent review failed/);
     } finally {
       await t.fx.dispose();
     }

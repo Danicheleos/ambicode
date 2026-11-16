@@ -39,13 +39,10 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
     const print = (await fx.kinds(CHECK_TASK, 'gate')).findLast((entry) => entry['gate'] === gate);
     return next({ cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
   };
-  // Most tests are about the review and the report, not the full-checks question (asked after the review offer, or at the green check when no iteration is named): it is skipped for them unless `askChecks` is on.
+  // Most tests are about the review and the report, not the full-checks question (asked at the green check): it is skipped for them unless `askChecks` is on.
   const skipChecks = async (message: StepMessage): Promise<StepMessage> =>
     message.position === 'checks-offer' && options.askChecks !== true ? answer('checks-offer', 'skip — verification incomplete') : message;
-  const hook = async (gate: string, option: string): Promise<StepMessage> => {
-    const message = await answer(gate, option);
-    return gate === 'review-offer' ? skipChecks(message) : message;
-  };
+  const hook = (gate: string, option: string): Promise<StepMessage> => answer(gate, option);
   const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
     (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), { route: await routeId(), session: SESSION_A, ...fields })).entry;
@@ -60,7 +57,7 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
     await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, output: '.ambicode/tasks/ord-7/checks/app-unit_0.log', bytes: 0, ms: 3 });
   };
   /** What the route's review pin leaves: the result file and the `review` entry, then the tail. */
-  const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {
+  const review = async (findings: Finding[], extra: { reviewerRan?: boolean; status?: string } = {}): Promise<StepMessage> => {
     reviews += 1;
     // The recorded entry answers the pin's pending one, as the route's record step does; another id would leave that review pending for review.record to fail.
     const reviewId = String((await fx.kinds(CHECK_TASK, 'review')).findLast((entry) => entry['stage'] === 'pending')?.['reviewId'] ?? `r-${reviews}`);
@@ -69,7 +66,7 @@ export async function taskFixture(options: { config?: string; pack?: string; ask
     await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join(bundle, 'brief.md') }));
     await fx.repo.write(path.join(bundle, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     const ran = extra.reviewerRan ?? true;
-    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length });
+    const entry = await append({ kind: 'review', reviewId, result, status: extra.status ?? 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length });
     return next({ cause: 'route-next', produced: [entry.id] });
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */

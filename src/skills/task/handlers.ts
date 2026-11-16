@@ -1,18 +1,16 @@
 import path from 'node:path';
 import { openWorkspace } from '#modules/config/workspace';
-import { baselineIn, touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
+import { captureBaseline } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
-import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
-import { baselineTree } from '#modules/review/bundle/bundle';
 import { snapshotTree } from '#modules/review/snapshot/target';
 import { openRepository } from '#platform/git/open';
 import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries } from '../common.ts';
 import { planStatusOf } from '#modules/evidence/notes';
+import { reviewState } from '#modules/evidence/report/report';
 import { briefOf } from '../brief.ts';
-import { isAmbicodeError } from '#util/errors';
 import { runnableChecks, outputPointer } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { runApprovedChecks } from '#modules/checks/run/approved';
@@ -181,11 +179,14 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
       : { state: 'ok', payload: null };
   },
 
-  /** A route whose last check is red did not do its iteration, however it got here: it ends blocked and the next start redoes it. */
+  /** A route whose last check is red, or whose independent review failed, did not do its iteration: it ends blocked and the next start redoes it. */
   'task.verdict': async (input) => {
-    const last = (await chainEntries(input)).findLast((entry) => entry.kind === 'check');
-    if (last === undefined || isGreen(last)) return { state: 'ok', payload: null };
-    return { state: 'ok', payload: null, exit: 'blocked', exitDetail: `the last check (${String(last['key'])}) is red, exit ${String(last['exit'])}: this iteration is not done` };
+    const chain = await chainEntries(input);
+    const last = chain.findLast((entry) => entry.kind === 'check');
+    if (last !== undefined && !isGreen(last)) return { state: 'ok', payload: null, exit: 'blocked', exitDetail: `the last check (${String(last['key'])}) is red, exit ${String(last['exit'])}: this iteration is not done` };
+    const review = chain.findLast((entry) => entry.kind === 'review');
+    if (review !== undefined && review['reviewerRan'] !== false && reviewState(review).failed) return { state: 'ok', payload: null, exit: 'blocked', exitDetail: 'the independent review failed: the reviewer\'s answer could not be verified; this iteration is not done' };
+    return { state: 'ok', payload: null };
   },
 };
 
@@ -195,15 +196,4 @@ onGatePrint('checks-offer', async ({ runtime }) => {
   const keys: string[] = [];
   for (const project of workspace.config.projects) for (const entry of await runnableChecks(workspace, project)) if (!entry.file) keys.push(`${project.id}/${entry.key}`);
   return { question: `Run the full checks ${keys.join(', ')} (the whole project, not by file)?`, details: `Checks by file run on what changed without a question. This would also run: ${keys.join(', ')}.`, values: { key: keys } };
-});
-
-onGatePrint('review-offer', async ({ runtime, task, chain }) => {
-  try {
-    const baseline = baselineIn(chain);
-    const preexisting = baseline === null ? [] : (await touchedSet(runtime, baseline)).preexisting;
-    const estimate = await estimateReview(runtime, { runtime, target: { kind: 'working' }, requirements: [], task, preexisting, baseTree: baselineTree(chain) });
-    return { details: renderEstimate(estimate) };
-  } catch (error) {
-    return { details: `Review estimate unavailable: ${isAmbicodeError(error) ? error.code : 'an unexpected error'}.` };
-  }
 });

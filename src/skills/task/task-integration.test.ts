@@ -16,7 +16,8 @@ import { runCommandTail } from '#harness/engine/engine';
 import { skillHandlers } from '#skills/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
-import { readLedger } from '#platform/ledger/ledger';
+import { readLedger, appendLedger } from '#platform/ledger/ledger';
+import { reviewResult } from '#testing/fixtures/review-fixture';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REPO_ROOT } from '#testing/paths';
 import type { CheckDeps } from '#types/modules/checks';
@@ -45,7 +46,7 @@ async function offByOne() {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
-  for (const name of ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'task/write-work']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['investigate/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'task/write-work', 'review/agent', 'review/agent-work']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   // The route's own end checks run through the same scripted runner: jest is not installed here.
   let runner!: SplitRunner;
   const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step, wrapRunner: (real) => (runner = new SplitRunner(real)) });
@@ -71,13 +72,15 @@ async function offByOne() {
     root, engine, runner, check, stop,
     start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page. iteration 1', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
     ledger,
-    skip: async () => {
-      const answer = async (gate: string) => {
-        const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
-        return engine.advance({ task: TASK, cause: 'gate-hook', answers: [{ gate, option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
-      };
-      // Its only check has a file form, which runs unasked: there is no checks question.
-      return answer('review-offer');
+    /** What the reviewer and `review record` leave for a clean review of the pinned bundle, then the route's next step. */
+    review: async () => {
+      const entries = await ledger();
+      const pending = entries.findLast((entry) => entry.kind === 'review' && entry['stage'] === 'pending')!;
+      const result = String(pending['result']);
+      const reviewId = String(pending['reviewId']);
+      await writeFile(path.join(root, result), JSON.stringify({ ...reviewResult({ kind: 'working', findings: [] }), reviewId, brief: path.join(path.dirname(result), 'brief.md') }));
+      const { entry } = await appendLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK), new Date(), { route: entries.findLast((entry) => entry.kind === 'route')!.id, session: SESSION_A, kind: 'review', reviewId, result, status: 'complete', stage: 'recorded', reviewerRan: true, findings: 0 });
+      return engine.advance({ task: TASK, cause: 'route-next', produced: [entry.id], scratchpadDir: scratchpad });
     },
     work: (step = 'change') => readFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', `work-${step}.md`), 'utf8'),
     write: (file: string, text: string) => writeFile(path.join(root, file), text),
@@ -95,7 +98,7 @@ const trail = (ledger: readonly LedgerEntry[]): string =>
   }).join(' · ');
 
 describe('task route on ts-off-by-one (integration, test 18)', () => {
-  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → change (green) → automatic unconfigured format → offer → skip → report', async () => {
+  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → change (green) → automatic unconfigured format → review (no question) → report', async () => {
     const t = await offByOne();
     try {
       const first = await t.start();
@@ -108,16 +111,14 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
       await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
       await t.write('src/page.js', 'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n');
       t.runner.out = { exitCode: 0, stdout: PASSING };
-      const offer = await t.check('green');
-      assert.equal(offer?.position, 'review-offer');
-      assert.match(offer?.text ?? '', /Review estimate: working tree/);
-
-      const write = await t.skip();
+      // Its only check has a file form, which runs unasked: no checks question, and the review follows with no question.
+      assert.equal((await t.check('green'))?.position, 'review-agent');
+      const write = await t.review();
       assert.equal(write.position, 'write');
       // The facts moved from the step message to the work file the implementer writes the report from.
       const facts = await t.work('write');
       assert.match(facts, /^Checks\n- app\/unit: passed\n- no formatter configured$/m);
-      assert.doesNotMatch(facts.split('## report\n')[1] ?? '', /^Review$/m);
+      assert.match(facts.split('## report\n')[1] ?? '', /^Review\n- no findings$/m);
       assert.doesNotMatch(facts.split('## report\n')[1] ?? '', /Not verified/);
       assert.doesNotMatch(facts, /Evidence|not formatted|green exit/);
 

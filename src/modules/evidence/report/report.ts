@@ -21,7 +21,7 @@ const during = (step: unknown): string => (typeof step === 'string' && STEP_WORD
 const omissionsOf = (entry: LedgerEntry): number => (typeof entry.omissions === 'number' ? entry.omissions : list(entry.omissions).length);
 
 /** How a recorded review ended, from its status: a failed one has no result, a partial one has omissions. */
-const reviewState = (entry: LedgerEntry): { failed: boolean; partial: boolean } => ({
+export const reviewState = (entry: LedgerEntry): { failed: boolean; partial: boolean } => ({
   failed: entry.status === 'error',
   partial: typeof entry.status === 'string' && entry.status !== 'complete' && entry.status !== 'error',
 });
@@ -83,7 +83,8 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
     const key = list(asked?.key).length > 0 ? list(asked?.key) : entry.gate === 'check-only-unauthorized' && entry.key !== undefined ? [entry.key] : [];
     // A flag decline with no print knows its key but not its files.
     const named = key.length === 0 ? '' : ` for ${key.map(String).join(', ')}${asked === undefined ? '' : ` on ${list(asked.files).length === 0 ? 'the whole project' : list(asked.files).map(String).join(', ')}`}`;
-    if (entry.kind === 'declined') gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}${named}`);
+    // An interactive decline is recorded as the hook's acceptance, with no declined entry beside it.
+    if (entry.kind === 'declined' || (entry.kind === 'acceptance' && entry.gate === 'check-only-unauthorized' && entry.answer === 'decline')) gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}${named}`);
     if (entry.kind === 'default-taken') gaps.push(`${shown(entry.gate)}: default taken, "${shown(entry.answer)}" (${shown(entry.via)})${named}`);
     if (entry.gate === 'review-again' && entry.answer === 'skip') gaps.push('fix not re-reviewed');
     if (entry.gate === 'plan-unaccepted' && entry.answer === 'run on the draft' && entry.kind !== 'declined') gaps.push('plan run without being accepted');
@@ -143,7 +144,7 @@ export function reviewFact(entries: readonly LedgerEntry[]): string | null {
   const bound = entries.filter((entry) => (entry.kind === 'acceptance' || entry.kind === 'default-taken') && isBoundAnswer(entry));
   const skip = (gate: string): LedgerEntry | undefined => bound.find((entry) => entry.gate === gate && (gate === 'review-again' ? entry.answer === 'skip' : String(entry.answer).startsWith('skip')));
   const by = (entry: LedgerEntry): string => (entry.kind === 'default-taken' ? 'by default (headless)' : 'by you');
-  // A review the user skipped at the offer is no gap line; `--no-review` is listed by gapsOf, and a Review line alone would restate either.
+  // A review skipped by `--no-review` is listed by gapsOf, and a Review line alone would restate it.
   if (recorded.length === 0) return null;
   const first = Number(recorded[0]!.findings ?? 0);
   const last = recorded.at(-1)!;

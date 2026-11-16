@@ -55,21 +55,21 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
-      assert.equal((await green(t)).position, 'review-offer');
-      assert.equal((await t.hook('review-offer', SKIP)).position, 'write', 'no full key: no checks question at all');
+      assert.equal((await green(t)).position, 'review-agent', 'no full key: no checks question at all');
+      assert.equal((await t.review([])).position, 'write');
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'"]);
-      assert.deepEqual(await gateNames(t), ['review-offer']);
+      assert.deepEqual(await gateNames(t), []);
       assert.ok(!gapsOf(await t.ledger()).some((gap) => /checks skipped/.test(gap)));
     }, { config: FILE_ONLY, askChecks: true });
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
-      await green(t);
-      const offer = await t.hook('review-offer', SKIP);
+      const offer = await green(t);
       assert.equal(offer.position, 'checks-offer');
       assert.match(offer.text, /app\/typecheck/, 'the question names the full key it would run');
       assert.doesNotMatch(offer.text, /app\/unit/);
-      assert.equal((await t.hook('checks-offer', SKIP)).position, 'write');
+      assert.equal((await t.hook('checks-offer', SKIP)).position, 'review-agent');
+      assert.equal((await t.review([])).position, 'write');
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'"], 'the scoped key ran without being asked, the full key did not');
       assert.ok(gapsOf(await t.ledger()).includes('checks skipped: app/typecheck — verification incomplete'), gapsOf(await t.ledger()).join('\n'));
     });
@@ -77,8 +77,8 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
       await green(t);
-      await t.hook('review-offer', SKIP);
-      assert.equal((await t.hook('checks-offer', 'run')).position, 'write');
+      assert.equal((await t.hook('checks-offer', 'run')).position, 'review-agent');
+      assert.equal((await t.review([])).position, 'write');
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'", 'tsc --noEmit']);
       assert.ok(!gapsOf(await t.ledger()).some((gap) => /checks skipped/.test(gap)));
     });
@@ -86,7 +86,6 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
       await green(t);
-      await t.hook('review-offer', SKIP);
       assert.ok(!(await gateNames(t)).includes('checks-offer'), 'no runnable check: nothing to offer');
     }, { config: NO_CHECKS, askChecks: true });
   });
@@ -106,7 +105,7 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2`, headless: true });
       await t.edit();
-      assert.equal((await green(t)).position, 'write', 'a named iteration in a headless run is not offered the review');
+      assert.equal((await green(t)).position, 'write', 'a named iteration in a headless run starts no review');
       assert.deepEqual(await gateNames(t), ['checks-offer']);
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'"], 'the full key is never run unasked');
       assert.ok(gapsOf(await t.ledger()).includes(SKIPPED), gapsOf(await t.ledger()).join('\n'));
@@ -173,24 +172,26 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
       await green(t);
-      await t.hook('review-offer', SKIP);
-      assert.equal((await t.hook('checks-offer', 'run')).position, 'fix');
+      assert.equal((await t.hook('checks-offer', 'run')).position, 'review-agent');
+      assert.equal((await t.review([])).position, 'fix');
       return green(t);
     };
     await withTask(async (t) => {
       const asked = await toSecondRound(t);
       assert.equal(asked.position, 'scope-checks');
-      assert.deepEqual(await gateNames(t), ['review-offer', 'checks-offer', 'checks-again']);
+      assert.deepEqual(await gateNames(t), ['checks-offer', 'checks-again']);
       t.runner.outFor = null;
       t.runner.out = { exitCode: 0, stdout: '' };
       assert.equal((await t.hook('checks-again', 'fix')).position, 'fix', 'the user chose another round');
-      assert.equal((await green(t)).position, 'write');
+      assert.equal((await green(t)).position, 'report-step', 'the fix changed the code after the review: review-again is asked');
+      assert.equal((await t.hook('review-again', 'skip')).position, 'write');
       assert.deepEqual(ran(t).filter((call) => call.startsWith('jest')), ["jest 'src/orders.ts'", "jest 'src/orders.ts'", "jest 'src/orders.ts'"]);
       assert.ok(!gapsOf(await t.ledger()).some((gap) => /^app\/unit/.test(gap)), 'a later green pass of the key closes the gap');
     });
     await withTask(async (t) => {
       await toSecondRound(t);
       await t.hook('checks-again', REPORT_GAP);
+      await t.hook('review-again', 'skip');
       assert.ok(gapsOf(await t.ledger()).some((gap) => /^app\/unit: last run: exit 1; /.test(gap)), 'never reported as clean');
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'blocked');
     });
@@ -236,6 +237,7 @@ describe('task route: a propose key and a full key need the human\'s answer (F13
       await t.review([]);
       assert.equal((await t.hook(GATE, 'decline')).position, 'write');
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'"]);
+      assert.ok(gapsOf(await t.ledger()).includes(`${GATE}: declined "decline" for app/e2e on src/orders.ts`), gapsOf(await t.ledger()).join('\n'));
     }, { config: PROPOSE, askChecks: true });
   });
 
@@ -267,8 +269,8 @@ describe('task route: a propose key and a full key need the human\'s answer (F13
         assert.equal((await prints(t)).length, 2);
         assert.equal((await t.runCheck({ name: 'unit' })).outcome, 'ran', 'the first key is still approved');
         assert.equal((await t.runCheck({ name: 'e2e' })).outcome, 'ran');
-        assert.equal((await green(t)).position, 'review-offer');
-        assert.equal((await t.hook('review-offer', SKIP)).position, 'write');
+        assert.equal((await green(t)).position, 'review-agent');
+        assert.equal((await t.review([])).position, 'write');
         assert.equal((await prints(t)).length, 2, 'no third question');
         assert.deepEqual(ran(t), ["jest 'src/a.spec.ts'", "jest 'src/orders.ts'", "pw 'src/a.spec.ts'", "pw 'src/orders.ts'"], 'each key once by the implementer and once by the end step');
       }, TWO_PROPOSE);

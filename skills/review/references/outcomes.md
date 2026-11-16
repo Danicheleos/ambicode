@@ -27,9 +27,10 @@ default branch name. AskUserQuestion which ref, then pass `--base <ref>`.
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
 a `propose` check asks the user instead; only the user's own answer approves it.
 
-**`ambiguous-project`.** `search` or `check` takes one project and the files fall in
-several. The error names the configured projects: rerun the same command with `--project <id>` for
-the project that holds the files. No question to the user.
+**`ambiguous-project`.** `search` takes one project and the files fall in several: rerun the same
+command with `--project <id>` for the project that holds the files. `check --file` runs once per project
+when its files span projects, so it raises this only for a file inside no configured project root: no
+project holds it, the check cannot run on it, so list it under Gaps. No question to the user.
 
 **`check-limit`.** A sixth `check` of one phase in the current step. Release: state
 the gap in the report; `route next --task <slug>`.

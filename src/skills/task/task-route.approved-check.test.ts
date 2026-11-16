@@ -64,7 +64,6 @@ describe('a route that ends with a gate printed lists it unanswered (A5)', () =>
       await t.start();
       await t.edit();
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       assert.equal((await t.review([finding({ id: 'F1' })])).position, 'fix');
       assert.equal((await t.runCheck({ name: 'typecheck', files: [], phase: 'green' })).outcome, 'waiting');
       const [print] = await prints(t);

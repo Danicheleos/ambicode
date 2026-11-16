@@ -7,7 +7,6 @@ import { parseArgs } from '#util/args';
 import { runReviewEstimate, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { CHECK_CONFIG, COMMAND_PACK } from '#testing/fixtures/check-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { taskFixture } from '#testing/fixtures/task-fixture';
 import { AmbicodeError } from '#util/errors';
 import { parseNarrow, refusalSuggestions, renderEstimate } from './estimate.ts';
 import { narrowingInForce } from '#skills/review/handlers';
@@ -76,20 +75,6 @@ describe('review estimate (07-E)', () => {
     assert.ok(text.includes(`refused before the reviewer: input-too-large: ${message}\n`));
     for (const suggestion of suggestions) assert.ok(text.includes(`\n  ${suggestion}\n`), suggestion);
     assert.doesNotMatch(text, /more\n/);
-  });
-
-  it('07-E4: the review-offer print carries the rendered estimate as details, and its question stays plain', async () => {
-    const t = await taskFixture();
-    try {
-      await t.start();
-      await t.edit();
-      await t.check('green', { ran: 1, failed: 0 });
-      const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'review-offer');
-      assert.match(String(print?.['details']), /Review estimate:/);
-      assert.doesNotMatch(String(print?.['question']), /Review estimate:/);
-    } finally {
-      await t.fx.dispose();
-    }
   });
 });
 

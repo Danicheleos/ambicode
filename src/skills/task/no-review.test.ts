@@ -25,7 +25,7 @@ async function withTask(body: (t: Fixture) => Promise<void>): Promise<void> {
 const skipped = async (t: Fixture): Promise<unknown[]> => (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
 
 describe('task --no-review', () => {
-  it('by default the change is reviewed, unasked when no iteration is named and offered when one is', async () => {
+  it('by default the change is reviewed with no question, whether or not an iteration is named', async () => {
     await withTask(async (t) => {
       await t.start({ text: UNNAMED });
       await t.edit();
@@ -34,7 +34,7 @@ describe('task --no-review', () => {
     await withTask(async (t) => {
       await t.start({ text: NAMED });
       await t.edit();
-      assert.equal((await t.check('green', null)).position, 'review-offer');
+      assert.equal((await t.check('green', null)).position, 'review-agent');
       assert.doesNotMatch(JSON.stringify(gapsOf(await t.ledger())), /review skipped/);
     });
   });
@@ -49,9 +49,9 @@ describe('task --no-review', () => {
         if (after.position === 'checks-offer') after = await t.hook('checks-offer', 'skip — verification incomplete');
         assert.equal(after.position, 'write', text);
         assert.equal((await t.kinds('review')).length, 0);
-        assert.ok(!(await t.kinds('gate')).some((entry) => entry['gate'] === 'review-offer'), 'the review is not offered');
+        assert.ok((await t.kinds('gate')).every((entry) => entry['gate'] === 'checks-offer'), 'only the full-checks question is raised');
         const left = await skipped(t);
-        for (const step of ['review-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix']) assert.ok(left.includes(step), `${step} skipped: ${left.join(' ')}`);
+        for (const step of ['brief', 'review-agent', 'review-record', 'review-run', 'fix']) assert.ok(left.includes(step), `${step} skipped: ${left.join(' ')}`);
         assert.ok(gapsOf(await t.ledger()).includes(GAP), gapsOf(await t.ledger()).join('|'));
         assert.match(await t.work('write'), /review skipped \(--no-review\)/);
       });

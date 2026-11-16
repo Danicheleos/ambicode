@@ -64,12 +64,10 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    // Only an interactive session is offered anything: a headless one has no one to answer and no review to run, so neither predicate holds for it.
+    // Only an interactive session is offered anything: a headless one has no one to answer, so the predicate does not hold for it.
     case 'iteration.named': return typeof context.args.iteration === 'number' && context.args.headless !== true;
-    case 'iteration.unnamed': return typeof context.args.iteration !== 'number' && context.args.headless !== true;
-    // The same two, minus `--no-review`: only the review steps ask this; the end checks keep the plain predicates.
-    case 'review.offered': return typeof context.args.iteration === 'number' && context.args.headless !== true && context.args.noReview !== true;
-    case 'review.unasked': return typeof context.args.iteration !== 'number' && context.args.headless !== true && context.args.noReview !== true;
+    // Every interactive run reviews, named iteration or not, unless `--no-review`; a headless run starts no reviewer. The end checks keep the plain predicates.
+    case 'review.unasked': return context.args.headless !== true && context.args.noReview !== true;
     // Only a full key (no file form) is asked about, in every run (a headless one takes the skip default at the print); the scoped ones run unasked, so a project without one has nothing to offer.
     case 'checks.offer': return Number(all.findLast((entry) => entry.kind === 'baseline')?.['full']) > 0;
     // The end checks of the scoped keys run without a question where one route covers every iteration, or a headless run named one (nothing else will); a full key waits for checks-offer either way.

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
+import { openWorkspace, projectById, projectForPath, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
@@ -175,19 +175,36 @@ async function repositoryFile(workspace: Workspace, file: string): Promise<strin
   return found;
 }
 
+/** The project's command for the check, in its `file` form when files are given; refuses a missing key or a missing form. */
+function commandTemplate(project: ProjectConfig, name: string, withFiles: boolean): string {
+  const spec = project.checks[name];
+  const configured = checkKeys(project).map((entry) => (entry.command ? entry.key : `${entry.key} (no command)`)).join(', ') || 'none';
+  if (spec === undefined) throw badArgument(`Project "${project.id}" has no check "${name}"; configured: ${configured}.`, 'name');
+  const template = withFiles ? spec.file : spec.all;
+  if (template === null) {
+    throw badArgument(`Project "${project.id}" check "${name}" has no ${withFiles ? '`file`' : '`all`'} command, so it cannot run${withFiles ? ' on --file' : ' without --file'}.`, withFiles ? 'file' : 'name');
+  }
+  return template;
+}
+
+/** Files in several projects run the key once per project, each on its own files, and every project must be able to run it before any does; a file in no project stays one request, which refuses as ambiguous. */
+export async function splitByProject(deps: CheckDeps, input: CheckOnlyInput): Promise<CheckOnlyInput[]> {
+  if (input.project !== null || input.files.length === 0) return [input];
+  const workspace = await openWorkspace(deps.runtime);
+  const owners = await Promise.all(input.files.map(async (file) => projectForPath(workspace.config, await repositoryFile(workspace, file))?.id ?? null));
+  if (owners.includes(null) || new Set(owners).size === 1) return [input];
+  const split = [...new Set(owners as string[])].sort().map((id) => ({ ...input, project: id, files: input.files.filter((_, index) => owners[index] === id) }));
+  for (const each of split) commandTemplate(projectById(workspace.config, each.project!), input.name, true);
+  return split;
+}
+
 export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Promise<CheckOnlyOutcome> {
   if (input.phase !== 'green') throw badArgument('"check" runs only --phase green.', 'phase');
 
   const workspace = await openWorkspace(deps.runtime);
   const files = await Promise.all(input.files.map((file) => repositoryFile(workspace, file)));
   const project = projectForRequest(workspace.config, input.project, files);
-  const spec = project.checks[input.name];
-  const configured = checkKeys(project).map((entry) => (entry.command ? entry.key : `${entry.key} (no command)`)).join(', ') || 'none';
-  if (spec === undefined) throw badArgument(`Project "${project.id}" has no check "${input.name}"; configured: ${configured}.`, 'name');
-  const template = files.length > 0 ? spec.file : spec.all;
-  if (template === null) {
-    throw badArgument(`Project "${project.id}" check "${input.name}" has no ${files.length > 0 ? '`file`' : '`all`'} command, so it cannot run${files.length > 0 ? ' on --file' : ' without --file'}.`, files.length > 0 ? 'file' : 'name');
-  }
+  const template = commandTemplate(project, input.name, files.length > 0);
   const routed = await routedOf(deps, input.task);
   const reached = routed === null ? null : await limitReached(deps, routed, input.phase);
   if (reached !== null) {

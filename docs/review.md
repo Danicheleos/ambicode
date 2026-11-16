@@ -278,9 +278,11 @@ beside them; nothing is overwritten. A standalone `/ambicode:review` is named af
 The task is named by the first `--requirement` you pass — a ticket is what
 the work is called in Jira, in the branch and in the merge request, so it is
 the name a person guesses first. With no requirement, `--task <slug>` names
-it, and the authoring skills mint that slug as a short kebab of the request
-plus a timestamp (`raise-upload-limit_2026-09-23T10-15`). Both directories use
-the same slug. The whole `.ambicode/` folder is gitignored.
+it, and a start without `--task` mints the slug from the request: its issue
+key lowercased, else a kebab of the text capped at 48 characters
+(`raise-upload-limit`), or `task-<hash8>` when the text has no Latin letters
+or digits. A start with the same words reuses the directory. Both directories
+use the same slug. The whole `.ambicode/` folder is gitignored.
 
 ## Review input limits
 

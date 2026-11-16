@@ -29,7 +29,7 @@ const transcript = (final: 'handback' | 'text', text: string): string => {
   return [
     line('user', 'Implement the work described in work-change.md.'),
     line('assistant', [{ type: 'text', text: 'Reading the work file.' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'route next --task ord-7' } }]),
-    line('user', [{ type: 'tool_result', tool_use_id: 't1', content: 'Step review-offer' }]),
+    line('user', [{ type: 'tool_result', tool_use_id: 't1', content: 'Step checks-offer' }]),
     line('assistant', final === 'handback' ? [{ type: 'tool_use', id: 't2', name: 'SubagentHandback', input: { message: text } }] : [{ type: 'text', text }]),
   ].join('\n') + '\n';
 };
@@ -77,7 +77,7 @@ describe('the implementer closes its own step and writes the report', { concurre
     for (const form of ['handback', 'text'] as const) {
       await withTask(async (t, send, file) => {
         await t.start();
-        assert.equal((await implementerNext(t)).position, 'review-offer');
+        assert.equal((await implementerNext(t)).position, 'checks-offer');
         await send(stopped(await file(form, CHANGED)));
         const [note] = await notes(t, 'changed');
         assert.ok(note !== undefined, form);
@@ -142,7 +142,7 @@ describe('the implementer closes its own step and writes the report', { concurre
     });
   });
 
-  it('PostToolUse Agent hands main the step the implementer reached: the review offer, with no route next turn of its own', async () => {
+  it('PostToolUse Agent hands main the step the implementer reached: the full-checks question, with no route next turn of its own', async () => {
     await withTask(async (t, send, file) => {
       await t.start();
       await implementerNext(t);
@@ -151,8 +151,8 @@ describe('the implementer closes its own step and writes the report', { concurre
       const out = (await send(returned)) as { hookSpecificOutput?: { hookEventName: string; additionalContext: string } };
       assert.equal((await t.kinds('gate')).length, asked, 'delivering the question again prints no second gate');
       assert.equal(out.hookSpecificOutput?.hookEventName, 'PostToolUse');
-      assert.match(out.hookSpecificOutput!.additionalContext, /Run the independent review of this change\?/);
-      assert.match(out.hookSpecificOutput!.additionalContext, /\[ambicode gate review-offer /);
+      assert.match(out.hookSpecificOutput!.additionalContext, /Run the full checks/);
+      assert.match(out.hookSpecificOutput!.additionalContext, /\[ambicode gate checks-offer /);
     });
   });
 
@@ -272,7 +272,7 @@ describe('the implementer closes its own step and writes the report', { concurre
       await t.start();
       await implementerNext(t);
       await send(stopped(await file('text', CHANGED)));
-      await t.hook('review-offer', 'run');
+      await t.hook('checks-offer', 'skip — verification incomplete');
       const write = await t.review([]);
       assert.equal(write.position, 'write');
       assert.match(write.text, /ambicode:implementer/);
@@ -287,7 +287,7 @@ describe('the implementer closes its own step and writes the report', { concurre
       await t.start();
       await implementerNext(t);
       await send(stopped(await file('text', CHANGED)));
-      await t.hook('review-offer', 'run');
+      await t.hook('checks-offer', 'skip — verification incomplete');
       assert.equal((await t.review([finding({ id: 'F1' })])).position, 'fix');
       await t.edit();
       await t.held('green');

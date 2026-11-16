@@ -40,13 +40,14 @@ async function withTask(body: (t: Fixture) => Promise<void>, options: Parameters
   }
 }
 
-/** change → green check (format runs by itself), landing on the review offer. */
+/** change → green check (format runs by itself), landing on the review. */
 async function toOffer(t: Fixture, start: Parameters<Fixture['start']>[0] = {}) {
   await t.start(start);
   await t.edit();
   return t.check('green', { ran: 1, failed: 0 });
 }
 
+const NAMED = 'fix `total` for an empty list iteration 1';
 const section = (text: string, name: string): string => text.split(`## ${name}\n`)[1]?.split('\n\n## ')[0] ?? '';
 const delivered = async (t: Fixture, step: string): Promise<number> => (await t.kinds('step')).filter((entry) => entry['step'] === step && entry['status'] === 'delivered').length;
 const prints = async (t: Fixture, gate?: string) => (await t.kinds('gate')).filter((entry) => gate === undefined || entry['gate'] === gate);
@@ -55,7 +56,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
   it('07-R1: the shipped route declares its steps in order, the raised registry gates and 5 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map', 'rules', 'change', 'format', 'review-offer', 'checks-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'scope-checks', 'report-step', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'ground', 'map', 'rules', 'change', 'format', 'checks-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix', 'scope-checks', 'report-step', 'write']);
       assert.equal(def.steps.filter((step) => step.actor === 'model').length, 5);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') != null);
       for (const gone of ['review-checks', 'scope-expanding']) assert.equal(t.fx.routes.gate(gone) ?? null, null, `${gone} is not a gate`);
@@ -145,7 +146,8 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const failed = await t.check('green', null, 1);
       assert.equal(failed.position, 'change');
       assert.match(failed.text, /Not done yet: check\{green\} is not on record/);
-      assert.equal((await t.check('green', null, 0)).position, 'review-offer');
+      await t.edit();
+      assert.equal((await t.check('green', null, 0)).position, 'review-agent');
     });
   });
 
@@ -171,7 +173,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
         assert.equal((await t.next({ cause: 'check' })).position, 'change');
       }
       await assert.rejects(t.runCheck({ phase: 'green' }), /check-limit|already ran/);
-      assert.equal((await t.next({ cause: 'route-next' })).position, 'review-offer');
+      assert.equal((await t.next({ cause: 'route-next' })).position, 'checks-offer');
       assert.match(gapsOf(await t.ledger()).join('\n'), /Checks kept failing during the change: stopped after 5 attempts/);
     });
   });
@@ -211,7 +213,6 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       assert.doesNotMatch(change.text, /## checks\.runnable/);
       await t.edit();
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       const fix = await t.review([finding({ id: 'F1' })]);
       assert.equal(fix.position, 'fix');
       assert.match(await t.work('fix'), runnable);
@@ -229,7 +230,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       assert.equal((await t.kinds('baseline'))[0]?.['runnable'], 0);
       await t.edit();
       const done = await t.next();
-      assert.equal(done.position, 'review-offer');
+      assert.equal(done.position, 'review-agent');
       assert.equal((await t.kinds('check')).length, 0);
     }, { config });
   });
@@ -283,16 +284,28 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }, { config: CHECK_CONFIG });
   });
 
-  it('07-R7/07-V4: headless is offered no review and waits for no one; review-offer, brief, review-agent, review-run and fix are skipped, checks-offer takes its skip default, no review runs, and the report adds no review gap line', async () => {
+  it('07-R7/07-V4: headless starts no review and waits for no one; brief, review-agent, review-run and fix are skipped, checks-offer takes its skip default, no review runs, and the report adds no review gap line', async () => {
     await withTask(async (t) => {
       const write = await toOffer(t, { headless: true });
       assert.equal(write.position, 'write');
       assert.deepEqual((await prints(t)).map((entry) => entry['gate']), ['checks-offer'], 'the full key is asked and takes its default; nothing else is');
       assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['via']]), [['checks-offer', 'headless']]);
       const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
-      assert.ok(['review-offer', 'brief', 'review-agent', 'review-record', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
+      assert.ok(['brief', 'review-agent', 'review-record', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
       assert.equal((await t.kinds('review')).length, 0);
       assert.doesNotMatch(await t.work('write'), /independent review skipped/);
+    });
+  });
+
+  it('an interactive run that names an iteration reviews it with no question; a headless one raises no review question and runs none', async () => {
+    await withTask(async (t) => {
+      assert.equal((await toOffer(t, { text: NAMED })).position, 'review-agent');
+      assert.deepEqual((await prints(t)).map((entry) => entry['gate']), ['checks-offer'], 'the full key is the only question');
+    });
+    await withTask(async (t) => {
+      assert.equal((await toOffer(t, { text: NAMED, headless: true })).position, 'write');
+      assert.deepEqual((await prints(t)).map((entry) => entry['gate']), ['checks-offer'], 'the full key is the only question');
+      assert.equal((await t.kinds('review')).length, 0);
     });
   });
 
@@ -337,7 +350,6 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       await t.start();
       await t.edit();
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       assert.equal((await t.review([finding({ id: 'F1' })])).position, 'fix');
       assert.equal((await t.runCheck({ phase: 'green' })).outcome, 'waiting');
       await t.hook('check-only-unauthorized', 'approve');
@@ -350,7 +362,6 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       await t.start();
       await t.edit();
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       await t.held('green');
       await t.next();
@@ -368,7 +379,6 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       const change = await t.work();
       await t.edit();
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       const fix = await t.work('fix');
       for (const key of ['brief', 'request', 'envelope', 'policy:before-work']) assert.equal(fix.includes(`## ${key}\n`), change.includes(`## ${key}\n`), `fix and change agree on ## ${key}`);
@@ -389,7 +399,6 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       assert.ok(change.includes('common-code/callers') && change.includes('common-design/reuse-before-reimplementing'), change.join(' '));
       await t.edit();
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       const fix = ruleIds(section(await t.work('fix'), 'policy:before-work'));
       assert.deepEqual(fix, change, 'fix carries the rules change carried');
@@ -407,7 +416,6 @@ describe('task route: the implementer invariants', { concurrency: 4 }, () => {
       await t.edit();
       await t.fx.repo.write('gen/out.ts', 'export const generated = 1;\n');
       await t.check('green', null);
-      await t.hook('review-offer', 'run');
       const bundle = path.dirname(path.join(t.fx.repo.root, String((await t.kinds('review'))[0]!['result'])));
       const brief = await readFile(path.join(bundle, 'brief.md'), 'utf8');
       const result = JSON.parse(await readFile(path.join(bundle, 'result.json'), 'utf8')) as { changedFiles: { newPath: string; exclusionReason: string | null }[] };
@@ -514,7 +522,6 @@ describe('task route: the implementer hold, second review', { concurrency: 4 }, 
     await t.start();
     await t.edit();
     await t.check('green', null);
-    await t.hook('review-offer', 'run');
     await t.review([finding({ id: 'F1' })]);
   };
   const check = (t: Fixture) => runCheckCommand(t.fx.runtime, parseArgs('check', ['--task', 'ord-7', '--name', 'unit', '--file', 'src/a.spec.ts', '--phase', 'green'], CHECK_OPTIONS));
@@ -539,7 +546,7 @@ describe('task route: the implementer hold, second review', { concurrency: 4 }, 
       await t.append({ kind: 'step', route: 'another-route', step: 'format', actor: 'code', status: 'completed', cause: 'check' });
       assert.equal(delegatedStepOf(t.fx.routes.route('task')!, await chainOf(t))?.id, 'change');
       assert.equal((await check(t)).next, undefined, 'held by this chain\'s position, not by the ledger\'s last line');
-      assert.match((await t.next()).text, /\[ambicode gate review-offer /);
+      assert.match((await t.next()).text, /\[ambicode gate checks-offer /);
     });
   });
 

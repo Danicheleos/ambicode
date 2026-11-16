@@ -61,7 +61,7 @@ function runDirOf(root: string, task: string): string {
   return existsSync(path.join(reviews, 'ledger.jsonl')) ? reviews : path.join(root, '.ambicode', 'tasks', task);
 }
 
-/** Ends the session's open route as the removed `route stop` did: an `exit` entry, . */
+/** Ends the session's open route as `route stop` does: an `exit` entry. */
 export async function stopRoute(fx: Pick<RouteFixture, 'runtime'>, task: string, session: string, reason: string, detail?: string): Promise<void> {
   const root = runDirOf(fx.runtime.cwd, task);
   await withLedgerLock(fx.runtime.fs, root, () => fx.runtime.clock.now(), async (ledger) => {

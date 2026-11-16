@@ -23,12 +23,11 @@ async function withTask(body: (t: Fixture) => Promise<void>, pack = LINT_RUNS): 
 }
 
 /** Starts the route (ground records the baseline), after `before` has dirtied the tree. */
-async function toRun(t: Fixture, before: () => Promise<void> = async () => {}, answer: string | null = 'run'): Promise<void> {
+async function toRun(t: Fixture, before: () => Promise<void> = async () => {}): Promise<void> {
   await before();
   await t.start();
   await t.edit();
   await t.check('green', { ran: 1, failed: 0 });
-  if (answer !== null) await t.hook('review-offer', answer);
 }
 
 /** The review the route pinned itself, as the model's brief and the report read it. */
@@ -56,11 +55,12 @@ describe('review baseline scope (07-B): the task route pin, and the plain comman
 
   it('07-B3: a moved HEAD adds "HEAD moved since the task baseline"', async () => {
     await withTask(async (t) => {
-      await toRun(t, async () => {}, null);
+      await t.start();
+      await t.edit();
       await t.fx.repo.write('docs/note.md', 'moved\n');
       await t.fx.repo.commitAll('moved head');
       await t.fx.repo.write('src/orders.ts', 'export const later = 1;\n');
-      await t.hook('review-offer', 'run');
+      await t.check('green', { ran: 1, failed: 0 });
       assert.ok((await pinned(t)).omissions.some((omission) => omission.text === 'HEAD moved since the task baseline'));
     });
   });

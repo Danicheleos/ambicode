@@ -25,8 +25,8 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   declined: { valid: { ...ANSWER, answer: 'run', via: 'flag', reason: 'acting-needs-human' }, invalid: { ...ANSWER, instance: undefined } },
   'default-taken': { valid: { ...ANSWER, instance: null, via: 'never-asked' }, invalid: { gate: 'plan-accept', instance: null, answer: 'x', via: 'headless' } },
   preanswer: {
-    valid: { route: 'a1b2c3d4-1', gate: 'review-offer', option: 'run', via: 'prompt', trusted: true },
-    invalid: { route: 'a1b2c3d4-1', gate: 'review-offer', option: 'run', via: 'flag', trusted: true },
+    valid: { route: 'a1b2c3d4-1', gate: 'checks-offer', option: 'run', via: 'prompt', trusted: true },
+    invalid: { route: 'a1b2c3d4-1', gate: 'checks-offer', option: 'run', via: 'flag', trusted: true },
   },
   revise: {
     valid: { route: 'a1b2c3d4-1', from: 'plan-write', via: 'code', cycle: 1, reason: 'bad anchors' },

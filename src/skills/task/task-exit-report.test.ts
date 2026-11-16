@@ -12,7 +12,6 @@ type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 const PLAN = '.ambicode/tasks/ord-7/plan.md';
 const DRAFT = '---\nstatus: draft\n---\n# Plan\n\n## Iteration 1\nGuard `total` in `src/orders.ts`.\n';
 const TWO = '---\nstatus: accepted\n---\n# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n';
-const SKIP = 'skip — verification incomplete';
 const CONFIG = CHECK_CONFIG.split('\n').filter((line) => !/^\s+(e2e|lint):/.test(line)).join('\n');
 const FAIL = 'FAIL src/orders.spec.ts\n  expected 0 received NaN\n';
 const summary = async (t: Fixture): Promise<string> => {
@@ -60,15 +59,32 @@ describe('task route: the exit is listed under Not verified', { concurrency: 4 }
       await t.start({ plan: PLAN, text: 'fix `total` for an empty list iteration 2' });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
-      await t.hook('review-offer', SKIP);
       await t.hook('checks-offer', 'run');
+      await t.review([]);
       await t.check('green', { ran: 1, failed: 0 });
       await t.hook('checks-again', 'report the gap');
+      await t.hook('review-again', 'skip');
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'blocked');
       const text = await summary(t);
       assert.match(text, /app\/unit: last run: exit 1; /);
       assert.match(text, /- The route ended blocked: .*last check \(app\/unit\) is red/);
     }, CONFIG);
+  });
+
+  it('blocked: a failed independent review ends the route blocked, a partial one does not', async () => {
+    for (const [status, reason] of [['error', 'blocked'], ['partial', 'done']] as const) {
+      await withTask(async (t) => {
+        await t.fx.repo.write(PLAN, TWO);
+        await t.start({ plan: PLAN, text: 'fix `total` for an empty list iteration 2' });
+        await t.edit();
+        await t.check('green', { ran: 1, failed: 0 });
+        await t.review([], { status });
+        await stop(t);
+        const exit = (await t.kinds('exit')).at(-1)?.['reason'];
+        assert.equal(exit, reason, status);
+        if (status === 'error') assert.match(await summary(t), /- The route ended blocked: .*the independent review failed/);
+      });
+    }
   });
 
   it('done adds no exit line', async () => {

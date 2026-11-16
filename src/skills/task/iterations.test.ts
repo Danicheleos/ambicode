@@ -8,7 +8,6 @@ type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
 const PLAN = '.ambicode/tasks/ord-7/plan.md';
 const TWO = '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n';
-const SKIP = 'skip — verification incomplete';
 const TEXT = 'fix `total` for an empty list';
 
 async function withTask(body: (t: Fixture) => Promise<void>, plan = TWO): Promise<void> {
@@ -38,11 +37,11 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       const work = await t.work();
       assert.match(work, /iterations 1-2 of 2\n\n# Plan\n\n## Iteration 1\nAdd the guard\.\n\n## Iteration 2\nSeed the reduce\./);
       await t.edit();
-      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'review-agent', 'the one review starts with no review-offer');
+      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'review-agent', 'the one review starts with no question');
       assert.equal((await t.review([])).position, 'write');
       assert.equal((await routes(t)).length, 1, 'no second route');
       assert.equal((await t.kinds('review')).filter((entry) => entry['stage'] === 'recorded').length, 1);
-      assert.deepEqual(await gates(t), ['checks-offer'], 'no review-offer, no next-offer; the full key is asked once');
+      assert.deepEqual(await gates(t), ['checks-offer'], 'no review question, no next-offer; the full key is asked once');
       assert.deepEqual([...doneIterations(await entriesOf(t))], []);
       await stop(t);
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['done']);
@@ -64,13 +63,13 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
     });
   });
 
-  it('`iteration 2` in the request: only iteration 2, the review is offered, and declining it ends the task', async () => {
+  it('`iteration 2` in the request: only iteration 2, its review runs with no question, and the route ends done', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
-      const offer = await t.check('green', { ran: 1, failed: 0 });
-      assert.equal(offer.position, 'review-offer');
-      assert.equal((await t.hook('review-offer', SKIP)).position, 'write');
+      const reviewed = await t.check('green', { ran: 1, failed: 0 });
+      assert.equal(reviewed.position, 'review-agent');
+      assert.equal((await t.review([])).position, 'write');
       await stop(t);
       assert.equal((await routes(t)).length, 1);
       assert.equal(await iterationOf(t, 0), 2);
@@ -78,15 +77,15 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
     });
   });
 
-  it('`iteration 1` of two: iteration 1 only, the declined review ends the task and no second route opens', async () => {
+  it('`iteration 1` of two: iteration 1 only, its review ends the task and no second route opens', async () => {
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `iteration 1 ${TEXT}` });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.hook('review-offer', SKIP)).position, 'write');
+      assert.equal((await t.review([])).position, 'write');
       await stop(t);
       assert.equal((await routes(t)).length, 1);
-      assert.deepEqual(await gates(t), ['review-offer', 'checks-offer']);
+      assert.deepEqual(await gates(t), ['checks-offer']);
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
     });
   });
@@ -96,7 +95,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 1` });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
-      await t.hook('review-offer', SKIP);
+      await t.review([]);
       await stop(t);
       await t.start({ plan: PLAN, text: TEXT });
       assert.equal(await iterationOf(t, 1), 2);
@@ -171,7 +170,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2` });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
-      await t.hook('review-offer', SKIP);
+      await t.review([]);
       await stop(t);
       await t.start({ plan: PLAN, text: TEXT });
       const work = await t.work();
@@ -215,7 +214,7 @@ describe('task route: the iteration loop', { concurrency: 4 }, () => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 1` });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
-      await t.hook('review-offer', SKIP);
+      await t.review([]);
       await stop(t);
       await t.start({ plan: PLAN, text: TEXT });
       const baselines = await t.kinds('baseline');
