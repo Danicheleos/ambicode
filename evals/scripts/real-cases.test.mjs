@@ -325,6 +325,20 @@ describe('real-change cases of a suite file: own tag, prompt files, no-runs sent
     assert.deepEqual([loaded.tag, loaded.noRuns], [SUITE_TAG, 'Do not run checks.']);
   });
 
+  it('reads an investigationFile into investigation like promptFile into prompt, and a missing or empty one is an error', () => {
+    writeFileSync(path.join(dir, 'tickets', 'N-1.md'), 'The thing lives at src/a.ts:3.\n');
+    writeFileSync(path.join(dir, 'with-note.json'), JSON.stringify({ cases: [{ ...spec, investigationFile: 'tickets/N-1.md' }] }));
+    const [one] = loadRealCases(path.join(dir, 'with-note.json')).cases;
+    assert.equal(one.investigation, 'The thing lives at src/a.ts:3.');
+    assert.equal(one.prompt, '# T-1: Do a thing\n\n- first\n- second');
+    assert.equal(loaded.cases[0].investigation, undefined);
+    writeFileSync(path.join(dir, 'tickets', 'empty.md'), '\n');
+    for (const investigationFile of ['tickets/none.md', 'tickets/empty.md']) {
+      writeFileSync(path.join(dir, 'bad-note.json'), JSON.stringify({ cases: [{ ...spec, investigationFile }] }));
+      assert.throws(() => loadRealCases(path.join(dir, 'bad-note.json')), /missing or empty/);
+    }
+  });
+
   it('a missing or empty prompt file is an error, not a silent gap', () => {
     writeFileSync(path.join(dir, 'tickets', 'empty.md'), '\n');
     for (const promptFile of ['tickets/none.md', 'tickets/empty.md']) {

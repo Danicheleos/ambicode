@@ -38,7 +38,7 @@ export const isRealCase = (name) => name.startsWith('task-real-');
 // `guard: true` graders must hold on the untouched parent (real-cases.test.mjs measures it against the repository): they forbid the alternative the real
 // change avoided. The others measure the change: they fail on the parent and pass on the real change.
 // Optional file-level keys: `tag` (default task-real), `noRuns` (the sentence both arms get instead of NO_RUNS). Optional case keys: `promptFile` (path relative to the
-// file, read as the prompt as-is; a missing or empty one throws), `remove: [path]` (workspace files deleted before the scaffold's commit, both arms).
+// file, read as the prompt as-is; a missing or empty one throws), `investigationFile` (the same, read as `investigation`), `remove: [path]` (workspace files deleted before the scaffold's commit, both arms).
 // `skill: 'investigate'` makes a case a question about the code at `parent`: `prompt` is the question (the generator appends the citation and `## Files` rules, as
 // the retired synthetic investigate cases did; `files: false` drops the Files rule and scores citations), one variant, read-only tools, the investigate limits, the final message as the answer.
 // Its truth is `relevant`/`allowed` scored on the answer, no diff. Grader kinds besides `llm` (judged on the final message): 'answer' (`pattern` over the final message, both arms),
@@ -55,11 +55,15 @@ export function loadRealCases(file = LOCAL_FILE) {
     // A file with a `tag` is a suite: each case starts from its frozen .ambicode in <tag>-material/<name>/ beside the file, not from the bench's current one.
     const one = data.tag === undefined ? withName : { ...withName, material: path.resolve(path.dirname(file), `${data.tag}-material`, withName.name) };
     if (one.material !== undefined && !existsSync(path.join(one.material, '.ambicode'))) throw new Error(`${one.name}: frozen material ${path.join(one.material, '.ambicode')} is missing`);
-    if (one.promptFile === undefined) return one;
-    const source = path.resolve(path.dirname(file), one.promptFile);
-    const text = existsSync(source) ? readFileSync(source, 'utf8').trim() : '';
-    if (text === '') throw new Error(`${one.name}: prompt file ${source} is missing or empty`);
-    return { ...one, prompt: text };
+    const out = { ...one };
+    for (const [key, into] of [['promptFile', 'prompt'], ['investigationFile', 'investigation']]) {
+      if (one[key] === undefined) continue;
+      const source = path.resolve(path.dirname(file), one[key]);
+      const text = existsSync(source) ? readFileSync(source, 'utf8').trim() : '';
+      if (text === '') throw new Error(`${one.name}: ${key} ${source} is missing or empty`);
+      out[into] = text;
+    }
+    return out;
   });
   return { repos: data.repos ?? {}, cases, ...(data.tag === undefined ? {} : { tag: data.tag }), ...(data.noRuns === undefined ? {} : { noRuns: data.noRuns }) };
 }

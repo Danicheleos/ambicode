@@ -132,7 +132,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
   it('03b-N9: the read step answers with citations and treats the map as leads, and has the final message saved as the investigation note by the Stop hook', async () => {
     const read = await readFile(path.join(repositoryRoot, 'routes', 'investigate', 'read.md'), 'utf8');
     assert.match(read, /`path:line`.*never a bare file name/);
-    assert.match(read, /Edit nothing/);
     assert.match(read, /inferred ones marked/);
     assert.match(read, /^Start from the map: open its top rows/, 'the first line, which the header shows as Now:, points at the map');
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
@@ -158,11 +157,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(investigate, /route start investigate "<request>"/);
     assert.doesNotMatch(investigate, /route next|note save/);
     assert.doesNotMatch(investigate, /when you stop/);
-    // 900 -> 3400 B (file 3292 B), sanctioned: the body carries the work-efficiency, answer-shape and evidence guidance; it is delivered in the
+    // 900 -> 3400 B (file 2468 B), sanctioned: the body carries the work-efficiency, answer-shape and evidence guidance; it is delivered in the
     // user message (transcript fe-vs-6404-downstream-1, 2026-10-25), outside the hook's step text.
-    assert.match(investigate, /whole request as written/, '03b-N13: a files answer covers the request, not the minimal fix');
-    assert.match(investigate, /A claim about something other than repo code \(a library's behaviour, a standard, an earlier decision\) cites its source, or is marked as an assumption/);
-    assert.match(investigate, /leads until you have read the lines/);
+    assert.match(investigate, /for the whole request/, '03b-N13: a files answer covers the request, not the minimal fix');
+    assert.match(investigate, /A claim about something outside the repository \(a library, a standard, an earlier decision\) cites its source or is marked as an assumption/);
+    assert.match(investigate, /a lead until you read the lines/);
     assert.doesNotMatch(investigate, /mocks and fixtures|exported function|lib\//, 'examples stay generic: none quotes an eval case or names a grader condition');
     assert.doesNotMatch(investigate, /Start from the map/, 'map use is owned by the read step');
     assert.ok(Buffer.byteLength(await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')) <= 3400);

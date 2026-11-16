@@ -2,6 +2,7 @@
 //   stage 1  `<name>-chain-plan`  /ambicode:plan with the accepted answer; its plan.md is graded.
 //   stage 2  `<name>-chain`       /ambicode:task on the task folder a finished stage 1 run left (generated from its result stamp).
 //   bare     `<name>-chain`       the raw ticket once. No review stage (user decision).
+//   stage 1 inv  `<name>-chain-plan-inv`  stage 1 on the ticket's `investigationFile` note seeded in the sandbox (slug `<slug>ci`); plugin arm only, no bare, no stage 2.
 //   <bench env vars named in the local file> node evals/scripts/chain-cases.mjs [--evals evals] [--cases <file>]     (stage 1 and bare)
 //   node evals/scripts/chain-cases.mjs --from-stamp <stamp> [--from-stamp <stamp> ...] [--evals evals] [--cases <file>]   (stage 2; the bench env vars too)
 // Writes into evals/cases/task-chain/ and evals/bare/task-chain/, both gitignored like task-real/: the scaffold names the local bench checkout.
@@ -20,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { archiveOf } from './context.mjs';
 import { scaffold } from './downstream-cases.mjs';
 import { NO_RUNS, graderFiles, loadRealCases } from './real-cases.mjs';
+import { seedFiles } from './task-seeds.mjs';
 
 const EVALS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CHAIN_TAG = 'task-chain';
@@ -208,21 +210,22 @@ export function harvestedTaskFolder({ stamp, slug, evalsDir = EVALS, env = proce
   return null;
 }
 
-/** One chain case's files. arm: `plan` (stage 1), `task` (stage 2, needs `seed`) or `bare`; the plugin arm is plan and task. */
+/** One chain case's files. arm: `plan` (stage 1), `task` (stage 2, needs `seed`) or `bare`; the plugin arm is plan and task. A `real.note` (arm plan) makes the `-chain-plan-inv` case. */
 export function caseFiles({ real, sources, arm, seed }) {
   const plugin = arm !== 'bare';
-  const name = arm === 'plan' ? planName(real.base) : real.name;
+  const name = real.note ? `${planName(real.base)}-inv` : arm === 'plan' ? planName(real.base) : real.name;
   const root = `${String(real.order + 1).padStart(2, '0')}-${name}`;
   const files = new Map();
   const limits = arm === 'plan' ? PLAN_LIMITS : (real.limits ?? TASK_LIMITS);
   files.set(`${root}/case.yaml`, `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
-  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task', checksOff: true, remove: real.remove, material: real.material }, plugin));
+  files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task' || Boolean(real.note), checksOff: true, remove: real.remove, material: real.material }, plugin));
   if (arm === 'task') for (const [relative, text] of Object.entries(seed)) files.set(`${root}/${relative}`, text);
+  if (real.note) for (const [relative, text] of Object.entries(seedFiles(real.slug, real.note.kind, real.note.text))) files.set(`${root}/${relative}`, text);
   files.set(`${root}/prompt.md`, [
     '---',
     `name: ${name}`,
-    `description: ${y(`${real.description} ${{ plan: 'Chain stage 1: the plan, accepted.', task: 'Chain stage 2: the task on the plan stage 1 left.', bare: 'Chain bare arm: the raw ticket.' }[arm]}`)}`,
-    `tags: ["task", "${CHAIN_TAG}", "${CHAIN_TAG}-${arm}", "${real.kind}"]`,
+    `description: ${y(`${real.description} ${{ plan: 'Chain stage 1: the plan, accepted.', task: 'Chain stage 2: the task on the plan stage 1 left.', bare: 'Chain bare arm: the raw ticket.' }[arm]}${real.note ? ' Started on an earlier investigation of the code.' : ''}`)}`,
+    `tags: ["task", "${CHAIN_TAG}", "${CHAIN_TAG}-${arm}${real.note ? '-inv' : ''}", "${real.kind}"]`,
     'runs: 1',
     `max_turns: ${limits.max_turns}`,
     `timeout_seconds: ${limits.timeout_seconds}`,
@@ -261,12 +264,17 @@ function clear(evalsDir, tree, pattern) {
 
 /** Rewrites stage 1 (cases tree) and the bare arm; one row per ticket named in PLAN_VALUES that the local file holds. */
 export function writeChain({ evalsDir = EVALS, sources, cases = loadRealCases().cases }) {
-  clear(evalsDir, 'cases', /-chain-plan$/);
+  clear(evalsDir, 'cases', /-chain-plan(?:-inv)?$/);
   clear(evalsDir, 'bare', /./);
-  return chosenOf(cases).map((real) => {
+  return chosenOf(cases).flatMap((real) => {
     put(evalsDir, 'cases', caseFiles({ real, sources, arm: 'plan' }));
     put(evalsDir, 'bare', caseFiles({ real, sources, arm: 'bare' }));
-    return { name: planName(real.base), planGraders: PLAN_VALUES[real.base].length + 1 };
+    const rows = [{ name: planName(real.base), planGraders: PLAN_VALUES[real.base].length + 1 }];
+    if (!real.investigation) return rows;
+    // The -inv case: the stage 1 case on a slug of its own (`<slug>ci`) with the investigation note seeded; plugin arm only, like -chain-plan.
+    const inv = { ...real, slug: `${real.slug}i`, note: { kind: 'investigation', text: real.investigation } };
+    put(evalsDir, 'cases', caseFiles({ real: inv, sources, arm: 'plan' }));
+    return [...rows, { name: `${planName(real.base)}-inv`, planGraders: rows[0].planGraders }];
   });
 }
 

@@ -1,44 +1,37 @@
 ---
 name: investigate
-description: "Answer any question about the code with evidence, editing nothing: how something works, why it happens, whether something holds everywhere, which library or approach to choose, which files a change would touch. Only when named: /ambicode:investigate, also run by a subagent."
+description: "Answers one question about the code with cited evidence and edits nothing; the answer is saved as a note that plan and task read. Use only when /ambicode:investigate is named, by the user or a subagent."
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
 # Investigate a question
 
-A route hands you one step at a time. Do what it says. Your final answer is saved as the investigation note, and plan and task read it, so write it for a reader who has not seen your work.
+The route hands you one step at a time; do what it prints. Your final answer is saved as the investigation note, and plan and task start from it, so write it for a reader who has not seen your work. Investigating changes nothing: no source, config or `.ambicode` edits.
 
-An investigation edits nothing: no source, no config, no `.ambicode` file.
+## Shape the answer to the question
 
-## Work efficiently
+| Question | The answer gives |
+|---|---|
+| How does X work | the flow from entry point to effect, one cited line per step, and the branches that change the outcome |
+| Why does Z happen | the cause; in Findings the chain from trigger to symptom, what you ruled out, what is inferred and what would confirm it |
+| Does every X do Y | an inventory: what you counted and how (search and scope), the items that hold, the exceptions, each cited, and what you did not search |
+| Which library or approach | one recommendation, the criteria that decided it (what the code already uses, its constraints), the runner-up and why not |
+| Which files would a change touch | the Code to change list for the whole request, plus existing tests that assert the changed behaviour |
 
-- Run independent reads and greps in the same turn, not one after another.
-- Search the question's own words only for what the map did not match.
-- Stop when the evidence answers the question. Do not re-read a span you already hold, and do not open a file only to confirm what a line you hold already shows.
-- When the question names something the code does not have, say so and stop looking for it.
-
-## What goes in the report
-
-The step prints the section order. The content follows the question:
-
-- How does X work: the flow in order from entry point to effect, one cited line per step, and the branches that change the outcome.
-- Why does Z happen: the cause in the answer; the chain from trigger to symptom and what you ruled out in the findings. Say what is inferred and what would confirm it.
-- Does every X do Y: an inventory. State what you counted and how (the search and its scope), then the items that hold and the exceptions, each cited, and what you did not search. A sample is not an inventory: say which one you give.
-- Which library or approach: the recommendation, the criteria that decided it (what the code already uses, the constraints it shows), the runner-up and why not. Where it would plug in goes under the code to change.
-- Which files would a change touch: the code to change section is the list, one line each; answer for the whole request as written. A file your findings rule out is not listed. Existing tests that assert the changed behaviour are listed too; new tests or types only when the change needs them.
-
-For example, "does every retry loop have a timeout?" is answered with "7 of 9 retry loops set a timeout (call sites of `retry(` in `src/`); `poll` (`worker/poll.ext:30`) and `sync` (`worker/sync.ext:12`) set none", not with a list of the loops you happened to open.
+<example>
+"Does every retry loop have a timeout?" → "7 of 9 retry loops set a timeout (call sites of `retry(` in `src/`); `poll` (`worker/poll.ts:30`) and `sync` (`worker/sync.ts:12`) set none." — not a list of the loops you happened to open.
+</example>
 
 ## Evidence
+- A map row, a grep hit or a file name is a lead until you read the lines. State what you read as fact; mark the rest "inferred".
+- A claim about something outside the repository (a library, a standard, an earlier decision) cites its source or is marked as an assumption.
+- When the question names something the code does not have, say so with the search behind it, and stop looking.
 
-- A claim about something other than repo code (a library's behaviour, a standard, an earlier decision) cites its source, or is marked as an assumption.
-- A map row, a grep hit and a file name are leads until you have read the lines. State what you read flatly; say "inferred" for what you did not.
-- "No match for X in <scope>" is a finding. "X does not exist" needs the search that supports it.
+## Work efficiently
+Run independent reads and searches in one turn. Stop when the evidence answers the question; re-reading a span you already hold adds nothing.
 
-## Fallback
-
-Only if no step has arrived (a client without the launch hook), start the route with the request (it begins `$0`):
+If no step message appeared (a client without the launch hook), start the route with the request (it begins `$0`):
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start investigate "<request>"

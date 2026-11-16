@@ -7,6 +7,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { DIFF_GRADER_OVERRIDES, PLAN_VALUES, barePrompt, planGraders, routeGraders, chainName, ci, planPrompt, taskPrompt, chainOf, writeChain, writeTask, seedOf, harvestedTaskFolder, planName, TASK_DONE } from './chain-cases.mjs';
 import { archiveOf } from './context.mjs';
+import { seedFiles } from './task-seeds.mjs';
 import { gradeOne } from './diff-graders.mjs';
 import { NO_RUNS, realTruth } from './real-cases.mjs';
 import { splitLaunch } from '../../src/hook/events/prompt-launch.ts';
@@ -264,6 +265,62 @@ describe('chain cases: the generator', () => {
     execFileSync('sh', [path.join(r3, 'cases', 'task-chain', celery, 'scaffold.sh')], { cwd: sandbox, encoding: 'utf8' });
     assert.match(read(sandbox, '.ambicode', 'tasks', 'rl-k12-cec', 'plan.md'), /^---\nstatus: accepted\n---\n/);
     assert.equal(read(sandbox, '.ambicode', 'tasks', 'rl-k12-cec', 'ledger.jsonl'), PLAN_LEDGER.replaceAll('SLUG', 'rl-k12-cec'));
+  });
+});
+
+describe('chain cases: the -chain-plan-inv variant (stage 1 started on an investigation note)', () => {
+  const NOTE = 'The sender lives at src/a.py:3 and has no queue.\n';
+  const WITH = { name: 'task-real-k12-celery-email', repo: 'r1', kind: 'infra', slug: 'rl-k12-ce', commit: 'a'.repeat(40), parent: 'b'.repeat(40), description: 'Celery.', prompt: 'Move sending\nto Celery on an SQS queue.', relevant: ['src/a.py'], allowed: [], investigation: NOTE,
+    graders: [{ kind: 'file', name: 'broker-in-settings', file: 'src/config.py', pattern: 'SQS' }, { kind: 'llm', name: 'design', rubric: 'PASS if ok.' }] };
+  const WITHOUT = { ...WITH, name: 'task-real-k12-recognition-notifications', slug: 'rl-k12-rn', investigation: undefined };
+  const root = mkdtempSync(path.join(tmpdir(), 'chain-inv-'));
+  const rows = writeChain({ evalsDir: root, sources, cases: [WITH, WITHOUT] });
+  const dir = (arm, n) => path.join(root, arm, 'task-chain', n);
+  const inv = '01-task-real-k12-celery-email-chain-plan-inv';
+  const plan = '01-task-real-k12-celery-email-chain-plan';
+  const seeded = seedFiles('rl-k12-ceci', 'investigation', NOTE);
+
+  it('a ticket with an investigation gets one more stage 1 case; a ticket without gets nothing new', () => {
+    assert.deepEqual(rows.map((r) => r.name), ['task-real-k12-celery-email-chain-plan', 'task-real-k12-celery-email-chain-plan-inv', 'task-real-k12-recognition-notifications-chain-plan']);
+    assert.deepEqual(readdirSync(path.join(root, 'cases', 'task-chain')).sort(), [inv, plan, '02-task-real-k12-recognition-notifications-chain-plan'].sort());
+    assert.deepEqual(readdirSync(path.join(root, 'bare', 'task-chain')).sort(), ['01-task-real-k12-celery-email-chain', '02-task-real-k12-recognition-notifications-chain'].sort());
+  });
+
+  it('the plugin case carries the note and its ledger line under the -inv slug, scaffold.sh copies them, and the prompt is the plan command on that slug with the ticket alone', () => {
+    for (const [file, text] of Object.entries(seeded)) assert.equal(read(dir('cases', inv), file), text);
+    assert.deepEqual(readdirSync(path.join(dir('cases', inv), 'seed', 'tasks', 'rl-k12-ceci')).sort(), ['investigation_2026-03-01T09-00.md', 'ledger.jsonl']);
+    assert.match(read(dir('cases', inv), 'scaffold.sh'), /cp -R "\$\(dirname "\$0"\)\/seed\/\." \.ambicode\//);
+    assert.ok(!existsSync(path.join(dir('cases', plan), 'seed')), 'the plain stage 1 case stays unseeded');
+    const body = read(dir('cases', inv), 'prompt.md').replace(/^---[\s\S]*?---\n\n/, '').trim();
+    assert.equal(body, '/ambicode:plan --task rl-k12-ceci --headless --answer plan-accept=Accept Move sending to Celery on an SQS queue.');
+    assert.doesNotMatch(body, /investigation|earlier|src\/a\.py/);
+    assert.match(read(dir('cases', inv), 'prompt.md'), /name: task-real-k12-celery-email-chain-plan-inv\n/);
+    assert.match(read(dir('cases', inv), 'prompt.md'), /max_turns: 30\ntimeout_seconds: 900\n/);
+  });
+
+  it('its graders are the stage 1 plan graders on the -inv slug', () => {
+    const names = (n) => readdirSync(path.join(dir('cases', n), 'graders')).sort();
+    assert.deepEqual(names(inv), names(plan));
+    assert.match(read(dir('cases', inv), 'graders', 'plan-accepted.md'), /path: \.ambicode\/tasks\/rl-k12-ceci\/plan\.md/);
+  });
+
+  it('the -inv case is plugin-only like -chain-plan: the bare tree is the same with or without an investigation, and no truth.json exists for it', () => {
+    assert.ok(!existsSync(dir('bare', inv)));
+    assert.ok(!existsSync(path.join(dir('cases', inv), 'truth.json')));
+    assert.equal(realTruth('task-real-k12-celery-email-chain-plan-inv', root), null);
+    const bare = mkdtempSync(path.join(tmpdir(), 'chain-inv-bare-'));
+    writeChain({ evalsDir: bare, sources, cases: [{ ...WITH, investigation: undefined }, WITHOUT] });
+    assert.deepEqual(readdirSync(path.join(bare, 'bare', 'task-chain')).sort(), readdirSync(path.join(root, 'bare', 'task-chain')).sort());
+  });
+
+  it('regenerating stage 1 rewrites the -inv case and clears it when the ticket no longer has an investigation; stage 2 regeneration leaves it', () => {
+    writeTask({ evalsDir: root, sources, cases: [WITH, WITHOUT], stamps: ['S'], env: harvested(root, 'S', 'rl-k12-cec').env });
+    assert.ok(existsSync(dir('cases', inv)), 'stage 2 regeneration leaves it');
+    writeChain({ evalsDir: root, sources, cases: [WITH, WITHOUT] });
+    assert.ok(existsSync(dir('cases', inv)));
+    writeChain({ evalsDir: root, sources, cases: [{ ...WITH, investigation: undefined }, WITHOUT] });
+    assert.ok(!existsSync(dir('cases', inv)));
+    assert.ok(existsSync(dir('cases', '01-task-real-k12-celery-email-chain')), 'the stage 2 case stays');
   });
 });
 
