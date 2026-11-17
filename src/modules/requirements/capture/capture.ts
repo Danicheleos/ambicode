@@ -1,0 +1,208 @@
+import path from 'node:path';
+import { z } from 'zod';
+import { contentHash } from '#util/hash';
+import { isObject } from '#util/guards';
+import { adfText, htmlText, isAdf } from '../envelope/render.ts';
+import { isIssueKey, sourceId } from '#util/issue-key';
+import type { HookInput } from '#types/hook';
+import type { CaptureDeps } from '#types/modules/requirements';
+import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
+
+// Not strict: a file saved before a field was dropped (`cutFrom`, `tool`) reads with that key stripped.
+const CapturedRequirement = z.object({ key: z.string().min(1), url: z.string(), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string() });
+export type CapturedRequirement = z.infer<typeof CapturedRequirement>;
+
+const PAGE_PARAM = /^page_?id$/i;
+// The fetch step's id in every shipped route; elsewhere the model reads for its own reasons and no read is a requirement.
+const FETCH_STEP = 'fetch';
+
+const hostOf = (url: string): string | null => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+};
+
+/** What an unasked call names: its URL when it is on an asked tracker's host, or a whole-value issue key or page id parameter. Free text never names one (`UTF-8` and `SHA-256` look like issue keys). */
+function linkedKey(input: Record<string, unknown> | undefined, asked: readonly string[]): string | null {
+  const url = typeof input?.['url'] === 'string' ? input['url'] : '';
+  const host = hostOf(url);
+  if (host !== null && asked.some((candidate) => hostOf(candidate) === host)) return url;
+  for (const [name, value] of Object.entries(input ?? {})) {
+    if (typeof value === 'string' && (isIssueKey(value) || (PAGE_PARAM.test(name) && /^\d+$/.test(value)))) return value;
+  }
+  return null;
+}
+
+/** The last path segment of a URL, so a call that names only the issue key still matches the URL the route asked for. */
+const tailOf = (asked: string): string => asked.split(/[?#]/)[0]!.split('/').filter((segment) => segment !== '').at(-1) ?? asked;
+
+// Breadth-first: a ticket's own `summary` must win over `parent.fields.summary`, which depth-first returned when `parent` came first.
+const findOwner = (value: unknown, name: string): Record<string, unknown> | null => {
+  let level: unknown[] = [value];
+  for (let depth = 0; depth <= 6 && level.length > 0; depth++) {
+    const next: unknown[] = [];
+    for (const node of level) {
+      if (!isObject(node) && !Array.isArray(node)) continue;
+      if (isObject(node) && typeof node[name] === 'string' && node[name].trim() !== '') return node;
+      next.push(...Object.values(node));
+    }
+    level = next;
+  }
+  return null;
+};
+
+const findText = (value: unknown, name: string): string | null => {
+  const owner = findOwner(value, name);
+  return owner === null ? null : (owner[name] as string).trim();
+};
+
+/** A captured result's own name: the shallowest `summary` (Jira) or `title` (Confluence) string in its JSON, else the key. The key stands in for it when the tool returned prose. */
+export function titleOf(content: string, key: string): string {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return findText(parsed, 'summary') ?? findText(parsed, 'title') ?? key;
+  } catch {
+    return key;
+  }
+}
+
+/**
+ * What the map searches for one captured source: the title plus the text of the object that holds it (so an issuetype or status description never stands in).
+ * That text is the first of: `description` (string or Jira ADF), `body` (GitHub/GitLab), `body.storage.value` (Confluence HTML). Without a title owner or prose, the old `title+newline+content`.
+ */
+export function mapTextOf(content: string, title: string): string {
+  const whole = `${title}\n${content}`;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return whole;
+  }
+  const owner = findOwner(parsed, 'summary') ?? findOwner(parsed, 'title');
+  if (owner === null) return whole;
+  const text = ownText(owner);
+  return text === '' ? title : `${title}\n${text}`;
+}
+
+function ownText(owner: Record<string, unknown>): string {
+  const { description, body } = owner;
+  if (isAdf(description)) return adfText(description).trim();
+  if (typeof description === 'string' && description.trim() !== '') return description.trim();
+  if (typeof body === 'string') return body.trim();
+  const storage = isObject(body) && isObject(body['storage']) ? body['storage']['value'] : undefined;
+  return typeof storage === 'string' ? htmlText(storage) : '';
+}
+
+export const fileOf = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key.replace(/[^\w.-]+/g, '_').slice(0, 80)}.${contentHash(key).replace(/^sha256:/, '').slice(0, 8)}.json`);
+
+/** The stored capture for a key, or null when its file is gone, unreadable, or its content no longer matches the recorded hash. */
+export async function readCapture(fs: FileSystem, dir: TaskDir, key: string, rawHash: string | null): Promise<CapturedRequirement | null> {
+  try {
+    const parsed = CapturedRequirement.safeParse(JSON.parse(await fs.readText(fileOf(dir, key))));
+    return parsed.success && contentHash(parsed.data.content) === parsed.data.rawHash && (rawHash === null || parsed.data.rawHash === rawHash) ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The latest capture of each key among these ledger rows whose file still holds what was recorded: the one answer to "what is captured". */
+export async function latestCaptures(fs: FileSystem, dir: TaskDir, entries: readonly LedgerEntry[]): Promise<Map<string, CapturedRequirement>> {
+  const found = new Map<string, CapturedRequirement>();
+  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement')) {
+    const capture = await readCapture(fs, dir, String(entry['key']), String(entry['rawHash']));
+    if (capture !== null) found.set(capture.key, capture);
+  }
+  return found;
+}
+
+/** The text a tool returned: a string, MCP text parts joined, or the JSON of anything else. */
+function resultText(response: unknown): string {
+  if (typeof response === 'string') return response;
+  if (isObject(response) && Array.isArray(response['content'])) {
+    const parts = response['content'].flatMap((part) => (isObject(part) && typeof part['text'] === 'string' ? [part['text']] : []));
+    if (parts.length > 0) return parts.join('\n');
+  }
+  if (isObject(response)) for (const field of ['result', 'text', 'content']) if (typeof response[field] === 'string') return response[field];
+  return response === undefined || response === null ? '' : JSON.stringify(response);
+}
+
+/** The issues a result holds: at the shallowest level (breadth-first) where either appears, one keyed object or a non-empty array of keyed objects. */
+function itemsOf(text: string): Record<string, unknown>[] | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const keyed = (value: unknown): value is Record<string, unknown> => isObject(value) && typeof value['key'] === 'string' && isIssueKey(value['key']);
+  let level: unknown[] = [root];
+  for (let depth = 0; depth <= 6 && level.length > 0; depth++) {
+    const next: unknown[] = [];
+    for (const node of level) {
+      if (keyed(node)) return [node];
+      if (Array.isArray(node) && node.length > 0 && node.every(keyed)) return node;
+      if (isObject(node) || Array.isArray(node)) next.push(...Object.values(node));
+    }
+    level = next;
+  }
+  return null;
+}
+
+// sourceId alone would match free text that merely mentions the key (a jql), so it applies to a whole key or URL only.
+const isAskedAs = (candidate: string, value: string): boolean =>
+  candidate === value || tailOf(candidate) === value || ((isIssueKey(value) || /^https?:\/\//.test(value)) && sourceId(candidate) === sourceId(value));
+
+/**
+ * Stores the raw result of a `mcp__*` or WebFetch call under `requirements/<key>.json` while the route asked for requirements.
+ * A result holding issues is keyed by them, never by the call's input (a search whose jql mentions the asked key returns other
+ * issues): an item the route asked for is `asked` under the key as asked, any other is `linked` while the fetch step runs.
+ * A result without issues is keyed by the asked key one whole input value names, else (fetch step) a whole-value key or tracker URL.
+ */
+export async function captureRequirement(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry[]> {
+  const tool = input.tool_name ?? '';
+  if (deps.asked.length === 0 || (tool !== 'WebFetch' && !tool.startsWith('mcp__'))) return [];
+  const whole = resultText(input.tool_response).trim();
+  if (whole === '') return [];
+  const url = typeof input.tool_input?.['url'] === 'string' ? input.tool_input['url'] : '';
+  const inFetch = deps.view.position === FETCH_STEP;
+  const items = itemsOf(whole);
+  const saved: LedgerEntry[] = [];
+  if (items !== null) {
+    const several = items.length > 1;
+    const given = Object.values(input.tool_input ?? {}).filter((value): value is string => typeof value === 'string');
+    for (const item of items) {
+      const itemKey = item['key'] as string;
+      const asked = deps.asked.find((candidate) => isAskedAs(candidate, itemKey));
+      if (asked === undefined && !inFetch) continue;
+      // Only a call whose whole input value names the issue is its own read; a search row never replaces a stored capture of the same key.
+      const entry = await saveRequirement(deps, { key: asked ?? itemKey, url: several ? '' : url, tool, whole: several ? JSON.stringify(item) : whole, relation: asked === undefined ? 'linked' : 'asked', keepExisting: !given.some((value) => isAskedAs(itemKey, value)) });
+      if (entry !== null) saved.push(entry);
+    }
+    return saved;
+  }
+  const values = Object.values(input.tool_input ?? {}).filter((value): value is string => typeof value === 'string');
+  const asked = deps.asked.find((candidate) => values.some((value) => isAskedAs(candidate, value)));
+  // A child, parent or linked item is evidence only while the fetch step runs and never stands in for the asked source.
+  const key = asked ?? (inFetch ? linkedKey(input.tool_input, deps.asked) : null);
+  if (key === null) return [];
+  const entry = await saveRequirement(deps, { key, url, tool, whole, relation: asked === undefined ? 'linked' : 'asked' });
+  return entry === null ? [] : [entry];
+}
+
+/** Writes one requirement file and its ledger row; null when the route's chain already holds that content under the key. */
+export async function saveRequirement(deps: Pick<CaptureDeps, 'runtime' | 'dir' | 'ledger' | 'view'>, source: { key: string; url: string; tool: string; whole: string; relation: 'asked' | 'linked'; keepExisting?: boolean }): Promise<LedgerEntry | null> {
+  const { key, url, tool, whole } = source;
+  const rawHash = contentHash(whole);
+  const read = await deps.ledger.read();
+  const chain = read.state === 'ok' ? read.entries.filter((entry) => deps.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
+  // A row whose file is gone does not count: skipping would leave the key recorded but unreadable.
+  const held = chain.find((entry) => entry.kind === 'requirement' && entry['key'] === key && (source.keepExisting === true || entry['rawHash'] === rawHash));
+  if (held !== undefined && (await readCapture(deps.runtime.fs, deps.dir, key, String(held['rawHash']))) !== null) return null;
+  const text = `${JSON.stringify({ key, url, retrievedAt: deps.runtime.clock.now().toISOString(), rawHash, content: whole }, null, 2)}\n`;
+  await deps.runtime.fs.mkdirp(deps.dir.requirements);
+  await deps.runtime.fs.writeText(fileOf(deps.dir, key), text);
+  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: tool, rawHash, bytes: Buffer.byteLength(text), relation: source.relation });
+}

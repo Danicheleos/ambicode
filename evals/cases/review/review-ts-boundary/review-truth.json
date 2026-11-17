@@ -1,0 +1,110 @@
+[
+  {
+    "id": "main",
+    "category": "team-rule",
+    "main": true,
+    "what": "billing imports lateFee from lending/domain/fees/late.js, past lending/index.ts, against the team rule on context imports",
+    "locations": [
+      {
+        "file": "src/contexts/billing/application/charge-late-fees.ts",
+        "lines": [
+          2,
+          2
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "fees/late.js",
+          "lending/domain"
+        ],
+        "near": "index|internal|boundary|context|deep|rule|encapsulation"
+      }
+    ]
+  },
+  {
+    "id": "s1",
+    "category": "naming-comments",
+    "main": false,
+    "what": "locals r and f say nothing about what they hold",
+    "locations": [
+      {
+        "file": "src/contexts/billing/application/charge-late-fees.ts",
+        "lines": [
+          9,
+          11
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "lateLine"
+        ],
+        "near": "name|names|naming|single-letter|one-letter|cryptic"
+      }
+    ]
+  },
+  {
+    "id": "s2",
+    "category": "tests",
+    "main": false,
+    "what": "chargeLateFees has no test, while the summary code added beside it does",
+    "locations": [
+      {
+        "file": "test/billing-summary.test.ts",
+        "lines": [
+          13,
+          13
+        ]
+      },
+      {
+        "file": "src/contexts/billing/application/charge-late-fees.ts",
+        "lines": [
+          15,
+          24
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "chargeLateFees"
+        ],
+        "gap": true
+      }
+    ]
+  },
+  {
+    "id": "s3",
+    "category": "correctness",
+    "main": false,
+    "what": "chargeLateFees bills a returned loan that onLoanReturned already invoices when the loan comes back, so a late return is charged twice",
+    "locations": [
+      {
+        "file": "src/contexts/billing/application/charge-late-fees.ts",
+        "lines": [
+          22,
+          22
+        ]
+      },
+      {
+        "file": "src/contexts/billing/application/on-loan-returned.ts",
+        "lines": [
+          8,
+          8
+        ]
+      }
+    ],
+    "anchors": [
+      {
+        "ids": [
+          "chargeLateFees",
+          "onLoanReturned"
+        ],
+        "near": "twice|double|doubly|double-billing|duplicate|duplicated|duplication|overlaps|rebill|rebills|re-bill"
+      }
+    ]
+  }
+]

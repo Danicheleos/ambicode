@@ -1,0 +1,40 @@
+schemaVersion: 1
+id: express-errors
+authority: inherited
+description: "Express services: classified errors, no synchronous I/O on the request path."
+appliesTo:
+  - "**/*.{ts,js,mjs,cjs}"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE service error baseline, adapted from grahpt
+    express-errors-and-logging. Carried over: classified errors and
+    synchronous I/O. Secrets, logging and outbound timeouts are common
+    rules.
+  externalVersion: "express-v2"
+
+rules:
+  - id: classified-errors
+    category: correctness
+    activities: [plan, task, review]
+    instruction: >-
+      Raise a classified error carrying a stable machine-readable code, a safe
+      client-facing message, and a status, and let one place map it to a
+      response. Extend the project's existing error type rather than adding an
+      unrelated parallel one.
+    check:
+      kind: reviewer
+      explanation: Requires locating the project's existing error types in the snapshot.
+
+  - id: no-synchronous-io-on-request-path
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      Synchronous I/O on a request path blocks the event loop for every other
+      request in flight.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed request path.
+
+commandPolicy: []

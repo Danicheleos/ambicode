@@ -1,0 +1,43 @@
+schemaVersion: 1
+id: angular-architecture
+authority: inherited
+description: "Angular app structure: follow the declared layout, where shared code lives."
+appliesTo:
+  - "**/*.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-project-structure.
+    The original prescribed one folder layout, file-suffix scheme, selector
+    prefix policy, and feature-slice migration. Those are selectable conventions
+    rather than defects, so this pack asks whether the project's own convention
+    was followed instead of naming a particular one.
+  externalVersion: "angular-v2"
+
+rules:
+  - id: follow-declared-structure
+    category: architecture
+    activities: [plan, task, review]
+    instruction: >-
+      Place new files according to the structure the project already uses. Where
+      a change introduces a different grouping from its neighbours, that is a
+      decision to state, not a detail to leave implicit.
+    check:
+      kind: reviewer
+      explanation: >-
+        Compare against the surrounding directories present in the snapshot. A
+        pre-existing inconsistency elsewhere is context, not a new finding.
+
+  - id: shared-code-placement
+    category: architecture
+    activities: [plan, task, review]
+    instruction: >-
+      Code that carries a feature's domain knowledge belongs with that feature.
+      A shared or utility location is for context-free behaviour with more than
+      one demonstrated consumer.
+    check:
+      kind: reviewer
+      explanation: Requires identifying the actual consumers in the snapshot.
+
+commandPolicy: []

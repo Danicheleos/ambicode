@@ -1,8 +1,9 @@
+# CLAUDE.md
+
 # Working style
 
-Claude Code loads this file automatically from the repository root. It is
-repository-agnostic apart from the last section, so copying it to another
-project's root is the whole installation.
+Claude Code loads this file from the repository root. Only the last section is
+repository-specific, so copying the file elsewhere is the whole installation.
 
 The rule that does the most work is the first one, because it is checkable.
 "Be rigorous" changes nothing; "produce a number before you claim it" does. If
@@ -47,8 +48,9 @@ don't assert** and **Before anything destructive**.
   information: the user is deciding what to spend next.
 - When evidence kills a task you were asked to do, drop it and name the
   evidence. Do not do it anyway to look thorough.
-- Make routine judgment calls yourself. Ask only when different answers lead to
-  materially different work.
+- Make routine judgment calls yourself, except where the user or a project rule
+  requires agreement first. Ask only when different answers lead to materially
+  different work.
 
 ## Before anything destructive
 
@@ -69,6 +71,13 @@ don't assert** and **Before anything destructive**.
 
 ## Making changes
 
+- Fix the cause. Before writing new code (a function, branch, guard, option or
+  file), even code a plan or spec prescribes: find the existing code that
+  produces today's behaviour, edit it, and check whether the request's outcome
+  now holds. If it holds, keep that edit, skip the prescribed code and report
+  the departure. Judge by what the request asks for, not by the mechanism the
+  spec describes. Change the behaviour in place; an option no caller needs only
+  keeps the old one alive.
 - Extend the seam that already exists rather than adding a parallel one. A new
   option belongs beside the option it is the counterpart of, threaded through
   the same call path, sharing the values that path already computed.
@@ -78,15 +87,16 @@ don't assert** and **Before anything destructive**.
 - Never let a change make the output look cleaner than the reality. A declined
   check still reports as a gap in verification. A skipped step still downgrades
   the status. An absent result is reported as absent, not as an empty one.
-- Add assertions; do not remove or weaken them. If an existing test, budget or
-  lint rule fails because of your change, assume the rule is right and the
-  change is wrong until you have shown otherwise. Cut your own additions before
-  raising a limit — and if you do raise one, say so explicitly rather than
-  letting it pass unremarked.
-- New behaviour ships with its test in the same change, and a bug fix ships
-  with the reproduction that was failing before it.
-- Typecheck after every structural edit; run the full suite before saying done.
-  Do not report a change as working on the strength of the edit succeeding.
+- Checks, guards and caps with no observed failure are removed with the tests
+  that only pin them; each removal is named in the report.
+- After a behaviour change, grep every text stating it (skills, routes, agents,
+  prompts, hooks, docs, tests); update it in the same change or report the gap.
+- When a size cap forces a cut, report every sentence removed.
+- Tests describe the behaviour the requirement expects; a bug fix ships with
+  the reproduction that failed before it.
+- Typecheck after every structural edit; run targeted tests per change and the
+  full suite (`npm run verify`) before hand-off. Do not report a change as
+  working on the strength of the edit succeeding.
 
 ## Editing mechanics
 
@@ -100,9 +110,10 @@ don't assert** and **Before anything destructive**.
 
 ## In code you write
 
-- Comments record why, with the evidence: the measurement, the real failure
-  they prevent, the alternative that was tried and rejected. Not what the line
-  does.
+- Comment only unobvious behaviour, in at most 3 lines: why, with the evidence
+  (the measurement, the real failure it prevents, the rejected alternative).
+  Not what the line does, no history or iteration ids; one short provenance
+  line is allowed.
 - A constant carries the provenance of its number — why 6 and not 20, what went
   wrong at the previous value.
 - Match the surrounding code's comment density, naming and idiom.
@@ -112,9 +123,96 @@ don't assert** and **Before anything destructive**.
 Drop this section when copying the file elsewhere; replace it with whatever
 makes measurement cheap in that project.
 
-- `npm run verify` is the gate: build, typecheck, 543 tests, plugin validation.
+- `npm run verify` is the gate: build, typecheck, tests, plugin validation.
 - `node fixtures/materialize.mjs <name> <dir>` replays a fixture repository
   into a throwaway directory, which is how a reported failure becomes a
   reproduction rather than a theory.
 - `npm run package:candidate` builds what actually ships; `package:reproducible`
   proves two runs agree. Measure against `dist/`, not against `src/`.
+
+### Commands
+
+- `node --test src/path/to/file.test.ts` runs one test file (about 0.2s). Node
+  24 runs the `.ts` sources directly; there is no compile step for tests.
+- `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
+  `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
+- `test:unit` takes about 70s alone (68s measured) and longer beside
+  other agents; `verify` adds build and plugin validation, so both can pass the
+  default 120s Bash timeout. Run them in the foreground with
+  `timeout: 600000`. Never poll a backgrounded run with Monitor or sleep
+  timers: each timer that fires after your hand-back re-opens your run.
+- `npm run build` validates the route files, then esbuild bundles
+  `src/cli/main.ts` into `scripts/ambicode.mjs` (with code-split `chunks/`) and
+  `src/hook/guard/guard.ts` into `scripts/guard.mjs`. `scripts/` is
+  generated and gitignored; `bin/ambicode` and `bin/ambicode.cmd` are
+  tracked. Edit `src/`, never `scripts/`.
+- `validate:plugin` (and so `verify`) shells out to the `claude` CLI.
+- `npm run bump` raises the patch version; the `version` lifecycle runs
+  `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
+- `npm run evals` (plugin arm) and `npm run evals:bare` (no plugin, the
+  baseline) cost money and run the bundle, not `src/`. Build first. Defaults:
+  Sonnet 5.5, effort low, 1 run. The live case sets under `evals/cases/` are
+  task (suite-real, task-chain), investigate (suite-investigate), review, init,
+  rules and plan. Never run `npm run evals:generate`: a full run rewrites and
+  deletes the review, plan and rules case folders (`evals/scripts/cases.mjs`).
+  `evals/README.md` explains the arms.
+
+CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
+native Windows `cmd`; the LF line-endings check runs on Windows only. Paths,
+separators and spawned processes must work on all three.
+
+### Architecture
+
+AMBICODE is a Claude Code plugin. The plugin surface is plain files at the root.
+All of their behaviour lives in a single bundled CLI:
+
+- `.claude-plugin/plugin.json` is the manifest. `hooks/hooks.json` sends every
+  hook event to `scripts/ambicode.mjs hook`. The exception is `PreToolUse` on
+  Bash (git, `glab mr`, `ambicode.mjs`, `.ambicode/` paths) and on
+  Write/Edit/MultiEdit/NotebookEdit, which goes to `scripts/guard.mjs`. The guard
+  runs on those calls only (the matchers in `hooks/hooks.json`), so it is
+  built separately with no chunks shared with the CLI;
+  `src/architecture.test.ts` caps its size (`GUARD_BUNDLE_MAX_BYTES`). Its
+  rules live in `src/hook/guard/rules/`, one file per concern.
+- `skills/<name>/SKILL.md` are the user-facing `/ambicode:<name>` skills
+  (init, investigate, plan, review, rules, task). investigate, plan, task,
+  review and rules start a route; init scaffolds (scripts) and may start the
+  rules route. A route starts with:
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start <skill>`.
+- `routes/<skill>/<skill>.yaml` declares the route's ordered steps. Actors are
+  `code` (CLI handlers), `model` (instruction text from
+  `routes/<skill>/<step>.md`) and `human` (a gate declared on the step, or a
+  reusable one in `routes/gates.yaml`). `routes/README.md` is the full spec of the route language. The build rejects
+  a bad route with `route-invalid: …`.
+- Each step appends to its run's ledger in the target repository
+  (`.ambicode/tasks/<task>/` or `.ambicode/reviews/<run>/`), and the route's
+  position is folded from that ledger (`src/harness/engine/fold.ts`). The
+  ledger holds the route state; `plan.md`, `requirements/` and `steps/` are the
+  files it points to.
+- `policies/<pack>/*.yaml` are rule packs selected by path glob and activity.
+  `prompts/` holds the session contract; the reviewer role is
+  `agents/reviewer.md`.
+
+`src/` layers may only import downward. `src/architecture.test.ts` enforces
+this with an empty allowlist:
+
+```
+types, util  <  platform  <  modules  <  harness  <  skills  <  composition  <  hook  <  cli  <  testing
+```
+
+- `platform/` holds adapters: git, the ledger, the GitLab provider, Claude
+  transcripts, and `ports/` (filesystem, process runner, clock, ids, stdin,
+  http-host).
+- `modules/` holds the domain: checks, config, context, evidence, policy,
+  requirements, review (including the local review page server), search.
+- `harness/` is the route engine: DSL validation, executing and folding
+  steps, gates, session ownership.
+- `composition/root.ts` `createRuntime()` wires the ports, and every one can be
+  overridden. Tests inject fakes from `src/testing/fakes` this way, not by
+  mocking modules.
+- Imports use the `#area/*` aliases from `package.json` with explicit `.ts`
+  extensions. `tsconfig` sets `erasableSyntaxOnly`, so enums, namespaces and
+  constructor parameter properties are not allowed.
+
+Design documents and migration plans live under `archive/gym/planing/`. User-facing
+docs are in `docs/`: installation, review, policy authoring, release checklist.

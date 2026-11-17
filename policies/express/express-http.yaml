@@ -1,0 +1,66 @@
+schemaVersion: 1
+id: express-http
+authority: inherited
+description: "Express HTTP layer: route authorization, single response, middleware order, handler responsibility."
+appliesTo:
+  - "**/*.{ts,js,mjs,cjs}"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE HTTP baseline, adapted from grahpt express-routing-and-controllers.
+    Separated from framework-version specifics: the authorization and
+    response-correctness concerns are carried over; the prescribed routing
+    layout and the specific validation library are not. Request validation is
+    a common rule (data-boundary).
+  externalVersion: "express-v2"
+
+rules:
+  - id: authorization-on-scoped-routes
+    category: security
+    activities: [plan, task, review]
+    instruction: >-
+      A route nested under a parent resource must both receive the parent's
+      identifier and prove the caller is authorized for that specific parent
+      before reading or writing. An authenticated caller is not thereby
+      authorized for an arbitrary resource identifier.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assessed from the changed route and the middleware it actually runs.
+        Report an unverifiable ownership check as a question, not as proof.
+
+  - id: single-response
+    category: correctness
+    activities: [task, review]
+    instruction: >-
+      A handler sends one response and then stops. Continuing after a response
+      has been sent produces a second write or unattributed work.
+    check:
+      kind: reviewer
+      explanation: Visible in the changed control flow.
+
+  - id: security-middleware-order
+    category: security
+    activities: [task, review]
+    instruction: >-
+      Do not weaken a configured allowlist or reorder sanitization, validation,
+      and permission middleware as a side effect of an unrelated change.
+    check:
+      kind: reviewer
+      explanation: Judged by comparing the changed order with the surrounding code.
+
+  - id: handler-responsibility
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      A handler translates HTTP into an application call and maps the result
+      back. Query construction and persistence rules belong to the layer the
+      project has designated for them.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assess against the project's declared structure; state the question when
+        none is declared.
+
+commandPolicy: []

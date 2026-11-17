@@ -1,0 +1,2183 @@
+[
+ {
+  "id": "2026-10-26T14-46-19-385Z/plan-app-csv-1",
+  "case": "plan-app-csv",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/lines.js",
+   "src/reports/csv.js",
+   "src/legacy/invoice-total.js",
+   "src/customers/segments.js",
+   "src/shared/http.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/payments/service.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "src/reports/csv.js",
+   "src/reports/service.js",
+   "src/reports/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-47-26-156Z/plan-app-remind-1",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/service.js",
+   "src/customers/patch.js",
+   "tests/customers/service.test.js",
+   "tests/customers/patch.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/terms.js",
+   "tests/notifications/templates.test.js",
+   "tests/notifications/service.test.js",
+   "tests/invoices/terms.test.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "tests/flags.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-48-55-597Z/plan-app-reuse-1",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/shared/validation/date.js",
+   "src/shared/validation/index.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "src/reports/service.js",
+   "src/reports/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-49-39-088Z/plan-app-vague-1",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/terms.test.js",
+   "tests/invoices/service.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/model.js",
+   "src/notifications/service.js",
+   "tests/notifications/templates.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-50-23-107Z/plan-go-price-1",
+  "case": "plan-go-price",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/parcels.go",
+   "internal/pricing/price.go",
+   "internal/returns/flow.go",
+   "internal/rates/doc.go",
+   "cmd/parcelctl/main.go",
+   "internal/core/errors.go",
+   "internal/httpapi/middleware/recover.go",
+   "internal/httpapi/render/json.go"
+  ],
+  "changes": [
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-50-52-523Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-51-42-187Z/plan-jvm-bands-1",
+  "case": "plan-jvm-bands",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "application/src/main/kotlin/org/seedvault/application/usecase/report/StockReportService.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ReportStock.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/render/Table.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ReportCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/ReportRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/LotDto.kt"
+  ],
+  "changes": [
+   "application/src/main/kotlin/org/seedvault/application/port/input/ReportStock.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/report/StockReportService.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/ReportRoutes.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ReportCommand.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-52-10-455Z/plan-jvm-chill-1",
+  "case": "plan-jvm-chill",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "domain/src/main/kotlin/org/seedvault/domain/species/Dormancy.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/SowingDto.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/SowingMail.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/RegisterCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/shared/Ids.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt"
+  ],
+  "changes": [
+   "domain/src/main/kotlin/org/seedvault/domain/lot/SeedLot.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/germination/GerminationRules.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt",
+   "adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/file/LotCodec.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/events/GerminationEvents.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Topic.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ChillLot.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/ChillLotService.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Templates.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ChillCommand.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Main.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-53-14-775Z/plan-mono-calibrate-1",
+  "case": "plan-mono-calibrate",
+  "fixture": "monorepo-rust-ts-kiln",
+  "mapPaths": [
+   "tools/src/kilnlab/config/paths.py",
+   "tools/src/kilnlab/export/json_out.py",
+   "dashboard/src/server.ts",
+   "dashboard/src/services/firings.ts",
+   "dashboard/src/lib/engine/client.ts",
+   "dashboard/src/middleware/errors.ts",
+   "dashboard/src/routes/firings.routes.ts"
+  ],
+  "changes": [
+   "engine/crates/controller/src/drivers/thermocouple.rs",
+   "engine/crates/protocol/src/message.rs",
+   "tools/src/kilnlab/export/json_out.py",
+   "tools/src/kilnlab/config/paths.py",
+   "tools/tests/test_calibration.py",
+   "dashboard/src/lib/validate/limits.ts",
+   "dashboard/src/lib/validate/offset.ts",
+   "dashboard/src/lib/engine/client.ts",
+   "dashboard/src/services/store.ts",
+   "dashboard/src/services/kilns.ts",
+   "dashboard/src/routes/kilns.routes.ts",
+   "dashboard/src/views/kiln.ts",
+   "dashboard/test/routes.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-53-59-132Z/plan-mono-degrees-1",
+  "case": "plan-mono-degrees",
+  "fixture": "monorepo-rust-ts-kiln",
+  "mapPaths": [
+   "engine/crates/units/src/temperature.rs",
+   "dashboard/src/lib/format/temperature.ts",
+   "dashboard/src/views/firing.ts",
+   "dashboard/src/lib/validate/segments.ts",
+   "engine/crates/schedule/src/segment.rs",
+   "dashboard/src/routes/firings.routes.ts",
+   "dashboard/src/services/firings.ts",
+   "dashboard/src/lib/engine/client.ts"
+  ],
+  "changes": [
+   "dashboard/src/views/firing.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-54-46-284Z/plan-py-ingest-1",
+  "case": "plan-py-ingest",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/plugins/sources/weir_levels/plugin.py",
+   "src/tidewatch/plugins/sources/buoy_csv/plugin.py",
+   "src/tidewatch/plugins/sources/__init__.py",
+   "src/tidewatch/api/handlers/level.py"
+  ],
+  "changes": [
+   "src/tidewatch/app/commands/ingest.py",
+   "tests/test_ingest.py",
+   "src/tidewatch/domain/rules/alarm.py",
+   "src/tidewatch/domain/events/readings.py",
+   "src/tidewatch/infra/store/alarm_journal.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/infra/wiring.py",
+   "tests/conftest.py",
+   "src/tidewatch/api/handlers/ingest.py",
+   "src/tidewatch/cli/main.py",
+   "src/tidewatch/cli/render.py",
+   "tests/test_handlers.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-55-34-110Z/plan-py-maxage-1",
+  "case": "plan-py-maxage",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/plugins/sources/quay_serial/__init__.py",
+   "src/tidewatch/infra/clock/fixed.py"
+  ],
+  "changes": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/wiring.py",
+   "src/tidewatch/app/queries/latest.py",
+   "tests/test_staleness.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-56-00-483Z/plan-ts-grace-1",
+  "case": "plan-ts-grace",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/contexts/members/domain/tier.ts",
+   "src/contexts/lending/domain/fees/late.ts",
+   "src/contexts/members/application/register.ts",
+   "src/contexts/members/http/presenters.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/notifications/application/templates.ts"
+  ],
+  "changes": [
+   "src/contexts/members/domain/tier.ts",
+   "src/contexts/members/index.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/lending/domain/fees/late.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/composition.ts",
+   "test/fees.test.ts",
+   "test/grace.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T14-56-29-515Z/plan-ts-reserve-1",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/reservations/domain/reservation.ts",
+   "src/contexts/reservations/domain/queue.ts",
+   "src/contexts/reservations/application/deps.ts",
+   "src/contexts/reservations/application/reserve.ts",
+   "src/contexts/reservations/index.ts",
+   "src/platform/db/memory.ts",
+   "src/composition.ts",
+   "test/reservations-queue.test.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/reservations/domain/policy.ts",
+   "src/contexts/reservations/application/offer-next.ts",
+   "src/contexts/reservations/application/on-loan-returned.ts",
+   "src/contexts/reservations/application/expire-holds.ts",
+   "src/contexts/reservations/application/on-loan-started.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "test/reservations-hold.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-15-12-650Z/plan-app-reuse-1",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/shared/validation/date.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "tests/shared/validation-date.test.js",
+   "tests/invoices/routes.test.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-15-12-650Z/plan-app-reuse-2",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   ".ambicode/context/modules/reports.md",
+   "tests/reports/service.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-15-12-650Z/plan-app-reuse-3",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "src/reports/service.js",
+   "src/reports/model.js",
+   "src/reports/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-15-49-641Z/plan-app-csv-1",
+  "case": "plan-app-csv",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/lines.js",
+   "src/reports/csv.js",
+   "src/legacy/invoice-total.js",
+   "src/customers/segments.js",
+   "src/shared/http.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/payments/service.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "src/reports/csv.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/csv.test.js",
+   "tests/reports/routes.test.js",
+   "tests/reports/service.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-15-49-641Z/plan-app-csv-2",
+  "case": "plan-app-csv",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/lines.js",
+   "src/reports/csv.js",
+   "src/legacy/invoice-total.js",
+   "src/customers/segments.js",
+   "src/shared/http.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/payments/service.js"
+  ],
+  "changes": [
+   "src/invoices/summary.js",
+   "src/invoices/routes.js",
+   "tests/invoices/lines.test.js",
+   "src/invoices/export.js",
+   "tests/invoices/export.test.js",
+   "tests/invoices/routes.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-15-49-641Z/plan-app-csv-3",
+  "case": "plan-app-csv",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/lines.js",
+   "src/reports/csv.js",
+   "src/legacy/invoice-total.js",
+   "src/customers/segments.js",
+   "src/shared/http.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/payments/service.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "src/shared/csv.js",
+   "src/reports/csv.js",
+   "src/invoices/csv.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-16-29-196Z/plan-app-vague-1",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/model.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-16-29-196Z/plan-app-vague-2",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "tests/invoices/terms.test.js",
+   "tests/invoices/service.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/model.js",
+   "src/invoices/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-16-29-196Z/plan-app-vague-3",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/terms.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/model.js",
+   "tests/notifications/templates.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-17-14-872Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/history.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/scans/recorder_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go",
+   "cmd/parcelctl/flags_test.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-17-14-872Z/plan-go-scans-2",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/core/interfaces.go",
+   "internal/tracking/history.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/depot/planner.go",
+   "internal/returns/flow.go",
+   "internal/returns/flow_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go",
+   "cmd/parcelctl/flags_test.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-17-14-872Z/plan-go-scans-3",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/history.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/audit/log.go",
+   "internal/scans/scans_test.go",
+   "internal/httpapi/server.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server_test.go",
+   "internal/returns/flow.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-38-24-700Z/plan-app-reuse-1",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   ".ambicode/context/modules/invoices.md",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js",
+   ".ambicode/context/modules/reports.md"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-38-24-700Z/plan-app-reuse-2",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js",
+   "tests/reports/routes.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-39-05-975Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/history.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/scans/service.go",
+   "internal/audit/log.go",
+   "internal/scans/scans_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/scans.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T15-39-05-975Z/plan-go-scans-2",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/scans/doc.go",
+   "internal/scans/scans_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/scans.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-30-03-042Z/plan-app-csv-1",
+  "case": "plan-app-csv",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/lines.js",
+   "src/reports/csv.js",
+   "src/legacy/invoice-total.js",
+   "src/customers/segments.js",
+   "src/shared/http.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/payments/service.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "src/reports/csv.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/csv.test.js",
+   "tests/reports/routes.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-30-03-042Z/plan-app-csv-2",
+  "case": "plan-app-csv",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/lines.js",
+   "src/reports/csv.js",
+   "src/legacy/invoice-total.js",
+   "src/customers/segments.js",
+   "src/shared/http.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/payments/service.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "src/invoices/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-31-16-330Z/plan-app-remind-1",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/patch.js",
+   "src/customers/service.js",
+   "tests/customers/service.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "tests/notifications/templates.test.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-31-16-330Z/plan-app-remind-2",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/service.js",
+   "src/customers/patch.js",
+   "tests/customers/patch.test.js",
+   "tests/customers/service.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "tests/notifications/templates.test.js",
+   "src/invoices/model.js",
+   "src/invoices/reminders.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/reminders.test.js",
+   "tests/invoices/routes.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-32-14-269Z/plan-app-reuse-1",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/shared/validation/date.js",
+   "src/shared/validation/index.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   ".ambicode/context/modules/reports.md"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-32-14-269Z/plan-app-reuse-2",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/shared/validation/date.js",
+   "src/shared/validation/index.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "tests/shared/validation-date.test.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "tests/factory.js",
+   "src/reports/service.js",
+   "src/reports/model.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js",
+   "tests/reports/routes.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-33-03-930Z/plan-app-vague-1",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/terms.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-33-03-930Z/plan-app-vague-2",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "tests/invoices/terms.test.js",
+   "src/invoices/model.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-33-46-655Z/plan-go-price-1",
+  "case": "plan-go-price",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/parcels.go",
+   "internal/pricing/price.go",
+   "internal/returns/flow.go",
+   "internal/rates/doc.go",
+   "cmd/parcelctl/main.go",
+   "internal/core/errors.go",
+   "internal/httpapi/middleware/recover.go",
+   "internal/httpapi/render/json.go"
+  ],
+  "changes": [
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-33-46-655Z/plan-go-price-2",
+  "case": "plan-go-price",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/parcels.go",
+   "internal/pricing/price.go",
+   "internal/returns/flow.go",
+   "internal/rates/doc.go",
+   "cmd/parcelctl/main.go",
+   "internal/core/errors.go",
+   "internal/httpapi/middleware/recover.go",
+   "internal/httpapi/render/json.go"
+  ],
+  "changes": [
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-34-16-992Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/core/interfaces.go",
+   "internal/depot/planner.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/returns/flow.go",
+   "internal/returns/returns_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go",
+   "cmd/parcelctl/flags_test.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-34-16-992Z/plan-go-scans-2",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/history.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/audit/log.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-35-11-577Z/plan-jvm-bands-1",
+  "case": "plan-jvm-bands",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "application/src/main/kotlin/org/seedvault/application/usecase/report/StockReportService.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ReportStock.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/render/Table.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ReportCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/ReportRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/LotDto.kt"
+  ],
+  "changes": [
+   "domain/src/main/kotlin/org/seedvault/domain/lot/Viability.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ReportStock.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/report/StockReportService.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/ReportRoutes.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ReportCommand.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-35-11-577Z/plan-jvm-bands-2",
+  "case": "plan-jvm-bands",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "application/src/main/kotlin/org/seedvault/application/usecase/report/StockReportService.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ReportStock.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/render/Table.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ReportCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/ReportRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/LotDto.kt"
+  ],
+  "changes": [
+   "application/src/main/kotlin/org/seedvault/application/port/input/ReportStock.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/report/StockReportService.kt",
+   "application/src/test/kotlin/org/seedvault/application/usecase/report/StockReportServiceTest.new",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/ReportRoutes.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ReportCommand.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-35-41-078Z/plan-jvm-chill-1",
+  "case": "plan-jvm-chill",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "domain/src/main/kotlin/org/seedvault/domain/species/Dormancy.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/SowingDto.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/SowingMail.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/RegisterCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/shared/Ids.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt"
+  ],
+  "changes": [
+   "domain/src/main/kotlin/org/seedvault/domain/lot/SeedLot.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/germination/GerminationRules.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt",
+   "adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/file/LotCodec.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ChillLot.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/ChillLotService.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/events/GerminationEvents.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Topic.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Templates.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/LotDto.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ChillCommand.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Main.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-35-41-078Z/plan-jvm-chill-2",
+  "case": "plan-jvm-chill",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "domain/src/main/kotlin/org/seedvault/domain/species/Dormancy.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/SowingDto.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/SowingMail.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/RegisterCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/shared/Ids.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt"
+  ],
+  "changes": [
+   "domain/src/main/kotlin/org/seedvault/domain/lot/SeedLot.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/germination/GerminationRules.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt",
+   "adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/file/LotCodec.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/events/GerminationEvents.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Topic.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Templates.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/LotDto.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Main.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-36-42-305Z/plan-mono-calibrate-1",
+  "case": "plan-mono-calibrate",
+  "fixture": "monorepo-rust-ts-kiln",
+  "mapPaths": [
+   "tools/src/kilnlab/config/paths.py",
+   "tools/src/kilnlab/export/json_out.py",
+   "dashboard/src/server.ts",
+   "dashboard/src/services/firings.ts",
+   "dashboard/src/lib/engine/client.ts",
+   "dashboard/src/middleware/errors.ts",
+   "dashboard/src/routes/firings.routes.ts"
+  ],
+  "changes": [
+   "engine/crates/controller/src/drivers/thermocouple.rs",
+   "tools/src/kilnlab/export/json_out.py",
+   "tools/src/kilnlab/cli.py",
+   "tools/tests/test_calibration.py",
+   "dashboard/src/lib/validate/limits.ts",
+   "dashboard/src/lib/validate/offset.ts",
+   "dashboard/src/lib/engine/client.ts",
+   "dashboard/src/services/store.ts",
+   "dashboard/src/services/kilns.ts",
+   "dashboard/src/routes/kilns.routes.ts",
+   "dashboard/src/views/kiln.ts",
+   "dashboard/test/routes.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-36-42-305Z/plan-mono-calibrate-2",
+  "case": "plan-mono-calibrate",
+  "fixture": "monorepo-rust-ts-kiln",
+  "mapPaths": [
+   "tools/src/kilnlab/config/paths.py",
+   "tools/src/kilnlab/export/json_out.py",
+   "dashboard/src/server.ts",
+   "dashboard/src/services/firings.ts",
+   "dashboard/src/lib/engine/client.ts",
+   "dashboard/src/middleware/errors.ts",
+   "dashboard/src/routes/firings.routes.ts"
+  ],
+  "changes": [
+   "engine/crates/safety/src/limits.rs",
+   "engine/crates/controller/src/drivers/thermocouple.rs",
+   "dashboard/src/lib/validate/limits.ts",
+   "dashboard/src/lib/engine/client.ts",
+   "dashboard/src/services/kilns.ts",
+   "dashboard/src/routes/kilns.routes.ts",
+   "dashboard/src/views/kiln.ts",
+   "tools/src/kilnlab/export/json_out.py",
+   "tools/src/kilnlab/config/paths.py",
+   "tools/src/kilnlab/cli.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-37-46-524Z/plan-mono-degrees-1",
+  "case": "plan-mono-degrees",
+  "fixture": "monorepo-rust-ts-kiln",
+  "mapPaths": [
+   "engine/crates/units/src/temperature.rs",
+   "dashboard/src/lib/format/temperature.ts",
+   "dashboard/src/views/firing.ts",
+   "dashboard/src/lib/validate/segments.ts",
+   "engine/crates/schedule/src/segment.rs",
+   "dashboard/src/routes/firings.routes.ts",
+   "dashboard/src/services/firings.ts",
+   "dashboard/src/lib/engine/client.ts"
+  ],
+  "changes": [
+   "dashboard/src/views/firing.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-37-46-524Z/plan-mono-degrees-2",
+  "case": "plan-mono-degrees",
+  "fixture": "monorepo-rust-ts-kiln",
+  "mapPaths": [
+   "engine/crates/units/src/temperature.rs",
+   "dashboard/src/lib/format/temperature.ts",
+   "dashboard/src/views/firing.ts",
+   "dashboard/src/lib/validate/segments.ts",
+   "engine/crates/schedule/src/segment.rs",
+   "dashboard/src/routes/firings.routes.ts",
+   "dashboard/src/services/firings.ts",
+   "dashboard/src/lib/engine/client.ts"
+  ],
+  "changes": [
+   "dashboard/src/views/firing.ts",
+   "dashboard/test/routes.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-38-30-370Z/plan-py-ingest-1",
+  "case": "plan-py-ingest",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/plugins/sources/weir_levels/plugin.py",
+   "src/tidewatch/plugins/sources/buoy_csv/plugin.py",
+   "src/tidewatch/plugins/sources/__init__.py",
+   "src/tidewatch/api/handlers/level.py"
+  ],
+  "changes": [
+   "src/tidewatch/app/commands/ingest.py",
+   "tests/test_ingest.py",
+   "src/tidewatch/domain/rules/limits.py",
+   "src/tidewatch/domain/events/readings.py",
+   "src/tidewatch/app/ports/journal.py",
+   "src/tidewatch/infra/store/journal.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/wiring.py",
+   "tests/conftest.py",
+   "tests/test_settings.py",
+   "src/tidewatch/api/handlers/ingest.py",
+   "src/tidewatch/cli/main.py",
+   "src/tidewatch/cli/render.py",
+   "tests/test_handlers.py",
+   "tests/test_cli.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-38-30-370Z/plan-py-ingest-2",
+  "case": "plan-py-ingest",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/plugins/sources/weir_levels/plugin.py",
+   "src/tidewatch/plugins/sources/buoy_csv/plugin.py",
+   "src/tidewatch/plugins/sources/__init__.py",
+   "src/tidewatch/api/handlers/level.py"
+  ],
+  "changes": [
+   "src/tidewatch/app/commands/ingest.py",
+   "tests/test_ingest.py",
+   "src/tidewatch/domain/rules/limits.py",
+   "src/tidewatch/domain/events/readings.py",
+   "src/tidewatch/app/ports/journal.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/store/alarm_journal.py",
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/infra/wiring.py",
+   "tests/conftest.py",
+   "src/tidewatch/api/handlers/ingest.py",
+   "src/tidewatch/cli/main.py",
+   "tests/test_handlers.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-39-25-962Z/plan-py-maxage-1",
+  "case": "plan-py-maxage",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/plugins/sources/quay_serial/__init__.py",
+   "src/tidewatch/infra/clock/fixed.py"
+  ],
+  "changes": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/domain/rules/limits.py",
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/wiring.py",
+   "src/tidewatch/app/queries/latest.py",
+   "tests/test_staleness.py",
+   "tests/test_env.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-39-25-962Z/plan-py-maxage-2",
+  "case": "plan-py-maxage",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/plugins/sources/quay_serial/__init__.py",
+   "src/tidewatch/infra/clock/fixed.py"
+  ],
+  "changes": [
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/wiring.py",
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/app/queries/latest.py",
+   "tests/test_staleness.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-39-52-973Z/plan-ts-grace-1",
+  "case": "plan-ts-grace",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/contexts/members/domain/tier.ts",
+   "src/contexts/lending/domain/fees/late.ts",
+   "src/contexts/members/application/register.ts",
+   "src/contexts/members/http/presenters.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/notifications/application/templates.ts"
+  ],
+  "changes": [
+   "src/contexts/members/domain/tier.ts",
+   "src/contexts/members/index.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/domain/fees/late.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/composition.ts",
+   "test/fees.test.ts",
+   "test/grace.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-39-52-973Z/plan-ts-grace-2",
+  "case": "plan-ts-grace",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/contexts/members/domain/tier.ts",
+   "src/contexts/lending/domain/fees/late.ts",
+   "src/contexts/members/application/register.ts",
+   "src/contexts/members/http/presenters.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/notifications/application/templates.ts"
+  ],
+  "changes": [
+   "src/contexts/lending/domain/fees/late.ts",
+   "test/fees.test.ts",
+   "src/contexts/members/index.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/composition.ts",
+   "test/borrow.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-40-23-301Z/plan-ts-reserve-1",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/lending/application/is-on-loan.ts",
+   "src/contexts/lending/index.ts",
+   "test/borrow.test.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/composition.ts",
+   "test/reservation-flow.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T16-40-23-301Z/plan-ts-reserve-2",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/lending/domain/reservation.ts",
+   "src/contexts/lending/domain/policy.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/application/reserve.ts",
+   "src/contexts/lending/application/cancel-reservation.ts",
+   "src/contexts/lending/application/reservation-position.ts",
+   "src/contexts/lending/http/routes.ts",
+   "src/platform/db/memory.ts",
+   "src/contexts/lending/index.ts",
+   "test/reservation.test.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/composition.ts",
+   "test/reservation-hold.test.ts",
+   "src/contexts/lending/application/expire-holds.ts",
+   "test/reservation-expiry.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-03-28-421Z/plan-app-reuse-1",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js",
+   "tests/reports/routes.test.js",
+   ".ambicode/context/modules/reports.md"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-03-28-421Z/plan-app-reuse-2",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/shared/validation/date.js",
+   "src/shared/validation/index.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "src/invoices/routes.js",
+   "tests/shared/validation-date.test.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "tests/factory.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js",
+   "tests/reports/routes.test.js",
+   ".ambicode/context/modules/invoices.md"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-04-12-566Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/core/interfaces.go",
+   "internal/tracking/history.go",
+   "internal/tracking/service.go",
+   "internal/audit/log.go",
+   "internal/returns/flow.go",
+   "internal/tracking/tracking_test.go",
+   "internal/depot/depot_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go",
+   "cmd/parcelctl/print.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-04-12-566Z/plan-go-scans-2",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/core/interfaces.go",
+   "internal/tracking/history.go",
+   "internal/audit/log.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-05-33-578Z/plan-py-maxage-1",
+  "case": "plan-py-maxage",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/plugins/sources/quay_serial/__init__.py",
+   "src/tidewatch/infra/clock/fixed.py"
+  ],
+  "changes": [
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/infra/wiring.py",
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/app/queries/latest.py",
+   "tests/test_staleness.py",
+   "tests/test_env_settings.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-05-33-578Z/plan-py-maxage-2",
+  "case": "plan-py-maxage",
+  "fixture": "py-service-tidewatch",
+  "mapPaths": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/plugins/sources/quay_serial/__init__.py",
+   "src/tidewatch/infra/clock/fixed.py"
+  ],
+  "changes": [
+   "src/tidewatch/domain/rules/staleness.py",
+   "src/tidewatch/app/services.py",
+   "src/tidewatch/app/queries/latest.py",
+   "src/tidewatch/infra/config/settings.py",
+   "src/tidewatch/infra/config/env.py",
+   "src/tidewatch/infra/wiring.py",
+   "tests/test_staleness.py"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-05-58-100Z/plan-jvm-chill-1",
+  "case": "plan-jvm-chill",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "domain/src/main/kotlin/org/seedvault/domain/species/Dormancy.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/SowingDto.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/SowingMail.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/RegisterCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/shared/Ids.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt"
+  ],
+  "changes": [
+   "domain/src/main/kotlin/org/seedvault/domain/lot/SeedLot.kt",
+   "adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/file/LotCodec.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/events/LotEvents.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Topic.kt",
+   "application/src/main/kotlin/org/seedvault/application/port/input/ChillLot.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/ChillLotService.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "application/src/test/kotlin/org/seedvault/application/usecase/germination/ChillLotServiceTest.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/germination/GerminationRules.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt",
+   "domain/src/test/kotlin/org/seedvault/domain/germination/GerminationRulesTest.kt",
+   "application/src/test/kotlin/org/seedvault/application/usecase/germination/SowLotServiceTest.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Templates.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/ChillingMail.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/ChillCommand.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Main.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-05-58-100Z/plan-jvm-chill-2",
+  "case": "plan-jvm-chill",
+  "fixture": "jvm-gradle-seedvault",
+  "mapPaths": [
+   "domain/src/main/kotlin/org/seedvault/domain/species/Dormancy.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/dto/SowingDto.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/SowingMail.kt",
+   "adapters/cli/src/main/kotlin/org/seedvault/adapters/cli/commands/RegisterCommand.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/shared/Ids.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt"
+  ],
+  "changes": [
+   "domain/src/main/kotlin/org/seedvault/domain/lot/SeedLot.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/germination/GerminationRules.kt",
+   "application/src/main/kotlin/org/seedvault/application/usecase/germination/SowLotService.kt",
+   "adapters/persistence/src/main/kotlin/org/seedvault/adapters/persistence/file/LotCodec.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Wiring.kt",
+   "domain/src/main/kotlin/org/seedvault/domain/events/GerminationEvents.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/bus/Topic.kt",
+   "adapters/messaging/src/main/kotlin/org/seedvault/adapters/messaging/mail/Templates.kt",
+   "adapters/rest/src/main/kotlin/org/seedvault/adapters/rest/routes/GerminationRoutes.kt",
+   "bootstrap/src/main/kotlin/org/seedvault/bootstrap/Main.kt"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-06-57-997Z/plan-ts-reserve-1",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/reservations/domain/reservation.ts",
+   "src/contexts/reservations/domain/policy.ts",
+   "src/contexts/reservations/application/deps.ts",
+   "src/contexts/reservations/application/reserve.ts",
+   "src/contexts/reservations/http/routes.ts",
+   "src/contexts/reservations/index.ts",
+   "src/platform/db/memory.ts",
+   "src/composition.ts",
+   "src/contexts/lending/index.ts",
+   "test/reserve.test.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/reservations/application/promote.ts",
+   "src/contexts/reservations/application/expire-holds.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/main.ts",
+   "test/hold.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T17-06-57-997Z/plan-ts-reserve-2",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/reservations/domain/reservation.ts",
+   "src/contexts/reservations/domain/queue.ts",
+   "src/contexts/reservations/application/deps.ts",
+   "src/contexts/reservations/application/reserve.ts",
+   "src/contexts/reservations/http/routes.ts",
+   "src/contexts/reservations/index.ts",
+   "src/contexts/lending/application/on-loan.ts",
+   "src/platform/db/memory.ts",
+   "src/composition.ts",
+   "test/reserve.test.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/reservations/domain/policy.ts",
+   "src/contexts/reservations/application/on-loan-returned.ts",
+   "src/contexts/reservations/application/expire-holds.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/main.ts",
+   "test/holds.test.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/reservations/application/can-borrow.ts",
+   "test/borrow.test.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T18-35-19-229Z/plan-ts-reserve-1",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "test/borrow.test.ts",
+   "src/contexts/reservations/domain/reservation.ts",
+   "src/contexts/reservations/domain/policy.ts",
+   "src/contexts/reservations/domain/queue.ts",
+   "src/contexts/reservations/application/deps.ts",
+   "src/contexts/reservations/application/reserve.ts",
+   "src/contexts/reservations/application/on-loan-returned.ts",
+   "src/contexts/reservations/application/on-loan-started.ts",
+   "src/contexts/reservations/application/expire-holds.ts",
+   "src/contexts/reservations/application/can-borrow.ts",
+   "src/contexts/reservations/http/routes.ts",
+   "src/contexts/reservations/index.ts",
+   "test/reservations.test.ts",
+   "src/platform/db/memory.ts",
+   "src/composition.ts",
+   "src/contexts/notifications/application/templates.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T18-35-19-229Z/plan-ts-reserve-2",
+  "case": "plan-ts-reserve",
+  "fixture": "ts-service-lendbox",
+  "mapPaths": [
+   "src/composition.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/contexts/lending/domain/loan.ts",
+   "src/contexts/members/domain/member.ts",
+   "src/contexts/members/application/deps.ts",
+   "src/contexts/members/http/routes.ts",
+   "src/shared-kernel/ids/loan-id.ts"
+  ],
+  "changes": [
+   "src/contexts/lending/domain/policy.ts",
+   "src/contexts/lending/application/deps.ts",
+   "src/platform/db/tx.ts",
+   "src/contexts/lending/http/routes.ts",
+   "src/contexts/lending/http/schema.ts",
+   "src/contexts/lending/index.ts",
+   "src/contexts/lending/application/return.ts",
+   "src/contexts/lending/application/borrow.ts",
+   "src/contexts/notifications/application/templates.ts",
+   "src/composition.ts"
+  ]
+ },
+ {
+  "id": "2026-10-26T18-35-58-266Z/plan-app-reuse-1",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/terms.js",
+   "tests/invoices/service.test.js",
+   "src/reports/service.js",
+   "src/reports/routes.js",
+   "src/reports/model.js",
+   "tests/reports/service.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T18-35-58-266Z/plan-app-reuse-2",
+  "case": "plan-app-reuse",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/invoices/service.js",
+   "src/reports/service.js",
+   "src/shared/validation/date.js",
+   "src/legacy/invoice-total.js",
+   "src/payments/installments.js",
+   "src/notifications/channels.js",
+   "src/config.js",
+   "src/customers/segments.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "src/invoices/terms.js",
+   "tests/invoices/service.test.js",
+   "tests/invoices/routes.test.js",
+   "tests/notifications/flow.test.js",
+   "src/reports/service.js",
+   "src/reports/model.js",
+   "src/reports/routes.js",
+   "tests/reports/service.test.js",
+   "tests/reports/routes.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T20-34-49-717Z/plan-app-remind-1",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/service.js",
+   "src/customers/patch.js",
+   "tests/customers/service.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/model.js",
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "src/flags.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T20-34-49-717Z/plan-app-remind-2",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/service.js",
+   "src/customers/patch.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/model.js",
+   "src/invoices/reminders.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T20-35-40-080Z/plan-app-vague-1",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/routes.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T20-35-40-080Z/plan-app-vague-2",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "tests/invoices/service.test.js",
+   "src/invoices/model.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T20-36-17-566Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/core/interfaces.go",
+   "internal/tracking/service.go",
+   "internal/returns/flow.go",
+   "internal/httpapi/server_test.go",
+   "internal/tracking/tracking_test.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T20-36-17-566Z/plan-go-scans-2",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/scanner/states.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/scans/doc.go",
+   "internal/scans/service_test.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/scans.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T21-02-10-312Z/plan-app-remind-1",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/service.js",
+   "src/customers/patch.js",
+   "tests/customers/patch.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "tests/notifications/templates.test.js",
+   "src/invoices/model.js",
+   "src/invoices/service.js",
+   "src/invoices/reminders.js",
+   "src/invoices/index.js",
+   "tests/invoices/reminders.test.js",
+   "tests/flags.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T21-02-10-312Z/plan-app-remind-2",
+  "case": "plan-app-remind",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/channels.js",
+   "src/customers/index.js",
+   "src/reports/top-customers.js",
+   "src/flags.js",
+   "src/legacy/invoice-export.js",
+   "src/invoices/service.js",
+   "src/shared/validation/index.js",
+   "src/shared/http.js"
+  ],
+  "changes": [
+   "src/customers/model.js",
+   "src/customers/service.js",
+   "src/customers/patch.js",
+   "tests/customers/service.test.js",
+   "tests/customers/patch.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "tests/notifications/templates.test.js",
+   "src/invoices/model.js",
+   "src/invoices/reminders.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/reminders.test.js",
+   "tests/flags.test.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T21-03-00-002Z/plan-app-vague-1",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/service.test.js",
+   "src/notifications/templates.js",
+   "src/notifications/service.js",
+   "src/invoices/model.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T21-03-00-002Z/plan-app-vague-2",
+  "case": "plan-app-vague",
+  "fixture": "ts-app-medium-plan",
+  "mapPaths": [
+   "src/notifications/handlers.js",
+   "src/invoices/service.js",
+   "src/customers/routes.js",
+   "src/payments/routes.js",
+   "src/reports/routes.js",
+   "src/shared/clock.js"
+  ],
+  "changes": [
+   "src/invoices/terms.js",
+   "src/invoices/service.js",
+   "src/invoices/routes.js",
+   "tests/invoices/terms.test.js",
+   "src/shared/events/topics.js",
+   "src/invoices/model.js",
+   "src/notifications/templates.js",
+   "src/notifications/handlers.js",
+   "src/notifications/index.js"
+  ]
+ },
+ {
+  "id": "2026-10-26T21-03-44-158Z/plan-go-scans-1",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/tracking/history.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/audit/log.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parceld/routes.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ },
+ {
+  "id": "2026-10-26T21-03-44-158Z/plan-go-scans-2",
+  "case": "plan-go-scans",
+  "fixture": "go-module-parcelhub",
+  "mapPaths": [
+   "internal/httpapi/middleware/logging.go",
+   "internal/httpapi/server.go",
+   "internal/depot/bays.go",
+   "internal/core/types.go",
+   "internal/scanner/parse.go",
+   "internal/httpapi/render/json.go",
+   "internal/returns/reasons.go"
+  ],
+  "changes": [
+   "internal/core/errors.go",
+   "internal/core/types.go",
+   "internal/tracking/service.go",
+   "internal/tracking/tracking_test.go",
+   "internal/core/interfaces.go",
+   "internal/httpapi/server.go",
+   "internal/httpapi/parcels.go",
+   "cmd/parceld/routes.go",
+   "internal/httpapi/server_test.go",
+   "cmd/parcelctl/flags.go",
+   "cmd/parcelctl/main.go"
+  ]
+ }
+]

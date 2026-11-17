@@ -1,0 +1,20 @@
+/** The search map's layer list. */
+export const SEARCH_LAYER_DEFAULTS = ['shortlist', 'retrieve', 'harvest', 'shortlist'] as const;
+
+export const MAX_SNAPSHOT_FILE_BYTES = 262_144;
+
+export const AMBICODE_DIR = '.ambicode';
+export const CONFIG_FILE = `${AMBICODE_DIR}/config.yaml`;
+export const TASKS_DIR = `${AMBICODE_DIR}/tasks`;
+export const REVIEWS_DIR = `${AMBICODE_DIR}/reviews`;
+export const CONTEXT_DIR = `${AMBICODE_DIR}/context`;
+
+/** Review runs live apart from the other runs; everything else is a task directory. */
+export type DirKind = 'task' | 'review';
+export const dirKindFor = (skill: string): DirKind => (skill === 'review' ? 'review' : 'task');
+
+/** How long a login session of the review page stays valid, cookie and server side alike (user request 2026-10-27: tired of requesting a new link). */
+export const PAGE_SESSION_MS = 24 * 60 * 60 * 1000;
+
+/** The review page stops after this long without a request; the old page's `page.idleTimeoutSeconds` default (1800), kept. */
+export const PAGE_IDLE_MS = 30 * 60 * 1000;

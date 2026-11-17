@@ -1,0 +1,172 @@
+{
+  "stack": "monorepo: Rust workspace (engine/), TypeScript Express app (dashboard/) with a generated client, Python tooling (tools/), vendored code (vendor/)",
+  "projects": [
+    {
+      "id": "engine",
+      "root": "engine",
+      "paths": [
+        "crates/"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks"
+      ],
+      "checks": {
+        "test": {
+          "all": "cargo test",
+          "file": null
+        },
+        "lint": {
+          "all": "cargo clippy --all-targets",
+          "file": null
+        },
+        "format": {
+          "all": "cargo fmt --check",
+          "file": "rustfmt --check {file}"
+        }
+      }
+    },
+    {
+      "id": "dashboard",
+      "root": "dashboard",
+      "paths": [
+        "src/"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks",
+        "builtin/express-http",
+        "builtin/express-errors"
+      ],
+      "checks": {
+        "test": {
+          "all": "npm test",
+          "file": "npx vitest run {file}"
+        },
+        "lint": {
+          "all": "npm run lint",
+          "file": "npx eslint {file}"
+        }
+      }
+    },
+    {
+      "id": "tools",
+      "root": "tools",
+      "paths": [
+        "src/"
+      ],
+      "languages": [
+        "python"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks",
+        "builtin/python-quality"
+      ],
+      "checks": {
+        "test": {
+          "all": "uv run pytest",
+          "file": "uv run pytest {file}"
+        },
+        "lint": {
+          "all": "uv run ruff check src tests",
+          "file": "uv run ruff check {file}"
+        }
+      }
+    }
+  ],
+  "plausiblePacks": [
+    "builtin/common-design",
+    "builtin/common-code",
+    "builtin/common-errors",
+    "builtin/common-security",
+    "builtin/common-verification",
+    "builtin/common-checks",
+    "builtin/express-http",
+    "builtin/express-errors",
+    "builtin/python-quality"
+  ],
+  "packsThatDoNotFit": [
+    "angular-"
+  ],
+  "conventions": [
+    {
+      "id": "deci-celsius-names",
+      "basis": "written",
+      "quote": "its name ends in `_dc` in Rust",
+      "location": "CONTRIBUTING.md:5"
+    },
+    {
+      "id": "invariant-expect",
+      "basis": "written",
+      "quote": ".expect(\"invariant: ...\")",
+      "location": "CONTRIBUTING.md:9"
+    },
+    {
+      "id": "register-app-routes",
+      "basis": "inferred",
+      "quote": "export function register(app: Express): void {",
+      "location": "dashboard/src/routes/firings.routes.ts:4"
+    },
+    {
+      "id": "error-trait-impl",
+      "basis": "inferred",
+      "quote": "impl std::error::Error for SafetyError {}",
+      "location": "engine/crates/safety/src/error.rs:26"
+    }
+  ],
+  "contributorDocument": "CONTRIBUTING.md",
+  "modules": [
+    "modules/dashboard/overview.md",
+    "modules/dashboard/src/overview.md",
+    "modules/dashboard/src/lib/overview.md",
+    "modules/dashboard/src/lib/engine.md",
+    "modules/dashboard/src/lib/format.md",
+    "modules/dashboard/src/lib/validate.md",
+    "modules/dashboard/src/middleware.md",
+    "modules/dashboard/src/routes.md",
+    "modules/dashboard/src/services/overview.md",
+    "modules/dashboard/src/services/alerts.md",
+    "modules/dashboard/src/views/overview.md",
+    "modules/dashboard/src/views/components.md",
+    "modules/engine/overview.md",
+    "modules/engine/crates/overview.md",
+    "modules/engine/crates/cli/src.md",
+    "modules/engine/crates/controller/src/overview.md",
+    "modules/engine/crates/controller/src/drivers.md",
+    "modules/engine/crates/logbook/src.md",
+    "modules/engine/crates/protocol/src.md",
+    "modules/engine/crates/safety/src.md",
+    "modules/engine/crates/schedule/src/overview.md",
+    "modules/engine/crates/schedule/src/ramp/overview.md",
+    "modules/engine/crates/schedule/src/ramp/profiles.md",
+    "modules/engine/crates/sim/src.md",
+    "modules/engine/crates/telemetry/src.md",
+    "modules/engine/crates/units/src.md",
+    "modules/tools/overview.md",
+    "modules/tools/src/kilnlab/overview.md",
+    "modules/tools/src/kilnlab/calibration.md",
+    "modules/tools/src/kilnlab/config.md",
+    "modules/tools/src/kilnlab/export.md",
+    "modules/tools/src/kilnlab/ingest.md",
+    "modules/tools/src/kilnlab/plots.md"
+  ]
+}

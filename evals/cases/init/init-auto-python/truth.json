@@ -1,0 +1,107 @@
+{
+  "stack": "Python service in layers (domain, app, infra, api) with a plugin directory, pytest and ruff declared in pyproject.toml",
+  "projects": [
+    {
+      "id": "tidewatch",
+      "root": ".",
+      "paths": [
+        "src/"
+      ],
+      "languages": [
+        "python"
+      ],
+      "packs": [
+        "builtin/common-design",
+        "builtin/common-code",
+        "builtin/common-errors",
+        "builtin/common-security",
+        "builtin/common-verification",
+        "builtin/common-checks",
+        "builtin/python-quality"
+      ],
+      "checks": {
+        "test": {
+          "all": "uv run pytest",
+          "file": "uv run pytest {file}"
+        },
+        "lint": {
+          "all": "uv run ruff check src tests",
+          "file": "uv run ruff check {file}"
+        }
+      }
+    }
+  ],
+  "plausiblePacks": [
+    "builtin/common-design",
+    "builtin/common-code",
+    "builtin/common-errors",
+    "builtin/common-security",
+    "builtin/common-verification",
+    "builtin/common-checks",
+    "builtin/python-quality"
+  ],
+  "packsThatDoNotFit": [
+    "angular-",
+    "express-"
+  ],
+  "conventions": [
+    {
+      "id": "tw-error-codes",
+      "basis": "written",
+      "quote": "raise StaleReadingError(\"TW-203\"",
+      "location": "src/tidewatch/domain/rules/staleness.py:11",
+      "document": "notes/field-notes.md:5"
+    },
+    {
+      "id": "test-names",
+      "basis": "written",
+      "quote": "Name each test `test_<module>__<behaviour>`",
+      "location": "notes/field-notes.md:9"
+    },
+    {
+      "id": "keyword-only-args",
+      "basis": "inferred",
+      "quote": "def tide_window(services: Services, gauge_id: str, *, start: datetime, hours: int) -> dict:",
+      "location": "src/tidewatch/api/handlers/window.py:9"
+    },
+    {
+      "id": "plugin-constant",
+      "basis": "inferred",
+      "quote": "PLUGIN = SourcePlugin(name=\"buoy_csv\", parse=parse_text)",
+      "location": "src/tidewatch/plugins/sources/buoy_csv/plugin.py:4"
+    }
+  ],
+  "contributorDocument": "notes/field-notes.md",
+  "modules": [
+    "modules/src/tidewatch/overview.md",
+    "modules/src/tidewatch/api/overview.md",
+    "modules/src/tidewatch/api/handlers.md",
+    "modules/src/tidewatch/app/overview.md",
+    "modules/src/tidewatch/app/commands.md",
+    "modules/src/tidewatch/app/ports.md",
+    "modules/src/tidewatch/app/queries.md",
+    "modules/src/tidewatch/cli.md",
+    "modules/src/tidewatch/domain/overview.md",
+    "modules/src/tidewatch/domain/events.md",
+    "modules/src/tidewatch/domain/rules.md",
+    "modules/src/tidewatch/domain/units.md",
+    "modules/src/tidewatch/infra/overview.md",
+    "modules/src/tidewatch/infra/clock.md",
+    "modules/src/tidewatch/infra/config.md",
+    "modules/src/tidewatch/infra/store.md",
+    "modules/src/tidewatch/plugins/overview.md",
+    "modules/src/tidewatch/plugins/sources/overview.md",
+    "modules/src/tidewatch/plugins/sources/buoy_csv.md",
+    "modules/src/tidewatch/plugins/sources/dredge_log.md",
+    "modules/src/tidewatch/plugins/sources/estuary_mqtt.md",
+    "modules/src/tidewatch/plugins/sources/ferry_logger.md",
+    "modules/src/tidewatch/plugins/sources/harbour_json.md",
+    "modules/src/tidewatch/plugins/sources/jetty_text.md",
+    "modules/src/tidewatch/plugins/sources/lock_gate.md",
+    "modules/src/tidewatch/plugins/sources/marina_modbus.md",
+    "modules/src/tidewatch/plugins/sources/mooring_pins.md",
+    "modules/src/tidewatch/plugins/sources/pier_xml.md",
+    "modules/src/tidewatch/plugins/sources/quay_serial.md",
+    "modules/src/tidewatch/plugins/sources/weir_levels.md"
+  ]
+}

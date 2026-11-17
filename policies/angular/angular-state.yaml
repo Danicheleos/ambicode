@@ -1,0 +1,40 @@
+schemaVersion: 1
+id: angular-state
+authority: inherited
+description: "Angular state and data flow: single state owner, representation conversions."
+appliesTo:
+  - "**/*.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-state-and-data-flow.
+    The original's specific reactive-primitive and forms mandates depend on the
+    Angular version and on a project decision, so they are not carried over as
+    rules; the ownership and conversion guidance is. Subscription lifetime is a
+    common rule (effects).
+  externalVersion: "angular-v2"
+
+rules:
+  - id: state-owner
+    category: architecture
+    activities: [plan, review]
+    instruction: >-
+      Every piece of shared state has one writer. Exposing a mutable subject or
+      writable signal outside its owner means any consumer can change it, and
+      the owner can no longer state an invariant about it.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed public surface.
+
+  - id: representation-conversions
+    category: architecture
+    activities: [task, review]
+    instruction: >-
+      Convert between reactive representations at a deliberate boundary rather
+      than repeatedly along one path.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed data path.
+
+commandPolicy: []

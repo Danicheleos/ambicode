@@ -1,0 +1,259 @@
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { describe, it } from 'node:test';
+import { parseDocument } from 'yaml';
+import { parseArgs } from '#util/args';
+import { parseConfig } from '#modules/config/load';
+import { loadPacksForProject } from '#modules/policy/packs/load';
+import { createRuntime } from '#composition/root';
+import { builtinPoliciesDirectory } from '#util/plugin-root';
+import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
+import { TempRepo } from '#testing/fixtures/temp-repo';
+import { configPacksCommand } from './packs.ts';
+
+const NAMED = ['builtin/angular-http', 'builtin/common-design', 'builtin/common-code', 'builtin/common-verification', 'builtin/common-checks'];
+const NAMING_PACKS = FIXTURE_CONFIG.replace('packs: [builtin/common-design, builtin/common-code, builtin/common-errors, builtin/common-security, builtin/common-verification, builtin/common-checks]', `packs: [${NAMED.join(', ')}]`).replace(', e2e: { all: null, file: null }', '');
+
+async function angularRepo() {
+  const repo = await TempRepo.create();
+  await repo.write('package.json', '{"dependencies":{"@angular/core":"^20.0.0"}}\n');
+  await repo.write('src/app/a.service.ts', 'export class A {}\n');
+  await repo.commitAll('base');
+  const runtime = await createRuntime({ cwd: repo.root });
+  const config = await initConfig(runtime, `# kept\n${NAMING_PACKS.replace('builtin/common-checks]', 'builtin/common-checks, builtin/no-such-pack]')}`);
+  const run = () => configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+  return { repo, runtime, config, run };
+}
+
+describe('config packs', () => {
+  it('copies each built-in the config names to .ambicode/policies with replaces, lists it in policyFiles, keeps the config comments, copies nothing else, reports a name that is no built-in, and the copies load clean', async () => {
+    const { repo, runtime, config, run } = await angularRepo();
+    try {
+      const out = await run();
+      const written = await runtime.fs.readText(config);
+      assert.match(written, /^# kept/);
+      const project = parseConfig(written).projects[0]!;
+      assert.deepEqual(project.packs, [...NAMED, 'builtin/no-such-pack'], 'the named packs are left as written');
+      for (const file of ['angular/angular-http', 'common/common-design', 'common/common-verification', 'common/common-checks']) assert.ok(project.policyFiles.includes(`.ambicode/policies/${file}.yaml`), project.policyFiles.join(','));
+      assert.ok(!project.policyFiles.some((file) => /express|python/.test(file)));
+      const builtin = await runtime.fs.readText(path.join(builtinPoliciesDirectory(runtime.pluginRoot), 'angular', 'angular-http.yaml'));
+      const copy = await runtime.fs.readText(path.join(repo.root, '.ambicode/policies/angular/angular-http.yaml'));
+      assert.equal(copy, builtin.replace(/^id: .*$/m, (line) => `${line}\nreplaces: builtin/angular-http`), 'the built-in text verbatim plus the replaces line');
+      assert.match(out.text, /\+ builtin\/angular-http: \.ambicode\/policies\/angular\/angular-http\.yaml written/);
+      assert.match(out.text, /\+ builtin\/common-checks: \.ambicode\/policies\/common\/common-checks\.yaml written/, 'a project declaring no commands still gets the command-naming packs');
+      assert.match(out.text, /- builtin\/no-such-pack: not a built-in pack/);
+      assert.ok(!(await runtime.fs.exists(path.join(repo.root, '.ambicode/policies/express'))), 'a pack the config does not name is not copied');
+      const loaded = await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: repo.root });
+      assert.deepEqual(loaded.diagnostics.map((entry) => entry.code), ['pack-missing'], 'only the unknown name is reported');
+      const quality = loaded.packs.find((pack) => pack.pack.id === 'common-design')!;
+      assert.equal(quality.origin, 'project');
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('a second run leaves an edited copy byte-identical, reports it kept, and does not duplicate the policyFiles entry', async () => {
+    const { repo, runtime, config, run } = await angularRepo();
+    try {
+      await run();
+      const copyPath = path.join(repo.root, '.ambicode/policies/angular/angular-http.yaml');
+      const edited = `${await runtime.fs.readText(copyPath)}\n# my edit\n`;
+      await runtime.fs.writeText(copyPath, edited);
+      const before = await runtime.fs.readText(config);
+      const again = await run();
+      assert.equal(await runtime.fs.readText(copyPath), edited);
+      assert.equal(await runtime.fs.readText(config), before);
+      assert.match(again.text, /\+ builtin\/angular-http: \.ambicode\/policies\/angular\/angular-http\.yaml kept \(edited or existing\)$/m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('reports a built-in whose externalVersion differs from the copy, without touching the copy', async () => {
+    const { repo, runtime, run } = await angularRepo();
+    try {
+      await run();
+      const copyPath = path.join(repo.root, '.ambicode/policies/angular/angular-http.yaml');
+      const old = (await runtime.fs.readText(copyPath)).replace('"angular-v2"', '"angular-v0"');
+      await runtime.fs.writeText(copyPath, old);
+      const again = await run();
+      assert.match(again.text, /kept \(edited or existing\); builtin\/angular-http is angular-v2, your copy is angular-v0/);
+      assert.equal(await runtime.fs.readText(copyPath), old);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('a copy and a builtin/<id> reference for the same pack resolve to one pack, the copy', async () => {
+    const { repo, runtime, run } = await angularRepo();
+    try {
+      await run();
+      const project = { ...parseConfig(await runtime.fs.readText(path.join(repo.root, '.ambicode/config.yaml'))).projects[0]!, packs: ['builtin/angular-http'] };
+      const loaded = await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: repo.root });
+      assert.deepEqual(loaded.diagnostics, []);
+      const same = loaded.packs.filter((pack) => pack.pack.id === 'angular-http');
+      assert.equal(same.length, 1);
+      assert.equal(same[0]!.origin, 'project');
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('a copy the user took out of policyFiles stays out on the next run and is reported as not listed', async () => {
+    const { repo, runtime, config, run } = await angularRepo();
+    try {
+      await run();
+      const document = parseDocument(await runtime.fs.readText(config));
+      const list = document.getIn(['projects', 0, 'policyFiles']) as { items: { value: string }[] };
+      list.items = list.items.filter((item) => !item.value.includes('common-code'));
+      await runtime.fs.writeText(config, document.toString());
+      const again = await run();
+      assert.ok(!parseConfig(await runtime.fs.readText(config)).projects[0]!.policyFiles.some((file) => file.includes('common-code')));
+      assert.match(again.text, /builtin\/common-code: \.ambicode\/policies\/common\/common-code\.yaml kept, not listed in policyFiles/);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('a listed copy from the flat layout stands for the built-in: no second copy is written and the pack set loads clean', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('package.json', '{"dependencies":{"@angular/core":"^20.0.0"}}\n');
+      await repo.write('src/app/a.service.ts', 'export class A {}\n');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const builtin = await runtime.fs.readText(path.join(builtinPoliciesDirectory(runtime.pluginRoot), 'angular', 'angular-http.yaml'));
+      await repo.write('.ambicode/policies/angular-http.yaml', builtin.replace(/^id: .*$/m, (line) => `${line}\nreplaces: builtin/angular-http`));
+      await repo.commitAll('base');
+      const config = await initConfig(runtime, NAMING_PACKS);
+      const document = parseDocument(await runtime.fs.readText(config));
+      document.setIn(['projects', 0, 'policyFiles'], document.createNode(['.ambicode/policies/angular-http.yaml']));
+      await runtime.fs.writeText(config, document.toString());
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.match(out.text, /builtin\/angular-http: \.ambicode\/policies\/angular-http\.yaml kept/);
+      assert.ok(!(await runtime.fs.exists(path.join(repo.root, '.ambicode/policies/angular/angular-http.yaml'))));
+      const project = parseConfig(await runtime.fs.readText(config)).projects[0]!;
+      const loaded = await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: repo.root });
+      assert.deepEqual(loaded.diagnostics, []);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('--list shows every built-in with its description and writes nothing', async () => {
+    const { repo, runtime, config } = await angularRepo();
+    try {
+      const before = await runtime.fs.readText(config);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', ['--list'], configPacksCommand.options));
+      assert.match(out.text, /^builtin\/angular-http - Angular HTTP access/m);
+      assert.match(out.text, /^builtin\/common-design - Any project/m);
+      assert.equal(await runtime.fs.readText(config), before);
+      assert.ok(!(await runtime.fs.exists(path.join(repo.root, '.ambicode/policies'))));
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('sets each project ignored from one git call: directories only, relative to the project root, assigned to the longest containing root, never under .ambicode/', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\ndist/\n.ambicode/\n.env\n*.log\n');
+      await repo.write('src/a.ts', 'export const a = 1;\n');
+      await repo.write('packages/web/src/b.ts', 'export const b = 1;\n');
+      await repo.commitAll('base');
+      await repo.write('node_modules/x/i.js', '');
+      await repo.write('packages/web/dist/o.js', '');
+      await repo.write('.env', '');
+      await repo.write('packages/web/debug.log', '');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const web = ['  - id: web', '    root: packages/web', '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', ''].join('\n');
+      const config = await initConfig(runtime, `${FIXTURE_CONFIG}${web}`);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      const projects = parseConfig(await runtime.fs.readText(config)).projects;
+      assert.deepEqual(projects.map((project) => [project.id, project.ignored]), [['app', ['node_modules/']], ['web', ['dist/']]]);
+      assert.match(out.text, /^ {2}ignored: dist\/$/m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('I6: a project root that does not exist yet gets ignored [] and a line, never a throw', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/a.ts', 'x\n');
+      await repo.commitAll('base');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const web = ['  - id: web', '    root: packages/web', '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', ''].join('\n');
+      const config = await initConfig(runtime, `${FIXTURE_CONFIG}${web}`);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(parseConfig(await runtime.fs.readText(config)).projects.find((project) => project.id === 'web')?.ignored, []);
+      assert.match(out.text, /^ {2}ignored: none \(project root packages\/web does not exist\)$/m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('I6: git failing on the ignored listing gives ignored [] and a line, never a throw', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\n');
+      await repo.write('src/a.ts', 'x\n');
+      await repo.commitAll('base');
+      await repo.write('node_modules/x/i.js', '');
+      const real = (await createRuntime({ cwd: repo.root })).runner;
+      const runner = { run: (request: Parameters<typeof real.run>[0]) => (request.argv.includes('--ignored') ? Promise.resolve({ kind: 'exited' as const, exitCode: 128, stdout: '', stderr: 'fatal: boom', truncated: false, durationMs: 0, failure: null }) : real.run(request)) };
+      const runtime = await createRuntime({ cwd: repo.root, runner });
+      const config = await initConfig(runtime, FIXTURE_CONFIG);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(parseConfig(await runtime.fs.readText(config)).projects[0]?.ignored, []);
+      assert.match(out.text, /^ {2}ignored: none \(git could not list them: /m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('a project root written as ./ owns the repository-level ignored directories like .', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\ndist/\n');
+      await repo.write('src/a.ts', 'x\n');
+      await repo.write('packages/web/src/b.ts', 'x\n');
+      await repo.write('packages/web-admin/src/c.ts', 'x\n');
+      await repo.commitAll('base');
+      for (const file of ['node_modules/x/i.js', 'packages/web/dist/o.js', 'packages/web-admin/dist/o.js']) await repo.write(file, '');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const project = (id: string, root: string) => [`  - id: ${id}`, `    root: ${root}`, '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', ''].join('\n');
+      assert.match(FIXTURE_CONFIG, /root: \.\n/);
+      const config = await initConfig(runtime, `${FIXTURE_CONFIG.replace(/root: \.\n/, 'root: ./\n')}${project('web', 'packages/web')}${project('admin', 'packages/web-admin')}`);
+      await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(parseConfig(await runtime.fs.readText(config)).projects.map((entry) => [entry.id, entry.ignored]), [['app', ['node_modules/']], ['web', ['dist/']], ['admin', ['dist/']]]);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('risk 4: a project root that is missing, or a git listing that fails, keeps the ignored entries already in the config', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\n');
+      await repo.write('src/a.ts', 'x\n');
+      await repo.commitAll('base');
+      await repo.write('node_modules/x/i.js', '');
+      const web = ['  - id: web', '    root: packages/web', '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', '    ignored: [kept-web/]', ''].join('\n');
+      const seeded = `${FIXTURE_CONFIG.replace(/root: \.\n/, 'root: .\n    ignored: [kept-app/]\n')}${web}`;
+      const ignored = async (runtime: Awaited<ReturnType<typeof createRuntime>>, config: string) => parseConfig(await runtime.fs.readText(config)).projects.map((entry) => [entry.id, entry.ignored]);
+      let runtime = await createRuntime({ cwd: repo.root });
+      let config = await initConfig(runtime, seeded);
+      await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(await ignored(runtime, config), [['app', ['node_modules/']], ['web', ['kept-web/']]], 'the missing root keeps its entries; the listed project is refreshed');
+
+      const real = runtime.runner;
+      const runner = { run: (request: Parameters<typeof real.run>[0]) => (request.argv.includes('--ignored') ? Promise.resolve({ kind: 'exited' as const, exitCode: 128, stdout: '', stderr: 'fatal: boom', truncated: false, durationMs: 0, failure: null }) : real.run(request)) };
+      runtime = await createRuntime({ cwd: repo.root, runner });
+      config = await initConfig(runtime, seeded);
+      await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(await ignored(runtime, config), [['app', ['kept-app/']], ['web', ['kept-web/']]]);
+    } finally {
+      await repo.dispose();
+    }
+  });
+});

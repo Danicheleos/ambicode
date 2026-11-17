@@ -1,0 +1,315 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { checkFacts, factsOf, gapsOf, reviewFact } from './report.ts';
+import type { LedgerEntry } from '#types/modules/evidence';
+
+let counter = 0;
+const entry = (kind: string, fields: object = {}): LedgerEntry => ({ id: `a1b2c3d4-${(counter += 1)}`, at: '2026-10-05T10:00:00.000Z', kind, ...fields });
+const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', files: [], exit: 0, phase: 'green', output: '.ambicode/tasks/t/checks/run.log', bytes: 7, ms: 10, ...fields });
+const pointer = (exit: number): string => `last run: exit ${exit}; 7 bytes of output in .ambicode/tasks/t/checks/run.log`;
+const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
+const review = (reviewId: string, findings: number, fields: object = {}): LedgerEntry => entry('review', { reviewId, stage: 'recorded', status: 'complete', reviewerRan: true, findings, omissions: 0, ...fields });
+const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'checks-offer', instance: null, answer, via: 'headless', ...fields });
+
+describe('gapsOf: checks never claim more than the ledger says', () => {
+  it('a task run on a draft plan, by a human or by default, says the plan was not accepted; stopping on it lists nothing', () => {
+    const answer = (option: string, kind = 'default-taken') => entry(kind, { route: 'r', gate: 'plan-unaccepted', instance: null, answer: option, via: 'headless' });
+    assert.deepEqual(gapsOf([answer('run on the draft')]), ['plan-unaccepted: default taken, "run on the draft" (headless)', 'plan run without being accepted']);
+    assert.deepEqual(gapsOf([answer('run on the draft', 'acceptance')]), ['plan run without being accepted'], 'a human who chose to run on the draft accepted nothing: the gap shows too');
+    assert.deepEqual(gapsOf([answer('stop', 'acceptance')]), []);
+  });
+
+  it('a flag that named "run on the draft" was declined, the route still at the gate: nothing ran on the draft', () => {
+    const declined = entry('declined', { route: 'r', gate: 'plan-unaccepted', instance: null, answer: 'run on the draft', via: 'flag', reason: 'acting-needs-human' });
+    assert.deepEqual(gapsOf([declined]), ['plan-unaccepted: declined "run on the draft" (acting-needs-human)']);
+  });
+
+  it('a gate answered by a preset --answer says so, naming the gate; the same answer given at the print by the hook says nothing', () => {
+    const accept = (fields: object) => entry('acceptance', { route: 'r', gate: 'plan-accept', instance: 'p', answer: 'Accept', ...fields });
+    const preset = gapsOf([accept({ via: 'prompt', preanswer: 'a1b2c3d4-0', trusted: true })]);
+    assert.equal(preset.length, 1);
+    assert.match(preset[0]!, /plan-accept.*preset.*args/i);
+    assert.deepEqual(gapsOf([accept({ via: 'hook' })]), []);
+  });
+
+  it('a preset answer to a gate whose answer already has a line gives that one line, saying it was preset', () => {
+    const preset = (gate: string, answer: string, fields: object = {}) => entry('acceptance', { route: 'r', gate, instance: 'p', answer, via: 'prompt', preanswer: 'a1b2c3d4-0', trusted: true, ...fields });
+    const one = (gaps: string[], expected: RegExp) => {
+      assert.equal(gaps.length, 1, gaps.join('\n'));
+      assert.match(gaps[0]!, expected);
+      assert.match(gaps[0]!, /preset.*args/i);
+    };
+    const print = entry('gate', { id: 'p', route: 'r', gate: 'check-only-unauthorized', values: { key: ['web/unit'], files: [] } });
+    one(gapsOf([print, preset('check-only-unauthorized', 'decline')]), /check-only-unauthorized: declined "decline" for web\/unit/);
+    one(gapsOf([preset('review-again', 'skip')]), /fix not re-reviewed/);
+    one(gapsOf([preset('plan-unaccepted', 'run on the draft')]), /plan run without being accepted/);
+    const offered = entry('gate', { id: 'p', route: 'r', gate: 'checks-offer', values: { key: ['web/full'] } });
+    one(gapsOf([offered, preset('checks-offer', 'skip')]), /checks skipped: web\/full/);
+  });
+
+  it('an exit lists each gate it left unanswered, whatever the reason; an exit that left none adds nothing', () => {
+    const exit = (reason: string, fields: object = {}) => entry('exit', { route: 'r', reason, ...fields });
+    assert.deepEqual(gapsOf([exit('interrupted', { unanswered: ['checks-offer'] })]), ['checks-offer: unanswered when the route ended (interrupted)']);
+    assert.deepEqual(gapsOf([exit('blocked', { unanswered: ['plan-unaccepted'] })]), ['The route ended blocked', 'plan-unaccepted: unanswered when the route ended (blocked)']);
+    assert.deepEqual(gapsOf([exit('interrupted')]), []);
+  });
+
+
+  it('a nonzero last exit and a declined key are not verified', () => {
+    const gaps = gapsOf([
+      check({ key: 'web/e2e', phase: 'green', exit: 2 }),
+      entry('declined', { route: 'r', gate: 'check:web/slow', instance: null, answer: 'no', via: 'flag', reason: 'acting-needs-human' }),
+    ]);
+    assert.deepEqual(gaps, [`web/e2e: ${pointer(2)}`, 'check:web/slow: declined "no" (acting-needs-human)']);
+  });
+
+  it('a recorded step failure and drafts that failed their check are not verified; a failed step with no record is not', () => {
+    const gaps = gapsOf([
+      entry('step', { route: 'r', step: 'plan-check', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'plan-body-missing', message: 'plan.md does not exist' }),
+      entry('step', { route: 'r', step: 'scan', actor: 'code', status: 'failed', cause: 'route-next', code: 'script-failed', message: 'crashed' }),
+      entry('policy', { route: 'r', stage: 'drafts', path: 'd', contentHash: 'h', drafts: [], errors: 2 }),
+    ]);
+    assert.deepEqual(gaps, ['plan-check: plan.md does not exist', 'rules drafts: 2 check errors']);
+  });
+
+  it('a recorded step failure message longer than 160 characters reaches the gaps whole', () => {
+    const message = `scan exited 2: ${'a long line of tool output; '.repeat(12)}end`;
+    assert.ok(message.length > 160);
+    const gaps = gapsOf([entry('step', { route: 'r', step: 'scan', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'script-failed', message })]);
+    assert.deepEqual(gaps, [`scan: ${message}`]);
+  });
+
+  it('merge request fetch errors longer than 160 characters reach the gaps whole', () => {
+    const long = `${'a long line of tool output; '.repeat(8)}end`;
+    assert.ok(long.length > 160);
+    const gaps = gapsOf([
+      entry('step', { route: 'r', step: 'mr-fetch', actor: 'code', status: 'completed', cause: 'route-next', commitsError: long, discussionsError: long }),
+    ]);
+    assert.ok(gaps.includes(`merge request commits not fetched: ${long}`));
+    assert.ok(gaps.includes(`existing merge request discussions not fetched: ${long}`));
+  });
+
+  it('a delivery, a completion or an exit code alone is no gap and no test result', () => {
+    const entries = [entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }), entry('exit', { route: 'r', reason: 'done' })];
+    assert.deepEqual(gapsOf(entries), []);
+    assert.deepEqual(checkFacts(entries), []);
+    assert.doesNotMatch(factsOf(entries), /passed/);
+  });
+
+  it('only the last run of a key decides whether it is verified', () => {
+    assert.deepEqual(gapsOf([check({ phase: 'green', exit: 1 }), check({})]), []);
+    assert.deepEqual(gapsOf([check({}), check({ exit: 1 })]), [`web/unit: ${pointer(1)}`]);
+  });
+
+  it('a red run names the file holding its whole output, with its size', () => {
+    const red = check({ exit: 1, output: '.ambicode/tasks/t/checks/web-unit_1.log', bytes: 90 });
+    assert.deepEqual(gapsOf([red]), ['web/unit: last run: exit 1; 90 bytes of output in .ambicode/tasks/t/checks/web-unit_1.log']);
+  });
+
+  it('a long recorded message, event, key or reason reaches the gaps whole', () => {
+    const long = `${'a long line of tool output; '.repeat(20)}end`;
+    const gaps = gapsOf([
+      entry('limit', { route: 'r', which: 'note-not-saved', message: long }),
+      entry('limit', { route: 'r', which: 'report-not-saved', message: long }),
+      entry('limit', { route: 'r', which: 'hook-error', event: long, message: long }),
+      entry('declined', { route: 'r', gate: long, instance: null, answer: long, via: 'hook', reason: long }),
+      entry('exit', { route: 'r', reason: 'blocked', detail: long }),
+    ]);
+    assert.ok(gaps.includes(`The final message was not saved as the result note: ${long}`));
+    assert.ok(gaps.includes(`The ${long} hook failed: ${long}`));
+    assert.ok(gaps.some((gap) => gap.includes(`"${long}" (${long})`)));
+    assert.ok(gaps.includes(`The route ended blocked: ${long}`));
+  });
+});
+
+describe('gapsOf: what was skipped, declined or limited is visible', () => {
+  it('lists declines, defaults with their via, limits, missing sources, a reviewer that did not run and a model-set headless', () => {
+    const gaps = gapsOf([
+      route({ mode: 'headless', channel: 'cli', trusted: false }),
+      entry('declined', { route: 'r', gate: 'checks-offer', instance: null, answer: 'run', via: 'flag', reason: 'acting-needs-human' }),
+      entry('default-taken', { route: 'r', gate: 'scope', instance: null, answer: 'out of scope', via: 'never-asked' }),
+      entry('default-taken', { route: 'r', gate: 'plan-accept', instance: null, answer: 'Reject', via: 'headless' }),
+      entry('limit', { route: 'r', which: 'repeat', count: 2, step: 'ground' }),
+      entry('envelope', { sources: [], builtFrom: 'args', asked: ['A-1', 'A-2'], missingAsked: ['A-2'], hash: 'h' }),
+      entry('review', { reviewId: 'local_2', status: 'partial', reviewerRan: false, findings: 0, omissions: 3 }),
+    ]).join('\n');
+    for (const expected of [
+      /checks-offer: declined "run" \(acting-needs-human\)/,
+      /scope: default taken, "out of scope" \(never-asked\)/,
+      /plan-accept: default taken, "Reject" \(headless\)/,
+      /A step was repeated 2 times and stopped there/,
+      /Requirement not captured: A-2/,
+      /The independent review did not run/,
+      /headless set by an untrusted start/,
+    ]) assert.match(gaps, expected);
+  });
+
+  it('a trusted headless start lists no untrusted-start line; a complete review is not listed', () => {
+    assert.deepEqual(gapsOf([route({ skill: 'plan', mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]), []);
+    assert.deepEqual(gapsOf([route({ mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]), ['The independent review was not run: the run was headless']);
+  });
+
+  it('a headless task start states the independent review was not run; a plan start or an interactive task start does not', () => {
+    const headless = gapsOf([route({ mode: 'headless', channel: 'hook', trusted: true })]);
+    assert.equal(headless.length, 1);
+    assert.match(headless[0]!, /independent review.*not run.*headless/i);
+    assert.deepEqual(gapsOf([route({ skill: 'plan', mode: 'headless', channel: 'hook', trusted: true })]), []);
+    assert.deepEqual(gapsOf([route({ mode: 'interactive' })]), []);
+  });
+
+  it('a headless task start with --no-review gives the --no-review line only', () => {
+    assert.deepEqual(gapsOf([route({ mode: 'headless', channel: 'hook', trusted: true, args: { noReview: true } })]), ['review skipped (--no-review)']);
+  });
+
+  it('a declined or default-taken check-only-unauthorized names the key and files of its print, or the whole project', () => {
+    const print = (files: string[]) => entry('gate', { id: 'p', route: 'r', gate: 'check-only-unauthorized', values: { key: ['app/e2e'], files } });
+    const taken = entry('default-taken', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: 'decline', via: 'headless' });
+    assert.deepEqual(gapsOf([print(['src/a.ts']), taken]), ['check-only-unauthorized: default taken, "decline" (headless) for app/e2e on src/a.ts']);
+    assert.deepEqual(gapsOf([print([]), taken]), ['check-only-unauthorized: default taken, "decline" (headless) for app/e2e on the whole project']);
+    const declined = entry('declined', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: 'decline', via: 'flag' });
+    assert.deepEqual(gapsOf([print([]), declined]), ['check-only-unauthorized: declined "decline" for app/e2e on the whole project']);
+  });
+
+  it('an interactive decline of check-only-unauthorized is listed like a declined entry; run is not', () => {
+    const print = entry('gate', { id: 'p', route: 'r', gate: 'check-only-unauthorized', values: { key: ['app/e2e'], files: ['src/a.ts'] } });
+    const answer = (value: string) => entry('acceptance', { route: 'r', gate: 'check-only-unauthorized', instance: 'p', answer: value, via: 'hook' });
+    assert.deepEqual(gapsOf([print, answer('decline')]), ['check-only-unauthorized: declined "decline" for app/e2e on src/a.ts']);
+    assert.deepEqual(gapsOf([print, answer('run')]), []);
+  });
+
+  it('a skipped checks-offer lists the keys of its print as skipped; a run answer adds no line', () => {
+    const print = entry('gate', { id: 'p', route: 'r', gate: 'checks-offer', values: { key: ['app/unit', 'app/typecheck'] } });
+    assert.deepEqual(gapsOf([print, offer('acceptance', 'skip — verification incomplete', { instance: 'p', via: 'hook' })]), ['checks skipped: app/unit, app/typecheck — verification incomplete']);
+    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'p', via: 'hook' })]), ['checks skipped — verification incomplete']);
+    assert.deepEqual(gapsOf([print, offer('acceptance', 'run', { instance: 'p', via: 'hook' })]), []);
+  });
+
+  it('an unbound skip answer is not counted as a bound one', () => {
+    assert.deepEqual(gapsOf([offer('acceptance', 'skip — verification incomplete', { instance: 'i', unbound: true })]), []);
+  });
+
+  it('a skipped re-review is a gap', () => {
+    assert.deepEqual(gapsOf([entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), ['fix not re-reviewed']);
+  });
+
+  it('a format that failed lists the key and outcome; formatted does not; an unconfigured formatter is no gap but is stated once as a fact', () => {
+    const format = (outcome: string): LedgerEntry => entry('format', { key: 'app/format', files: [], exit: null, outcome });
+    for (const outcome of ['failed', 'refused']) assert.deepEqual(gapsOf([format(outcome)]), [`not formatted: app/format (${outcome})`]);
+    assert.deepEqual(gapsOf([format('formatted'), format('unconfigured')]), []);
+    assert.deepEqual(checkFacts([format('unconfigured'), format('unconfigured')]), ['no formatter configured']);
+    assert.deepEqual(checkFacts([format('formatted')]), []);
+  });
+
+  it('missing-produces at any step reads as a generic limit; the Stop hook own block is not a gap', () => {
+    assert.deepEqual(gapsOf([entry('limit', { which: 'missing-produces', step: 'change', count: 3 })]), ['The required result was not produced during the change after 3 tries']);
+    assert.deepEqual(gapsOf([entry('limit', { route: 'r', which: 'stop-block', count: 1 })]), []);
+  });
+
+  it('identical gaps are listed once', () => {
+    const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change' });
+    assert.deepEqual(gapsOf([route(), limit(), limit()]), ['A passing check was not proven during the change']);
+  });
+
+  it('entries that are not current are left out', () => {
+    const old = check({ phase: 'green', exit: 1 });
+    const stale = entry('declined', { route: 'r', gate: 'g', instance: null, answer: 'no', via: 'flag' });
+    const entries = [old, stale, check({ key: 'web/other', exit: 3 })];
+    assert.deepEqual(gapsOf(entries, (candidate) => candidate.id !== old.id && candidate.id !== stale.id), [`web/other: ${pointer(3)}`]);
+    assert.equal(gapsOf(entries).length, 3);
+  });
+
+  it('a green-unproven limit is dropped once a later green check passed in the same step, kept when none did or the pass came in another step', () => {
+    const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change', cause: 'nonzero-exit', key: 'web/unit', files: ['service', 'test'] });
+    assert.deepEqual(gapsOf([route(), check({ exit: 1 }), limit(), check({ exit: 0, files: ['service', 'repository', 'test'] })]), []);
+    assert.match(gapsOf([route(), check({ exit: 1 }), limit()]).join(), /web\/unit failed during the change and no later run passed/);
+    assert.match(gapsOf([route(), check({ exit: 1 }), limit(), entry('step', { step: 'fix', status: 'delivered' }), check({ exit: 0 })]).join(), /web\/unit failed during the change and no later run passed/);
+  });
+
+  it('a green-unproven limit survives a pass on a disjoint file or another check key', () => {
+    const limit = entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change', cause: 'nonzero-exit', key: 'web/unit', files: ['service', 'test'] });
+    const failed = check({ exit: 1, files: ['service', 'test'] });
+    assert.match(gapsOf([route(), failed, limit, check({ exit: 0, files: ['other'] })]).join(), /web\/unit failed during the change and no later run passed/);
+    assert.match(gapsOf([route(), failed, limit, check({ exit: 0, key: 'web/lint', files: ['service', 'test'] })]).join(), /web\/unit failed during the change and no later run passed/);
+    assert.match(gapsOf([route(), failed, limit, check({ exit: 0, files: ['service'] })]).join(), /web\/unit failed during the change and no later run passed/);
+  });
+
+  it('a recorded review replaces the pending entry of the same id, so the gaps no longer say the reviewer did not run', () => {
+    assert.deepEqual(gapsOf([
+      entry('review', { reviewId: 'local_1', status: 'partial', reviewerRan: false, omissions: 1 }),
+      entry('review', { reviewId: 'local_1', status: 'complete', reviewerRan: true, findings: 1, omissions: 0 }),
+      entry('review', { reviewId: 'local_2', status: 'partial', reviewerRan: false, omissions: 1 }),
+    ]), ['The independent review did not run']);
+  });
+});
+
+describe('the facts the final message copies', () => {
+  it('names each check by outcome, never by phase', () => {
+    assert.deepEqual(checkFacts([check({ phase: 'green', exit: 1 }), check({ key: 'web/lint', exit: 1 }), check({})]), ['web/unit: passed', 'web/lint: failed exit 1']);
+  });
+
+  it('counts findings, what the fix rounds took, and how the re-review ended', () => {
+    assert.equal(reviewFact([review('a', 0)]), 'no findings');
+    assert.equal(reviewFact([review('a', 1), review('b', 0)]), '1 finding, re-review clean');
+    assert.equal(reviewFact([review('a', 3), review('b', 2)]), '3 findings, re-review 2 open');
+    assert.equal(reviewFact([review('a', 3)]), '3 findings, re-review not run');
+    assert.equal(reviewFact([review('a', 1), entry('default-taken', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'headless' })]), '1 finding, re-review skipped by default (headless)');
+    assert.equal(reviewFact([review('a', 1), entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), '1 finding, re-review skipped by you');
+    assert.equal(reviewFact([]), null);
+  });
+
+  it('prints Checks, Review and Not verified, leaves out a section with nothing to say, and says when no check is configured', () => {
+    assert.equal(factsOf([check({}), review('a', 0)]), 'Checks\n- web/unit: passed\nReview\n- no findings');
+    assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 0 } as LedgerEntry]), 'Checks\n- no check ran');
+    assert.equal(factsOf([{ id: 'b', at: 't', kind: 'baseline', runnable: 2 } as LedgerEntry]), 'Checks\n- no check ran');
+    assert.equal(factsOf([], undefined, { checks: false }), '');
+    const unconfigured = entry('format', { key: 'web/format', outcome: 'unconfigured' });
+    const lines = factsOf([unconfigured]).split('\n');
+    assert.ok(lines.includes('- no check ran') && lines.includes('- no formatter configured'), lines.join('\n'));
+    assert.equal(factsOf([check({}), unconfigured]), 'Checks\n- web/unit: passed\n- no formatter configured');
+    assert.equal(factsOf([check({ exit: 1 })]), `Checks\n- web/unit: failed exit 1\nNot verified\n- web/unit: ${pointer(1)}`);
+  });
+  it('a re-review that errored or came back partial never reads as clean', () => {
+    assert.equal(reviewFact([review('a', 1), review('b', 0, { status: 'error', omissions: 2 })]), '1 finding, re-review failed');
+    assert.equal(reviewFact([review('a', 1), review('b', 0, { status: 'partial', omissions: 2 })]), '1 finding, re-review partial: no findings, 2 omissions');
+    assert.equal(reviewFact([review('a', 1), review('b', 2, { status: 'partial', omissions: 1 })]), '1 finding, re-review partial: 2 open, 1 omission');
+    assert.equal(reviewFact([review('a', 0, { status: 'error' })]), 'review failed');
+    assert.equal(reviewFact([review('a', 0, { status: 'partial', omissions: 3 })]), 'no findings, review partial: 3 omissions');
+    assert.equal(reviewFact([review('a', 0, { status: 'error' }), entry('acceptance', { route: 'r', gate: 'review-again', instance: 'i', answer: 'skip', via: 'hook' })]), 'review failed, re-review skipped by you');
+  });
+
+  it('an errored re-review is also listed under Not verified, in plain words and with no review id', () => {
+    const facts = factsOf([check({}), review('review-2026-aaa', 1), review('review-2026-bbb', 0, { status: 'error', statusReason: 'invalid-output: x' })]);
+    assert.match(facts, /Review\n- 1 finding, re-review failed/);
+    const gaps = gapsOf([review('review-2026-bbb', 0, { status: 'error', omissions: 2 }), review('review-2026-ccc', 0, { status: 'partial', omissions: 3 })]);
+    assert.deepEqual(gaps, ['The independent review failed: the reviewer\'s answer could not be verified, so its result is not counted', 'The independent review was partial: 3 omissions']);
+  });
+
+  it('limits read as what happened, not as an internal step name', () => {
+    const limit = (fields: object): LedgerEntry => entry('limit', { route: 'r', count: 1, ...fields });
+    const gaps = gapsOf([
+      limit({ which: 'check', count: 5, step: 'format' }),
+      limit({ which: 'green-unproven', step: 'change', key: 'web/unit', cause: 'nonzero-exit', files: ['a'] }),
+      limit({ which: 'green-unproven', step: 'fix', key: 'web/lint', cause: 'not-run', files: ['a'] }),
+      limit({ which: 'repeat', count: 2, step: 'ground' }),
+    ]);
+    assert.deepEqual(gaps, [
+      'Checks kept failing during formatting: stopped after 5 attempts',
+      'web/unit failed during the change and no later run passed on the same files',
+      'web/lint could not run during the fix',
+      'A step was repeated 2 times and stopped there',
+    ]);
+    for (const line of gaps) assert.doesNotMatch(line, /\blimit\b|\bat (format|change|fix|ground)\b/);
+  });
+});
+
+describe('gapsOf: test cases removed', () => {
+  const worker = (summary: object, outcome = 'ran'): LedgerEntry => entry('worker', { worker: 'test-removal', outcome, ms: 0, artifact: null, summary });
+  it('lists the newest check only, one line per file, a failed check as not checked, and nothing when none were removed', () => {
+    assert.deepEqual(gapsOf([worker({ testsRemoved: [{ path: 'a.spec.ts', count: 3 }, { path: 'b.spec.ts', count: 1 }] })]), ['test cases removed and not re-added: a.spec.ts (3)', 'test cases removed and not re-added: b.spec.ts (1)']);
+    assert.deepEqual(gapsOf([worker({ testsRemoved: [{ path: 'a.spec.ts', count: 3 }] }), worker({ testsRemoved: [{ path: 'a.spec.ts', count: 1 }] })]), ['test cases removed and not re-added: a.spec.ts (1)']);
+    assert.deepEqual(gapsOf([worker({ testsRemoved: [{ path: 'a.spec.ts', count: 3 }] }), worker({ testsRemoved: [] })]), []);
+    assert.deepEqual(gapsOf([worker({ reason: 'git diff failed' }, 'skipped')]), ['test cases removed: not checked (git diff failed)']);
+    assert.deepEqual(gapsOf([worker({ testsRemoved: [], filesChanged: 0 })]), ['no file changed']);
+    assert.deepEqual(gapsOf([worker({ testsRemoved: [], filesUnknown: 'no baseline was recorded' })]), ['files changed: unknown (no baseline was recorded)']);
+  });
+});

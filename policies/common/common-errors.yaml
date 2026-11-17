@@ -1,0 +1,59 @@
+schemaVersion: 1
+id: common-errors
+authority: inherited
+description: "Any project: honest failures, awaited async work, outbound timeouts, logging."
+appliesTo:
+  - "**/*"
+activities: [review, task]
+
+source:
+  location: >-
+    AMBICODE common baseline, error handling: honest failures, awaited async work, outbound timeouts and logging; distilled from the grahpt common rule packs.
+  externalVersion: "common-v3"
+
+rules:
+  - id: error-honesty
+    category: correctness
+    activities: [task]
+    instruction: >-
+      Distinguish an impossible invariant breach from an expected failure. Fail
+      fast for the first; handle the second at its owner. An empty catch, a
+      swallowed failure, or a success-shaped value returned after a failure
+      hides the outcome from the caller.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed error paths.
+
+  - id: unobserved-async
+    category: correctness
+    instruction: >-
+      Await or own every asynchronous operation. Work that is started and not
+      awaited handles its own failure; otherwise the failure is lost or
+      surfaces later, far from its cause.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed call sites that start asynchronous work.
+
+  - id: outbound-timeouts
+    category: correctness
+    activities: [review]
+    instruction: >-
+      Give every outbound network call an explicit timeout and translate a
+      timeout or unavailability into a failure the caller can tell apart from
+      success.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed call sites.
+
+  - id: configured-logger
+    category: correctness
+    activities: [review]
+    instruction: >-
+      Log through the logger the project configured, once, where the failure is
+      handled.
+    check:
+      kind: reviewer
+      explanation: Requires identifying the project's configured logger.
+
+
+commandPolicy: []

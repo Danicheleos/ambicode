@@ -1,0 +1,89 @@
+schemaVersion: 5
+id: jvm-gradle-seedvault
+context:
+  maxTotalTokens: 60000
+  maxFileTokens: 2500
+  maxIndexTokens: 5000
+skills:
+  init:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    scout:
+      model: sonnet
+      effort: medium
+      timeoutMinutes: 15
+  review:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    maxFindings: null
+    maxChangedFiles: null
+    maxChangedLines: null
+    maxContextBytes: null
+    excludePaths: []
+  task:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    checkTimeoutSeconds: 120
+  plan:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+  investigate:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+  rules:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+requirements:
+  runtimes: {}
+  mcps: []
+  lsps: []
+  env: []
+projects:
+  - id: seedvault
+    root: .
+    paths:
+      - domain/src/main/
+      - application/src/main/
+      - adapters/persistence/src/main/
+      - adapters/rest/src/main/
+      - adapters/messaging/src/main/
+      - adapters/cli/src/main/
+      - bootstrap/src/main/
+    ecosystem:
+      languages:
+        - kotlin
+      frameworks: []
+      packageManager: gradle
+    include:
+      - "**/src/main/**"
+    exclude:
+      - "**/src/test/**"
+    ignored: []
+    packs:
+      - builtin/common-design
+      - builtin/common-code
+      - builtin/common-errors
+      - builtin/common-security
+      - builtin/common-verification
+      - builtin/common-checks
+    policyFiles:
+      - .ambicode/policies/common/common-design.yaml
+      - .ambicode/policies/common/common-code.yaml
+      - .ambicode/policies/common/common-errors.yaml
+      - .ambicode/policies/common/common-security.yaml
+      - .ambicode/policies/common/common-verification.yaml
+      - .ambicode/policies/common/common-checks.yaml
+    commands: {}
+    checks:
+      test:
+        all: ./gradlew test
+        file: ./gradlew test --tests {file}
+      lint:
+        all: ./gradlew ktlintCheck
+        file: null

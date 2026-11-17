@@ -1,0 +1,27 @@
+// Shared by discover (the list at the sources gate) and chosen (what the drafter reads).
+import { existsSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
+export const DRAFTS = '.ambicode/policies/drafts';
+
+// One level only: a docs tree of thousands of pages is a source the user names, not one to list.
+const md = (root, dir) => { try { return readdirSync(path.join(root, dir)).filter((name) => name.endsWith('.md')).map((name) => `${dir}/${name}`).sort(); } catch { return []; } };
+
+export const candidatesOf = (root) => [
+  ...['AGENTS.md', 'CONTRIBUTING.md', '.github/copilot-instructions.md'].filter((file) => existsSync(path.join(root, file))),
+  ...md(root, '.cursor/rules'), ...md(root, '.github/instructions'), ...md(root, 'docs'),
+];
+
+/** The found list (only when `list`), then the files and pages the user's words name. */
+export function sourcesText(root, texts, autoLoadedSources, list = true) {
+  const autoLoadedPatterns = autoLoadedSources.map((source) => new RegExp(source));
+  const found = candidatesOf(root);
+  const words = texts.join(' ').split(/[\s,]+/).filter(Boolean);
+  const urls = words.filter((word) => word.startsWith('https://'));
+  const named = words.filter((word) => !word.startsWith('https://') && !path.isAbsolute(word) && !word.split('/').includes('..') && !autoLoadedPatterns.some((pattern) => pattern.test(word)) && existsSync(path.join(root, word)));
+  return [
+    ...(list ? [`Rule sources found: ${found.join(', ') || 'none'}`] : []),
+    ...(named.length === 0 ? [] : [`Named in the request: ${named.join(', ')}`]),
+    ...(urls.length === 0 ? [] : [`Pages named in the request: ${urls.join(', ')}. Read each with the Atlassian MCP tools you can see; a rule from a page cites its https URL as \`location\`.`]),
+  ];
+}

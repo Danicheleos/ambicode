@@ -1,0 +1,166 @@
+schemaVersion: 5
+id: monorepo-rust-ts-kiln
+context:
+  maxTotalTokens: 60000
+  maxFileTokens: 2500
+  maxIndexTokens: 5000
+skills:
+  init:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    scout:
+      model: sonnet
+      effort: medium
+      timeoutMinutes: 15
+  review:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    maxFindings: null
+    maxChangedFiles: null
+    maxChangedLines: null
+    maxContextBytes: null
+    excludePaths: []
+  task:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    checkTimeoutSeconds: 120
+  plan:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+  investigate:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+  rules:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+requirements:
+  runtimes: {}
+  mcps: []
+  lsps: []
+  env: []
+projects:
+  - id: engine
+    root: engine
+    paths:
+      - crates/
+    ecosystem:
+      languages:
+        - rust
+      frameworks: []
+      packageManager: cargo
+    include:
+      - crates/**
+    exclude:
+      - crates/*/tests/**
+    ignored: []
+    packs:
+      - builtin/common-design
+      - builtin/common-code
+      - builtin/common-errors
+      - builtin/common-security
+      - builtin/common-verification
+      - builtin/common-checks
+    policyFiles:
+      - .ambicode/policies/common/common-design.yaml
+      - .ambicode/policies/common/common-code.yaml
+      - .ambicode/policies/common/common-errors.yaml
+      - .ambicode/policies/common/common-security.yaml
+      - .ambicode/policies/common/common-verification.yaml
+      - .ambicode/policies/common/common-checks.yaml
+    commands: {}
+    checks:
+      test:
+        all: cargo test
+        file: null
+      lint:
+        all: cargo clippy --all-targets
+        file: null
+      format:
+        all: cargo fmt --check
+        file: rustfmt --check {file}
+  - id: dashboard
+    root: dashboard
+    paths:
+      - src/
+    ecosystem:
+      languages:
+        - typescript
+      frameworks:
+        - express
+      packageManager: npm
+    include:
+      - src/**
+    exclude:
+      - test/**
+      - src/__generated__/**
+    ignored: []
+    packs:
+      - builtin/common-design
+      - builtin/common-code
+      - builtin/common-errors
+      - builtin/common-security
+      - builtin/common-verification
+      - builtin/common-checks
+      - builtin/express-http
+      - builtin/express-errors
+    policyFiles:
+      - .ambicode/policies/common/common-design.yaml
+      - .ambicode/policies/common/common-code.yaml
+      - .ambicode/policies/common/common-errors.yaml
+      - .ambicode/policies/common/common-security.yaml
+      - .ambicode/policies/common/common-verification.yaml
+      - .ambicode/policies/common/common-checks.yaml
+      - .ambicode/policies/express/express-http.yaml
+      - .ambicode/policies/express/express-errors.yaml
+    commands: {}
+    checks:
+      test:
+        all: npm test
+        file: npx vitest run {file}
+      lint:
+        all: npm run lint
+        file: npx eslint {file}
+  - id: tools
+    root: tools
+    paths:
+      - src/
+    ecosystem:
+      languages:
+        - python
+      frameworks: []
+      packageManager: uv
+    include:
+      - src/**
+    exclude:
+      - tests/**
+    ignored: []
+    packs:
+      - builtin/common-design
+      - builtin/common-code
+      - builtin/common-errors
+      - builtin/common-security
+      - builtin/common-verification
+      - builtin/common-checks
+      - builtin/python-quality
+    policyFiles:
+      - .ambicode/policies/common/common-design.yaml
+      - .ambicode/policies/common/common-code.yaml
+      - .ambicode/policies/common/common-errors.yaml
+      - .ambicode/policies/common/common-security.yaml
+      - .ambicode/policies/common/common-verification.yaml
+      - .ambicode/policies/common/common-checks.yaml
+      - .ambicode/policies/python/python-quality.yaml
+    commands: {}
+    checks:
+      test:
+        all: uv run pytest
+        file: uv run pytest {file}
+      lint:
+        all: uv run ruff check src tests
+        file: uv run ruff check {file}

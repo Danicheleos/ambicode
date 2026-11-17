@@ -1,0 +1,46 @@
+skill: plan
+version: 3
+needsRequest: true
+steps:
+  - id: fetch
+    actor: model
+    when: requirements.missing                    # a ticket is fetched once per task: skipped when every asked key is already captured
+    instruction: file:routes/investigate/fetch.md
+  - id: ground
+    actor: code
+    run: [requirements.normalize, search.map, "policy.stage(before-work)", context.list(docs)]
+    produces: [envelope, map, policy]
+  - id: draft
+    actor: model
+    instruction: file:routes/plan/draft.md
+    payload: ["file:envelope", map, "file:policy:before-work", context.list]
+    repeat: 2                                    # the first draft and one send-back by the plan critic (the critic reads the first draft only); a human Revise is not limited by it
+  - id: plan-check
+    actor: code
+    run: ["script(plan-check)"]                  # completes partial paths in the draft and lists its statements that something is the only one, does not exist, is unused, has no other caller, has "no ... gap", is not filtered/excluded/hidden or is deleted/removed/dropped (also deleting/removing/dropping, "is deleted from `X`", "`X` is dropped") by name (a backticked or dotted name with a path, a capital or an underscore in it), with search hits, for the critic (payload script:plan-check); it fails on a plan body that was not written (recoverable) or on any other read error (script-failed)
+    onFail: record                               # one attempt: a missing body is a Not verified line (printed with the accept question only in an interactive session); only the human Revise and the critic's send-back return to draft; a revised draft goes through this step and straight to the gate
+  - id: critic
+    actor: model
+    when: unrevised                              # the first draft only: after the critic's send-back or a human Revise the critic is skipped and the revision is not re-checked
+    instruction: file:routes/plan/critic.md
+    work: file:routes/plan/critic-work.md
+    payload: ["file:envelope", "script:plan-check"]   # the claims list rides inline in the work file; the critic checks each row
+  - id: critic-record
+    actor: code
+    when: unrevised                              # as critic: no answer file exists for a revised draft
+    run: plan.critic                             # reads the critic's answer file; defects are Not verified lines at plan-accept
+    onFail: revise draft                         # the handler fails when the critic lists a defect, to send the draft back with the defects (also headless); `when: unrevised` decides which draft it reads
+  - id: plan-accept
+    actor: human
+    gate:
+      question: "Accept this plan?"
+      options: [Accept, Revise, Reject]
+      acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
+      default: Reject                             # non-acting: plan.md stays status: draft. No object: Accept takes the file as it is, user edits included
+      onAnswer: { Revise: revise draft }         # a human cycle: back to draft
+  - id: promote
+    actor: code
+    when: gate.plan-accept.is(Accept)             # the latest answer in this step's window
+    run: [evidence.plan.accept]                  # accepts the file as it is now, user edits included
+    onFail: revise plan-accept                    # plan-not-accepted: re-print the gate
+    produces: ["note{plan}"]

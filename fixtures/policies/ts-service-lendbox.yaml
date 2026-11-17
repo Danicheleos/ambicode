@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: lendbox-team
+authority: team
+description: Rules from the lendbox contributor guide.
+appliesTo: ["src/**/*.ts"]
+activities: [review, task]
+source:
+  location: scratch/page-7.md
+rules:
+  - id: context-index-imports
+    category: architecture
+    instruction: "Import another context only through its index.ts: nothing outside a context imports from its domain/, application/ or http/ folders."
+    source:
+      quote: "Import another context only through its `index.ts`"
+      location: scratch/page-7.md
+    check:
+      kind: reviewer
+      explanation: Look for imports that reach into another context's domain/, application/ or http/ folder instead of its index.ts.

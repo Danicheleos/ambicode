@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: kiln-team
+authority: team
+description: Rules from the kiln contributing guide.
+appliesTo: ["dashboard/src/__generated__/**", "vendor/**"]
+activities: [review, task]
+source:
+  location: CONTRIBUTING.md
+rules:
+  - id: no-hand-edits
+    category: workflow
+    instruction: "dashboard/src/__generated__/ and vendor/ are never edited by hand: regenerate or re-vendor."
+    source:
+      quote: "are never edited by hand: regenerate or re-vendor."
+      location: CONTRIBUTING.md
+    check:
+      kind: reviewer
+      explanation: Any changed line under dashboard/src/__generated__/ or vendor/ is a violation unless the change is a regeneration.
