@@ -1,6 +1,6 @@
 ---
 name: task
-description: "Make one bounded code change with the record to prove it — the smallest change with its tests, formatted and checked, an independent review unless `--no-review`, and a report built from the ledger; it never commits, pushes, or publishes. Only when named (/ambicode:task typed, or \"run ambicode:task\" asked by the user, also for a subagent): a plain request to implement or fix something is not this skill."
+description: "Makes one bounded code change with the record that proves it: smallest change, tested (run when a check can run the tests; with none, only the tests the request asks for, unrun), formatted and checked, independently reviewed, reported from the ledger; never commits, pushes or publishes. Use only when /ambicode:task is named, by the user or a subagent."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>] [--no-review]
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
@@ -8,24 +8,25 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 
 # Implement a change
 
-Name `iteration N` (or `ORD-17 2`; a lone number with `--task`) in the request to run only that iteration, with its checks by file run unasked. Without it one implementer does every iteration from the first not done, in order and with nothing asked between them; the checks then run once, over everything the task changed. One review follows over the change either way, unless `--no-review`; headless runs none. The output of the command it ends with brings the next step. Either way a check that runs the whole project, or one the policy marks `propose`, runs only on your answer; headless skips it and lists it under Not verified.
+The implementer subagent writes the code, records the checks and writes the report; the route formats, reviews and keeps the record. Your part is to launch and relay — the output of each command brings the next step. At the closing step, reply with the one `Task report:` line the hook gives.
+
+## Modes
+| Request | What runs |
+|---|---|
+| no iteration named | one implementer does every iteration not yet done, in order; one review of the whole change; the checks once over everything the task changed |
+| `iteration N` (or `ORD-17 2`; a lone number with `--task`) | only that iteration; its checks by file run unasked |
+| `--no-review` | either mode, without the review |
+
+Either mode: one review follows over the change unless `--no-review`; headless runs none. A check that runs the whole project, or one the policy marks `propose`, runs only on your answer; headless skips it and lists it under Not verified.
 
 ## Your part
-
-The implementer subagent writes the code, runs the checks and writes the report; the route formats and reviews. You launch and relay; at the closing step reply with the one `Task report:` line the hook gives, nothing else.
-
-- Do not add requirements the user did not state.
-- Do not read the code to second-guess the implementer, and do not run tests yourself: a result you ran is not in the record.
-- When the implementer returns `Gaps:` or the review lists findings outside the brief, they stay in the report (code appends any left out) and are the user's to decide.
-- A request that is several unrelated changes, or that hinges on a choice only the user can make, is not one bounded change: say which part you would do first and ask, instead of guessing.
-- Red checks, a refused check, or a skipped review stay in the report as not verified. Never present them as done.
+- Relay, do not redo: reading the code to second-guess the implementer or running tests yourself adds results that are not in the record.
+- Add no requirement the user did not state.
+- A request that is several unrelated changes, or that hinges on a choice only the user can make, is not one bounded change: say which part you would do first and ask.
+- Gaps, findings outside the brief, red or refused checks and a skipped review stay in the report as not verified; they are the user's to decide.
 
 ## Git boundary
-
-Edit files only. Never commit, push, create a merge request, publish a comment, merge, deploy, or
-transition a ticket: those are the user's decisions, and the review and the report describe uncommitted work. Never stash,
-reset, checkout or clean: files changed before the task belong to the user, and the route's baseline keeps them
-out of this task's review.
+Edit files only. Commits, pushes, merge requests, comments, merges, deploys and ticket transitions are the user's decisions. Stash, reset, checkout and clean would destroy changes that predate the task; the route's baseline already keeps those out of the review.
 
 If no step message appeared, start the route yourself with the arguments unchanged (they begin `$0`):
 

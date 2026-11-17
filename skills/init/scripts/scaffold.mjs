@@ -11,8 +11,9 @@ const fail = (error) => { console.log(JSON.stringify({ error })); process.exit(2
 
 let top = '';
 try { top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { fail('not a git repository'); }
-// realpath: macOS /var is /private/var, so a plain compare rejects a real root.
-const same = (a, b) => realpathSync(a) === realpathSync(b);
+// realpath: macOS /var is /private/var, so a plain compare rejects a real root. path.relative, not ===: on Windows it ignores
+// the drive-letter case that realpathSync keeps (git prints C:/..., a session cwd is c:\...).
+const same = (a, b) => path.relative(realpathSync(a), realpathSync(b)) === '';
 if (!same(top, root)) fail(`not the git root (root is ${top})`);
 
 const created = [];

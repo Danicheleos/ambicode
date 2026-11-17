@@ -20,7 +20,7 @@ async function check(root: string, body: string, cwd?: string, env?: Record<stri
     stdin: JSON.stringify({ task: 't', skill: 'investigate', repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps'), args: {}, params: [], revise: null, raisedBy: null, headless: false, ...(cwd === undefined ? {} : { cwd }) }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { anchorsBad: number; anchors?: string[]; resolved?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
+  return JSON.parse(outcome.stdout) as { entries: { summary: { anchorsBad: number; anchors?: string[]; resolved?: string[]; unbacked?: number } }[]; failed?: { code: string; message: string; revise?: unknown } };
 }
 
 describe('skills/investigate/scripts/check-citations.mjs', () => {
@@ -73,12 +73,28 @@ describe('skills/investigate/scripts/check-citations.mjs', () => {
   it('an answer with no citation passes, and a version or address with a line-like suffix is not a citation', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
-      const none = await check(root, 'Use the library as documented; nothing in the repository decides this.\n');
+      const none = await check(root, 'Use the library as documented; nothing in the repository decides this (Grep decides in src, 0 hits read).\n');
       assert.equal(none.failed, undefined);
       assert.equal(none.entries[0]!.summary.anchorsBad, 0);
       const tokens = await check(root, 'Pin v1.2:3, see 10.0.0.1:80 and 2.4.1:12, but `src/invoices/service.ts:3` is real and `src/nope.ts:1` is not.\n');
       assert.equal(tokens.entries[0]!.summary.anchorsBad, 1);
       assert.deepEqual(tokens.entries[0]!.summary.anchors, ['src/nope.ts:1 missing-file']);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('only an unbacked absence or uniqueness claim about the code is recorded; conditions, process prose, headings, fenced text and a backed claim are not', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const claims = await check(root, '- **No client-side validation gap.** Validity is required (`src/invoices/service.ts:3`).\n- Nothing else reads `orderLimit`.\n- `total` is the only caller of `round`, i.e. no other caller.\n- `legacy` is never called.\n');
+      assert.equal(claims.entries[0]!.summary.anchorsBad, 0);
+      assert.equal(claims.entries[0]!.summary.unbacked, 4);
+      assert.match(claims.failed!.message, /^4 unbacked absence claims: .*No client-side validation gap.*Nothing else reads.*the only caller of `round`, i\.e\. no other caller\..*`legacy` is never called/);
+      const prose = await check(root, '## Nothing else reads orderLimit\n- Inferred: this is only a problem if the server rejects null.\n- I found no evidence either way in the repo.\n- Nothing is confirmed as the fix.\n- Shown only when the flag is set.\n~~~\nNo other caller.\n~~~\n```\nNo client-side validation gap.\n```\n');
+      assert.equal(prose.failed, undefined);
+      const backed = await check(root, '- No client-side validation gap (grep validate in src, 0 hits read).\n- No other caller of `foo`, i.e. nothing else reads it (Grep foo in src, 0 hits read).\n');
+      assert.equal(backed.failed, undefined);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

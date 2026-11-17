@@ -40,7 +40,7 @@ say that instead of guessing at the outcome. Writing the answer file is your tas
 - **Security and error paths.** Untrusted input reaching a decision, exposure of credentials or
   internal detail, failures a caller cannot observe.
 - **Tests.** Behaviour the change adds or alters with no test exercising it (name the untested
-  path or case), and tests the change weakens: a looser assertion, a removed case, a check that
+  path or case; no test is not a finding when the brief's check results say no check can run in this project and the request asked for none), and tests the change weakens: a looser assertion, a removed case, a check that
   can no longer fail.
 - **Style and code smells.** Judge them yourself even when no project rule names them: duplication (something the codebase already has, or a language or framework built-in, where you can point at it; a boundary adapter can justify a thin wrapper), needless complexity (machinery the change does not need, argued from what it costs a reader), a helper reinvented where one exists, dead code the change leaves unreachable or unused.
 - **Dependents.** For each name the change removes, renames, or whose signature or behaviour it
@@ -112,7 +112,7 @@ as your last tool call. The block:
 `requirementCoverage` has one row per acceptance point (or point of the described intent) of each requirement in the brief. `status` is `covered`, `cannot-verify` (the diff does not show it) or `missed`; `note` is at most one short sentence. A `missed` point is also a finding: give that finding's 1-based position in `findings` as `finding`; leave it out, or `null`, on every other row. `ref` is the requirement id from the brief (the key at its end is enough); a row with an unknown `ref` is dropped and reported.
 
 `coverageNotes` lists only what you could not assess and why, and anything in the checkout you declined to follow, such as repository instructions. It does not repeat the requirement rows. Do not note that no check was recorded or that files were left out of the brief: the review's scope section records both. A problem you did see, such as a missing
-test, is a finding, not a note. A missing-test finding must not say no test exists when the brief's "Test files changed" section lists a test file for that code; it may say the listed tests do not cover a specific behaviour only when you can show that, otherwise that goes in `coverageNotes`.
+test, is a finding, not a note, except a missing test under the exemption in Tests. A missing-test finding must not say no test exists when the brief's "Test files changed" section lists a test file for that code; it may say the listed tests do not cover a specific behaviour only when you can show that, otherwise that goes in `coverageNotes`.
 
 `ruleRefs` may name rule ids from the brief; an unknown rule id is dropped from the finding and
 reported as an omission. `requirementRefs` may name requirement ids from the brief (the key at the end of an id is enough); an

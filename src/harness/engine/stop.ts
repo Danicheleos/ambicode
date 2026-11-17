@@ -2,7 +2,7 @@ import { dirKindFor } from '#types/defaults';
 import type { SessionRepository } from '#types/composition';
 import type { HookInput, StopHookOutput } from '#types/hook';
 import { liveRouteOf, sessionRoutes } from '../session/active-route.ts';
-import { buildChain, currentIn, foldRoute } from './fold.ts';
+import { buildChain, foldRoute, reportOf } from './fold.ts';
 import { answersAsNote } from './execute.ts';
 import { writeSummary } from './run-context.ts';
 import { readLedger } from '#platform/ledger/ledger';
@@ -99,7 +99,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, found: Sessio
     const finalMessage = message !== null && !answered && !reported && (active === null || (heading !== null && firstLine(message) === heading));
     if (!finalMessage) return { output: null, entries: entries.length };
     // One block per route: a second Stop lets the message through, or a model that cannot fix it would never finish.
-    const missing = chain.entries.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block') ? [] : unstated(gapsOf(chain.entries, currentIn(def, chain)), message);
+    const missing = chain.entries.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block') ? [] : unstated(gapsOf(...reportOf(entries, chain, def)), message);
     if (missing.length > 0) {
       await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: missing.length });
       return { output: { decision: 'block', reason: `Your final message leaves ${missing.length} gap(s) unstated. Add each, in these words:${missing.map((gap) => `\n- ${gap}`).join('')}` }, entries: entries.length };

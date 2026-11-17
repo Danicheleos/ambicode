@@ -11,8 +11,8 @@ import { SESSION_A } from '#testing/fixtures/ids';
 import { gapsOf } from '#modules/evidence/report/report';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 
-const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
-type Kind = 'claim-wrong' | 'requirement-uncovered' | 'requirement-altered' | 'caller-missed' | 'assumption-premise' | 'order';
+const GOOD = '# Plan\n## Iteration 1: limit\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
+type Kind = 'claim-wrong' | 'requirement-uncovered' | 'requirement-altered' | 'caller-missed' | 'duplicate' | 'assumption-premise' | 'order';
 const defect = (kind: Kind, where = '## Iteration 1', evidence = 'src/specs/orders.md:3 is the spec the plan says is absent', fix = 'Cite the spec.') => ({ kind, where, evidence, fix });
 const answer = (...defects: ReturnType<typeof defect>[]): string => `\`\`\`json\n${JSON.stringify({ defects })}\n\`\`\``;
 
@@ -83,11 +83,11 @@ describe('the plan critic', { concurrency: 4 }, () => {
     }
   });
 
-  it('interactive: a claim-wrong defect sends the plan back to draft once, with the defect under ## Critic defects; a second report does not send it back and is listed at the gate and in Not verified after Accept', async () => {
+  it('interactive: a claim-wrong defect sends the plan back to draft once, with the defect under ## Critic defects; the revised draft skips the critic and reaches the gate with round 1\'s defects marked as not re-checked, and so does Not verified after Accept', async () => {
     const plan = await shipped();
     try {
       await plan.start();
-      plan.state.critic.push(answer(defect('claim-wrong')), answer(defect('claim-wrong')));
+      plan.state.critic.push(answer(defect('claim-wrong')), answer(defect('order')));
       const back = await draftThrough(plan);
       assert.equal(back.position, 'draft');
       assert.match(back.text, /## Critic defects\nclaim-wrong ## Iteration 1: src\/specs\/orders\.md:3 is the spec the plan says is absent.*Cite the spec\./);
@@ -96,10 +96,17 @@ describe('the plan critic', { concurrency: 4 }, () => {
       const gate = await draftThrough(plan);
       assert.equal(gate.position, 'plan-accept');
       assert.equal((await revises(plan)).length, 1, 'one send-back only');
-      assert.match(String((await lastPrint(plan))['details']), /1 critic defect[\s\S]*plan critic: claim-wrong ## Iteration 1: src\/specs\/orders\.md:3/);
+      assert.equal(plan.state.critic.length, 1, 'the second answer was never asked for');
+      const steps = await plan.fx.kinds(PLAN_TASK, 'step');
+      for (const id of ['critic', 'critic-record']) assert.equal(steps.findLast((entry) => entry['step'] === id)?.['status'], 'skipped', id);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).filter((entry) => entry['worker'] === 'plan-critic').length, 1);
+      assert.match(String((await lastPrint(plan))['details']), /\n1 critic defect:\nrevision not re-checked: plan critic: claim-wrong ## Iteration 1: src\/specs\/orders\.md:3/);
 
-      await plan.hook('plan-accept', 'Accept', (await lastPrint(plan)).id);
-      assert.match(await gaps(plan), /^plan critic: claim-wrong ## Iteration 1: src\/specs\/orders\.md:3 is the spec the plan says is absent$/m);
+      const accepted = await plan.hook('plan-accept', 'Accept', (await lastPrint(plan)).id);
+      const line = /^(- )?revision not re-checked: plan critic: claim-wrong ## Iteration 1: src\/specs\/orders\.md:3 is the spec the plan says is absent$/m;
+      assert.match(await gaps(plan), line);
+      assert.match(accepted.text, line);
+      assert.equal(accepted.text.split('plan critic: claim-wrong').length - 1, 1);
     } finally {
       await plan.dispose();
     }
@@ -159,7 +166,7 @@ describe('the plan critic', { concurrency: 4 }, () => {
       assert.equal(back.position, 'draft');
       assert.match(back.text, /claim-wrong plan\.md:4: src\/cart\.ts:9 checks the limit too/);
       assert.match(back.text, /caller-missed ## Iteration 1: src\/cart\.ts:9 calls orderLimit/);
-      assert.match(await gaps(plan), /^plan critic: claim not checked plan\.md:5: malformed row: .+$/m);
+      assert.match(await gaps(plan), /^revision not re-checked: plan critic: claim not checked plan\.md:5: malformed row: .+$/m);
       assert.doesNotMatch(await gaps(plan), /no valid answer/);
     } finally {
       await plan.dispose();
@@ -184,7 +191,7 @@ describe('the plan critic', { concurrency: 4 }, () => {
     }
   });
 
-  it('a not-checked row is listed at plan-accept and in Not verified, and sends nothing back; an answer without claims still parses', async () => {
+  it('a not-checked row is listed at plan-accept and in Not verified, and sends nothing back; an answer without claims still parses; an order defect sends the draft back', async () => {
     const plan = await shipped();
     try {
       await plan.start();
@@ -200,8 +207,8 @@ describe('the plan critic', { concurrency: 4 }, () => {
         await again.start();
         await again.body(GOOD);
         again.state.critic.push(answer(defect('order')));
-        assert.equal((await again.next()).position, 'plan-accept');
-        assert.match(await gaps(again), /^plan critic: order /m);
+        assert.equal((await again.next()).position, 'draft');
+        assert.equal((await revises(again)).length, 1);
       } finally {
         await again.dispose();
       }
@@ -210,17 +217,25 @@ describe('the plan critic', { concurrency: 4 }, () => {
     }
   });
 
-  it('headless with --answer plan-accept=Accept: the defects are recorded and listed in Not verified, nothing is sent back', async () => {
+  it('headless with --answer plan-accept=Accept: the defects send the draft back once, the preset answer survives the send-back, the revised draft is not critiqued, and round 1\'s defects are listed in Not verified as not re-checked', async () => {
     const plan = await shipped();
     try {
       await plan.start({ headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      plan.state.critic.push(answer(defect('claim-wrong'), defect('requirement-uncovered', '## Requirements, bullet 1', 'src/orders/limit.ts:2 still returns the total', 'Add it to Iteration 1.')));
-      await draftThrough(plan);
-      assert.equal((await revises(plan)).length, 0);
+      const defects = [defect('claim-wrong'), defect('requirement-uncovered', '## Requirements, bullet 1', 'src/orders/limit.ts:2 still returns the total', 'Add it to Iteration 1.')];
+      plan.state.critic.push(answer(...defects), answer(...defects));
+      const back = await draftThrough(plan);
+      assert.equal(back.position, 'draft');
+      assert.match(back.text, /## Critic defects\nclaim-wrong ## Iteration 1:[\s\S]*requirement-uncovered ## Requirements, bullet 1:/);
+      assert.equal((await revises(plan)).length, 1);
+      const done = await draftThrough(plan);
+      assert.equal(done.position, 'complete');
+      assert.equal((await revises(plan)).length, 1, 'one send-back only');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
-      const listed = await gaps(plan);
-      assert.match(listed, /^plan critic: claim-wrong ## Iteration 1:/m);
-      assert.match(listed, /^plan critic: requirement-uncovered ## Requirements, bullet 1: src\/orders\/limit\.ts:2 still returns the total$/m);
+      assert.equal(plan.state.critic.length, 1, 'the second answer was never asked for');
+      for (const listed of [await gaps(plan), done.text]) {
+        assert.match(listed, /^(- )?revision not re-checked: plan critic: claim-wrong ## Iteration 1:/m);
+        assert.match(listed, /^(- )?revision not re-checked: plan critic: requirement-uncovered ## Requirements, bullet 1: src\/orders\/limit\.ts:2 still returns the total$/m);
+      }
     } finally {
       await plan.dispose();
     }
@@ -242,29 +257,55 @@ describe('the plan critic', { concurrency: 4 }, () => {
     });
   }
 
-  it('headless: nothing is shown or asked; the defect reaches the chat once, in Not verified, with no critic-defects header', async () => {
+  it('headless: the sent-back defect is shown nowhere but Not verified, once, with no critic-defects header; a second answer would never be read', async () => {
     const plan = await shipped();
     try {
       await plan.start({ headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      plan.state.critic.push(answer(defect('claim-wrong')));
+      plan.state.critic.push(answer(defect('requirement-altered', '## Requirements, bullet 1', 'src/orders/limit.ts:2 still returns the total', 'Restore it.')), answer(defect('claim-wrong')));
+      const back = await draftThrough(plan);
+      assert.equal(back.position, 'draft');
+      assert.match(back.text, /## Critic defects\nrequirement-altered ## Requirements, bullet 1:/);
       const out = await draftThrough(plan);
       assert.equal(out.position, 'complete');
       assert.doesNotMatch(out.text, /critic defects?:/);
-      assert.equal(out.text.split('plan critic: claim-wrong').length - 1, 1);
-      assert.match(await gaps(plan), /^plan critic: claim-wrong /m);
+      assert.equal(out.text.split('plan critic: requirement-altered').length - 1, 1);
+      assert.doesNotMatch(out.text, /plan critic: claim-wrong/);
+      assert.match(await gaps(plan), /^revision not re-checked: plan critic: requirement-altered /m);
     } finally {
       await plan.dispose();
     }
   });
 
-  it('interactive with only caller-missed: no send-back, the defect is listed', async () => {
+  for (const kind of ['caller-missed', 'duplicate', 'assumption-premise', 'order'] as const) {
+    it(`interactive: a ${kind} defect alone sends the plan back to draft once, with the defect under ## Critic defects`, async () => {
+      const plan = await shipped();
+      try {
+        await plan.start();
+        plan.state.critic.push(answer(defect(kind, '## Iteration 1', 'src/cart.ts:9 calls orderLimit')));
+        const back = await draftThrough(plan);
+        assert.equal(back.position, 'draft');
+        assert.match(back.text, new RegExp(`## Critic defects\\n${kind} ## Iteration 1: src/cart\\.ts:9 calls orderLimit.*Cite the spec\\.`));
+        assert.equal((await revises(plan)).length, 1);
+        assert.equal((await draftThrough(plan)).position, 'plan-accept');
+        assert.equal((await revises(plan)).length, 1, 'one send-back only');
+        assert.match(await gaps(plan), new RegExp(`^revision not re-checked: plan critic: ${kind} ## Iteration 1: src/cart\\.ts:9 calls orderLimit$`, 'm'));
+      } finally {
+        await plan.dispose();
+      }
+    });
+  }
+
+  it('interactive with only duplicate: the defect is in the plan-critic worker summary and listed', async () => {
     const plan = await shipped();
     try {
       await plan.start();
-      plan.state.critic.push(answer(defect('caller-missed', '## Iteration 1', 'src/cart.ts:9 calls orderLimit')));
-      assert.equal((await draftThrough(plan)).position, 'plan-accept');
-      assert.equal((await revises(plan)).length, 0);
-      assert.match(await gaps(plan), /^plan critic: caller-missed ## Iteration 1: src\/cart\.ts:9 calls orderLimit$/m);
+      const found = defect('duplicate', '## Iteration 1', 'src/orders/limit.ts:1 already has orderLimit');
+      plan.state.critic.push(answer(found));
+      assert.equal((await draftThrough(plan)).position, 'draft');
+      assert.equal((await revises(plan)).length, 1);
+      const worker = (await plan.fx.kinds(PLAN_TASK, 'worker')).find((entry) => entry['worker'] === 'plan-critic')!;
+      assert.deepEqual((worker['summary'] as { defects: unknown[] }).defects, [found]);
+      assert.match(await gaps(plan), /^revision not re-checked: plan critic: duplicate ## Iteration 1: src\/orders\/limit\.ts:1 already has orderLimit$/m);
     } finally {
       await plan.dispose();
     }
@@ -286,6 +327,27 @@ describe('the plan critic', { concurrency: 4 }, () => {
     }
   });
 
+  it('a plan whose Iterations section says "No iteration." reaches accept and lists "no iteration in the plan" in Not verified; a plan with an iteration heading does not', async () => {
+    const plan = await shipped();
+    try {
+      await plan.start({ headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      await plan.body('# Plan\n\n## Requirements\n- "limit is 5" (open decision)\n\n## Iterations\nNo iteration.\n');
+      assert.equal((await plan.next()).position, 'complete');
+      assert.match(await gaps(plan), /^no iteration in the plan$/m);
+    } finally {
+      await plan.dispose();
+    }
+    const withOne = await shipped();
+    try {
+      await withOne.start({ headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      await withOne.body('# Plan\n\n## Iteration 1: limit\n- *Changes*: `src/orders/limit.ts:1`\n');
+      assert.equal((await withOne.next()).position, 'complete');
+      assert.doesNotMatch(await gaps(withOne), /no iteration in the plan/);
+    } finally {
+      await withOne.dispose();
+    }
+  });
+
   it('an empty defect list leaves no critic line at the gate or in Not verified', async () => {
     const plan = await shipped();
     try {
@@ -300,18 +362,40 @@ describe('the plan critic', { concurrency: 4 }, () => {
     }
   });
 
-  it('interactive after a human Revise: the draft was already revised once, so critic defects do not send it back', async () => {
+  it('interactive after a human Revise: the critic does not run again, the gate lists round 1 as not re-checked', async () => {
     const plan = await shipped();
     try {
       await plan.start();
+      plan.state.critic.push(answer(defect('caller-missed', '## Iteration 1', 'src/cart.ts:9 calls orderLimit')), answer(defect('claim-wrong')));
+      assert.equal((await draftThrough(plan)).position, 'draft');
       assert.equal((await draftThrough(plan)).position, 'plan-accept');
       await plan.hook('plan-accept', 'Revise', (await lastPrint(plan)).id);
-      plan.state.critic.push(answer(defect('claim-wrong')));
       const again = await draftThrough(plan);
       assert.equal(again.position, 'plan-accept');
-      assert.deepEqual((await revises(plan)).map((entry) => entry['via']), ['gate']);
-      assert.match(await gaps(plan), /^plan critic: claim-wrong/m);
+      assert.equal(plan.state.critic.length, 1, 'the second answer was never asked for');
+      assert.equal((await revises(plan)).length, 2);
+      assert.match(String((await lastPrint(plan))['details']), /\n1 critic defect:\nrevision not re-checked: plan critic: caller-missed ## Iteration 1: src\/cart\.ts:9 calls orderLimit/);
+      assert.doesNotMatch(await gaps(plan), /claim-wrong/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'limit')).length, 0);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('a clean first round followed by a human Revise still says the revision was not re-checked, at the gate and in Not verified', async () => {
+    const plan = await shipped();
+    try {
+      await plan.start();
+      plan.state.critic.push(answer(), answer(defect('claim-wrong')));
+      assert.equal((await draftThrough(plan)).position, 'plan-accept');
+      assert.doesNotMatch(String((await lastPrint(plan))['details']), /not re-checked/);
+      await plan.hook('plan-accept', 'Revise', (await lastPrint(plan)).id);
+      assert.equal((await draftThrough(plan)).position, 'plan-accept');
+      assert.equal(plan.state.critic.length, 1, 'the second answer was never asked for');
+      assert.match(String((await lastPrint(plan))['details']), /^plan critic: revision not re-checked$/m);
+      const accepted = await plan.hook('plan-accept', 'Accept', (await lastPrint(plan)).id);
+      assert.match(await gaps(plan), /^plan critic: revision not re-checked$/m);
+      assert.equal(accepted.text.split('plan critic: revision not re-checked').length - 1, 1);
     } finally {
       await plan.dispose();
     }

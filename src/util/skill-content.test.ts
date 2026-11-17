@@ -146,7 +146,9 @@ describe('P2.2/P2.3 shipped skill content', () => {
     // 15/15 with it, bare-name revisions without it); to be cut back in the optimization phase.
     // 780 -> 860 (file 773 -> 852 B) for the map usage line after cutting 70 B of existing wording; the map legend itself lives in code.
     // Held at 860 for the any-question rewrite (file 847 B): the longer guidance went to SKILL.md, which sits outside the hook budget.
-    assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 860);
+    // 860 -> 1100 (file 847 -> 1073 B): +226 B for the one sentence naming the claim classes check-citations lists as not verified without a (Grep ...) backing (ticket 6545).
+    // 1100 -> 1200 (file 1116 chars): the p13 rework of read.md to the template standard, backing search free of formulas (2026-11-17, user's order).
+    assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 1200);
     assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'investigate', 'write.md')), false);
   });
 
@@ -182,7 +184,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Edit(//**/.ambicode/tasks/*/plan.md), Write(//**/.ambicode/tasks/*/plan.md)');
     // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
     const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'draft.md'), 'utf8');
-    for (const judgment of [/ask a material question/i, /independently reviewable iterations/i]) {
+    for (const judgment of [/neither the requirement nor the code settles[^.]*own `AskUserQuestion`/i, /independently reviewable iterations/i]) {
       assert.match(steps.replace(/\s+/g, ' '), judgment);
       assert.doesNotMatch(plan, judgment);
     }
@@ -235,7 +237,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(plan, /\bdraft\b/i);
     assert.match(plan, /\baccepted\b/i);
     assert.ok(
-      /accepted means the route recorded Accept/i.test(plan) || /generated draft.*is not accepted/i.test(plan),
+      /only the Accept the route recorded counts as acceptance/i.test(plan),
       'plan/SKILL.md must state that only a recorded Accept counts as acceptance',
     );
   });
@@ -252,10 +254,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
   it('plan states it never implements, never invokes the reviewer, and never publishes, commits, or pushes', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     for (const phrase of [
-      /do not edit product source/i,
-      /do not invoke the independent reviewer/i,
-      /do not commit,\s+push,\s+open a merge request,\s+publish a comment,\s+deploy,\s+or\s+transition/i,
-      /do not run project scripts, tests, selectors/i,
+      /tools allow edits to `plan\.md` only/i,
+      /a policy pack's `run` authorizes task and review, not planning/i,
+      /do not invoke the reviewer/i,
+      /do not commit,\s+push,\s+open a merge request,\s+publish a comment,\s+deploy\s+or\s+transition a ticket/i,
     ]) {
       assert.match(plan, phrase, `plan/SKILL.md missing expected boundary statement matching ${phrase}`);
     }
@@ -312,7 +314,7 @@ describe('P2.3 task skill', () => {
     assert.ok(Buffer.byteLength(raw) <= 3000, `${Buffer.byteLength(raw)} bytes`);
     const fm = frontmatter(raw, 'task/SKILL.md');
     assert.equal(fm['disable-model-invocation'], false);
-    assert.match(requiredString(fm, 'description', 'task/SKILL.md'), /Only when named/);
+    assert.match(requiredString(fm, 'description', 'task/SKILL.md'), /Use only when \/ambicode:task is named/);
     assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
     requiredString(fm, 'argument-hint', 'task/SKILL.md');
   });
@@ -334,23 +336,23 @@ describe('P2.3 task skill', () => {
       assert.doesNotMatch(works, judgment);
       assert.doesNotMatch(content, judgment);
     }
-    assert.match(works, /outside the brief is the user's call/i);
-    assert.doesNotMatch(content, /outside the brief is the user's call/i);
+    assert.match(works, /A finding outside the brief that your change breaks or blocks \| fix it; under `### Cross Boundary`/);
+    assert.match(works, /A finding outside the brief your change does not touch \| leave it; under Gaps/);
+    assert.doesNotMatch(content, /outside the brief[^.]*the user decides/i);
   });
 
   it('07-M1 the implementer moves a rule that already sits inline elsewhere to a shared owner instead of copying it (csv-after-plan copied a void-is-zero ternary from a route into a service, both runs, 2026-10-27)', async () => {
     const agent = (await readFile(path.join(repositoryRoot, 'agents', 'implementer.md'), 'utf8')).replace(/\s+/g, ' ');
-    assert.match(agent, /already sits inline in another place[^.]*a second copy is the defect: move it to the nearest owner both can call/i);
+    assert.match(agent, /already exists inline elsewhere, move it to one owner both call[^.]*a second copy is the defect/i);
     const works = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'change-work.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'task', 'fix-work.md'), 'utf8'));
     assert.doesNotMatch(works, /second copy/i, 'the judgment lives in the agent only');
   });
 
   it('07-M1 states the git boundary with its reason', async () => {
     const content = (await task()).replace(/\s+/g, ' ');
-    assert.match(content, /never commit, push, create a merge request, publish a comment, merge, deploy, or transition a ticket/i);
-    assert.match(content, /those are the user's decisions/i);
-    assert.match(content, /never stash, reset, checkout or clean/i);
-    assert.match(requiredString(frontmatter(await task(), 'task/SKILL.md'), 'description', 'task/SKILL.md'), /never commits, pushes, or publishes/i);
+    assert.match(content, /commits, pushes, merge requests, comments, merges, deploys and ticket transitions are the user's decisions/i);
+    assert.match(content, /stash, reset, checkout and clean would destroy changes that predate the task/i);
+    assert.match(requiredString(frontmatter(await task(), 'task/SKILL.md'), 'description', 'task/SKILL.md'), /never commits, pushes or publishes/i);
   });
 
   it('07-M1 the write step asks for Done in prose and the generated Checks, Review and Not verified facts as printed, with no Evidence block; the SKILL.md leaves it to the step', async () => {
@@ -513,6 +515,8 @@ describe('09-R3/09-W1: the init skill and the init skill steps', () => {
     const step = (n: number) => steps.find((line) => line.startsWith(`${n}. `)) ?? '';
     // Trace analysis of 15 runs: ~6.1 serial main turns after the scout; each read or check in its own turn.
     assert.match(step(3), /Launch `ambicode:scout`[\s\S]*Same turn, in parallel[\s\S]*references\/rules\.md[\s\S]*pack-format\.md[\s\S]*config packs --list/);
+    // runFormat runs the file form as written and counts the bytes it changed (format.test.ts): a check-only form formats nothing.
+    assert.match(step(4), /`format\.file` rewrites the file/);
     assert.match(step(5), /On its report, parallel Writes in one turn: `\.ambicode\/config\.yaml`[\s\S]*and step 6's drafts/);
     assert.match(step(7), /One Bash call[\s\S]*config packs --task init[\s\S]*config validate --task init[\s\S]*context index --task init[\s\S]*policy check --drafts/);
     const fm = frontmatter(content, 'init/SKILL.md');
@@ -574,15 +578,17 @@ describe('09-R3/09-W1: the init skill and the init skill steps', () => {
     assert.ok(body.length < 5500, `scout.md grew to ${body.length} bytes`);
   });
 
-  it('the implementer agent is internal to the task route, runs checks only through the check command and ends on the report format the write step reads', async () => {
+  it('the implementer agent is internal to the task route, runs the check command once over all changed files, leaves git state to the user and ends on the report format the write step reads', async () => {
     const text = await readFile(path.join(repositoryRoot, 'agents', 'implementer.md'), 'utf8');
     const fm = frontmatter(text, 'agents/implementer.md');
     assert.equal(fm['name'], 'implementer');
-    assert.match(requiredString(fm, 'description', 'agents/implementer.md'), /never by a natural-language request/);
+    assert.match(requiredString(fm, 'description', 'agents/implementer.md'), /Launched only by the route/);
     assert.equal(requiredString(fm, 'tools', 'agents/implementer.md'), 'Read, Grep, Glob, Edit, Write, Bash');
     const body = text.replace(/\s+/g, ' ');
-    for (const rule of [/only through the `check` command/, /never commit, push or publish/, /your last call is the work file's `route next`/i, /do not read the ledger or any file under `\.ambicode\/tasks\/` that the work file does not name/i, /relative to the repository root, never absolute/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
+    for (const rule of [/Run the `check` command once over all changed files/, /Git state is the user's: no commits, pushes, stashes, resets or checkouts/, /Run `route next` as your last call/, /The route owns `\.ambicode\/`: read a file there only when the work file names it/, /Paths are repository-relative/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
     // omitClaudeMd stops the agent loading the project CLAUDE.md, which frees far more context than this prompt grows.
-    assert.ok(text.length < 3000, `${text.length} bytes`);
+    // 3000 -> 4200 (3,941 chars): the user, HANDOFF Order 19, to keep the draft wording instead of trimming it.
+    // 4200 -> 5000 (4,877 chars): the user's step 3 "find all definitions and references ... sync" and the Cross Boundary section (020d052d, 2026-11-17).
+    assert.ok(text.length < 5000, `${text.length} chars`);
   });
 });

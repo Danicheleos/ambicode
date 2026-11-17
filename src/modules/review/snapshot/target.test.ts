@@ -4,7 +4,7 @@ import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { resolveBranchTarget, resolveWorkingTarget, snapshotTree } from './target.ts';
+import { removedTestCases, resolveBranchTarget, resolveWorkingTarget, snapshotTree } from './target.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 
 async function digestOf(file: string): Promise<string | null> {
@@ -166,4 +166,23 @@ test('U09 deleting a tracked file is a deletion in the working diff', async (t) 
   assert.equal(resolution.files.length, 1);
   assert.equal(resolution.files[0]?.changeKind, 'deleted');
   assert.equal(resolution.files[0]?.oldPath, 'gone.ts');
+});
+
+test('removedTestCases asks git for a patch only of the changed test files, and not at all when none changed', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+  await repo.write('src/a.ts', 'one\n');
+  await repo.write('src/a.spec.ts', "it('a', () => {});\nit('b', () => {});\n");
+  await repo.commitAll('init');
+  const baseTree = await snapshotTree(nodeFileSystem, repo.git);
+  const patches: (readonly string[])[] = [];
+  const spy = new Proxy(repo.git, { get: (git, name, receiver) => (name === 'patchDiff' ? (args: readonly string[], context: number) => { patches.push(args); return git.patchDiff(args, context); } : Reflect.get(git, name, receiver)) });
+
+  await repo.write('src/a.ts', 'two\n');
+  assert.deepEqual(await removedTestCases({ fs: nodeFileSystem, git: spy, baseTree }), []);
+  assert.equal(patches.length, 0, 'no test file changed: no patch is read');
+
+  await repo.write('src/a.spec.ts', "it('a', () => {});\n");
+  assert.deepEqual(await removedTestCases({ fs: nodeFileSystem, git: spy, baseTree }), [{ path: 'src/a.spec.ts', count: 1 }]);
+  assert.deepEqual(patches.map((args) => args.slice(2)), [['--', ':(literal)src/a.spec.ts']], 'the patch is limited to the test file');
 });

@@ -9,10 +9,10 @@ import { checksOff } from './config-checks-off.mjs';
 import { diffOf } from './context.mjs';
 
 describe('checksOff', () => {
-  it('nulls every check of every project and keeps the rest of the config', () => {
-    const text = 'schemaVersion: 5\nid: demo\nprojects:\n  - id: a\n    root: .\n    commands: { test: "make test" }\n    checks:\n      test: { all: "make test", file: "make test {file}" }\n      lint: { all: "ruff .", file: null }\n  - id: b\n    root: b\n';
+  it('nulls every check of every project, format too, and keeps the rest of the config', () => {
+    const text = 'schemaVersion: 5\nid: demo\nprojects:\n  - id: a\n    root: .\n    commands: { test: "make test" }\n    checks:\n      test: { all: "make test", file: "make test {file}" }\n      lint: { all: "ruff .", file: null }\n      format: { all: "ruff format --check .", file: "ruff format --check {file}" }\n  - id: b\n    root: b\n';
     const out = parse(checksOff(text));
-    assert.deepEqual(out.projects[0].checks, { test: null, lint: null });
+    assert.deepEqual(out.projects[0].checks, { test: null, lint: null, format: null });
     assert.equal(out.projects[1].checks, undefined);
     assert.deepEqual([out.id, out.projects[0].commands], ['demo', { test: 'make test' }]);
   });

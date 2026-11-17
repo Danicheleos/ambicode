@@ -27,6 +27,21 @@ describe('judge-inputs', () => {
     assert.deepEqual(['a-chain', 'a-chain-plan', 'a-plan', 'a'].map(baseName), ['a', 'a', 'a', 'a']);
   });
 
+  it('strips the investigation-seeded suffixes too and reads their stage and incoming plan', () => {
+    assert.deepEqual(['a-inv', 'a-chain-plan-inv', 'a-chain-inv'].map(baseName), ['a', 'a', 'a']);
+    const root = fixture();
+    const archive = path.join(root, 'arch');
+    try {
+      const dir = 'evals/cases/task-chain/01-task-x-chain';
+      put(root, 'evals/cases/results/S3/aggregate-result.json', JSON.stringify({ cases: ['task-x-inv', 'task-x-chain-plan-inv', 'task-x-chain-inv'].map((name) => ({ name, dir, arms: { with: [{ costUsd: 1, durationSeconds: 9 }] } })) }));
+      put(root, 'arch/task-x-chain-inv-1.ambicode/.ambicode/tasks/t1/plan.md', 'plan');
+      const rows = judgeInputs({ stamp: 'S3', root, archive });
+      assert.deepEqual(rows.map((r) => r.stage), ['code', 'plan', 'code']);
+      assert.ok(rows.every((r) => existsSync(r.ticket) && existsSync(r.policies)));
+      assert.deepEqual(rows.map((r) => r.plan === null), [true, true, false]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('lists one row per run with ticket, diff, base, policies, cost and duration, all existing', () => {
     const root = fixture();
     try {

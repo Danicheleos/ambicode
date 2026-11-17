@@ -43,6 +43,22 @@ describe('runOne', () => {
   });
 });
 
+describe('shell quoting per platform', () => {
+  it('on POSIX the shell is `sh -c` with the command unwrapped and files in single quotes', (t) => {
+    if (process.platform === 'win32') return t.skip('the Windows form is covered by the next test');
+    assert.deepEqual(shellArgv('jest a && b'), ['sh', '-c', 'jest a && b']);
+    assert.equal(shellQuote("src/it's.ts"), `'src/it'\\''s.ts'`);
+  });
+
+  it('on Windows a quoted file reaches the program as the bare name, with no extra quotes', async (t) => {
+    if (process.platform !== 'win32') return t.skip('Windows cmd only');
+    const command = `node -e "console.log(JSON.stringify(process.argv.slice(1)))" ${shellQuote('src/a b.ts')}`;
+    const result = await runOne({ runner: new NodeProcessRunner(), clock, repositoryRoot: tmpdir(), project: { ...project, root: '.' }, command, timeoutSeconds: 60 });
+    assert.equal(result.status, 'passed');
+    assert.match(result.output, /--- stdout ---\n\["src\/a b\.ts"\]\r?\n/);
+  });
+});
+
 describe('commandFor', () => {
   it('substitutes {file} with each file quoted, so a name with a space or $ stays one argument', () => {
     assert.equal(commandFor('jest {file}', ['src/a b.ts', "src/it's.ts"]), `jest ${shellQuote('src/a b.ts')} ${shellQuote("src/it's.ts")}`);

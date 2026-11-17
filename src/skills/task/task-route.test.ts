@@ -209,14 +209,14 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const change = await t.start();
       const runnable = /## checks\.runnable\nProject app: e2e \(--file needs approval\), typecheck \(no file form: left to the end step, never run it\), unit \(--file runs freely, all needs approval\)\./;
       assert.match(await t.work(), runnable);
-      assert.match(await t.work(), /key listed under `checks\.runnable`/);
+      assert.match(await t.work(), /a key from `checks\.runnable` below/);
       assert.doesNotMatch(change.text, /## checks\.runnable/);
       await t.edit();
       await t.check('green', null);
       const fix = await t.review([finding({ id: 'F1' })]);
       assert.equal(fix.position, 'fix');
       assert.match(await t.work('fix'), runnable);
-      assert.match(await t.work('fix'), /key listed under `checks\.runnable`/);
+      assert.match(await t.work('fix'), /a key from `checks\.runnable` below/);
       assert.doesNotMatch(fix.text, /## checks\.runnable/);
     }, { config: CHECK_CONFIG });
   });
@@ -235,6 +235,34 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }, { config });
   });
 
+  it('a task that changes no file lists "no file changed" in Not verified and the report payload; an edit removes the line', async () => {
+    const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: null, file: null } }\n');
+    await withTask(async (t) => {
+      await t.start({ headless: true });
+      assert.equal((await t.next()).position, 'write');
+      assert.ok(gapsOf(await t.ledger()).includes('no file changed'), gapsOf(await t.ledger()).join('\n'));
+      assert.match(section(await t.work('write'), 'report'), /no file changed/);
+    }, { config });
+    await withTask(async (t) => {
+      await t.start({ headless: true });
+      await t.edit();
+      assert.equal((await t.next()).position, 'write');
+      assert.ok(!gapsOf(await t.ledger()).includes('no file changed'));
+    }, { config });
+  });
+
+  it('a baseline whose HEAD is not the current one leaves the file count unknown: a line says so instead of staying silent', async () => {
+    await withTask(async (t) => {
+      await t.start({ headless: true });
+      await t.append({ kind: 'baseline', head: null, dirty: [], tree: '0'.repeat(40) });
+      await t.edit();
+      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'write');
+      const gaps = gapsOf(await t.ledger());
+      assert.ok(gaps.includes('files changed: unknown (HEAD moved since the baseline)'), gaps.join('\n'));
+      assert.ok(!gaps.includes('no file changed'));
+    });
+  });
+
   it('a project whose only command is format has no runnable check and is not blocked either', async () => {
     const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: null, file: null }, format: { all: null, file: "fmt {file}" } }\n');
     await withTask(async (t) => {
@@ -243,35 +271,56 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }, { config });
   });
 
-  it('no runnable check: the work file still asks for the tests the change needs, written and not run, and lists them under Gaps', async () => {
+  it('no runnable check: the work file tells the implementer to write the tests the request asks for and run none ("tests written, not run" under Gaps), and no other new tests ("tests not written" under Gaps)', async () => {
     await withTask(async (t) => {
       await t.start();
       const runnable = section(await t.work(), 'checks.runnable');
-      assert.match(runnable, /No check has a command configured/);
-      assert.match(runnable, /Write the tests the change needs/, 'a repository with no command still gets its tests written');
-      assert.match(runnable, /Gaps/, 'tests never run are listed as unverified, not reported clean');
-      assert.doesNotMatch(runnable, /run no tests/, 'the old text told the implementer to skip tests altogether');
+      assert.match(runnable, /No check can run/);
+      assert.match(runnable, /Write the tests the request asks for and run none.*Gaps: "tests written, not run: no check can run"/s, 'the eval prompt of task-k12-1016 asks for tests and said not to run them');
+      assert.match(runnable, /Write no other new tests.*Gaps: "tests not written: no check can run"/s, '4 of 12 p6 plugin blockers sat in tests written and never run');
+      assert.doesNotMatch(runnable, /Write the tests the change needs/);
     }, { config: NO_CHECKS });
   });
 
-  it('the change brief names what is skipped: an iteration the code already satisfies, not the garbled "One the code"', async () => {
+  it('a project whose only test key has no file form gets the no-tests payload: a run never runs it without a question, and the key is still listed', async () => {
+    const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: "npm test", file: null } }\n');
+    await withTask(async (t) => {
+      await t.start();
+      const runnable = section(await t.work(), 'checks.runnable');
+      assert.match(runnable, /Write the tests the request asks for and run none.*Write no other new tests.*Gaps: "tests not written: no check can run"/s);
+      assert.match(runnable, /unit \(no file form: left to the end step, never run it\)/);
+    }, { config });
+  });
+
+  it('a project whose only configured command is format gets the same no-tests payload: format is not a check that verifies', async () => {
+    const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: null, format: { all: null, file: "fmt {file}" } }\n');
+    await withTask(async (t) => {
+      await t.start();
+      assert.match(section(await t.work(), 'checks.runnable'), /Write the tests the request asks for and run none.*Write no other new tests.*Gaps: "tests not written: no check can run"/s);
+    }, { config });
+  });
+
+  it('the change brief carries no hunk self-check', async () => {
     await withTask(async (t) => {
       await t.start();
       const work = await t.work();
-      assert.doesNotMatch(work, /One the code/, 'the eval traces carried this sentence with its noun missing');
-      assert.match(work, /An iteration the code already satisfies is verified and skipped\./);
+      assert.doesNotMatch(work, /each hunk|copies a neighbour/, 'the implementer cannot check itself: no source to compare against, and 3/3 paid runs showed no trace of it');
     });
   });
 
-  it('the change brief has the implementer write the tests before the last call and carries no hunk self-check', async () => {
+  it('the brief carries nothing of the plan critic, whatever its entry holds; the critic lines stay in the report', async () => {
+    const wrong = { kind: 'claim-wrong', where: 'plan.md:12', evidence: 'the file still has a second user of the name', fix: 'Correct the statement' };
+    const order = { kind: 'order', where: 'plan.md:20', evidence: 'step 3 needs step 2 first', fix: 'Swap them' };
+    const planned = async (t: Fixture, defects: object[]): Promise<void> => {
+      const put = async (fields: Record<string, unknown> & { kind: string }) => (await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { session: SESSION_A, ...fields })).entry;
+      const plan = await put({ kind: 'route', skill: 'plan', args: { text: 'x' }, captured: [], mode: 'headless', channel: 'hook', trusted: true, epoch: 1 });
+      await put({ kind: 'worker', route: plan.id, worker: 'plan-critic', outcome: 'ran', ms: 0, artifact: null, summary: { defects, claims: [], unknownRows: 0, unknownNs: [] } });
+    };
     await withTask(async (t) => {
-      await t.start();
-      const work = await t.work();
-      assert.match(work, /Write the tests that cover the change, then run them once over all changed files/);
-      assert.doesNotMatch(work, /each hunk|copies a neighbour/, 'the implementer cannot check itself: no source to compare against, and 3/3 paid runs showed no trace of it');
-      const unfinished = work.indexOf('with no test in the diff is unfinished');
-      assert.ok(unfinished > 0);
-      assert.ok(unfinished < work.indexOf('Last call, always'), 'the test rule precedes the last call');
+      await planned(t, [wrong, order]);
+      await t.start({ headless: true });
+      assert.equal(section(await t.work(), 'brief'), 'Task ord-7 · iteration 1 of 1');
+      assert.doesNotMatch(await t.work(), /contradicted by the code|second user of the name/);
     });
   });
 
@@ -284,7 +333,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     }, { config: CHECK_CONFIG });
   });
 
-  it('07-R7/07-V4: headless starts no review and waits for no one; brief, review-agent, review-run and fix are skipped, checks-offer takes its skip default, no review runs, and the report adds no review gap line', async () => {
+  it('07-R7/07-V4: headless starts no review and waits for no one; brief, review-agent, review-run and fix are skipped, checks-offer takes its skip default, no review runs, and the report states the review was not run', async () => {
     await withTask(async (t) => {
       const write = await toOffer(t, { headless: true });
       assert.equal(write.position, 'write');
@@ -293,7 +342,7 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
       const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
       assert.ok(['brief', 'review-agent', 'review-record', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
       assert.equal((await t.kinds('review')).length, 0);
-      assert.doesNotMatch(await t.work('write'), /independent review skipped/);
+      assert.equal(gapsOf(await t.ledger()).filter((gap) => /independent review.*not run.*headless/i.test(gap)).length, 1);
     });
   });
 
@@ -309,15 +358,86 @@ describe('task route (07-R, 07-V, 07-G)', { concurrency: 4 }, () => {
     });
   });
 
-  it('a headless task with the review skipped and no configured checks: no Not verified line, and the Stop hook does not block', async () => {
+  it('a headless task with the review skipped and no configured checks: the one Not verified line is the unrun review, and the Stop hook blocks a message that leaves it out', async () => {
     await withTask(async (t) => {
       const write = await toOffer(t, { headless: true });
-      assert.deepEqual(gapsOf(await t.ledger()), []);
+      const gaps = gapsOf(await t.ledger());
+      assert.equal(gaps.length, 1, gaps.join('\n'));
+      assert.match(gaps[0]!, /independent review.*not run.*headless/i);
       const report = (await t.work('write')).split('## report\n')[1] ?? '';
-      assert.doesNotMatch(report, /Not verified|independent review skipped|nothing was verified by running checks/);
-      const stop = await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: '# Task report\n**Done**\n- src/a.ts:1 guard the empty list.' }, { repositoryRoot: t.fx.repo.root, where: '.' });
-      assert.notEqual(stop?.decision, 'block');
+      assert.doesNotMatch(report, /independent review skipped|nothing was verified by running checks/);
+      const stopWith = (message: string) => t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: message }, { repositoryRoot: t.fx.repo.root, where: '.' });
+      assert.equal((await stopWith('# Task report\n**Done**\n- src/a.ts:1 guard the empty list.'))?.decision, 'block');
+      assert.notEqual((await stopWith(`# Task report\n**Done**\n- src/a.ts:1 guard the empty list.\n\nNot verified\n- ${gaps[0]}`))?.decision, 'block');
     }, { config: NO_CHECKS });
+  });
+
+  describe('test cases removed and not re-added are listed under Not verified, never a verdict', () => {
+    const SPEC = "describe('orders', () => {\n  it('totals an empty list', () => {\n    expect(total([])).toBe(0);\n  });\n  it('totals one', () => {\n    expect(total([1])).toBe(1);\n  });\n  it('totals two', () => {\n    expect(total([1, 2])).toBe(3);\n  });\n});\n";
+    const removedLines = async (t: Fixture): Promise<string[]> => gapsOf(await t.ledger()).filter((gap) => gap.startsWith('test cases removed and not re-added'));
+    /** A headless task over a committed spec: `rewrite` runs after the baseline, then the source edit and the green check end the route's work. */
+    const rewriting = async (rewrite: (t: Fixture) => Promise<void>): Promise<string[]> => {
+      let lines: string[] = [];
+      await withTask(async (t) => {
+        await t.fx.repo.write('src/orders.spec.ts', SPEC);
+        await t.fx.repo.commitAll('spec');
+        await t.start({ headless: true });
+        await rewrite(t);
+        await t.edit();
+        assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'write', 'the route is not blocked');
+        lines = await removedLines(t);
+      });
+      return lines;
+    };
+
+    it('a spec of 3 cases rewritten to 1 different case lists the path with (3)', async () => {
+      const lines = await rewriting((t) => t.fx.repo.write('src/orders.spec.ts', "describe('orders', () => {\n  it('sums the list', () => {\n    expect(total([1, 2])).toBe(3);\n  });\n});\n"));
+      assert.deepEqual(lines, ['test cases removed and not re-added: src/orders.spec.ts (3)']);
+    });
+
+    it('the line is in the report payload the write step gets, not only in the ledger after it', async () => {
+      await withTask(async (t) => {
+        await t.fx.repo.write('src/orders.spec.ts', SPEC);
+        await t.fx.repo.commitAll('spec');
+        await t.start({ headless: true });
+        await t.fx.repo.write('src/orders.spec.ts', 'describe(\'orders\', () => {});\n');
+        await t.edit();
+        await t.check('green', { ran: 1, failed: 0 });
+        assert.match(section(await t.work('write'), 'report'), /test cases removed and not re-added: src\/orders\.spec\.ts \(3\)/);
+        await t.fx.engine.stop(CHECK_TASK, 'done');
+        assert.match(await readFile(path.join(t.dir, 'summary.md'), 'utf8'), /test cases removed and not re-added: src\/orders\.spec\.ts \(3\)/);
+      });
+    });
+
+    it('a baseline tree git cannot diff (pruned) does not fail the route: the verdict stands and the line says the check did not run', async () => {
+      await withTask(async (t) => {
+        await t.start({ headless: true });
+        await t.append({ kind: 'baseline', head: null, dirty: [], tree: '0'.repeat(40) });
+        await t.edit();
+        assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'write');
+        assert.deepEqual(await removedLines(t), []);
+        const [line] = gapsOf(await t.ledger()).filter((gap) => gap.startsWith('test cases removed: not checked'));
+        assert.match(line ?? '', /^test cases removed: not checked \(.*git diff failed/);
+        assert.match(section(await t.work('write'), 'report'), /test cases removed: not checked/);
+      });
+    });
+
+    it('a deleted spec counts all its cases', async () => {
+      const lines = await rewriting((t) => t.fx.runtime.fs.remove(path.join(t.fx.repo.root, 'src/orders.spec.ts')));
+      assert.deepEqual(lines, ['test cases removed and not re-added: src/orders.spec.ts (3)']);
+    });
+
+    it('the same 3 cases with one body edited list nothing', async () => {
+      assert.deepEqual(await rewriting((t) => t.fx.repo.write('src/orders.spec.ts', SPEC.replace('toBe(3)', 'toBe(4)'))), []);
+    });
+
+    it('a case counts only when its declaration text is absent from every added line of the change: a moved case is not counted', async () => {
+      const lines = await rewriting(async (t) => {
+        await t.fx.repo.write('src/orders.spec.ts', SPEC.replace("  it('totals one', () => {\n    expect(total([1])).toBe(1);\n  });\n", ''));
+        await t.fx.repo.write('src/other.spec.ts', "it('totals one', () => {\n  expect(total([1])).toBe(1);\n});\n");
+      });
+      assert.deepEqual(lines, []);
+    });
   });
 
   it('07-R7: a review command in the Now line stays whole under a long task slug; long prose stays whole too', async () => {

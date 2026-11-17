@@ -9,7 +9,7 @@ import { iterationHeadings, sectionEnd } from '#modules/evidence/task/iterations
 import { contentHash } from '#util/hash';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
 import { workParts } from './parts.ts';
-import { answeredAfter, currentIn, exitOf, foldRoute, isBoundAnswer, matches, windowOf } from './fold.ts';
+import { answeredAfter, exitOf, foldRoute, isBoundAnswer, matches, reportOf, windowOf } from './fold.ts';
 import { gatePrintText, gateThen, raiseGate } from '../gates/gates.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
@@ -123,7 +123,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
 
   async function finish(run: Run): Promise<Part> {
     const chain = chainOf(run);
-    const gaps = gapsOf(chain.entries, currentIn(run.def, chain));
+    const gaps = gapsOf(...reportOf(run.entries, chain, run.def));
     let status: string;
     const ended = exitOf(chain);
     if (ended !== null && ended['complete'] !== true) {

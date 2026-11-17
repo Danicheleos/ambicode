@@ -1,11 +1,10 @@
 import path from 'node:path';
 import { onGatePrint } from '#harness/gates/gates';
 import { iterationHeadings } from '#modules/evidence/task/iterations';
-import { criticGaps } from '#modules/evidence/report/report';
+import { criticGaps, criticNotRechecked } from '#modules/evidence/report/report';
 import { chainKey, loadPayload } from '#harness/engine/execute';
-import { PLAN_CRITIC_SENDS_BACK, PlanCriticClaim, PlanCriticOutput, type PlanCriticDefect } from '#types/modules/plan';
+import { PlanCriticClaim, PlanCriticOutput, type PlanCriticDefect } from '#types/modules/plan';
 import { messageOf } from '#util/errors';
-import { chainEntries } from '../common.ts';
 import { candidates } from '../review/record-answer.ts';
 import type { Handler } from '#types/harness';
 
@@ -30,9 +29,9 @@ function parseCritic(raw: string): { ok: true; defects: PlanCriticDefect[]; rows
 }
 
 /**
- * The step after the plan critic: records what it wrote to its answer file. Defects, a missing or an invalid answer are Not verified lines and never
- * stop the route. A `wrong` claim row becomes a `claim-wrong` defect at the claim's `plan.md:L` (the line the plan-check list gave it); a `not-checked` row is a Not verified line.
- * Only an interactive first draft with a defect of a send-back kind goes back to draft, once; the file is removed so a second round never reads the first's answer.
+ * The step after the plan critic: records what it wrote to its answer file. Any defect sends the first draft back once; a missing or an invalid answer
+ * is a Not verified line and never stops the route. A `wrong` claim row becomes a `claim-wrong` defect at the claim's `plan.md:L` (the line the plan-check list gave it); a `not-checked` row is a Not verified line.
+ * The route runs this step on the first draft only (`when: unrevised`), so a defect of any kind sends the first draft back to draft once and the revision is not re-checked.
  */
 const critic: Handler = async (input) => {
   const file = path.join(input.dir.steps, CRITIC_ANSWER);
@@ -53,17 +52,17 @@ const critic: Handler = async (input) => {
   }
   const claims = read.ok ? [...listedAt].map(([n, where]): PlanCriticClaim & { where: string } =>({ ...(answered.get(n) ?? { n, verdict: 'not-checked', evidence: 'no row from the critic' }), where })) : [];
   const defects = read.ok ? [...read.defects, ...claims.filter((claim) => claim.verdict === 'wrong').map((claim): PlanCriticDefect => ({ kind: 'claim-wrong', where: claim.where, evidence: claim.evidence, fix: 'Correct the statement or back it with the search and its hits' }))] : [];
+  // An all-already-met plan is legitimate, so zero iterations is listed as Not verified, never rejected.
+  const iterations = iterationHeadings(await input.runtime.fs.readText(input.dir.plan).catch(() => '')).length;
   await input.ledger.append({
     kind: 'worker', worker: 'plan-critic', outcome: read.ok ? 'ran' : 'skipped', ms: 0, artifact: null,
-    ...(read.ok ? { summary: { defects, claims, unknownRows: unknownNs.length, unknownNs } } : { summary: { reason: read.reason } }),
+    ...(read.ok ? { summary: { defects, claims, unknownRows: unknownNs.length, unknownNs, iterations } } : { summary: { reason: read.reason, iterations } }),
   });
-  if (!read.ok || input.args.headless === true) return { state: 'ok', payload: null };
-  const sending = defects.filter((defect) => (PLAN_CRITIC_SENDS_BACK as readonly string[]).includes(defect.kind));
-  const sentBefore = (await chainEntries(input)).some((entry) => entry.kind === 'revise' && entry['from'] === 'draft');
-  if (sending.length === 0 || sentBefore) return { state: 'ok', payload: null };
+  if (!read.ok) return { state: 'ok', payload: null };
+  if (defects.length === 0) return { state: 'ok', payload: null };
   return {
     state: 'failed', code: 'plan-critic-defects', recoverable: true,
-    message: `${defects.length} plan critic defects, ${sending.length} of a send-back kind`,
+    message: `${defects.length} plan critic defect${defects.length === 1 ? '' : 's'}`,
     revise: { args: { 'Critic defects': defects.map((defect) => `${defect.kind} ${defect.where}: ${defect.evidence} (fix: ${defect.fix})`) } },
   };
 };
@@ -86,7 +85,7 @@ onGatePrint('plan-accept', async ({ runtime, dir, chain }) => {
   const failed = missing === undefined ? null : `Plan check FAILED: ${String(missing['message'])}`;
   const titles = titlesOf(await runtime.fs.readText(dir.plan).catch(() => ''));
   const criticWorker = chain.findLast((entry) => entry.kind === 'worker' && entry['worker'] === 'plan-critic');
-  const critics = criticGaps(criticWorker);
+  const critics = criticGaps(criticWorker, criticNotRechecked(chain, criticWorker));
   const summary = criticWorker?.['summary'] as { defects?: unknown[]; claims?: { verdict: string }[] } | undefined;
   const defectCount = summary?.defects?.length ?? 0;
   const unchecked = (summary?.claims ?? []).filter((claim) => claim.verdict === 'not-checked').length;

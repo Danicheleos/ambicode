@@ -654,3 +654,40 @@ describe('chain cases: a suite ticket with frozen material and no plan values', 
     assert.deepEqual(truth.diffGraders.map((g) => g.perFile), [true, undefined]);
   });
 });
+
+describe('chain cases: the -chain-inv variant (stage 2 on a finished -chain-plan-inv run)', () => {
+  const NOTE = 'The sender lives at src/a.py:3 and has no queue.\n';
+  const REAL = { name: 'task-real-fe-vs-6545-reba-submit', repo: 'r1', kind: 'infra', slug: 'sr-fe-reba', commit: 'a'.repeat(40), parent: 'b'.repeat(40), description: 'Reba.', prompt: 'Submit it.', relevant: ['src/a.py'], allowed: [], investigation: NOTE,
+    graders: [{ kind: 'file', name: 'x', file: 'src/x.py', pattern: 'y' }, { kind: 'llm', name: 'design', rubric: 'PASS if ok.' }] };
+  const root = mkdtempSync(path.join(tmpdir(), 'chain-inv2-'));
+  writeChain({ evalsDir: root, sources, cases: [REAL] });
+  const { env } = harvested(root, 'S', 'sr-fe-rebaci', { extra: { 'investigation_2026-03-01T09-00.md': NOTE, 'report.md': 'r\n' } });
+  harvested(root, 'S', 'sr-fe-rebac');
+  const rows = writeTask({ evalsDir: root, sources, cases: [REAL], stamps: ['S'], env });
+  const dir = (n) => path.join(root, 'cases', 'task-chain', n);
+  const nn = String(Object.keys(PLAN_VALUES).indexOf('task-real-fe-vs-6545-reba-submit') + 1).padStart(2, '0');
+  const invTask = `${nn}-task-real-fe-vs-6545-reba-submit-chain-inv`;
+
+  it('renders -chain-inv beside -chain from the folder of slug <slug>ci', () => {
+    assert.deepEqual(rows.map((r) => r.name), ['task-real-fe-vs-6545-reba-submit-chain', 'task-real-fe-vs-6545-reba-submit-chain-inv']);
+    assert.ok(existsSync(dir(`${nn}-task-real-fe-vs-6545-reba-submit-chain`)));
+    const body = read(dir(invTask), 'prompt.md');
+    assert.match(body, /name: task-real-fe-vs-6545-reba-submit-chain-inv\n/);
+    assert.match(body, /"task-chain-task-inv"/);
+    assert.match(body, /\/ambicode:task --task sr-fe-rebaci --headless /);
+  });
+
+  it('seeds from the harvested folder only, plan-picked-up grades sr-fe-rebaci, truth.json is named for the case', () => {
+    assert.deepEqual(readdirSync(path.join(dir(invTask), 'seed', 'tasks', 'sr-fe-rebaci')).sort(), ['investigation_2026-03-01T09-00.md', 'ledger.jsonl', 'plan.md', 'requirements']);
+    assert.equal(read(dir(invTask), 'seed', 'tasks', 'sr-fe-rebaci', 'ledger.jsonl'), PLAN_LEDGER.replaceAll('SLUG', 'sr-fe-rebaci'));
+    assert.match(read(dir(invTask), 'graders', 'plan-picked-up.md'), /sr-fe-rebaci/);
+    assert.equal(realTruth('task-real-fe-vs-6545-reba-submit-chain-inv', root).name, 'task-real-fe-vs-6545-reba-submit-chain-inv');
+  });
+
+  it('regenerating stage 2 rewrites the -chain-inv case and drops a stale one', () => {
+    writeFileSync(path.join(dir(invTask), 'stale.txt'), 'x');
+    writeTask({ evalsDir: root, sources, cases: [REAL], stamps: ['S'], env });
+    assert.ok(!existsSync(path.join(dir(invTask), 'stale.txt')));
+    assert.ok(existsSync(dir(`${nn}-task-real-fe-vs-6545-reba-submit-chain-plan-inv`)), 'stage 1 inv stays');
+  });
+});

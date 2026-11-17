@@ -45,13 +45,28 @@ function limitGap(entry: LedgerEntry): string {
   return `Stopped${where}: ${shown(entry.which).replace(/-/g, ' ')} (${entry.count})`;
 }
 
-/** The Not verified lines of a plan-critic worker entry: one per defect and per claim it did not check, or the one saying it gave no valid answer. */
-export function criticGaps(worker: LedgerEntry | undefined): string[] {
-  const summary = worker?.summary as { defects?: { kind: string; where: string; evidence: string }[]; claims?: { n: number; verdict: string; evidence: string; where?: string }[]; unknownNs?: string[]; reason?: string } | undefined;
+type CriticDefect = { kind: string; where: string; evidence: string };
+const criticLine = (defect: CriticDefect): string => `plan critic: ${defect.kind} ${defect.where}: ${defect.evidence}`;
+
+/** Said of a critic's lines when the draft was revised after them (its send-back or a human Revise): the critic runs on the first draft only, so the revision was never read. */
+const CRITIC_NOT_RECHECKED = 'revision not re-checked';
+
+/** The first `revise` to draft of the worker's route after its entry in chain order, the sign that the revised draft was not re-checked. */
+export const criticRevise = (entries: readonly LedgerEntry[], worker: LedgerEntry | undefined): LedgerEntry | undefined =>
+  worker === undefined ? undefined : entries.slice(entries.indexOf(worker) + 1).find((entry) => entry.kind === 'revise' && entry['from'] === 'draft' && entry['route'] === worker['route']);
+
+export const criticNotRechecked = (entries: readonly LedgerEntry[], worker: LedgerEntry | undefined): boolean => criticRevise(entries, worker) !== undefined;
+
+/** The Not verified lines of a plan-critic worker entry: one per defect and per claim it did not check, or the one saying it gave no valid answer; `notRechecked` prefixes them with `CRITIC_NOT_RECHECKED`, and a critic with nothing to list gets that one line alone. */
+export function criticGaps(worker: LedgerEntry | undefined, notRechecked = false): string[] {
+  const mark = (line: string): string => (notRechecked ? `${CRITIC_NOT_RECHECKED}: ${line}` : line);
+  const summary = worker?.summary as { defects?: CriticDefect[]; claims?: { n: number; verdict: string; evidence: string; where?: string }[]; unknownNs?: string[]; reason?: string; iterations?: number } | undefined;
   if (worker === undefined || summary === undefined) return [];
-  if (summary.defects === undefined) return [`plan critic: no valid answer: ${shown(summary.reason)}`];
+  const noIteration = summary.iterations === 0 ? ['no iteration in the plan'] : [];
+  if (summary.defects === undefined) return [mark(`plan critic: no valid answer: ${shown(summary.reason)}`), ...noIteration];
   const unchecked = (summary.claims ?? []).filter((claim) => claim.verdict === 'not-checked');
-  return [...summary.defects.map((defect) => `plan critic: ${defect.kind} ${defect.where}: ${defect.evidence}`), ...unchecked.map((claim) => `plan critic: claim not checked ${claim.where ?? `#${claim.n}`}: ${claim.evidence}`), ...[...new Set(summary.unknownNs ?? [])].map((n) => `plan critic: critic row #${shown(n)} names no listed claim`)];
+  const lines = [...summary.defects.map(criticLine), ...unchecked.map((claim) => `plan critic: claim not checked ${claim.where ?? `#${claim.n}`}: ${claim.evidence}`), ...[...new Set(summary.unknownNs ?? [])].map((n) => `plan critic: critic row #${shown(n)} names no listed claim`)];
+  return [...noIteration, ...(notRechecked && lines.length === 0 ? [`plan critic: ${CRITIC_NOT_RECHECKED}`] : lines.map(mark))];
 }
 
 /**
@@ -83,6 +98,7 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
     const key = list(asked?.key).length > 0 ? list(asked?.key) : entry.gate === 'check-only-unauthorized' && entry.key !== undefined ? [entry.key] : [];
     // A flag decline with no print knows its key but not its files.
     const named = key.length === 0 ? '' : ` for ${key.map(String).join(', ')}${asked === undefined ? '' : ` on ${list(asked.files).length === 0 ? 'the whole project' : list(asked.files).map(String).join(', ')}`}`;
+    const first = gaps.length;
     // An interactive decline is recorded as the hook's acceptance, with no declined entry beside it.
     if (entry.kind === 'declined' || (entry.kind === 'acceptance' && entry.gate === 'check-only-unauthorized' && entry.answer === 'decline')) gaps.push(`${shown(entry.gate)}: declined "${shown(entry.answer)}"${entry.reason === undefined ? '' : ` (${shown(entry.reason)})`}${named}`);
     if (entry.kind === 'default-taken') gaps.push(`${shown(entry.gate)}: default taken, "${shown(entry.answer)}" (${shown(entry.via)})${named}`);
@@ -92,8 +108,21 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
       const keys = list(entries.find((print) => print.id === entry.instance)?.['values'] && (entries.find((print) => print.id === entry.instance)!['values'] as { key?: unknown }).key);
       gaps.push(keys.length === 0 ? 'checks skipped — verification incomplete' : `checks skipped: ${keys.map(String).join(', ')} — verification incomplete`);
     }
+    // A preset answer (`--answer`) is an acceptance via prompt carrying its preanswer id; no human answered at the print. One line per answer: a line the answer already has says it was preset.
+    if (entry.kind === 'acceptance' && entry.via === 'prompt' && entry.preanswer !== undefined) {
+      if (gaps.length === first) gaps.push(`${shown(entry.gate)}: answered "${shown(entry.answer)}" by a preset answer from the start args, not by a human at the question`);
+      else for (let at = first; at < gaps.length; at += 1) gaps[at] += ' (preset answer from the start args)';
+    }
   }
-  gaps.push(...criticGaps(of('worker').findLast((worker) => worker.worker === 'plan-critic')));
+  // Not `current`: the critic runs once, so a revise to draft (its send-back or the human's) always follows it and would hide the one worker there is.
+  const critic = entries.findLast((entry) => entry.kind === 'worker' && entry.worker === 'plan-critic');
+  gaps.push(...criticGaps(critic, criticNotRechecked(entries, critic)));
+  // The newest check stands: a re-run of the verdict after a revise replaces the one before it.
+  const removal = (of('worker').findLast((worker) => worker.worker === 'test-removal')?.summary ?? {}) as { testsRemoved?: { path: string; count: number }[]; reason?: string; filesChanged?: number; filesUnknown?: string };
+  if (removal.filesChanged === 0) gaps.push('no file changed');
+  if (removal.filesUnknown !== undefined) gaps.push(`files changed: unknown (${removal.filesUnknown})`);
+  if (removal.reason !== undefined) gaps.push(`test cases removed: not checked (${removal.reason.split('\n')[0]})`);
+  for (const removed of removal.testsRemoved ?? []) gaps.push(`test cases removed and not re-added: ${removed.path} (${removed.count})`);
   for (const entry of of('format')) if (entry.outcome !== 'formatted' && entry.outcome !== 'unconfigured') gaps.push(`not formatted: ${shown(entry.key)} (${shown(entry.outcome)})`);
 
   // stop-block is the Stop hook's own bookkeeping, not something left unverified.
@@ -121,6 +150,8 @@ export function gapsOf(entries: readonly LedgerEntry[], current: (entry: LedgerE
   const mrNamed = new Set(mrRequirements(entries));
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) gaps.push(mrNamed.has(String(missing)) ? `requirement ${shown(missing)} named by the MR was not fetched: no Jira or Confluence result was captured for it` : `Requirement not captured: ${shown(missing)}`);
   for (const entry of of('route')) if ((entry.args as { noReview?: boolean } | undefined)?.noReview === true) gaps.push('review skipped (--no-review)');
+  // A headless task starts no reviewer (the `review.unasked` predicate in fold.ts); `--no-review` already has its own line.
+  else if (entry.skill === 'task' && entry.mode === 'headless') gaps.push('The independent review was not run: the run was headless');
   for (const entry of of('route')) if (entry.mode === 'headless' && entry.channel === 'cli') gaps.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)`);
   // A route that stopped short is a gap in itself; done, iterations-complete and interrupted (superseded by a new start) are not.
   for (const entry of of('exit').filter((exit) => !['done', 'iterations-complete', 'interrupted'].includes(String(exit.reason)))) gaps.push(`The route ended ${shown(entry.reason)}${typeof entry.detail === 'string' && entry.detail !== '' ? `: ${shown(entry.detail)}` : ''}`);
@@ -168,7 +199,8 @@ export function factsOf(entries: readonly LedgerEntry[], current?: (entry: Ledge
   const gaps = gapsOf(entries, current);
   const section = (title: string, lines: readonly string[]): string[] => (lines.length === 0 ? [] : [title, ...lines.map((line) => `- ${line}`)]);
   return [
-    ...section('Checks', checks.length === 0 && options.checks ? ['no check ran'] : checks),
+    // The formatter line is a Checks line too, so an empty list is not "no check ran": count the runs.
+    ...section('Checks', options.checks && !entries.some((entry) => entry.kind === 'check') ? ['no check ran', ...checks] : checks),
     ...section('Review', review === null ? [] : [review]),
     ...section('Not verified', gaps),
   ].join('\n');

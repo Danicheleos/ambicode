@@ -12,8 +12,8 @@ import { archiveOf } from './context.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
-/** The case a chain or plan stage case was cut from: the suite-real name without its `-chain` / `-plan` suffix. */
-export const baseName = (name) => name.replace(/-(chain-plan|chain|plan)$/, '');
+/** The case a chain, plan or investigation variant was cut from: the suite-real name without its `-chain` / `-plan` / `-inv` suffix. */
+export const baseName = (name) => name.replace(/-(chain-plan-inv|chain-inv|chain-plan|chain|plan|inv)$/, '');
 
 /** `<run>.ambicode/.ambicode/tasks/<slug>/plan.md` of a plugin run, as run.mjs harvests it, or null. */
 function planOf(archiveRun) {
@@ -46,12 +46,12 @@ export function judgeInputs({ stamp, arm, root = ROOT, archive, tmp = tmpdir() }
       const hasDiff = existsSync(diff);
       if (hasDiff) copyFileSync(diff, judgeDiff);
       rows.push({
-        arm: found, stamp, case: one.name, run: i + 1, stage: one.name.endsWith('-plan') ? 'plan' : 'code',
+        arm: found, stamp, case: one.name, run: i + 1, stage: /-plan(-inv)?$/.test(one.name) ? 'plan' : 'code',
         ticket: real ? path.join(local, real.promptFile) : null,
         diff, judgeDiff: hasDiff ? judgeDiff : null,
         base: sha?.[2] ?? real?.parent ?? null, baseFallback: !sha && Boolean(real?.parent), checkout: sha?.[1] ?? null,
         policies: real ? path.join(local, 'suite-real-material', real.name, '.ambicode', 'policies') : null,
-        plan: found === 'plugin' && one.name.endsWith('-chain') ? planOf(path.join(archived, `${one.name}-${i + 1}.ambicode`)) : null,
+        plan: found === 'plugin' && /-chain(-inv)?$/.test(one.name) ? planOf(path.join(archived, `${one.name}-${i + 1}.ambicode`)) : null,
         costUsd: run.costUsd, durationSeconds: run.durationSeconds,
       });
     }

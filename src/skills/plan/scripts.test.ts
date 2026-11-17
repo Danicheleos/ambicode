@@ -250,6 +250,39 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     }
   });
 
+  it('a `not filtered/excluded/hidden` sentence and a delete/remove/drop of a backticked or dotted name are claims; a removal with no name, or inside a backtick span, is not', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nThe `Widget.parts` rows are not filtered.\nOld rows are not excluded from the totals.\nThe query does not hide archived rows.\nDelete `Widget.parts` and `Gadget.parts`.\nRemove Widget.parts from the model.\nDrop the `legacyFlag` column.\nDelete the old rows.\nThe command `delete x` runs.\nDrop the columns; keep the table.\n');
+      assert.deepEqual(out.claims, { claims: 6, unbacked: 6, uncitedMap: null });
+      assert.deepEqual((out.payload ?? '').match(/^\d+\. plan\.md:(\d+)/gm), ['1. plan.md:3', '2. plan.md:4', '3. plan.md:5', '4. plan.md:6', '5. plan.md:7', '6. plan.md:8']);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a removal is a claim only when its name gives the hits search an identifier: a short name, a file name or a console call is not', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nRemove the `x` param from the call.\nDelete config.yaml.\nRemove `console.log` calls.\nDelete `Widget.parts`.\n');
+      assert.deepEqual(out.claims, { claims: 1, unbacked: 1, uncitedMap: null });
+      assert.deepEqual((out.payload ?? '').match(/^\d+\. plan\.md:(\d+)/gm), ['1. plan.md:6']);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a removal is a claim in its past, -ing and passive forms (deleted, removed, dropped, deleting, removing, dropping, `is deleted from X`, `X is dropped`); a verb inside code or a name-less removal is not', async () => {
+    const root = await materialized('ts-feature-boundary');
+    try {
+      const out = await check(root, '# Plan\n\nDeleted `Widget.parts` earlier.\nRemoved `Widget.parts` too.\nDropped `Widget.parts` as well.\nDeleting `Widget.parts` comes first.\nRemoving `Widget.parts` comes next.\nDropping `Widget.parts` comes last.\nRows are deleted from `Widget.parts`.\nThe `Widget.parts` column is dropped.\nThe `delete Widget.parts` command runs.\nRows are deleted from the table.\n');
+      assert.deepEqual(out.claims, { claims: 8, unbacked: 8, uncitedMap: null });
+      assert.deepEqual((out.payload ?? '').match(/^\d+\. plan\.md:(\d+)/gm), [3, 4, 5, 6, 7, 8, 9, 10].map((line, at) => `${at + 1}. plan.md:${line}`));
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
   it('a plan with no such sentence lists no claims', async () => {
     const root = await materialized('ts-feature-boundary');
     try {

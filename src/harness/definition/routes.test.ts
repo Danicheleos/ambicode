@@ -69,7 +69,7 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
 
 test('03-R2: when accepts the fixed vocabulary and gate predicates of this route only', async (t) => {
   const withWhen = (when: string): string => `${BASE.head}${BASE.code}${BASE.gate}  - id: after\n    actor: code\n    run: code.two\n    when: "${when}"\n`;
-  for (const when of ['args.hasRequirement', 'map.empty', 'revised', 'gate.ask.is(Yes)']) {
+  for (const when of ['args.hasRequirement', 'map.empty', 'revised', 'unrevised', 'gate.ask.is(Yes)']) {
     const directory = await root(t, { 'routes/demo/demo.yaml': withWhen(when) });
     await validateRouteFiles(directory, { handlers: HANDLERS });
   }

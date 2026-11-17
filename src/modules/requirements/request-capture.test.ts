@@ -139,7 +139,7 @@ describe('the task work file carries the requirements inline', () => {
     const t = await taskFixture();
     try {
       await t.start({ text: 'ORD-17 fix `total`\nkeep the signature', headless: true });
-      assert.match(await t.work(), /## request\nORD-17 fix `total`\nkeep the signature\n/);
+      assert.match(await t.work(), /<request>\nORD-17 fix `total`\nkeep the signature\n/);
     } finally {
       await t.fx.dispose();
     }

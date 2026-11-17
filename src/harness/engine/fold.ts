@@ -5,6 +5,7 @@ import type { Chain } from '#types/modules/evidence';
 import { mrRequirements } from '#modules/requirements/capture/has-requirement';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { sourceId } from '#util/issue-key';
+import { criticRevise } from '#modules/evidence/report/report';
 import { answeredAfter, buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
 export { answeredAfter, buildChain, exitOf, isBoundAnswer, latestBound, liveHeads };
@@ -73,6 +74,8 @@ function evaluate(when: When, all: readonly LedgerEntry[], context: FoldContext,
     // The end checks of the scoped keys run without a question where one route covers every iteration, or a headless run named one (nothing else will); a full key waits for checks-offer either way.
     case 'checks.auto': return typeof context.args.iteration !== 'number' || context.args.headless === true;
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
+    // No revise opened the window: the first pass of the chain up to this step (the plan critic runs there only).
+    case 'unrevised': return opener?.kind !== 'revise';
     case 'any': return when.of.some((part) => evaluate(part, all, context, gateWindow, opener, step));
     case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;
     case 'gate.isnt': {
@@ -177,6 +180,28 @@ export function currentIn(def: RouteDef, chain: Chain): (entry: LedgerEntry) => 
     const at = where.get(entry.id);
     return at !== undefined && !revises.some((revise) => revise.position > at.position && revise.step <= at.step);
   };
+}
+
+/**
+ * The arguments of `gapsOf` and `factsOf` for a route's report: its chain and, for a task, the newest plan-critic worker
+ * entry (with the plan route's first revise to draft after it, if any) and the latest bound plan-accept answer of the plan route that wrote the plan it used (another chain). That is the
+ * route of the latest `plan` note before the task, as `briefOf` picks the plan, or of the note for the `--plan` file;
+ * with no note, the latest plan route (a draft run), and none when `--plan` names a file no plan route noted.
+ * `currentIn` knows only this chain, so those entries are let through by identity.
+ */
+export function reportOf(all: readonly LedgerEntry[], chain: Chain, def: RouteDef): [LedgerEntry[], (entry: LedgerEntry) => boolean] {
+  const own = currentIn(def, chain);
+  const before = all.slice(0, Math.max(0, all.findIndex((entry) => entry.id === chain.head.id)));
+  const named = (chain.head['args'] as { plan?: unknown } | undefined)?.plan;
+  const note = before.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan' && (typeof named !== 'string' || entry['path'] === named));
+  const plan = chain.head['skill'] !== 'task' ? undefined : (note?.['route'] ?? (typeof named === 'string' ? undefined : before.findLast((entry) => entry.kind === 'route' && entry['skill'] === 'plan')?.id));
+  const of = plan === undefined ? [] : all.filter((entry) => entry['route'] === plan);
+  const accepted = latestBound(of, 'plan-accept');
+  const worker = of.findLast((entry) => entry.kind === 'worker' && entry['worker'] === 'plan-critic');
+  // The plan route's first revise to draft after the critic rides along: it is how the report knows the revision was not re-checked.
+  const revised = criticRevise(of, worker);
+  const stage = [...(worker === undefined ? [] : [worker]), ...(revised === undefined ? [] : [revised]), ...(accepted === null ? [] : [accepted])];
+  return [[...stage, ...chain.entries], (entry) => stage.includes(entry) || own(entry)];
 }
 
 /** The gate's latest print, or the answered instance, that no human answer has bound yet. */

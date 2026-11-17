@@ -9,7 +9,7 @@ const findingLine = (finding: Finding): string => {
   return `${finding.id} ${where}:${finding.location.line} — ${flat(finding.problem)} | suggested: ${flat(finding.suggestedComment)}`;
 };
 
-/** Any finding goes back to `fix`; fix.md sends the ones outside the brief to Remaining, so no gate asks about them. */
+/** Any finding goes back to `fix`; fix.md fixes a finding outside the brief that the change breaks or blocks (listed under `### Cross Boundary`) and leaves one it does not touch under Gaps, so no gate asks about them. */
 export function evaluateReview(review: ReviewEntry, result: ReviewResult | null): ReviewEvaluation {
   if (review['reviewerRan'] === false || result === null || result.findings.length === 0) return { next: 'proceed' };
   return { next: 'revise-fix', findings: result.findings.map(findingLine) };

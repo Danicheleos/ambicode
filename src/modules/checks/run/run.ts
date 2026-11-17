@@ -24,8 +24,11 @@ interface CheckRun {
   detail: string | null;
 }
 
-/** Config commands are shell strings (`&&`, quoting, `{file}` lists), so they go through the platform shell, not an argv. */
-export const shellArgv = (command: string): string[] => (process.platform === 'win32' ? ['cmd', '/d', '/s', '/c', command] : ['sh', '-c', command]);
+/**
+ * Config commands are shell strings (`&&`, quoting, `{file}` lists), so they go through the platform shell, not an argv.
+ * On Windows the command is wrapped in the pair that `/s` strips, as Node's `shell: true` does; the runner then passes it verbatim.
+ */
+export const shellArgv = (command: string): string[] => (process.platform === 'win32' ? ['cmd', '/d', '/s', '/c', `"${command}"`] : ['sh', '-c', command]);
 
 /** Single quotes on POSIX, double on `cmd`: a file name with a space or `$` stays one argument. */
 export const shellQuote = (value: string): string => (process.platform === 'win32' ? `"${value.replaceAll('"', '""')}"` : `'${value.replaceAll("'", "'\\''")}'`);

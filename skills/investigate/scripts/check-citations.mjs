@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { anchorPattern } from './anchors.mjs';
+import { anchorPattern, BACKING, isCodeAbsence, sentencesOf } from './anchors.mjs';
 
 const started = Date.now();
 const input = JSON.parse(readFileSync(0, 'utf8'));
@@ -58,7 +58,7 @@ const resolved = [];
 let badCount = 0;
 let fence = false;
 const rewritten = body.split('\n').map((line) => {
-  if (/^\s*```/.test(line)) { fence = !fence; return line; }
+  if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; return line; }
   if (fence) return line;
   return line.replace(CITATION, (whole, file, spec) => {
     const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
@@ -87,10 +87,25 @@ const rewritten = body.split('\n').map((line) => {
 }).join('\n');
 if (resolved.length > 0) writeFileSync(path.resolve(root, note.path), rewritten);
 
-const failed = badCount > 0;
-const summary = { failed, anchorsBad: badCount, ...(bad.length === 0 ? {} : { anchors: bad }), ...(resolved.length === 0 ? {} : { resolved }) };
+// An absence or uniqueness claim about the code (isCodeAbsence) outside fences and headings without a `(Grep X in scope, N hits read)` backing: the plan's rule, on a narrower claim set.
+const unbacked = [];
+fence = false;
+for (const line of rewritten.split('\n')) {
+  if (/^\s*(?:```|~~~)/.test(line)) { fence = !fence; continue; }
+  if (fence || /^#/.test(line)) continue;
+  for (const raw of sentencesOf(line)) {
+    const sentence = raw.replace(/^[\s>*-]+/, '').replace(/\s+/g, ' ').trim();
+    if (isCodeAbsence(sentence) && !BACKING.test(sentence)) unbacked.push(sentence);
+  }
+}
+
+const failed = badCount > 0 || unbacked.length > 0;
+const summary = { failed, anchorsBad: badCount, ...(bad.length === 0 ? {} : { anchors: bad }), ...(resolved.length === 0 ? {} : { resolved }), ...(unbacked.length === 0 ? {} : { unbacked: unbacked.length }) };
 const out = { entries: [{ kind: 'worker', worker: 'check-citations', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
 if (failed) {
-  out.failed = { code: 'citations-failed', message: `${badCount} bad citations: ${bad.join('; ')}`, recoverable: true };
+  const parts = [];
+  if (badCount > 0) parts.push(`${badCount} bad citations: ${bad.join('; ')}`);
+  if (unbacked.length > 0) parts.push(`${unbacked.length} unbacked absence claims: ${unbacked.map((sentence) => `"${sentence}"`).join('; ')}`);
+  out.failed = { code: 'citations-failed', message: parts.join('; '), recoverable: true };
 }
 process.stdout.write(JSON.stringify(out));

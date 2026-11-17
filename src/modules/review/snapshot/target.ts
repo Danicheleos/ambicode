@@ -3,6 +3,7 @@ import { combineDiff, splitPatchSections } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
+import { isTestPath, TEST_CASE_PATTERN } from '#util/path-classes';
 import { checkoutDirectory } from './checkout.ts';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import type { Workspace } from '#types/composition';
@@ -79,6 +80,36 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
     files,
     patch,
   };
+}
+
+/**
+ * Per test file, the declarations the working tree lost against `baseTree`. A removed declaration is not counted when
+ * an added line of any changed test file has the same trimmed text (a moved test); each added line cancels one removal.
+ * Only the changed test files are read as a patch: a change with none reads none.
+ */
+export async function removedTestCases(options: { fs: FileSystem; git: Git; baseTree: string }): Promise<{ path: string; count: number }[]> {
+  const { fs, git, baseTree } = options;
+  const now = await snapshotTree(fs, git);
+  const tests = (await git.rawDiff([baseTree, now])).filter((change) => isTestPath(change.oldPath ?? change.newPath ?? ''));
+  if (tests.length === 0) return [];
+  const only = ['--', ...new Set(tests.flatMap((change) => [change.oldPath, change.newPath]).filter((file): file is string => file !== null).map((file) => `:(literal)${file}`))];
+  const files = combineDiff(await git.rawDiff([baseTree, now, ...only]), await git.patchDiff([baseTree, now, ...only], 0));
+  const lines = (file: DiffFile, kind: 'added' | 'removed'): string[] => file.hunks.flatMap((hunk) => hunk.lines.filter((line) => line.kind === kind).map((line) => line.text.trim()));
+  const readded = new Map<string, number>();
+  for (const text of files.flatMap((file) => lines(file, 'added'))) readded.set(text, (readded.get(text) ?? 0) + 1);
+  const removed: { path: string; count: number }[] = [];
+  for (const file of files) {
+    const filePath = file.oldPath ?? file.newPath;
+    if (filePath === null) continue;
+    let count = 0;
+    for (const text of lines(file, 'removed').filter((line) => TEST_CASE_PATTERN.test(line))) {
+      const left = readded.get(text) ?? 0;
+      if (left > 0) readded.set(text, left - 1);
+      else count += 1;
+    }
+    if (count > 0) removed.push({ path: filePath, count });
+  }
+  return removed;
 }
 
 interface BranchTargetOptions {

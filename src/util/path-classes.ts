@@ -42,6 +42,9 @@ export const TEST_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)(__tests__|__mocks__|tests|test|spec|e2e|cypress)\//,
 ];
 
+/** A trimmed line that declares one test case; the conventions TEST_PATH_PATTERNS know: JS/TS `it(`/`test(` and variants, Python, JVM `@Test`, Rust `#[test]`, Go `func Test`. */
+export const TEST_CASE_PATTERN = /^(?:(?:[xf]?it|test)(?:\.(?!(?:describe|beforeEach|afterEach|beforeAll|afterAll|use|step)\b)\w+)*\s*[(`]|[xf]?it\s+['"]|(?:async\s+)?def test_|@Test\b|#\[test\]|func (?:\([^)]*\) )?Test)/;
+
 /** Files Claude Code loads into every session itself: a rule drafted from one is a second copy of text the model has. Shared with the rules scripts as sources, which cannot import src/. */
 export const AUTO_LOADED_PATTERNS: readonly RegExp[] = [/(^|\/)(CLAUDE|CLAUDE\.local)\.md$/, /^\.claude\/rules\//];
 export const autoLoaded = (file: string): boolean => AUTO_LOADED_PATTERNS.some((pattern) => pattern.test(file));

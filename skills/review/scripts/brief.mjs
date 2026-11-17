@@ -117,6 +117,10 @@ try {
 const target = result.target ?? {};
 // The reviewed iteration's checks, the latest run per key: an earlier iteration's red run is not this change's result.
 const checks = [...new Map(entries.filter((candidate) => candidate.kind === 'check' && candidate.route === entry.route).map((check) => [check.key, check])).values()];
+// Whether a check could run is the task route's own fact: its baseline entry counts the runnable keys and those without a file form (task handlers checks.baseline), and "no check can run" there is no runnable key with a file form.
+// A review with no task baseline (standalone /ambicode:review) says neither.
+const baseline = entries.findLast((candidate) => candidate.kind === 'baseline' && Number.isInteger(candidate.runnable) && Number.isInteger(candidate.full));
+const noCheckLine = `No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.${baseline === undefined ? '' : baseline.runnable - baseline.full > 0 ? ' A check could run in this project and none was recorded.' : ' No check can run in this project (formatting is not one).'}`;
 const plan = read(path.join(reviewDir, 'plan-iteration.md'));
 
 // Other people's notes on the merge request, from mr-discussions.json beside the ledger. Unresolved first: those are the open points a finding would repeat.
@@ -178,7 +182,7 @@ const front = [
   ...discussionLines(),
   '## Policy rules', '', rules, '',
   ...(plan === null ? [] : ['## Plan', '', 'Judge the match of the diff with the requirements and the plan, and name each departure from them as a finding.', '', plan.trim(), '']),
-  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key}: ${check.exit === 0 ? 'passed' : 'FAILED'}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : `; exit ${check.exit}; ${check.bytes} bytes of output in ${check.output}`}`)), '',
+  '## Check results', '', ...(checks.length === 0 ? [noCheckLine] : checks.map((check) => `- ${check.key}: ${check.exit === 0 ? 'passed' : 'FAILED'}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : `; exit ${check.exit}; ${check.bytes} bytes of output in ${check.output}`}`)), '',
 ];
 const related_ = related();
 // Parts are packed in order: the front matter, the diff file by file, then the related files. A file that does not fit what is left of a part but fits a part of its own starts the next one;

@@ -1,6 +1,6 @@
-// Sets every configured check of every project in an AMBICODE config to null, so no check is runnable and the task route waits for none
-// (src/skills/task/handlers.ts: "a repository may have none, and then no step waits for a check"). Used by eval scaffolds that must not
-// build, test or lint. Usage: config-checks-off.mjs <.ambicode/config.yaml>
+// Sets every configured check of every project in an AMBICODE config to null, `format` too (npx and uv fail in the eval sandbox, measured), so no
+// check is runnable and the task route waits for none (src/skills/task/handlers.ts: "a repository may have none, and then no step waits for a check").
+// Used by eval scaffolds that must not build, test or lint. Usage: config-checks-off.mjs <.ambicode/config.yaml>
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

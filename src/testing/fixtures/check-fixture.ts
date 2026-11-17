@@ -68,7 +68,7 @@ export class SplitRunner implements ProcessRunner {
   async run(request: ProcessRequest): Promise<ProcessOutcome> {
     if (request.argv[0] === 'git' || request.argv[0] === process.execPath) return this.real.run(request);
     // A config check is one shell string; tests read the command, not the shell wrapper around it.
-    this.calls.push(request.argv[0] === 'sh' || request.argv[0] === 'cmd' ? [request.argv.at(-1)!] : [...request.argv]);
+    this.calls.push(request.argv[0] === 'sh' ? [request.argv.at(-1)!] : request.argv[0] === 'cmd' ? [request.argv.at(-1)!.slice(1, -1)] : [...request.argv]);
     await this.effect?.(request);
     const out = this.outFor?.(this.calls.at(-1)!.join(' ')) ?? this.out;
     const kind = out.kind ?? 'exited';

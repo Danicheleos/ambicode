@@ -100,7 +100,7 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
       assert.equal((await t.kinds('review')).length, 0);
       assert.deepEqual(ran(t), ["jest 'src/orders.ts'"]);
       assert.ok(gapsOf(await t.ledger()).includes(SKIPPED), gapsOf(await t.ledger()).join('\n'));
-      assert.ok(!gapsOf(await t.ledger()).some((gap) => /review/.test(gap)), 'a skipped review is no gap line');
+      assert.equal(gapsOf(await t.ledger()).filter((gap) => /independent review.*not run.*headless/i.test(gap)).length, 1, 'a headless run states the review was not run');
     });
     await withTask(async (t) => {
       await t.start({ plan: PLAN, text: `${TEXT} iteration 2`, headless: true });
@@ -112,13 +112,13 @@ describe('task route: the end-of-run checks', { concurrency: 4 }, () => {
     });
   });
 
-  it('with no runnable check the end step does nothing, and the report adds no gap line for it', async () => {
+  it('with no runnable check the end step does nothing, and the report adds no check gap line for it', async () => {
     await withTask(async (t) => {
       await t.start({ text: TEXT.replace(' iteration 1', ''), headless: true });
       await t.edit();
       assert.equal((await t.next({ cause: 'route-next' })).position, 'write');
       assert.deepEqual(ran(t), []);
-      assert.deepEqual(gapsOf(await t.ledger()), []);
+      assert.deepEqual(gapsOf(await t.ledger()), ['The independent review was not run: the run was headless']);
     }, { config: NO_CHECKS, askChecks: true });
   });
 

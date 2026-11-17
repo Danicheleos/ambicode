@@ -2,7 +2,8 @@
 //   stage 1  `<name>-chain-plan`  /ambicode:plan with the accepted answer; its plan.md is graded.
 //   stage 2  `<name>-chain`       /ambicode:task on the task folder a finished stage 1 run left (generated from its result stamp).
 //   bare     `<name>-chain`       the raw ticket once. No review stage (user decision).
-//   stage 1 inv  `<name>-chain-plan-inv`  stage 1 on the ticket's `investigationFile` note seeded in the sandbox (slug `<slug>ci`); plugin arm only, no bare, no stage 2.
+//   stage 1 inv  `<name>-chain-plan-inv`  stage 1 on the ticket's `investigationFile` note seeded in the sandbox (slug `<slug>ci`); plugin arm only, no bare.
+//   stage 2 inv  `<name>-chain-inv`       /ambicode:task on the folder of a finished `-chain-plan-inv` run (slug `<slug>ci`), seeded from that folder alone (its note is already in it).
 //   <bench env vars named in the local file> node evals/scripts/chain-cases.mjs [--evals evals] [--cases <file>]     (stage 1 and bare)
 //   node evals/scripts/chain-cases.mjs --from-stamp <stamp> [--from-stamp <stamp> ...] [--evals evals] [--cases <file>]   (stage 2; the bench env vars too)
 // Writes into evals/cases/task-chain/ and evals/bare/task-chain/, both gitignored like task-real/: the scaffold names the local bench checkout.
@@ -213,14 +214,14 @@ export function harvestedTaskFolder({ stamp, slug, evalsDir = EVALS, env = proce
 /** One chain case's files. arm: `plan` (stage 1), `task` (stage 2, needs `seed`) or `bare`; the plugin arm is plan and task. A `real.note` (arm plan) makes the `-chain-plan-inv` case. */
 export function caseFiles({ real, sources, arm, seed }) {
   const plugin = arm !== 'bare';
-  const name = real.note ? `${planName(real.base)}-inv` : arm === 'plan' ? planName(real.base) : real.name;
+  const name = `${arm === 'plan' ? planName(real.base) : real.name}${real.note ? '-inv' : ''}`;
   const root = `${String(real.order + 1).padStart(2, '0')}-${name}`;
   const files = new Map();
   const limits = arm === 'plan' ? PLAN_LIMITS : (real.limits ?? TASK_LIMITS);
   files.set(`${root}/case.yaml`, `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
   files.set(`${root}/scaffold.sh`, scaffold({ ...sources[real.repo], head: real.parent, policies: true, seeded: arm === 'task' || Boolean(real.note), checksOff: true, remove: real.remove, material: real.material }, plugin));
   if (arm === 'task') for (const [relative, text] of Object.entries(seed)) files.set(`${root}/${relative}`, text);
-  if (real.note) for (const [relative, text] of Object.entries(seedFiles(real.slug, real.note.kind, real.note.text))) files.set(`${root}/${relative}`, text);
+  if (real.note && arm === 'plan') for (const [relative, text] of Object.entries(seedFiles(real.slug, real.note.kind, real.note.text))) files.set(`${root}/${relative}`, text);
   files.set(`${root}/prompt.md`, [
     '---',
     `name: ${name}`,
@@ -241,7 +242,7 @@ export function caseFiles({ real, sources, arm, seed }) {
   for (const one of graders) files.set(`${root}/graders/${one.name}.md`, one.text);
   if (arm !== 'plan') {
     const diffGraders = real.graders.filter((g) => g.kind === 'diff').map(({ name, pattern, in: inside, match, weight, perFile }) => ({ name, pattern: DIFF_GRADER_OVERRIDES[real.base]?.[name]?.pattern ?? pattern, ...(DIFF_GRADER_OVERRIDES[real.base]?.[name]?.keptIf === undefined ? {} : { keptIf: DIFF_GRADER_OVERRIDES[real.base][name].keptIf }), ...(DIFF_GRADER_OVERRIDES[real.base]?.[name]?.perFile || perFile ? { perFile: true } : {}), ...(inside === undefined ? {} : { in: inside }), ...(match === undefined ? {} : { match }), weight: weight ?? 1 }));
-    files.set(`${root}/truth.json`, `${JSON.stringify({ name: real.name, source: 'changed', level: 'file', relevant: real.relevant, allowed: real.allowed, ...(diffGraders.length === 0 ? {} : { diffGraders }), bench: { repo: real.repo, commit: real.commit, parent: real.parent } }, null, 2)}\n`);
+    files.set(`${root}/truth.json`, `${JSON.stringify({ name, source: 'changed', level: 'file', relevant: real.relevant, allowed: real.allowed, ...(diffGraders.length === 0 ? {} : { diffGraders }), bench: { repo: real.repo, commit: real.commit, parent: real.parent } }, null, 2)}\n`);
   }
   return files;
 }
@@ -280,14 +281,15 @@ export function writeChain({ evalsDir = EVALS, sources, cases = loadRealCases().
 
 /** Rewrites stage 2 (cases tree) from `stamps`, the result stamps of finished stage 1 runs; tickets with no harvested task folder in any stamp are skipped and listed. */
 export function writeTask({ evalsDir = EVALS, sources, cases = loadRealCases().cases, stamps, env = process.env }) {
-  const chosen = chosenOf(cases);
+  // A ticket with an investigation also has the `-chain-inv` case: the task on the folder of its `-chain-plan-inv` run (slug `<slug>ci`, see writeChain).
+  const chosen = chosenOf(cases).flatMap((real) => [real, ...(real.investigation ? [{ ...real, slug: `${real.slug}i`, note: { kind: 'investigation', text: real.investigation } }] : [])]);
   const found = chosen.map((real) => {
     const folder = stamps.map((stamp) => harvestedTaskFolder({ stamp, slug: real.slug, evalsDir, env })).find(Boolean) ?? null;
     return { real, seed: folder === null ? null : seedOf(folder, real.slug), folder };
   });
-  clear(evalsDir, 'cases', /-chain$/);
+  clear(evalsDir, 'cases', /-chain(?:-inv)?$/);
   for (const { real, seed } of found) if (seed !== null) put(evalsDir, 'cases', caseFiles({ real, sources, arm: 'task', seed }));
-  return found.map(({ real, seed, folder }) => ({ name: real.name, from: folder, files: seed === null ? 0 : Object.keys(seed).length }));
+  return found.map(({ real, seed, folder }) => ({ name: `${real.name}${real.note ? '-inv' : ''}`, from: folder, files: seed === null ? 0 : Object.keys(seed).length }));
 }
 
 function main(argv, env) {

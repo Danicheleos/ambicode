@@ -16,7 +16,8 @@ rules:
     category: correctness
     instruction: >-
       Test the observable outcome rather than private implementation, and add a
-      regression test at the fix point for a real defect.
+      regression test at the fix point for a real defect, unless no check can run
+      and none was asked.
     check:
       kind: command
       command: unit

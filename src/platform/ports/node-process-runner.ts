@@ -41,6 +41,8 @@ export class NodeProcessRunner implements ProcessRunner {
         env: environment,
         shell: false,
         windowsHide: true,
+        // `cmd /d /s /c "..."` (shellArgv) must reach cmd as written: libuv's re-quoting turns the inner quotes into `\"` and the tool receives them.
+        windowsVerbatimArguments: process.platform === 'win32' && /^(cmd|cmd\.exe)$/i.test(executable) && args[1] === '/s',
         stdio: [request.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       });
     } catch (error) {

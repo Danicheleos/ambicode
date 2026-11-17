@@ -10,7 +10,7 @@ import { saveNote } from '#modules/evidence/notes';
 import { gapsOf, unstated } from '#modules/evidence/report/report';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { liveRouteOf } from '../session/active-route.ts';
-import { buildChain, currentIn, foldRoute } from './fold.ts';
+import { buildChain, foldRoute, reportOf } from './fold.ts';
 import { isClosing } from './execute.ts';
 
 /** The plugin's implementer, however the host qualifies its name. */
@@ -50,9 +50,10 @@ export async function subagentStopHook(ports: { runtime: Runtime; routes: RouteR
     // No saved report: the final message stands as the report, and the gap tells the reader it may be only the closing line.
     const unsaved = saved === undefined ? await ledger.append({ kind: 'limit', route: route.routeId, which: 'report-not-saved', count: 1, message: text.trim() }) : null;
     // The model sometimes opens with a line of narration before the report; 2 of 6 eval runs saved it above "# Task report".
-    const withGap = unsaved === null ? chain : buildChain([...entries, unsaved], head);
+    const all = unsaved === null ? entries : [...entries, unsaved];
+    const withGap = unsaved === null ? chain : buildChain(all, head);
     const report = text.replace(/^[\s\S]*?(?=^#{1,6} )/m, '');
-    const missing = unstated(gapsOf(withGap.entries, currentIn(def, withGap)), report);
+    const missing = unstated(gapsOf(...reportOf(all, withGap, def)), report);
     if (saved !== undefined && missing.length === 0) return;
     const body = missing.length === 0 ? report : `${report.trimEnd()}\n\nNot verified (left out above)\n${missing.map((gap) => `- ${gap}`).join('\n')}`;
     await saveNote(deps, { task: route.task, kind: 'report', body, route: route.routeId });

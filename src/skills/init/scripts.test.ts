@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -52,6 +52,23 @@ describe('init scaffold', () => {
     const result = run(sub);
     assert.equal(result.status, 2);
     assert.match(JSON.parse(result.stdout).error, /git root/);
+    assert.equal(run(path.dirname(root)).status, 2);
+  });
+
+  it('on Windows accepts a root whose drive letter is lower-cased, though git prints it upper-case', async (t) => {
+    if (process.platform !== 'win32') return t.skip('Windows drive-letter case only');
+    const root = await repo(t, 'app');
+    const lowered = root.replace(/^[A-Za-z]:/, (drive) => drive.toLowerCase());
+    const result = run(lowered);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
+
+  it('on POSIX accepts a symlink to the git root and still rejects a different directory', async (t) => {
+    if (process.platform === 'win32') return t.skip('symlinks need privileges on Windows');
+    const root = await repo(t, 'app');
+    const link = path.join(path.dirname(root), 'link');
+    await symlink(root, link);
+    assert.equal(run(link).status, 0);
     assert.equal(run(path.dirname(root)).status, 2);
   });
 

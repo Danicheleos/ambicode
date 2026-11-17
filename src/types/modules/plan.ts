@@ -1,8 +1,7 @@
 import { z } from 'zod';
 
-/** The kinds `agents/plan-critic.md` names; the first three send an interactive plan back to draft once, the rest are recorded only. */
-export const PLAN_CRITIC_SENDS_BACK = ['claim-wrong', 'requirement-uncovered', 'requirement-altered'] as const;
-const PlanCriticKind = z.enum([...PLAN_CRITIC_SENDS_BACK, 'caller-missed', 'assumption-premise', 'order']);
+/** The kinds `agents/plan-critic.md` names; a defect of any kind sends the first draft back to draft once. */
+const PlanCriticKind = z.enum(['claim-wrong', 'requirement-uncovered', 'requirement-altered', 'caller-missed', 'duplicate', 'assumption-premise', 'order']);
 
 export const PlanCriticDefect = z.strictObject({ kind: PlanCriticKind, where: z.string().min(1), evidence: z.string().min(1), fix: z.string().min(1) });
 export type PlanCriticDefect = z.infer<typeof PlanCriticDefect>;
@@ -16,4 +15,4 @@ export const PlanCriticOutput = z.strictObject({ defects: z.array(PlanCriticDefe
 export type PlanCriticOutput = z.infer<typeof PlanCriticOutput>;
 
 /** What the record step puts on the ledger's `plan-critic` worker entry: one claim row per listed claim, and the rows that named no listed claim. */
-export const PlanCriticSummary = z.strictObject({ defects: z.array(PlanCriticDefect), claims: z.array(PlanCriticClaim).default([]), unknownRows: z.number().int().nonnegative().default(0), unknownNs: z.array(z.string()).default([]) });
+export const PlanCriticSummary = z.strictObject({ defects: z.array(PlanCriticDefect), claims: z.array(PlanCriticClaim).default([]), unknownRows: z.number().int().nonnegative().default(0), unknownNs: z.array(z.string()).default([]), iterations: z.number().int().nonnegative().optional() });

@@ -55,6 +55,34 @@ describe('review scripts (C7)', () => {
     }
   });
 
+  it('brief with no check entry says whether a check could run: the task baseline counts decide, the way the task payload does; with no baseline it stays neutral', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ambicode-brief-'));
+    try {
+      const taskDir = path.join(root, '.ambicode', 'tasks', 't');
+      const reviewDir = path.join(root, '.ambicode', 'reviews', 'r1');
+      await mkdir(path.join(taskDir, 'steps'), { recursive: true });
+      await mkdir(reviewDir, { recursive: true });
+      await writeFile(path.join(reviewDir, 'changed.diff'), 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-x\n+y\n');
+      await writeFile(path.join(reviewDir, 'result.json'), JSON.stringify({ reviewId: 'r1', target: { kind: 'working', snapshotId: 'w-1' }, requirements: [], checks: [] }));
+      const briefFor = async (...extra: object[]) => {
+        const lines = [...extra, { kind: 'review', result: path.relative(root, path.join(reviewDir, 'result.json')) }];
+        await writeFile(path.join(taskDir, 'ledger.jsonl'), `${lines.map((entry) => JSON.stringify(entry)).join('\n')}\n`);
+        run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
+        return readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      };
+      assert.match(await briefFor({ kind: 'baseline', runnable: 0, full: 0 }), /No check can run in this project/);
+      assert.match(await briefFor({ kind: 'baseline', runnable: 1, full: 1 }), /No check can run in this project/, 'a key with only the all form cannot run a written test');
+      const could = await briefFor({ kind: 'baseline', runnable: 2, full: 1 });
+      assert.match(could, /A check could run in this project and none was recorded/);
+      assert.doesNotMatch(could, /No check can run/);
+      const neutral = await briefFor();
+      assert.match(neutral, /No check recorded for this task/);
+      assert.doesNotMatch(neutral, /No check can run|could run in this project/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   const fixture = async (result: Record<string, unknown> | null) => {
     const root = await mkdtemp(path.join(tmpdir(), 'ambicode-brief-'));
     const taskDir = path.join(root, '.ambicode', 'tasks', 't');

@@ -1,11 +1,13 @@
 import path from 'node:path';
 import { openWorkspace } from '#modules/config/workspace';
-import { captureBaseline } from '#modules/checks/workspace/baseline';
+import { baselineIn, captureBaseline, touchedSet } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
-import { snapshotTree } from '#modules/review/snapshot/target';
+import { removedTestCases, snapshotTree } from '#modules/review/snapshot/target';
+import { baselineTree } from '#modules/review/bundle/bundle';
+import { messageOf } from '#util/errors';
 import { openRepository } from '#platform/git/open';
-import { buildChain, currentIn, isGreen } from '#harness/engine/fold';
+import { currentIn, isGreen } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries } from '../common.ts';
 import { planStatusOf } from '#modules/evidence/notes';
@@ -97,7 +99,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     if (iteration > iterations) return { state: 'ok', payload: `Every iteration of ${planPath ?? 'the plan'} is done (${iterations}).`, record: { planPath, iterations }, exit: 'iterations-complete' };
     const record = { planPath, iteration, iterations, through };
     const head = `Task ${input.view.task} · ${through > iteration ? `iterations ${iteration}-${through}` : `iteration ${iteration}`} of ${iterations}`;
-    return { state: 'ok', payload: brief === null ? head : `${head}\n\n${brief}`, record };
+    return { state: 'ok', payload: [head, brief].filter((part) => part !== null).join('\n\n'), record };
   },
 
   'checks.baseline': async (input) => {
@@ -120,10 +122,13 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
       // A raw `tsc | grep` through Bash left a red result outside the ledger when the all form asked for approval (a real session): the end step runs it, once.
       !entry.file ? 'no file form: left to the end step, never run it' : [entry.file ? `--file ${entry.approval.file ? 'needs approval' : 'runs freely'}` : '', entry.all ? `all ${entry.approval.all ? 'needs approval' : 'runs freely'}` : ''].filter(Boolean).join(', ');
     const lines: string[] = [];
+    let fileForm = false;
     for (const { project, runnable } of await runnableByProject(input)) {
       if (runnable.length > 0) lines.push(`Project ${project.id}: ${runnable.map((entry) => `${entry.key} (${forms(entry)})`).join(', ')}.`);
+      fileForm ||= runnable.some((entry) => entry.file);
     }
-    return { state: 'ok', payload: lines.length === 0 ? 'No check has a command configured, so none can run. Write the tests the change needs all the same (a bug fix starts with the test that fails for it), run none, and list them under Gaps as not run: nothing was verified by execution.' : lines.join('\n') };
+    // A key with only the all form is listed but never run in this run (scope.ts skips it unless the run is full), so it cannot run a written test.
+    return { state: 'ok', payload: fileForm ? lines.join('\n') : ['No check can run (formatting is not one), so no test can. Write the tests the request asks for and run none; list under Gaps: "tests written, not run: no check can run". Write no other new tests; list under Gaps: "tests not written: no check can run". Nothing was verified by execution.', ...lines].join('\n') };
   },
 
   /** Formatting the touched files is a fact of the change, not a model choice; an approval-needing format raises the same question as a check, and the answer re-runs this step. */
@@ -182,6 +187,19 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   /** A route whose last check is red, or whose independent review failed, did not do its iteration: it ends blocked and the next start redoes it. */
   'task.verdict': async (input) => {
     const chain = await chainEntries(input);
+    // Two runs overwrote a spec, deleting 16/16 and 2/2 cases, and reported a "new spec" (plan 06 p1). Written to the ledger now, not as the step's record, so evidence.report below lists it; the verdict does not depend on it.
+    const base = baselineTree(chain);
+    const summary: { testsRemoved: { path: string; count: number }[] } | { reason: string } = base === null ? { reason: 'no baseline tree was recorded' } : await (async () => {
+      try {
+        return { testsRemoved: await removedTestCases({ fs: input.runtime.fs, git: (await openRepository(input.runtime)).git, baseTree: base }) };
+      } catch (error) {
+        return { reason: messageOf(error) };
+      }
+    })();
+    // The change step ends with no edit when no check can run, and **Done** was unconditional: the count of files touched since the baseline goes beside the test-removal facts. A moved HEAD hides commits from the working tree, so the count is unknown then; the reason is recorded, never dropped.
+    const baseline = baselineIn(chain);
+    const count = baseline === null ? { filesUnknown: 'no baseline was recorded' } : await touchedSet(input.runtime, baseline).then((touched) => touched.headMoved ? { filesUnknown: 'HEAD moved since the baseline' } : { filesChanged: touched.touched.length }, (error) => ({ filesUnknown: messageOf(error).split('\n')[0]! }));
+    await input.ledger.append({ kind: 'worker', worker: 'test-removal', outcome: 'testsRemoved' in summary ? 'ran' : 'skipped', ms: 0, artifact: null, summary: { ...summary, ...count } });
     const last = chain.findLast((entry) => entry.kind === 'check');
     if (last !== undefined && !isGreen(last)) return { state: 'ok', payload: null, exit: 'blocked', exitDetail: `the last check (${String(last['key'])}) is red, exit ${String(last['exit'])}: this iteration is not done` };
     const review = chain.findLast((entry) => entry.kind === 'review');

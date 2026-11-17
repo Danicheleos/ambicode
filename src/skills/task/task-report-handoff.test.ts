@@ -6,7 +6,8 @@ import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { parseArgs } from '#util/args';
 import { runNoteSave, NOTE_SAVE_OPTIONS } from '../../cli/commands/route/note.ts';
-import { gapsOf } from '#modules/evidence/report/report';
+import { criticGaps, gapsOf } from '#modules/evidence/report/report';
+import { appendLedger } from '#platform/ledger/ledger';
 import { runHook } from '#hook/events/run-hook';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
@@ -115,6 +116,35 @@ describe('the implementer closes its own step and writes the report', { concurre
     }
   });
 
+  it('a task run on a plan from the plan skill lists the plan critic\'s open defects in report.md', async () => {
+    await withTask(async (t, send, file) => {
+      const put = async (fields: Record<string, unknown> & { kind: string }) => (await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { session: SESSION_A, ...fields })).entry;
+      const plan = await put({ kind: 'route', skill: 'plan', args: { text: 'x' }, captured: [], mode: 'headless', channel: 'hook', trusted: true, epoch: 1 });
+      const defect = { kind: 'claim-wrong', where: 'plan.md:12', evidence: 'the file has no such export', fix: 'Correct the statement' };
+      const claim = { n: 2, verdict: 'not-checked', evidence: 'no row from the critic', where: 'plan.md:14' };
+      await put({ kind: 'worker', route: plan.id, worker: 'plan-critic', outcome: 'ran', ms: 0, artifact: null, summary: { defects: [defect], claims: [claim], unknownRows: 0, unknownNs: [] } });
+      await t.start({ headless: true });
+      assert.equal((await implementerNext(t)).position, 'write');
+      await send(stopped(await file('text', REPORT)));
+      const saved = await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8');
+      const lines = criticGaps(await t.kinds('worker').then((workers) => workers[0]));
+      assert.equal(lines.length, 2);
+      for (const line of lines) assert.ok(saved.includes(line), `${line}\n---\n${saved}`);
+    });
+  });
+
+  it('a task run on a plan the plan skill accepted by a preset answer says so in report.md', async () => {
+    await withTask(async (t, send, file) => {
+      const put = async (fields: Record<string, unknown> & { kind: string }) => (await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), { session: SESSION_A, ...fields })).entry;
+      const plan = await put({ kind: 'route', skill: 'plan', args: { text: 'x' }, captured: [], mode: 'headless', channel: 'hook', trusted: true, epoch: 1 });
+      await put({ kind: 'acceptance', route: plan.id, gate: 'plan-accept', instance: null, answer: 'Accept', via: 'prompt', preanswer: 'a1b2c3d4-0', trusted: true });
+      await t.start({ headless: true });
+      assert.equal((await implementerNext(t)).position, 'write');
+      await send(stopped(await file('text', REPORT)));
+      assert.match(await readFile(path.join(t.fx.repo.root, REPORT_PATH), 'utf8'), /plan-accept.*preset.*args/i);
+    });
+  });
+
   it('narration before the first heading is not saved in report.md; a report with no heading is saved as written', async () => {
     const narrated = `The route says to write the report now.\n\n${REPORT}`;
     const headless = 'Done: the empty list now totals 0.\nChecks: app/unit: passed';
@@ -170,10 +200,10 @@ describe('the implementer closes its own step and writes the report', { concurre
     const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: null, file: null } }\n');
     for (const name of ['change-work.md', 'fix-work.md']) {
       const line = (await text('routes', 'task', name)).split('\n').find((row) => row.includes('Last call'));
-      assert.match(line ?? '', /^- Last call, always: `\{cli\} route next --task \{task\}`/, `${name}: route next is unconditional`);
+      assert.match(line ?? '', /^- Last call: `\{cli\} route next --task \{task\}`/, `${name}: route next is unconditional`);
       assert.doesNotMatch(line ?? '', /green check/, `${name}: route next is not conditioned on a check the route may not have`);
     }
-    assert.match(await readFile(path.join(REPO_ROOT, 'agents', 'implementer.md'), 'utf8'), /Your last call is the work file's `route next`/);
+    assert.match(await readFile(path.join(REPO_ROOT, 'agents', 'implementer.md'), 'utf8'), /Run `route next` as your last call/);
     const t = await taskFixture({ config });
     try {
       await t.start({ headless: true });
@@ -306,7 +336,7 @@ describe('the implementer closes its own step and writes the report', { concurre
 
 describe('task route texts agree with the implementer role and the hooks', { concurrency: 4 }, () => {
   it('AM-2/1: the check is run once over all changed files, as implementer.md says, not recorded per run', async () => {
-    assert.match((await text('agents', 'implementer.md')).replace(/\s+/g, ' '), /once over all changed files after your edits, not per edit/);
+    assert.match((await text('agents', 'implementer.md')).replace(/\s+/g, ' '), /Run the `check` command once over all changed files\./);
     for (const name of ['change-work.md', 'fix-work.md']) {
       const work = await text('routes', 'task', name);
       assert.match(work, /once over all changed files/, name);
@@ -316,7 +346,7 @@ describe('task route texts agree with the implementer role and the hooks', { con
 
   it('AM-2/2: change.md and fix.md state the normal case and the hook exception that the hook text acts on', async () => {
     for (const name of ['change.md', 'fix.md']) {
-      assert.match(await text('routes', 'task', name), /Run nothing when it returns, unless the hook tells you to run `route next`: /, name);
+      assert.match(await text('routes', 'task', name), /When it returns, run nothing unless the hook tells you to run `route next`/, name);
     }
     await withTask(async (t, send) => {
       await t.start();
@@ -330,9 +360,8 @@ describe('task route texts agree with the implementer role and the hooks', { con
   it('AM-2/3: SKILL.md leaves the report to the implementer and the saved handler; main answers with the hook line', async () => {
     const skill = (await text('skills', 'task', 'SKILL.md')).replace(/\s+/g, ' ');
     assert.doesNotMatch(skill, /builds the report|carry them to the report/);
-    assert.match(skill, /implementer subagent writes the code, runs the checks and writes the report/);
-    assert.match(skill, /at the closing step reply with the one `Task report:` line the hook gives, nothing else/);
-    for (const at of skill.matchAll(/nothing else/g)) assert.match(skill.slice(Math.max(0, at.index - 90), at.index), /at the closing step/, 'a one-line reply must not be unscoped: the other steps print gates main must put to the user');
+    assert.match(skill, /implementer subagent writes the code, records the checks and writes the report/);
+    assert.match(skill, /At the closing step, reply with the one `Task report:` line the hook gives/);
     assert.match(await text('routes', 'task', 'write.md'), /write nothing else/);
   });
 
@@ -346,6 +375,6 @@ describe('task route texts agree with the implementer role and the hooks', { con
     const route = await text('routes', 'task', 'write.md');
     assert.match(route, /^- Implementer, this step was printed by your last call:/m);
     assert.match(route, /^- Main session: launch `ambicode:implementer`/m);
-    assert.match(await text('agents', 'implementer.md'), /unless it is `write`: its brief follows; save the report with the `note save` command it names, and the final message is the one line `Report saved\.`/);
+    assert.match(await text('agents', 'implementer.md'), /When `route next` prints the `write` step, its brief replaces this output: save the report with the `note save` command it names and reply only `Report saved\.`/);
   });
 });

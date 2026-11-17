@@ -38,8 +38,8 @@ a gap.
 
 The plan route's `critic` step runs the plugin subagent `agents/plan-critic.md`
 (tools `Read, Grep, Glob, Write`, model `sonnet`, effort `medium`) on a fresh context after `plan-check`
-and before the `plan-accept` gate. `plan-check` lists the plan's statements that something is the only one, does not exist,
-is unused or has no other caller, with the search that backs each (or `none`); the list is the `## script:plan-check` section of the
+and before the `plan-accept` gate, once per plan route (the first draft; a restarted plan route runs it again). `plan-check` lists the plan's statements that something is the only one, does not exist,
+is unused, has no other caller, has no gap, is not filtered, excluded or hidden, or is deleted, removed or dropped (also deleting, removing, dropping, "is deleted from `X`", "`X` is dropped") by name (a backticked or dotted name with a path, a capital or an underscore in it; `x`, `config.yaml` and `console.log` are not), with the search that backs each (or `none`); the list is the `## script:plan-check` section of the
 critic's work file, which also names the checkout root (`root:`). `plan-check` itself runs one `git grep` from the root per claim
 (tracked and untracked files; identifiers: CamelCase, snake_case, path-like or dotted file-name tokens; at most 20 hit lines, with the total); the `plan-claims` worker summary counts the map candidates `plan.md` never mentions (`uncitedMap`, null when the map is missing or unreadable). The critic judges those hits, searches
 itself when a claim has no identifier or more hits than shown, and
@@ -48,11 +48,9 @@ answers one `claims` row per listed claim: `holds`, `wrong` or `not-checked`. Li
 refuses any other file call from this agent. `route next` reads the answer
 (`plan.critic`) and records a `plan-critic` worker entry. Every defect, and a missing
 or invalid answer, is a Not verified line, as is each `not-checked` claim, a listed claim with no row (the first row of a number wins) and
-a malformed row (it costs only itself); a row naming no listed claim is ignored and noted as one line; an interactive session also prints them with the
-accept question. A `wrong` claim becomes a `claim-wrong` defect at the claim's `plan.md:L`. An interactive
-route sends the first draft back to `draft` once when a defect is `claim-wrong`,
-`requirement-uncovered` or `requirement-altered` (`plan-critic-defects`); a headless
-route only records.
+a malformed row (it costs only itself); the report of a task run on that plan lists them too; a row naming no listed claim is ignored and noted as one line; an interactive session also prints them with the
+accept question. A `wrong` claim becomes a `claim-wrong` defect at the claim's `plan.md:L`. A route
+sends the first draft back to `draft` once when the critic lists a defect of any kind (`plan-critic-defects`), headless or not (a requirement with no iteration and no `already met` is uncovered unless the plan cites the code that contradicts it; an open decision does not cover it). The critic runs on the first draft only (`when: unrevised`): a draft revised after the send-back or by a human Revise goes through `plan-check` straight to the `plan-accept` gate with no second critic launch, and the first round's lines are printed and listed prefixed `revision not re-checked` (a round with nothing to list gives the one line `plan critic: revision not re-checked`).
 
 ## Reviewer isolation
 

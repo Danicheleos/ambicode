@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { anchorPattern } from '../../investigate/scripts/anchors.mjs';
+import { anchorPattern, BACKING, isAbsence, sentencesOf } from '../../investigate/scripts/anchors.mjs';
 
 const started = Date.now();
 const input = JSON.parse(readFileSync(0, 'utf8'));
@@ -76,34 +76,24 @@ const text = lines.map(({ line, fenced }) => {
 if (resolved.length > 0) writeFileSync(bodyFile, text);
 const entries = resolved.length === 0 ? [] : [{ kind: 'worker', worker: 'plan-anchors', outcome: 'ran', ms: Date.now() - started, artifact: null, reason: `resolved: ${resolved.join('; ')}` }];
 
-// Sentences stating that something is the only one or does not exist. Provenance: the 2026-11-14 plan traces held three false ones,
-// "the only wizard auto-open", "single submit path" and "the only standalone ... wizard route"; the critic never searched them.
-// The 2026-11-15 runs missed "No org field ... exists", "no spec exists", "I found no test" and "mirrors RULA with no difference".
-const CLAIM = /\b(?:only|the sole|single|no other|no caller|not called|never called|does not exist|do not exist|no test|none of|unused|found no|nothing)\b|\bno\b[^.;]{0,40}\bexists?\b|\bno (?:\w+ )?differences?\b/i;
-const BACKING = /\((?:Grep|Glob|rg)\s+[^)]+\)/;
+// A token is an identifier when it is CamelCase, snake_case, a path or a dotted file name.
+const IDENTIFIER = /[A-Za-z_][\w.-]*(?:\/[\w.-]+)+\.\w+|[A-Za-z_]\w*(?:\.\w{2,})+|[A-Za-z_][A-Za-z0-9_]{3,}/g;
+const identifiersOf = (sentence) => [...new Set((sentence.match(IDENTIFIER) ?? []).filter((token) => /[/.]|^.+[A-Z_]/.test(token)))];
+// A removal names what goes: a backticked or dotted name beside the verb (delete, removing, is dropped from, `X` is removed). The spans are numbered, not dropped, so a verb inside code stays no claim.
+// A name is a claim's target only with a path, a capital or an underscore in it: `x`, `config.yaml` and `console.log` were claims in the review of cd9bece4 (`x` printed "hits: no identifier"); lowercase dotted names are indistinguishable from `user.name`, a trade made on purpose.
+const VERB = '(?:delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|drop(?:s|ped|ping)?)';
+const PASSIVE = '(?:is|are|be|gets?)\\s+(?:deleted|removed|dropped)';
+const NAME = '(`\\d+`|[A-Za-z_]\\w*\\.\\w{2,})';
+const REMOVALS = [`\\b${VERB}\\s+(?:the\\s+)?${NAME}`, `\\b${PASSIVE}\\s+from\\s+${NAME}`, `${NAME}[^.;]{0,40}\\b${PASSIVE}\\b`].map((source) => new RegExp(source, 'gi'));
+const removes = (sentence) => {
+  const spans = [];
+  const masked = sentence.replace(/`([^`]*)`/g, (_, code) => `\`${spans.push(code) - 1}\``);
+  return REMOVALS.some((pattern) => [...masked.matchAll(pattern)].some(([, name]) => identifiersOf(name.startsWith('`') ? spans[Number(name.slice(1, -1))] : name).some((id) => /[/A-Z_]/.test(id))));
+};
+const isClaim = (sentence) => isAbsence(sentence) || removes(sentence);
 // The plan format's own label (`- *Goal*:`) is not part of the sentence after it.
 const LABEL = /^\s*(?:[-*]\s+)?\*(?:Checks|Goal|Test)\*:?\s*/;
-// `only when/if/after/once/for/while` is a condition, not a uniqueness claim; a marker inside a backtick span is code, not prose.
-const CONDITION = /\bonly\s+(?:when|if|after|once|for|while)\b/gi;
-const isClaim = (sentence) => CLAIM.test(sentence.replace(/`[^`]*`/g, ' ').replace(CONDITION, ' '));
-// A sentence ends at `. `, `;` or the line end, outside parentheses and backticks (a backing names paths and scopes).
-const sentencesOf = (line) => {
-  const out = [];
-  let from = 0;
-  let depth = 0;
-  let ticks = false;
-  for (let at = 0; at < line.length; at += 1) {
-    const char = line[at];
-    if (char === '`') ticks = !ticks;
-    else if (!ticks && char === '(') depth += 1;
-    else if (!ticks && char === ')') depth = Math.max(0, depth - 1);
-    else if (!ticks && depth === 0 && (char === ';' || (char === '.' && /\s/.test(line[at + 1] ?? '')))) {
-      out.push(line.slice(from, at + 1));
-      from = at + 1;
-    }
-  }
-  return [...out, line.slice(from)];
-};
+
 let section = '';
 const claims = [];
 text.split('\n').forEach((line, index) => {
@@ -117,10 +107,8 @@ text.split('\n').forEach((line, index) => {
 });
 const unbacked = claims.filter((claim) => claim.backing === null).length;
 // Hits are found here so the critic judges lines instead of choosing a scope: in the 2026-11-15 runs it searched one file for a claim another file disproved.
-// A token is an identifier when it is CamelCase, snake_case, a path or a dotted file name. The cap equals the map's candidate cap (TOP_ROWS, src/modules/search/map.ts); the total is printed.
+// The cap equals the map's candidate cap (TOP_ROWS, src/modules/search/map.ts); the total is printed.
 const HIT_LINES = 20;
-const IDENTIFIER = /[A-Za-z_][\w.-]*(?:\/[\w.-]+)+\.\w+|[A-Za-z_]\w*(?:\.\w{2,})+|[A-Za-z_][A-Za-z0-9_]{3,}/g;
-const identifiersOf = (sentence) => [...new Set((sentence.match(IDENTIFIER) ?? []).filter((token) => /[/.]|^.+[A-Z_]/.test(token)))];
 // Untracked files count (a new file is a real caller); the run folder holds the plan, which quotes every claim.
 const grepHits = (ids) => {
   try {

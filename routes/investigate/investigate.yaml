@@ -28,4 +28,4 @@ steps:
     actor: code
     run: ["script(check-citations)"]
     produces: [worker]
-    onFail: record                                # a bad path:line citation is listed as not verified; no second read
+    onFail: record                                # a bad path:line citation, and an absence or uniqueness claim about the code with no (Grep ...) backing, is listed as not verified; no second read

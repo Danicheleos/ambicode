@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateConsent } from './consent.ts';
+import { gapsOf } from '#modules/evidence/report/report';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 
 const notes = (plan: PlanFixture, note: string) => plan.fx.kinds(PLAN_TASK, 'note').then((rows) => rows.filter((row) => row['note'] === note));
@@ -46,6 +47,8 @@ describe('S2 trusted preanswer', () => {
       assert.equal(acceptance['instance'], print.id);
       assert.deepEqual(acceptance['object'], print['object']);
       assert.equal((await notes(plan, 'plan')).length, 1);
+      const gaps = gapsOf(await plan.fx.ledger(PLAN_TASK));
+      assert.equal(gaps.filter((gap) => /plan-accept.*preset.*args/i.test(gap)).length, 1, gaps.join('\n'));
     } finally {
       await plan.dispose();
     }

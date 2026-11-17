@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChain, exitOf, executions, foldRoute, isGreen, latestBound, latestRouteOf, matches, unconsumedPreanswer, windowOf } from './fold.ts';
+import { buildChain, exitOf, executions, foldRoute, isGreen, latestBound, latestRouteOf, matches, reportOf, unconsumedPreanswer, windowOf } from './fold.ts';
 import { loadRoute } from '../definition/routes.ts';
+import { gapsOf } from '#modules/evidence/report/report';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
@@ -66,6 +67,24 @@ describe('requirements.missing', () => {
 
   it('nothing asked by a route that names no requirement leaves fetch skipped', async () => {
     assert.equal(await position(route('r1', { args: { hasRequirement: false, text: 'x', requirements: [] } })), 'ground');
+  });
+});
+
+describe('unrevised', () => {
+  const yaml = `${HEAD}  - id: draft\n    actor: code\n    run: [h.a]\n    repeat: 2\n  - id: critic\n    actor: code\n    when: unrevised\n    run: [h.a]\n  - id: accept\n    actor: code\n    run: [h.a]\n`;
+  const position = async (rest: LedgerEntry[]): Promise<string | undefined> => {
+    const head = route('r1');
+    return foldRoute(await def(yaml), buildChain([head, ...rest], head)).position?.id;
+  };
+
+  it('holds in the first pass of the chain and not once a revise to an earlier step opened the step\'s window', async () => {
+    assert.equal(await position([done('draft')]), 'critic');
+    const revise = entry('revise', { route: 'r1', from: 'draft', via: 'gate', cycle: 1, reason: 'x' });
+    assert.equal(await position([done('draft'), revise, done('draft')]), 'accept', 'the critic is skipped after a revise to draft');
+  });
+
+  it('still holds after a revise to a later step: it does not open the step\'s window', async () => {
+    assert.equal(await position([done('draft'), entry('revise', { route: 'r1', from: 'accept', via: 'gate', cycle: 1, reason: 'x' })]), 'critic', 'a revise to a later step does not open the critic\'s window: it has not run yet');
   });
 });
 
@@ -186,5 +205,77 @@ describe('checks.offer', () => {
     assert.equal(await offered({}, 1), true, 'a route without a named iteration covers the whole project too');
     assert.equal(await offered({ headless: true }, 1), true, 'headless prints it and takes the skip default');
     assert.equal(await offered({}, 0), false);
+  });
+});
+
+describe('reportOf', () => {
+  const critic = (rid: string, defects: object[]): LedgerEntry => entry('worker', { route: rid, worker: 'plan-critic', outcome: 'ran', ms: 0, artifact: null, summary: { defects, claims: [] } });
+  const kept = async (head: LedgerEntry, all: LedgerEntry[]): Promise<string[]> => {
+    const [entries, current] = reportOf(all, buildChain(all, head), await def());
+    return entries.filter((item) => item.kind === 'worker' && current(item)).map((item) => item.id);
+  };
+
+  it('a task takes the latest plan route before it and that route\'s newest critic entry; a plan route or a task with no plan before it takes none', async () => {
+    const plan1 = route('p1', { skill: 'plan' });
+    const plan2 = route('p2', { skill: 'plan' });
+    const task = route('t1', { skill: 'task' });
+    const first = critic('p1', [{ kind: 'order' }]);
+    const old = critic('p2', [{ kind: 'order' }]);
+    const newest = critic('p2', [{ kind: 'caller-missed' }]);
+    assert.deepEqual(await kept(task, [plan1, first, plan2, old, newest, task]), [newest.id]);
+    assert.deepEqual(await kept(task, [task, plan2, newest]), []);
+    assert.deepEqual(await kept(plan2, [plan1, first, plan2, newest]), [newest.id], 'a plan route\'s own critic entry is its own chain');
+  });
+
+  it('a task\'s report marks the plan critic\'s lines as not re-checked only when the plan route revised to draft after them', async () => {
+    const plan = route('p1', { skill: 'plan' });
+    const task = route('t1', { skill: 'task' });
+    const worker = entry('worker', { route: 'p1', worker: 'plan-critic', outcome: 'ran', ms: 0, artifact: null, summary: { defects: [{ kind: 'claim-wrong', where: 'plan.md:4', evidence: 'x' }], claims: [] } });
+    const revise = entry('revise', { route: 'p1', from: 'draft', via: 'revise', cycle: 1, reason: 'x' });
+    const lines = async (all: LedgerEntry[]): Promise<string[]> => gapsOf(...reportOf(all, buildChain(all, task), await def()));
+    assert.deepEqual(await lines([plan, worker, task]), ['plan critic: claim-wrong plan.md:4: x']);
+    assert.deepEqual(await lines([plan, worker, revise, task]), ['revision not re-checked: plan critic: claim-wrong plan.md:4: x']);
+  });
+
+  const note = (rid: string, file: string): LedgerEntry => entry('note', { route: rid, note: 'plan', path: file });
+  const accepted = (rid: string, fields: object): LedgerEntry => entry('acceptance', { route: rid, gate: 'plan-accept', instance: null, answer: 'Accept', via: 'hook', ...fields });
+  const stageOf = async (head: LedgerEntry, all: LedgerEntry[]): Promise<string[]> => {
+    const [entries, current] = reportOf(all, buildChain(all, head), await def());
+    return entries.filter((item) => item.route !== head.id && item.kind !== 'route' && current(item)).map((item) => item.id);
+  };
+
+  it('a task takes the plan stage that wrote the plan it used: a later interrupted plan route does not replace it', async () => {
+    const plan1 = route('p1', { skill: 'plan' });
+    const plan2 = route('p2', { skill: 'plan' });
+    const task = route('t1', { skill: 'task' });
+    const first = critic('p1', [{ kind: 'order' }]);
+    const all = [plan1, first, note('p1', '.ambicode/tasks/x/plan.md'), plan2, entry('exit', { route: 'p2', reason: 'interrupted' }), task];
+    assert.deepEqual(await stageOf(task, all), [first.id]);
+  });
+
+  it('a task given another plan file with --plan takes no plan stage; one given the noted file takes it', async () => {
+    const plan1 = route('p1', { skill: 'plan' });
+    const first = critic('p1', [{ kind: 'order' }]);
+    const before = [plan1, first, note('p1', '.ambicode/tasks/x/plan.md')];
+    assert.deepEqual(await stageOf(route('t1', { skill: 'task', args: { plan: 'docs/other-plan.md' } }), [...before, route('t1', { skill: 'task', args: { plan: 'docs/other-plan.md' } })]), []);
+    const named = route('t2', { skill: 'task', args: { plan: '.ambicode/tasks/x/plan.md' } });
+    assert.deepEqual(await stageOf(named, [...before, named]), [first.id]);
+  });
+
+  it('only the latest bound plan-accept answer of the stage is taken: a superseded preset Revise is not', async () => {
+    const plan1 = route('p1', { skill: 'plan' });
+    const task = route('t1', { skill: 'task' });
+    const revise = accepted('p1', { answer: 'Revise', via: 'prompt', preanswer: 'x-0' });
+    const human = accepted('p1', { instance: 'g2' });
+    assert.deepEqual(await stageOf(task, [plan1, revise, human, task]), [human.id]);
+  });
+
+  it('a chain head read apart from the entries is found by id', async () => {
+    const plan1 = route('p1', { skill: 'plan' });
+    const task = route('t1', { skill: 'task' });
+    const first = critic('p1', [{ kind: 'order' }]);
+    const later = route('p2', { skill: 'plan' });
+    const all = [plan1, first, task, later, critic('p2', [{ kind: 'order' }])];
+    assert.deepEqual(await stageOf({ ...task }, all), [first.id]);
   });
 });

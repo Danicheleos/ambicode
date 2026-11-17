@@ -80,10 +80,11 @@ const schemas = [
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
     summary: z.union([
-      z.object({ failed: z.boolean(), anchorsBad: count, anchors: z.array(text).optional() }),
+      z.object({ failed: z.boolean(), anchorsBad: count, anchors: z.array(text).optional(), unbacked: count.optional() }),
       PlanCriticSummary,
       z.object({ claims: count, unbacked: count, uncitedMap: count.nullable().optional() }),
-      z.object({ reason: text }),
+      z.object({ testsRemoved: z.array(z.object({ path: text, count })), filesChanged: count.optional(), filesUnknown: text.optional() }),
+      z.object({ reason: text, filesChanged: count.optional(), filesUnknown: text.optional(), iterations: count.optional() }),
     ]).optional(),
   }),
   entry('init', { what: text, outcome: text }),
